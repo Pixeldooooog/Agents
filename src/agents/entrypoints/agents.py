@@ -59,7 +59,7 @@ def main() -> None:
 
 
 def _run_terminal(args: list[str]) -> int:
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = _repo_root()
     terminal_dir = repo_root / "apps" / "terminal"
     bun = os.environ.get("BUN", "bun")
     env = os.environ.copy()
@@ -83,6 +83,10 @@ def _run_terminal(args: list[str]) -> int:
 
 def _merge_pythonpath(first: str, existing: str) -> str:
     return first if not existing else os.pathsep.join([first, existing])
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[3]
 
 
 if __name__ == "__main__":
