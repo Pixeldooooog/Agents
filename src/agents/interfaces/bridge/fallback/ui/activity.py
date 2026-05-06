@@ -99,14 +99,20 @@ def record_tool_result_stats(stats: dict[str, int], name: str, content: Any, *, 
     if name == "filesystem.write":
         stats["wrote"] = int(stats.get("wrote", 0)) + 1
         return
+    if name in {"filesystem.delete", "filesystem.move"}:
+        stats["changed"] = int(stats.get("changed", 0)) + 1
+        return
     if name == "patch.apply":
         files = payload.get("files", []) if isinstance(payload, dict) else []
         stats["patched"] = int(stats.get("patched", 0)) + max(1, len(files))
         return
-    if name in {"shell.run", "test.run", "git.status", "git.diff"}:
+    if name in {"shell.run", "test.run", "git.status", "git.diff", "git.add", "git.commit", "git.log", "git.show"}:
         stats["ran"] = int(stats.get("ran", 0)) + 1
         if isinstance(payload, dict) and int(payload.get("exit_code", 0) or 0) != 0:
             stats["failed"] = int(stats.get("failed", 0)) + 1
+        return
+    if name == "test.discover":
+        stats["discovered"] = int(stats.get("discovered", 0)) + 1
         return
 
     stats["used"] = int(stats.get("used", 0)) + 1
@@ -139,6 +145,10 @@ def tool_summary_sentence(stats: dict[str, int]) -> str:
         parts.append("wrote %s" % plural(int(stats["wrote"]), "file", "files"))
     if stats.get("patched"):
         parts.append("patched %s" % plural(int(stats["patched"]), "file", "files"))
+    if stats.get("changed"):
+        parts.append("changed %s" % plural(int(stats["changed"]), "path", "paths"))
+    if stats.get("discovered"):
+        parts.append("discovered test commands")
     if stats.get("ran"):
         parts.append("ran %s" % plural(int(stats["ran"]), "command", "commands"))
     if stats.get("used"):

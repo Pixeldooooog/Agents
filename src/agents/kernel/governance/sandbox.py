@@ -117,10 +117,12 @@ def classify_tool_risk(name: str) -> ToolRisk:
         return ToolRisk.LOW
     if name.startswith("search."):
         return ToolRisk.LOW
-    if name.startswith("filesystem.write"):
+    if name.startswith("filesystem.write") or name in {"filesystem.delete", "filesystem.move"}:
         return ToolRisk.MEDIUM
     if name.startswith("patch."):
         return ToolRisk.MEDIUM
+    if name == "test.discover":
+        return ToolRisk.LOW
     if name in {"web.search", "web.extract"}:
         return ToolRisk.MEDIUM
     if name.startswith("browser.") or name.startswith("web."):

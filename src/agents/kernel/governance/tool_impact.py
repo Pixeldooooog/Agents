@@ -70,8 +70,31 @@ def describe_tool_impact(call: ToolCall) -> ToolImpact:
             diff_preview=_truncate(_string(arguments.get("content"))),
             summary="write %s" % path if path else "write file",
         )
+    if name == "filesystem.delete":
+        path = _string(arguments.get("path"))
+        return _impact(
+            name,
+            risk,
+            operations=["file_delete"],
+            paths=[path],
+            writes_files=True,
+            summary="delete %s" % path if path else "delete file",
+        )
+    if name == "filesystem.move":
+        source = _string(arguments.get("source_path"))
+        destination = _string(arguments.get("destination_path"))
+        return _impact(
+            name,
+            risk,
+            operations=["file_move"],
+            paths=[source, destination],
+            writes_files=True,
+            summary="move %s to %s" % (source, destination) if source and destination else "move file",
+        )
     if name == "patch.apply":
         return _patch_impact(name, risk, arguments)
+    if name == "test.discover":
+        return _impact(name, risk, operations=["file_read"], paths=[_string(arguments.get("path") or ".")])
     if name in {"shell.run", "test.run"}:
         command = _string(arguments.get("command") or ("pytest" if name == "test.run" else ""))
         return _impact(name, risk, operations=["process"], commands=[command], summary=_program_summary(command))
@@ -85,6 +108,23 @@ def describe_tool_impact(call: ToolCall) -> ToolImpact:
         if path:
             command = "%s -- %s" % (command, shlex.quote(path))
         return _impact(name, risk, operations=["process"], commands=[command], paths=[path])
+    if name == "git.add":
+        paths = [_string(item) for item in arguments.get("paths") or [] if _string(item)]
+        command = "git add -A" if arguments.get("all") else "git add -- %s" % " ".join(shlex.quote(path) for path in paths)
+        return _impact(name, risk, operations=["process", "git_index_write"], commands=[command], paths=paths, writes_files=True)
+    if name == "git.commit":
+        paths = [_string(item) for item in arguments.get("paths") or [] if _string(item)]
+        command = "git commit"
+        if arguments.get("all"):
+            command += " -a"
+        if arguments.get("allow_empty"):
+            command += " --allow-empty"
+        return _impact(name, risk, operations=["process", "git_commit"], commands=[command], paths=paths, writes_files=True)
+    if name == "git.log":
+        return _impact(name, risk, operations=["process"], commands=["git log"], paths=[_string(arguments.get("path"))])
+    if name == "git.show":
+        revision = _string(arguments.get("revision") or "HEAD")
+        return _impact(name, risk, operations=["process"], commands=["git show %s" % revision], paths=[_string(arguments.get("path"))])
     if name.startswith("browser.") or name.startswith("web."):
         if name.startswith("web."):
             return _web_impact(name, risk, arguments)

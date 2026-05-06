@@ -302,10 +302,13 @@ Builtin tools are semantic APIs, not direct container controls:
 | `filesystem.read`, `filesystem.list` | low | Enabled by default. |
 | `search.grep` | low | Read-only regex search over workspace text files. |
 | `filesystem.write` | medium | Requires `AGENT_SANDBOX_ALLOW_FILE_WRITE=true` and tool enablement. |
+| `filesystem.delete`, `filesystem.move` | medium | Native workspace file operations; guarded by file-write policy and approval. |
 | `patch.apply` | medium | Applies exact text edits and file creates; returns a unified diff. |
 | `web.search`, `web.extract` | medium | Control-plane Tavily-backed search/extraction; API key does not enter sandbox. |
 | `web.map` | high | Control-plane site URL discovery; not enabled by default. |
-| `git.status`, `git.diff` | high | Requires process permission for `git`. |
+| `git.status`, `git.diff`, `git.log`, `git.show` | low/high | Git inspection through the sandbox. Diff/history output is truncated to a safe bound. |
+| `git.add`, `git.commit` | high | Native git mutation tools; guarded by process, file-write policy, and approval. |
+| `test.discover` | low | Inspects workspace markers and suggests likely test commands without running them. |
 | `test.run` | high | Runs an allowlisted test command. |
 | `browser.open`, `browser.download` | high | Requires file write, process, and network permission; stores internal outputs in the run artifact store unless an explicit workspace path is provided. |
 | `shell.run` | high | Fallback escape hatch; prefer native tools. |

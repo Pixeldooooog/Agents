@@ -7,18 +7,35 @@ from agents.kernel.capabilities.tools.builtin.browser import (
     browser_open,
 )
 from agents.kernel.capabilities.tools.builtin.filesystem import (
+    DELETE_PATH_SCHEMA,
     LIST_DIR_SCHEMA,
+    MOVE_PATH_SCHEMA,
     READ_FILE_SCHEMA,
     WRITE_FILE_SCHEMA,
+    delete_path,
     list_dir,
+    move_path,
     read_file,
     write_file,
 )
-from agents.kernel.capabilities.tools.builtin.git import GIT_DIFF_SCHEMA, GIT_STATUS_SCHEMA, git_diff, git_status
+from agents.kernel.capabilities.tools.builtin.git import (
+    GIT_ADD_SCHEMA,
+    GIT_COMMIT_SCHEMA,
+    GIT_DIFF_SCHEMA,
+    GIT_LOG_SCHEMA,
+    GIT_SHOW_SCHEMA,
+    GIT_STATUS_SCHEMA,
+    git_add,
+    git_commit,
+    git_diff,
+    git_log,
+    git_show,
+    git_status,
+)
 from agents.kernel.capabilities.tools.builtin.patch import PATCH_APPLY_SCHEMA, apply_patch
 from agents.kernel.capabilities.tools.builtin.search import GREP_SCHEMA, grep
 from agents.kernel.capabilities.tools.builtin.shell import RUN_COMMAND_SCHEMA, run_command
-from agents.kernel.capabilities.tools.builtin.tests import TEST_RUN_SCHEMA, run_tests
+from agents.kernel.capabilities.tools.builtin.tests import TEST_DISCOVER_SCHEMA, TEST_RUN_SCHEMA, discover_tests, run_tests
 from agents.kernel.capabilities.tools.builtin.web import (
     WEB_EXTRACT_SCHEMA,
     WEB_MAP_SCHEMA,
@@ -42,6 +59,8 @@ def register_builtin_tools(
         "filesystem.read",
         "filesystem.list",
         "filesystem.write",
+        "filesystem.delete",
+        "filesystem.move",
         "patch.apply",
         "search.grep",
         "web.search",
@@ -49,6 +68,11 @@ def register_builtin_tools(
         "web.map",
         "git.status",
         "git.diff",
+        "git.add",
+        "git.commit",
+        "git.log",
+        "git.show",
+        "test.discover",
         "test.run",
         "shell.run",
         "browser.open",
@@ -71,6 +95,25 @@ def register_builtin_tools(
         "Write a UTF-8 text file inside the current workspace when the sandbox allows writes.",
         WRITE_FILE_SCHEMA,
         lambda path, content: write_file(context, path, content),
+        metadata={"risk": "medium", "writes_files": True},
+    )
+    registry.register(
+        "filesystem.delete",
+        "Delete a file or directory inside the current workspace.",
+        DELETE_PATH_SCHEMA,
+        lambda path, recursive=False: delete_path(context, path, recursive=recursive),
+        metadata={"risk": "medium", "writes_files": True},
+    )
+    registry.register(
+        "filesystem.move",
+        "Move or rename a file or directory inside the current workspace.",
+        MOVE_PATH_SCHEMA,
+        lambda source_path, destination_path, overwrite=False: move_path(
+            context,
+            source_path=source_path,
+            destination_path=destination_path,
+            overwrite=overwrite,
+        ),
         metadata={"risk": "medium", "writes_files": True},
     )
     registry.register(
@@ -192,6 +235,59 @@ def register_builtin_tools(
         ),
     )
     registry.register(
+        "git.add",
+        "Stage git workspace changes inside the sandbox.",
+        GIT_ADD_SCHEMA,
+        lambda paths=None, all=False: git_add(context, paths=paths, all=all),
+        metadata={"risk": "high", "requires_process": True, "writes_files": True},
+    )
+    registry.register(
+        "git.commit",
+        "Create a git commit inside the sandbox.",
+        GIT_COMMIT_SCHEMA,
+        lambda message, all=False, paths=None, allow_empty=False: git_commit(
+            context,
+            message=message,
+            all=all,
+            paths=paths,
+            allow_empty=allow_empty,
+        ),
+        metadata={"risk": "high", "requires_process": True, "writes_files": True},
+    )
+    registry.register(
+        "git.log",
+        "Return recent git history from inside the sandbox.",
+        GIT_LOG_SCHEMA,
+        lambda max_count=10, path="", oneline=True, max_bytes=20000: git_log(
+            context,
+            max_count=max_count,
+            path=path,
+            oneline=oneline,
+            max_bytes=max_bytes,
+        ),
+        metadata={"risk": "low", "requires_process": True},
+    )
+    registry.register(
+        "git.show",
+        "Return a git object or commit diff from inside the sandbox.",
+        GIT_SHOW_SCHEMA,
+        lambda revision="HEAD", path="", stat=True, patch=True, max_bytes=20000: git_show(
+            context,
+            revision=revision,
+            path=path,
+            stat=stat,
+            patch=patch,
+            max_bytes=max_bytes,
+        ),
+        metadata={"risk": "low", "requires_process": True},
+    )
+    registry.register(
+        "test.discover",
+        "Inspect workspace files and suggest likely test commands without running them.",
+        TEST_DISCOVER_SCHEMA,
+        lambda path=".": discover_tests(context, path=path),
+    )
+    registry.register(
         "test.run",
         "Run a test command inside the sandbox.",
         TEST_RUN_SCHEMA,
@@ -237,27 +333,41 @@ def register_builtin_tools(
 
 
 __all__ = [
+    "DELETE_PATH_SCHEMA",
+    "GIT_ADD_SCHEMA",
+    "GIT_COMMIT_SCHEMA",
     "LIST_DIR_SCHEMA",
     "BROWSER_DOWNLOAD_SCHEMA",
     "BROWSER_OPEN_SCHEMA",
+    "MOVE_PATH_SCHEMA",
     "PATCH_APPLY_SCHEMA",
     "READ_FILE_SCHEMA",
     "WEB_EXTRACT_SCHEMA",
     "WEB_MAP_SCHEMA",
     "WEB_SEARCH_SCHEMA",
     "GIT_DIFF_SCHEMA",
+    "GIT_LOG_SCHEMA",
+    "GIT_SHOW_SCHEMA",
     "GIT_STATUS_SCHEMA",
     "GREP_SCHEMA",
     "RUN_COMMAND_SCHEMA",
+    "TEST_DISCOVER_SCHEMA",
     "TEST_RUN_SCHEMA",
     "WRITE_FILE_SCHEMA",
     "apply_patch",
     "browser_download",
     "browser_open",
+    "delete_path",
+    "discover_tests",
+    "git_add",
+    "git_commit",
     "git_diff",
+    "git_log",
+    "git_show",
     "git_status",
     "grep",
     "list_dir",
+    "move_path",
     "read_file",
     "register_builtin_tools",
     "run_command",

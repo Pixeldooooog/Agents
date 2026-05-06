@@ -13,16 +13,34 @@ CODING_TOOLS = [
     "filesystem.read",
     "filesystem.list",
     "filesystem.write",
+    "filesystem.delete",
+    "filesystem.move",
     "patch.apply",
     "search.grep",
     "git.status",
     "git.diff",
+    "git.add",
+    "git.commit",
+    "git.log",
+    "git.show",
+    "test.discover",
     "test.run",
     "shell.run",
 ]
 CHAT_TOOLS = ["filesystem.read", "filesystem.list", "search.grep"]
 BROWSER_TOOLS = [*CODING_TOOLS, "web.search", "web.extract", "browser.open", "browser.download"]
-RISKY_TOOLS = ["filesystem.write", "patch.apply", "test.run", "shell.run", "browser.open", "browser.download"]
+RISKY_TOOLS = [
+    "filesystem.write",
+    "filesystem.delete",
+    "filesystem.move",
+    "patch.apply",
+    "git.add",
+    "git.commit",
+    "test.run",
+    "shell.run",
+    "browser.open",
+    "browser.download",
+]
 CODING_COMMANDS = "git,python,python3,pytest,make,node,npm,npx,bun"
 
 
@@ -80,7 +98,7 @@ def system_prompt(base_prompt: Optional[str], profile: str, active_workspace: Op
         "Before answering project-structure questions, inspect the workspace using a short reconnaissance pass: "
         "list the root, read project marker files such as README.md, pyproject.toml, package.json, makefile, and scan key directories with search.grep when useful. "
         "Do not infer architecture from a directory listing alone when readable project files are available. "
-        "When asked to implement code, use filesystem.write or patch.apply for edits and run focused checks with test.run or shell.run. "
+        "When asked to implement code, use patch.apply or filesystem.write/delete/move for edits, git.* tools for repository operations, and test.discover/test.run for checks. "
         "Keep all file paths inside the current workspace. "
         "Answer concisely with concrete file-backed observations and avoid offering unrelated follow-up menus."
     )

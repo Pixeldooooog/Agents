@@ -134,6 +134,72 @@ sys.stdout.write(json.dumps({"path": path.as_posix(), "entries": entries}))
             raise RuntimeError(result.stderr.decode("utf-8", errors="replace") or "docker write failed")
         return SandboxFileWrite(path=relative, bytes=len(str(content).encode("utf-8")))
 
+    def delete_path(self, path: str, recursive: bool = False) -> dict:
+        decision = self.policy.authorize_file_write(path)
+        if not decision.allowed:
+            raise PermissionError(decision.reason)
+        relative = self.policy.relative_workspace_path(self.policy.resolve_workspace_path(path))
+        if relative == ".":
+            raise PermissionError("refusing to delete workspace root")
+        script = """
+import json
+import pathlib
+import shutil
+import sys
+path = pathlib.Path(sys.argv[1])
+recursive = sys.argv[2] == "1"
+if not path.exists() and not path.is_symlink():
+    print(json.dumps({"path": path.as_posix(), "deleted": False, "reason": "not_found"}))
+    raise SystemExit(0)
+kind = "directory" if path.is_dir() and not path.is_symlink() else "file"
+if kind == "directory":
+    if not recursive:
+        raise IsADirectoryError("directory delete requires recursive=true: %s" % path.as_posix())
+    shutil.rmtree(path)
+else:
+    path.unlink()
+print(json.dumps({"path": path.as_posix(), "type": kind, "deleted": True, "recursive": recursive}))
+"""
+        return self._run_python_json(script, [relative, "1" if recursive else "0"])
+
+    def move_path(self, source_path: str, destination_path: str, overwrite: bool = False) -> dict:
+        read_decision = self.policy.authorize_file_read(source_path)
+        if not read_decision.allowed:
+            raise PermissionError(read_decision.reason)
+        write_decision = self.policy.authorize_file_write(destination_path)
+        if not write_decision.allowed:
+            raise PermissionError(write_decision.reason)
+        source = self.policy.relative_workspace_path(self.policy.resolve_workspace_path(source_path))
+        destination = self.policy.relative_workspace_path(self.policy.resolve_workspace_path(destination_path))
+        if source == "." or destination == ".":
+            raise PermissionError("refusing to move workspace root")
+        script = """
+import json
+import pathlib
+import shutil
+import sys
+source = pathlib.Path(sys.argv[1])
+destination = pathlib.Path(sys.argv[2])
+overwrite = sys.argv[3] == "1"
+if not source.exists() and not source.is_symlink():
+    raise FileNotFoundError(source.as_posix())
+if destination.exists() or destination.is_symlink():
+    if not overwrite:
+        raise FileExistsError(destination.as_posix())
+    if destination.is_dir() and not destination.is_symlink():
+        raise IsADirectoryError("refusing to overwrite directory: %s" % destination.as_posix())
+    destination.unlink()
+destination.parent.mkdir(parents=True, exist_ok=True)
+shutil.move(source.as_posix(), destination.as_posix())
+print(json.dumps({
+    "source_path": source.as_posix(),
+    "destination_path": destination.as_posix(),
+    "moved": True,
+    "overwritten": overwrite,
+}))
+"""
+        return self._run_python_json(script, [source, destination, "1" if overwrite else "0"])
+
     async def run_command(self, command: str, timeout_seconds: float = 20.0) -> SandboxCommandResult:
         decision = self.policy.authorize_process(command)
         if not decision.allowed:

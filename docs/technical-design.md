@@ -137,9 +137,13 @@ RemoteSandboxProvider
 | `filesystem.list` | low | sandbox | 列 workspace 目录 |
 | `search.grep` | low | sandbox | 搜索 workspace 文本 |
 | `filesystem.write` | medium | sandbox | 写 workspace 文件 |
+| `filesystem.delete` / `filesystem.move` | medium | sandbox | 删除、移动、重命名 workspace 文件 |
 | `patch.apply` | medium | sandbox | 精确文本 edit/create，返回 unified diff |
 | `git.status` | high | sandbox | 查看 Git 状态 |
 | `git.diff` | high | sandbox | 查看 diff |
+| `git.add` / `git.commit` | high | sandbox | 修改 Git index / 创建 commit |
+| `git.log` / `git.show` | low | sandbox | 查看历史和 revision |
+| `test.discover` | low | control plane read | 推断测试命令，不执行 |
 | `test.run` | high | sandbox | 运行测试命令 |
 | `browser.open` / `browser.download` | high | sandbox | 网络抓取；默认写入 run artifact store，显式 path 才写 workspace |
 | `web.search` / `web.extract` | medium | control plane | Tavily provider，返回 sources/usage |

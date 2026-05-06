@@ -17,6 +17,8 @@
 | `filesystem.read` | 读 workspace 文本文件 |
 | `filesystem.list` | 列 workspace 目录 |
 | `filesystem.write` | 写 workspace 文本文件 |
+| `filesystem.delete` | 删除 workspace 文件或递归删除目录 |
+| `filesystem.move` | 移动或重命名 workspace 文件/目录 |
 | `patch.apply` | 基于精确文本匹配做结构化 edit/create，并返回 unified diff |
 | `search.grep` | 正则搜索 workspace 文本 |
 | `web.search` | 通过 control-plane Tavily provider 搜索网页并返回 sources |
@@ -24,6 +26,11 @@
 | `web.map` | 发现站点 URL 结构，高风险且不默认启用 |
 | `git.status` | 查看 Git 状态 |
 | `git.diff` | 查看 Git diff |
+| `git.add` | stage workspace 改动 |
+| `git.commit` | 创建 Git commit |
+| `git.log` | 查看 Git history |
+| `git.show` | 查看 Git revision / patch |
+| `test.discover` | 根据项目标记推断测试命令，不执行 |
 | `test.run` | 运行测试命令 |
 | `browser.open` | 在 sandbox 内抓取 HTTP(S) 页面，默认写入 run artifact store |
 | `browser.download` | 在 sandbox 内下载 HTTP(S) 资源；无 path 时写 artifact store，有 path 时写 workspace |
@@ -66,7 +73,6 @@ approval 事件和 audit 记录会附带 `impact`：
 
 ## 后续重点
 
-- `filesystem.delete`、`filesystem.move`。
 - 真实浏览器 runtime：`browser.click`、`browser.type`、`browser.screenshot`。
 - package/install 类工具。
 - schema validation。

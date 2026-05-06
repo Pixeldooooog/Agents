@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import shutil
 import uuid
 from pathlib import Path
 
@@ -98,6 +99,55 @@ class LocalSandboxClient:
             path=self.policy.relative_workspace_path(resolved),
             bytes=len(text.encode("utf-8")),
         )
+
+    def delete_path(self, path: str, recursive: bool = False) -> dict:
+        decision = self.policy.authorize_file_write(path)
+        if not decision.allowed:
+            raise PermissionError(decision.reason)
+        resolved = self.policy.resolve_workspace_path(path)
+        relative = self.policy.relative_workspace_path(resolved)
+        if relative == ".":
+            raise PermissionError("refusing to delete workspace root")
+        if not resolved.exists() and not resolved.is_symlink():
+            return {"path": relative, "deleted": False, "reason": "not_found"}
+        kind = "directory" if resolved.is_dir() and not resolved.is_symlink() else "file"
+        if kind == "directory":
+            if not recursive:
+                raise IsADirectoryError("directory delete requires recursive=true: %s" % relative)
+            shutil.rmtree(resolved)
+        else:
+            resolved.unlink()
+        return {"path": relative, "type": kind, "deleted": True, "recursive": bool(recursive)}
+
+    def move_path(self, source_path: str, destination_path: str, overwrite: bool = False) -> dict:
+        read_decision = self.policy.authorize_file_read(source_path)
+        if not read_decision.allowed:
+            raise PermissionError(read_decision.reason)
+        write_decision = self.policy.authorize_file_write(destination_path)
+        if not write_decision.allowed:
+            raise PermissionError(write_decision.reason)
+        source = self.policy.resolve_workspace_path(source_path)
+        destination = self.policy.resolve_workspace_path(destination_path)
+        source_relative = self.policy.relative_workspace_path(source)
+        destination_relative = self.policy.relative_workspace_path(destination)
+        if source_relative == "." or destination_relative == ".":
+            raise PermissionError("refusing to move workspace root")
+        if not source.exists() and not source.is_symlink():
+            raise FileNotFoundError(source_relative)
+        if destination.exists() or destination.is_symlink():
+            if not overwrite:
+                raise FileExistsError(destination_relative)
+            if destination.is_dir() and not destination.is_symlink():
+                raise IsADirectoryError("refusing to overwrite directory: %s" % destination_relative)
+            destination.unlink()
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(source), str(destination))
+        return {
+            "source_path": source_relative,
+            "destination_path": destination_relative,
+            "moved": True,
+            "overwritten": bool(overwrite),
+        }
 
     async def run_command(self, command: str, timeout_seconds: float = 20.0) -> SandboxCommandResult:
         decision = self.policy.authorize_process(command)

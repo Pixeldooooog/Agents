@@ -167,6 +167,43 @@ def test_patch_apply_edits_and_creates_workspace_files(tmp_path: Path):
     assert "--- a/notes.txt" in payload["diff"]
 
 
+def test_filesystem_move_and_delete_are_native_workspace_tools(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "old.txt").write_text("move me", encoding="utf-8")
+    (tmp_path / "trash").mkdir()
+    (tmp_path / "trash" / "note.txt").write_text("delete me", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    moved = asyncio.run(
+        registry.execute(
+            "filesystem.move",
+            {"source_path": "old.txt", "destination_path": "renamed/new.txt"},
+        )
+    )
+    deleted = asyncio.run(registry.execute("filesystem.delete", {"path": "trash", "recursive": True}))
+
+    assert moved.is_error is False
+    assert moved.raw["destination_path"] == "renamed/new.txt"
+    assert (tmp_path / "renamed" / "new.txt").read_text(encoding="utf-8") == "move me"
+    assert not (tmp_path / "old.txt").exists()
+    assert deleted.raw["deleted"] is True
+    assert not (tmp_path / "trash").exists()
+
+
 def test_tool_impact_describes_patch_paths_and_preview():
     call = ToolCall(
         id="call-1",
@@ -180,6 +217,96 @@ def test_tool_impact_describes_patch_paths_and_preview():
     assert impact["writes_files"] is True
     assert impact["paths"] == ["app.py"]
     assert "a = 2" in impact["diff_preview"]
+
+
+def test_tool_impact_describes_file_move_and_git_commit():
+    move = describe_tool_impact(
+        ToolCall(
+            id="call-1",
+            name="filesystem.move",
+            arguments={"source_path": "old.py", "destination_path": "new.py"},
+        )
+    ).to_dict()
+    commit = describe_tool_impact(
+        ToolCall(
+            id="call-2",
+            name="git.commit",
+            arguments={"message": "ship", "all": True},
+        )
+    ).to_dict()
+
+    assert move["risk"] == "medium"
+    assert move["writes_files"] is True
+    assert move["paths"] == ["old.py", "new.py"]
+    assert commit["risk"] == "high"
+    assert commit["writes_files"] is True
+    assert commit["commands"] == ["git commit -a"]
+
+
+def test_git_native_tools_stage_commit_log_and_show(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "app.py").write_text("print('ok')\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(
+        workspace.path,
+        allow_file_write=True,
+        allow_process=True,
+        allowed_commands=("git",),
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    asyncio.run(context.sandbox_client.run_command("git init"))
+    asyncio.run(context.sandbox_client.run_command("git config user.email test@example.com"))
+    asyncio.run(context.sandbox_client.run_command("git config user.name Test"))
+    added = asyncio.run(registry.execute("git.add", {"paths": ["app.py"]}))
+    committed = asyncio.run(registry.execute("git.commit", {"message": "initial commit"}))
+    log = asyncio.run(registry.execute("git.log", {"max_count": 1}))
+    shown = asyncio.run(registry.execute("git.show", {"revision": "HEAD", "patch": False}))
+
+    assert added.is_error is False
+    assert committed.is_error is False
+    assert "initial commit" in log.raw["stdout"]
+    assert "initial commit" in shown.raw["stdout"]
+
+
+def test_test_discover_suggests_workspace_test_commands(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_demo.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    result = asyncio.run(registry.execute("test.discover", {}))
+
+    assert result.is_error is False
+    assert result.raw["recommended_command"] == "pytest"
+    assert result.raw["commands"][0]["confidence"] == "high"
 
 
 class FakeBrowserSandbox:

@@ -132,6 +132,12 @@ class SandboxClient(Protocol):
     def write_text(self, path: str, content: str) -> SandboxFileWrite:
         raise NotImplementedError()
 
+    def delete_path(self, path: str, recursive: bool = False) -> dict[str, Any]:
+        raise NotImplementedError()
+
+    def move_path(self, source_path: str, destination_path: str, overwrite: bool = False) -> dict[str, Any]:
+        raise NotImplementedError()
+
     async def run_command(self, command: str, timeout_seconds: float = 20.0) -> SandboxCommandResult:
         raise NotImplementedError()
 

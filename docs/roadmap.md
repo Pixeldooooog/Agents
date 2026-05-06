@@ -39,11 +39,11 @@ TODO:
 TODO:
 
 - [x] `patch.apply`，支持精确文本 edit/create 和 unified diff 返回。
-- [ ] `filesystem.delete`、`filesystem.move`，默认 ask。
-- [ ] `git.add`、`git.commit`、`git.log`、`git.show`，按风险分级。
-- [ ] `test.discover`，自动识别 pytest/npm/bun/make。
+- [x] `filesystem.delete`、`filesystem.move`，默认 ask。
+- [x] `git.add`、`git.commit`、`git.log`、`git.show`，按风险分级。
+- [x] `test.discover`，自动识别 pytest/npm/bun/make。
 - [ ] `package.install`，显式高风险审批。
-- [x] `browser.open`、`browser.download`，通过 sandbox process/network 权限抓取并落到 workspace。
+- [x] `browser.open`、`browser.download`，通过 sandbox process/network 权限抓取；默认写 artifact store，显式 path 才写 workspace。
 - [ ] `browser.click`、`browser.type`、`browser.screenshot`，通过真实 sandbox browser runtime。
 - [x] `web.search`，Tavily control-plane provider，API key 留在 control plane。
 - [x] `web.extract`，Search 后按 URL 抽正文。
@@ -175,9 +175,9 @@ TODO:
 
 最近应该按这个顺序继续：
 
-1. Phase 2：补 `filesystem.delete/move` 和 git commit 系列 native tools。
-2. Phase 3：approval 支持 allow once / allow for run / deny，并让前端面板展示 impact。
-3. Phase 2：补真实浏览器 runtime，用于 click/type/screenshot。
+1. Phase 3：把文件写入、命令执行、凭证访问纳入审计记录，并让 Web 面板展示完整 impact。
+2. Phase 2：补真实浏览器 runtime，用于 click/type/screenshot。
+3. Phase 4：补 durable task queue、worker service、cancel/resume/retry。
 4. Phase 6：local MCP server sandbox 化为可替换 provider。
 5. Phase 8：sandbox quota 和 remote provider。
 
