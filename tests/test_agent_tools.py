@@ -15,16 +15,17 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent.context.workspace import WorkspaceContext
-from agent.governance import SandboxPolicy, describe_tool_impact
-from agent.schema import ToolCall
-from agent.capabilities.skills import SkillLoader, SkillRegistry
-from agent.capabilities.sandbox.local import LocalSandboxProvider
-from agent.capabilities.sandbox.types import SandboxCommandResult
-from agent.capabilities.tools.builtin.browser import browser_open
-from agent.capabilities.tools.mcp import MCPServerConfig, MCPToolDefinition, MCPToolProvider
-from agent.capabilities.tools import ToolRuntimeContext, register_builtin_tools
-from agent.capabilities.tools.registry import ToolRegistry
+from agents.kernel.context.workspace import WorkspaceContext
+from agents.kernel.governance import SandboxPolicy, describe_tool_impact
+from agents.kernel.schema import ToolCall
+from agents.kernel.capabilities.skills import SkillLoader, SkillRegistry
+from agents.kernel.capabilities.sandbox.local import LocalSandboxProvider
+from agents.kernel.capabilities.sandbox.types import SandboxCommandResult
+from agents.kernel.capabilities.tools.builtin.browser import browser_open
+from agents.kernel.capabilities.tools.mcp import MCPServerConfig, MCPToolDefinition, MCPToolProvider
+from agents.kernel.capabilities.tools import ToolRuntimeContext, register_builtin_tools
+from agents.kernel.capabilities.tools.registry import ToolRegistry
+from agents.kernel.state import InMemoryArtifactStore, LocalArtifactBlobStore
 
 
 def test_tool_registry_registers_specs_and_rejects_duplicates():
@@ -189,7 +190,7 @@ class FakeBrowserSandbox:
             stdout=json.dumps(
                 {
                     "url": "https://example.com",
-                    "path": "artifacts/downloads/page.html",
+                    "path": "downloads/page.html",
                     "status": 200,
                     "content_type": "text/html",
                     "bytes": 12,
@@ -209,10 +210,77 @@ def test_browser_open_uses_sandbox_network_and_process_path():
     )
     context = SimpleNamespace(sandbox=policy, sandbox_client=FakeBrowserSandbox())
 
-    result = asyncio.run(browser_open(context, "https://example.com", output_path="artifacts/downloads/page.html"))
+    result = asyncio.run(browser_open(context, "https://example.com", output_path="downloads/page.html"))
 
     assert result["status"] == 200
-    assert result["path"] == "artifacts/downloads/page.html"
+    assert result["path"] == "downloads/page.html"
+
+
+class RecordingBrowserSandbox:
+    def __init__(self, workspace: WorkspaceContext, output_path: str):
+        self.workspace = workspace
+        self.output_path = output_path
+
+    async def run_command(self, command, timeout_seconds=30.0):
+        target = self.workspace.path / self.output_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("<html>ok</html>", encoding="utf-8")
+        return SandboxCommandResult(
+            command=command,
+            exit_code=0,
+            stdout=json.dumps(
+                {
+                    "url": "https://example.com",
+                    "path": self.output_path,
+                    "status": 200,
+                    "content_type": "text/html",
+                    "bytes": 15,
+                    "truncated": False,
+                }
+            ),
+        )
+
+
+def test_browser_open_records_run_artifact(tmp_path: Path):
+    workspace_path = tmp_path / "workspace"
+    workspace_path.mkdir()
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=workspace_path,
+    )
+    artifact_store = InMemoryArtifactStore()
+    policy = SandboxPolicy.for_workspace(
+        workspace.path,
+        allow_file_write=True,
+        allow_process=True,
+        allow_network=True,
+        allowed_commands=("python3",),
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=RecordingBrowserSandbox(
+            workspace,
+            (tmp_path / "blob" / "runs" / "run-1" / "artifacts" / "downloads" / "browser-open.html").as_posix(),
+        ),
+        artifact_store=artifact_store,
+        artifact_blob_store=LocalArtifactBlobStore(tmp_path / "blob", include_workspace_scope=False),
+    )
+    context.current_run_id = "run-1"
+    context.current_tool_call_id = "call-1"
+
+    result = asyncio.run(browser_open(context, "https://example.com"))
+    artifacts = asyncio.run(artifact_store.list_for_run("run-1"))
+
+    assert result["artifact"]["role"] == "tool_artifact"
+    assert artifacts[0].tool_call_id == "call-1"
+    assert artifacts[0].workspace_path == ""
+    assert artifacts[0].uri.endswith("/blob/runs/run-1/artifacts/downloads/browser-open.html")
+    assert artifacts[0].sha256
 
 
 def test_skill_registry_loads_prompt_fragments_and_tool_names(tmp_path: Path):

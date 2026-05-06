@@ -12,7 +12,7 @@ import asyncio
 
 import pytest
 
-from agent.runtime import (
+from agents.kernel.runtime import (
     AgentRuntime,
     AgentSession,
     InMemoryCheckpointStore,
@@ -20,9 +20,9 @@ from agent.runtime import (
     ScriptedModelClient,
     StaticToolPermissionPolicy,
 )
-from agent.governance.approval_grants import APPROVAL_ALLOW_FOR_RUN
-from agent.schema import Message, ModelResponse, ModelStreamEvent, ToolCall
-from agent.capabilities.tools.registry import ToolRegistry
+from agents.kernel.governance.approval_grants import APPROVAL_ALLOW_FOR_RUN
+from agents.kernel.schema import Message, ModelResponse, ModelStreamEvent, ToolCall
+from agents.kernel.capabilities.tools.registry import ToolRegistry
 
 
 def test_agent_runtime_runs_model_tool_model_loop():

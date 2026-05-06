@@ -11,10 +11,10 @@
 import asyncio
 import json
 
-from agent.assembly import create_agent_session, create_agent_session_async
-from agent.capabilities.memory import InMemoryMemoryStore, MemoryRecord, MemoryScope
-from agent.config import resolve_model_client_config
-from agent.specs import AgentSpec
+from agents.kernel.assembly import create_agent_session, create_agent_session_async
+from agents.kernel.capabilities.memory import InMemoryMemoryStore, MemoryRecord, MemoryScope
+from agents.kernel.config import resolve_model_client_config
+from agents.kernel.specs import AgentSpec
 
 
 class FakeModelConfig:
@@ -156,7 +156,7 @@ def test_create_session_composes_skill_prompt_and_declared_tools(tmp_path, monke
         ),
         encoding="utf-8",
     )
-    monkeypatch.setattr("agent.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
+    monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
     settings = FakeSettings()
     settings.server.ROOT_PATH = tmp_path
     settings.agent.SYSTEM_PROMPT = "Base prompt."
@@ -185,7 +185,7 @@ def test_create_session_respects_explicit_enabled_tools(tmp_path, monkeypatch):
         json.dumps({"name": "focus", "tools": ["skill_tool"]}),
         encoding="utf-8",
     )
-    monkeypatch.setattr("agent.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
+    monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
     settings = FakeSettings()
     settings.server.ROOT_PATH = tmp_path
     settings.agent.SKILLS = "focus"
@@ -198,7 +198,7 @@ def test_create_session_respects_explicit_enabled_tools(tmp_path, monkeypatch):
 
 
 def test_create_session_uses_configured_builtin_tools_by_default(tmp_path, monkeypatch):
-    monkeypatch.setattr("agent.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
+    monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
     settings = FakeSettings()
     settings.server.ROOT_PATH = tmp_path
     settings.agent.BUILTIN_TOOLS = "filesystem.read,filesystem.list"
@@ -211,7 +211,7 @@ def test_create_session_uses_configured_builtin_tools_by_default(tmp_path, monke
 
 
 def test_create_session_can_enable_web_search_tool(tmp_path, monkeypatch):
-    monkeypatch.setattr("agent.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
+    monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
     settings = FakeSettings()
     settings.server.ROOT_PATH = tmp_path
     settings.agent.BUILTIN_TOOLS = "web.search"
@@ -225,7 +225,7 @@ def test_create_session_can_enable_web_search_tool(tmp_path, monkeypatch):
 
 
 def test_create_session_injects_memory_context(tmp_path, monkeypatch):
-    monkeypatch.setattr("agent.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
+    monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
     settings = FakeSettings()
     settings.server.ROOT_PATH = tmp_path
     settings.models.openai.API_KEY = "key"
@@ -261,7 +261,7 @@ def test_create_session_uses_agent_spec(tmp_path, monkeypatch):
         json.dumps({"name": "focus", "tools": ["skill_tool"]}),
         encoding="utf-8",
     )
-    monkeypatch.setattr("agent.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
+    monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
     settings = FakeSettings()
     settings.server.ROOT_PATH = tmp_path
     settings.models.openai.API_KEY = "key"
@@ -283,7 +283,7 @@ def test_create_session_uses_agent_spec(tmp_path, monkeypatch):
 
 
 def test_create_session_loads_workspace_agents_md(tmp_path, monkeypatch):
-    monkeypatch.setattr("agent.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
+    monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
     settings = FakeSettings()
     settings.server.ROOT_PATH = tmp_path
     settings.models.openai.API_KEY = "key"
@@ -302,7 +302,7 @@ def test_create_session_loads_workspace_agents_md(tmp_path, monkeypatch):
 
 
 def test_create_session_can_use_explicit_workspace_path(tmp_path, monkeypatch):
-    monkeypatch.setattr("agent.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
+    monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
     settings = FakeSettings()
     settings.server.ROOT_PATH = tmp_path
     settings.models.openai.API_KEY = "key"
@@ -326,7 +326,7 @@ def test_create_session_can_use_explicit_workspace_path(tmp_path, monkeypatch):
 
 
 def test_async_create_session_can_run_inside_event_loop(tmp_path, monkeypatch):
-    monkeypatch.setattr("agent.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
+    monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
     settings = FakeSettings()
     settings.server.ROOT_PATH = tmp_path
     settings.models.openai.API_KEY = "key"

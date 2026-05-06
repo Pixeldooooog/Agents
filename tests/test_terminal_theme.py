@@ -8,9 +8,9 @@
 # 2026/04/24   Create
 # =====================================================
 
-from gateway.core.config import settings
-from gateway.core.logging import remove_ansi_escape
-from gateway.utils.terminal import TermColors, colorize
+from agents.interfaces.server.core.config import settings
+from agents.interfaces.server.core.logging import remove_ansi_escape
+from agents.interfaces.server.utils.terminal import TermColors, colorize
 
 
 def test_terminal_theme_copies_richinfo_palette():

@@ -4,7 +4,7 @@
 from pathlib import Path
 
 
-FRONTEND_SRC = Path("web/src")
+FRONTEND_SRC = Path("apps/web/src")
 
 
 def test_frontend_is_split_into_focused_modules():

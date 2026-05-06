@@ -26,13 +26,15 @@ dependencies = [
 test = ["pytest", "httpx[socks]"]
 
 [project.scripts]
-agents = "cli.main:main"
+agents = "agents.entrypoints.agents:main"
 
 [tool.setuptools.packages.find]
-include = ["agent*", "gateway*", "cli*"]
+where = ["src"]
+include = ["agents*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 filterwarnings = [
     "ignore:urllib3 v2 only supports OpenSSL 1.1.1+",
 ]

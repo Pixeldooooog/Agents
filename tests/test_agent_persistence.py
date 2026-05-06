@@ -1,18 +1,18 @@
 import asyncio
 
-from agent.specs import AgentSpec
-from agent.governance.audit import ApprovalAuditRecord, SQLiteApprovalAuditStore
-from agent.state.identity import SQLiteIdentityStore, TenantRecord, UserRecord
-from agent.capabilities.memory import MemoryRecord, MemoryScope, SQLiteMemoryStore
-from agent.persistence import SQLiteDatabase
-from agent.state.runs import RunStatus, SQLiteRunStore
-from agent.runtime import RuntimeCheckpoint, SQLiteCheckpointStore
-from agent.schema import Message, RuntimeEvent, ToolCall
-from agent.governance import CredentialRef, SQLiteCredentialRefStore
-from agent.governance.approval_grants import APPROVAL_ALLOW_FOR_RUN, approval_grant_key
-from agent.state import AgentProfile, SQLiteAgentProfileStore
-from agent.state.workspaces import SQLiteWorkspaceStore, WorkspaceRecord
-from agent.governance.tracing import SQLiteTraceStore, TraceSpan, TraceStatus
+from agents.kernel.specs import AgentSpec
+from agents.kernel.governance.audit import ApprovalAuditRecord, SQLiteApprovalAuditStore
+from agents.kernel.state.identity import SQLiteIdentityStore, TenantRecord, UserRecord
+from agents.kernel.capabilities.memory import MemoryRecord, MemoryScope, SQLiteMemoryStore
+from agents.kernel.persistence import SQLiteDatabase
+from agents.kernel.state.runs import RunStatus, SQLiteRunStore
+from agents.kernel.runtime import RuntimeCheckpoint, SQLiteCheckpointStore
+from agents.kernel.schema import Message, RuntimeEvent, ToolCall
+from agents.kernel.governance import CredentialRef, SQLiteCredentialRefStore
+from agents.kernel.governance.approval_grants import APPROVAL_ALLOW_FOR_RUN, approval_grant_key
+from agents.kernel.state import AgentProfile, SQLiteAgentProfileStore
+from agents.kernel.state.workspaces import SQLiteWorkspaceStore, WorkspaceRecord
+from agents.kernel.governance.tracing import SQLiteTraceStore, TraceSpan, TraceStatus
 
 
 def test_sqlite_run_store_persists_records_and_events(tmp_path):

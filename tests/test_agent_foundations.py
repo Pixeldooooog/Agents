@@ -1,11 +1,11 @@
 import asyncio
 
-from agent.capabilities.memory import InMemoryMemoryStore, MemoryRecord, MemoryScope
-from agent.capabilities.tools import ToolRegistry, ToolRuntimeContext, register_builtin_tools
-from agent.context import HeuristicContextCompactor, MemoryContextRetriever, MemoryRetrievalScope
-from agent.context.workspace import WorkspaceContext
-from agent.governance import LocalBase64PayloadProtector, SandboxPolicy, SecretRedactor, classify_tool_risk, ToolRisk
-from agent.schema import Message
+from agents.kernel.capabilities.memory import InMemoryMemoryStore, MemoryRecord, MemoryScope
+from agents.kernel.capabilities.tools import ToolRegistry, ToolRuntimeContext, register_builtin_tools
+from agents.kernel.context import HeuristicContextCompactor, MemoryContextRetriever, MemoryRetrievalScope
+from agents.kernel.context.workspace import WorkspaceContext
+from agents.kernel.governance import LocalBase64PayloadProtector, SandboxPolicy, SecretRedactor, classify_tool_risk, ToolRisk
+from agents.kernel.schema import Message
 
 
 def test_builtin_tools_are_workspace_scoped_and_sandboxed(tmp_path):

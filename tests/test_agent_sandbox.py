@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from agent.capabilities.sandbox import (
+from agents.kernel.capabilities.sandbox import (
     DockerSandboxProvider,
     InMemorySandboxStore,
     LocalSandboxProvider,
@@ -17,17 +17,17 @@ from agent.capabilities.sandbox import (
     SandboxLeaseRecord,
     SandboxWorkspaceSnapshotRecord,
     SandboxProfile,
-    WorkspaceArtifacts,
     WorkspaceSnapshot,
     sandbox_policy_from_settings,
     sandbox_profile_from_settings,
 )
-from agent.capabilities.sandbox.recording import SandboxToolExecutionRecorder
-from agent.capabilities.tools import ToolRegistry, ToolRuntimeContext, register_builtin_tools
-from agent.schema import ToolCall
-from agent.context.workspace import WorkspaceContext
-from agent.governance import SandboxPolicy
-from agent.persistence import SQLiteDatabase
+from agents.kernel.capabilities.sandbox.recording import SandboxToolExecutionRecorder
+from agents.kernel.capabilities.tools import ToolRegistry, ToolRuntimeContext, register_builtin_tools
+from agents.kernel.schema import ToolCall
+from agents.kernel.context.workspace import WorkspaceContext
+from agents.kernel.governance import SandboxPolicy
+from agents.kernel.persistence import SQLiteDatabase
+from agents.kernel.state import ArtifactRecord, SQLiteArtifactStore
 
 
 def _workspace(tmp_path: Path) -> WorkspaceContext:
@@ -141,6 +141,35 @@ def test_sandbox_store_records_leases_and_events(tmp_path):
     assert released.status == "released"
 
 
+def test_sqlite_artifact_store_indexes_run_artifacts(tmp_path):
+    database = SQLiteDatabase(tmp_path / "agents.db")
+    store = SQLiteArtifactStore(database)
+    workspace = _workspace(tmp_path)
+    artifact = ArtifactRecord.for_workspace(
+        workspace,
+        run_id="run-1",
+        task_id="task-1",
+        tool_call_id="call-1",
+        kind="download",
+        role="tool_artifact",
+        uri=(tmp_path / "control-plane" / "runs" / "run-1" / "artifacts" / "downloads" / "page.html").as_posix(),
+        workspace_path="",
+        mime_type="text/html",
+        size_bytes=12,
+        sha256="abc",
+    )
+
+    async def persist():
+        await store.save_artifact(artifact)
+        return await store.list_for_run("run-1")
+
+    records = asyncio.run(persist())
+
+    assert len(records) == 1
+    assert records[0].tool_call_id == "call-1"
+    assert records[0].workspace_path == ""
+
+
 def test_in_memory_sandbox_store_records_release(tmp_path):
     store = InMemorySandboxStore()
     workspace = _workspace(tmp_path)
@@ -195,17 +224,17 @@ def test_tool_execution_records_run_scoped_sandbox_events(tmp_path):
     assert snapshots[-1].diff["file_count_after"] == 1
 
 
-def test_workspace_artifacts_are_created_and_skipped_by_snapshots(tmp_path):
+def test_workspace_snapshot_skips_agent_runtime_state(tmp_path):
     workspace = _workspace(tmp_path)
-    artifacts = WorkspaceArtifacts.ensure(workspace)
-    (workspace.path / artifacts.logs / "run.log").write_text("internal log", encoding="utf-8")
+    internal_log = workspace.path / ".agents" / "runtime" / "runs" / "run-1" / "log.txt"
+    internal_log.parent.mkdir(parents=True)
+    internal_log.write_text("internal log", encoding="utf-8")
     (workspace.path / "source.py").write_text("print('ok')", encoding="utf-8")
 
     snapshot = WorkspaceSnapshot.capture(workspace)
 
-    assert (workspace.path / "artifacts" / "downloads").is_dir()
     assert "source.py" in snapshot.files
-    assert "artifacts/logs/run.log" not in snapshot.files
+    assert ".agents/runtime/runs/run-1/log.txt" not in snapshot.files
 
 
 def test_sandbox_profile_defaults_apply_policy(tmp_path):

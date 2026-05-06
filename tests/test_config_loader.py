@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from agent.config.loader import config_value, project_config
-from agent.config.settings import AgentConfig
+from agents.kernel.config.loader import config_value, project_config
+from agents.kernel.config.settings import AgentConfig
 
 
 def test_project_config_defaults_feed_settings_classes():

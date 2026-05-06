@@ -12,7 +12,7 @@ import asyncio
 
 import pytest
 
-from agent.hooks import (
+from agents.kernel.hooks import (
     AgentHooks,
     ApprovalHooks,
     CompositeHooks,
@@ -23,7 +23,7 @@ from agent.hooks import (
     ToolApprovalError,
     hooks_from_settings,
 )
-from agent.schema import Message, ModelResponse, ToolCall
+from agents.kernel.schema import Message, ModelResponse, ToolCall
 
 
 class TestHooksFactory:
@@ -221,7 +221,7 @@ class TestCompositeHooks:
                 return Message.from_text("tool", result.content.upper())
 
         composite = CompositeHooks([AgentHooks(), UppercaseHook()])
-        from agent.schema import ToolResult
+        from agents.kernel.schema import ToolResult
 
         result = composite.format_tool_result(ToolResult(tool_call_id="1", name="echo", content="hi"))
 
@@ -230,7 +230,7 @@ class TestCompositeHooks:
     def test_first_on_error_recovery_wins(self):
         class RecoveryHook(AgentHooks):
             async def on_error(self, error, messages):
-                from agent.runtime import AgentResult
+                from agents.kernel.runtime import AgentResult
                 return AgentResult(content="recovered", messages=messages)
 
         composite = CompositeHooks([AgentHooks(), RecoveryHook()])

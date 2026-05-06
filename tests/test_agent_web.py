@@ -5,19 +5,19 @@ from pathlib import Path
 import httpx
 import pytest
 
-from agent.capabilities.tools import ToolRegistry, ToolRuntimeContext, register_builtin_tools
-from agent.capabilities.web import (
+from agents.kernel.capabilities.tools import ToolRegistry, ToolRuntimeContext, register_builtin_tools
+from agents.kernel.capabilities.web import (
     TavilyWebSearchProvider,
     WebSearchPolicy,
     WebSearchRequest,
     WebSource,
 )
-from agent.capabilities.web.factory import create_web_search_provider
-from agent.capabilities.web.providers.tavily import TavilyConfig
-from agent.capabilities.web.types import WebSearchResult, WebUsage
-from agent.context.workspace import WorkspaceContext
-from agent.governance import SandboxPolicy, describe_tool_impact
-from agent.schema import ToolCall
+from agents.kernel.capabilities.web.factory import create_web_search_provider
+from agents.kernel.capabilities.web.providers.tavily import TavilyConfig
+from agents.kernel.capabilities.web.types import WebSearchResult, WebUsage
+from agents.kernel.context.workspace import WorkspaceContext
+from agents.kernel.governance import SandboxPolicy, describe_tool_impact
+from agents.kernel.schema import ToolCall
 
 
 def test_tavily_search_provider_normalizes_results_and_usage():

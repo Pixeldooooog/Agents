@@ -6,110 +6,151 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_top_level_packages_define_runtime_gateway_and_cli_boundaries():
-    assert importlib.util.find_spec("agent") is not None
-    assert importlib.util.find_spec("gateway") is not None
-    assert importlib.util.find_spec("cli") is not None
+def test_agents_namespace_defines_kernel_platform_and_interfaces():
+    assert importlib.util.find_spec("agents") is not None
+    assert importlib.util.find_spec("agents.kernel") is not None
+    assert importlib.util.find_spec("agents.platform") is not None
+    assert importlib.util.find_spec("agents.interfaces.server") is not None
+    assert importlib.util.find_spec("agents.interfaces.bridge") is not None
 
 
 def test_agent_system_exposes_future_multi_agent_boundaries():
-    assert importlib.util.find_spec("agent.orchestration") is not None
-    assert importlib.util.find_spec("agent.orchestration.types") is not None
-    assert importlib.util.find_spec("agent.capabilities.memory") is not None
-    assert importlib.util.find_spec("agent.workflows") is not None
-    assert importlib.util.find_spec("agent.workflows.types") is not None
-    assert importlib.util.find_spec("agent.context") is not None
-    assert importlib.util.find_spec("agent.state") is not None
-    assert importlib.util.find_spec("agent.state.workspaces") is not None
-    assert importlib.util.find_spec("agent.state.workspaces.metadata") is not None
-    assert importlib.util.find_spec("agent.governance") is not None
-    assert importlib.util.find_spec("agent.governance.credentials") is not None
-    assert importlib.util.find_spec("agent.governance.audit") is not None
-    assert importlib.util.find_spec("agent.governance.tracing") is not None
-    assert importlib.util.find_spec("agent.models") is not None
-    assert importlib.util.find_spec("agent.config") is not None
-    assert importlib.util.find_spec("agent.specs") is not None
-    assert importlib.util.find_spec("agent.state.agents") is not None
-    assert importlib.util.find_spec("agent.capabilities") is not None
-    assert importlib.util.find_spec("agent.capabilities.memory") is not None
-    assert importlib.util.find_spec("agent.capabilities.sandbox") is not None
-    assert importlib.util.find_spec("agent.capabilities.skills") is not None
-    assert importlib.util.find_spec("agent.capabilities.tools") is not None
-    assert importlib.util.find_spec("agent.assembly") is not None
-    assert importlib.util.find_spec("agent.state.runs") is not None
-    assert importlib.util.find_spec("agent.persistence") is not None
-    assert importlib.util.find_spec("agent.state.identity") is not None
-    assert importlib.util.find_spec("agent.tasks") is not None
-    assert importlib.util.find_spec("agent.definitions") is None
-    assert importlib.util.find_spec("agent.integrations") is None
-    assert importlib.util.find_spec("agent.audit") is None
-    assert importlib.util.find_spec("agent.identity") is None
-    assert importlib.util.find_spec("agent.memory") is None
-    assert importlib.util.find_spec("agent.runs") is None
-    assert importlib.util.find_spec("agent.security") is None
-    assert importlib.util.find_spec("agent.skills") is None
-    assert importlib.util.find_spec("agent.storage") is None
-    assert importlib.util.find_spec("agent.tools") is None
-    assert importlib.util.find_spec("agent.tracing") is None
+    kernel_modules = [
+        "orchestration",
+        "orchestration.types",
+        "capabilities.memory",
+        "workflows",
+        "workflows.types",
+        "context",
+        "state",
+        "state.workspaces",
+        "state.workspaces.metadata",
+        "governance",
+        "governance.credentials",
+        "governance.audit",
+        "governance.tracing",
+        "models",
+        "config",
+        "specs",
+        "state.agents",
+        "capabilities",
+        "capabilities.memory",
+        "capabilities.sandbox",
+        "capabilities.skills",
+        "capabilities.tools",
+        "assembly",
+        "state.runs",
+        "persistence",
+        "state.identity",
+        "tasks",
+    ]
+    for module in kernel_modules:
+        assert importlib.util.find_spec(f"agents.kernel.{module}") is not None
+
+    forbidden_kernel_modules = [
+        "definitions",
+        "integrations",
+        "audit",
+        "identity",
+        "memory",
+        "runs",
+        "security",
+        "skills",
+        "storage",
+        "tools",
+        "tracing",
+    ]
+    for module in forbidden_kernel_modules:
+        assert importlib.util.find_spec(f"agents.kernel.{module}") is None
 
 
 def test_agent_runtime_is_split_into_explicit_kernel_modules():
-    assert importlib.util.find_spec("agent.runtime.loop") is not None
-    assert importlib.util.find_spec("agent.context.compiler") is not None
-    assert importlib.util.find_spec("agent.runtime.session") is not None
-    assert importlib.util.find_spec("agent.context.window") is not None
-    assert importlib.util.find_spec("agent.runtime.turns") is not None
-    assert importlib.util.find_spec("agent.runtime.turns.model") is not None
-    assert importlib.util.find_spec("agent.runtime.turns.tools") is not None
-    assert importlib.util.find_spec("agent.governance.permissions") is not None
-    assert importlib.util.find_spec("agent.runtime.checkpoints") is not None
-    assert importlib.util.find_spec("agent.runtime.state") is not None
-    assert importlib.util.find_spec("agent.context.compaction") is not None
-    assert importlib.util.find_spec("agent.context.memory") is not None
-    assert importlib.util.find_spec("agent.governance.sandbox") is not None
-    assert importlib.util.find_spec("agent.governance.security") is not None
+    for module in [
+        "runtime.loop",
+        "context.compiler",
+        "runtime.session",
+        "context.window",
+        "runtime.turns",
+        "runtime.turns.model",
+        "runtime.turns.tools",
+        "governance.permissions",
+        "runtime.checkpoints",
+        "runtime.state",
+        "context.compaction",
+        "context.memory",
+        "governance.sandbox",
+        "governance.security",
+    ]:
+        assert importlib.util.find_spec(f"agents.kernel.{module}") is not None
 
 
 def test_agent_capabilities_expose_builtin_tool_boundaries():
-    assert importlib.util.find_spec("agent.capabilities.tools.builtin") is not None
-    assert importlib.util.find_spec("agent.capabilities.tools.context") is not None
-    assert importlib.util.find_spec("agent.capabilities.sandbox.local") is not None
-    assert importlib.util.find_spec("agent.capabilities.sandbox.docker") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.context") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.sandbox.local") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.sandbox.docker") is not None
 
 
 def test_agent_models_split_protocol_adapters_and_transports():
-    assert importlib.util.find_spec("agent.models.adapters") is not None
-    assert importlib.util.find_spec("agent.models.protocol") is not None
-    assert importlib.util.find_spec("agent.models.transports") is not None
+    assert importlib.util.find_spec("agents.kernel.models.adapters") is not None
+    assert importlib.util.find_spec("agents.kernel.models.protocol") is not None
+    assert importlib.util.find_spec("agents.kernel.models.transports") is not None
 
 
-def test_gateway_exposes_protocol_boundary_packages():
-    assert importlib.util.find_spec("gateway.auth") is not None
-    assert importlib.util.find_spec("gateway.sessions") is not None
-    assert importlib.util.find_spec("gateway.services.persistence") is not None
-    assert importlib.util.find_spec("gateway.streaming") is not None
+def test_platform_and_server_expose_control_and_protocol_boundaries():
+    assert importlib.util.find_spec("agents.platform.persistence") is not None
+    assert importlib.util.find_spec("agents.platform.sessions") is not None
+    assert importlib.util.find_spec("agents.platform.commands") is not None
+    assert importlib.util.find_spec("agents.platform.profiles") is not None
+    assert importlib.util.find_spec("agents.interfaces.server.auth") is not None
+    assert importlib.util.find_spec("agents.interfaces.server.streaming") is not None
+    assert importlib.util.find_spec("agents.interfaces.bridge.ndjson") is not None
 
 
 def test_legacy_app_package_is_not_importable():
     assert importlib.util.find_spec("app") is None
 
 
-def test_cli_does_not_import_gateway():
-    imports = _imports_under(ROOT / "cli")
+def test_bridge_does_not_import_server():
+    imports = _imports_under(ROOT / "src" / "agents" / "interfaces" / "bridge")
 
-    assert not [name for name in imports if name == "gateway" or name.startswith("gateway.")]
+    assert not [name for name in imports if name == "agents.interfaces.server" or name.startswith("agents.interfaces.server.")]
 
 
-def test_agent_does_not_import_entrypoint_or_ui_packages():
-    imports = _imports_under(ROOT / "agent")
-    forbidden = ("gateway", "cli", "web", "fastapi", "typer", "rich", "prompt_toolkit")
+def test_platform_does_not_import_interface_adapters():
+    imports = _imports_under(ROOT / "src" / "agents" / "platform")
+    forbidden = ("agents.interfaces.server", "agents.interfaces.bridge")
 
     assert not [name for name in imports if name in forbidden or name.startswith(tuple("%s." % item for item in forbidden))]
 
 
-def test_gateway_template_engine_and_provider_layers_are_not_importable():
-    assert importlib.util.find_spec("gateway.engines") is None
-    assert importlib.util.find_spec("gateway.shared.provider") is None
+def test_agent_does_not_import_entrypoint_or_ui_packages():
+    imports = _imports_under(ROOT / "src" / "agents" / "kernel")
+    forbidden = (
+        "agents.interfaces.server",
+        "agents.interfaces.bridge",
+        "agents.entrypoints",
+        "fastapi",
+        "typer",
+        "rich",
+        "prompt_toolkit",
+    )
+
+    assert not [name for name in imports if name in forbidden or name.startswith(tuple("%s." % item for item in forbidden))]
+
+
+def test_legacy_top_level_packages_are_not_importable():
+    assert importlib.util.find_spec("agent") is None
+    assert importlib.util.find_spec("server") is None
+    assert importlib.util.find_spec("bridge") is None
+    assert importlib.util.find_spec("entrypoints") is None
+    assert importlib.util.find_spec("gateway") is None
+    assert importlib.util.find_spec("cli") is None
+
+
+def test_server_template_engine_and_provider_layers_are_not_importable():
+    assert importlib.util.find_spec("agents.interfaces.server.engines") is None
+    assert importlib.util.find_spec("agents.interfaces.server.shared") is None
 
 
 def _imports_under(root: Path) -> set[str]:

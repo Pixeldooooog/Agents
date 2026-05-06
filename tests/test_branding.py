@@ -10,7 +10,7 @@
 
 from pathlib import Path
 
-from gateway.core.config import settings
+from agents.interfaces.server.core.config import settings
 
 
 ROOT = Path(__file__).resolve().parents[1]

@@ -17,8 +17,11 @@ logs/
 cache/
 data/
 config/local.toml
+.agents/runtime/
+.agents/server/
+.agents/agents.db*
 .agents/workspaces/
 .idea/
 .vscode/
 old/
-!web/dist/
+!apps/web/dist/

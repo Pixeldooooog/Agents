@@ -10,10 +10,13 @@ COPY requirements/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
-COPY app ./app
-COPY main.py ./main.py
 COPY pyproject.toml ./pyproject.toml
+COPY src ./src
+RUN pip install --no-cache-dir -e .
+COPY config ./config
+COPY apps/web/dist ./apps/web/dist
+COPY main.py ./main.py
 
 EXPOSE 8010
 
-CMD ["python", "main.py"]
+CMD ["python", "-m", "agents.interfaces.server"]

@@ -9,7 +9,7 @@ HOST_PIP ?= $(shell command -v pip3 2>/dev/null || command -v pip 2>/dev/null)
 PYTHON ?= $(VENV)/bin/python
 PIP ?= $(PYTHON) -m pip
 
-.PHONY: check-python venv setup setup-tui run cli cli-python dev-web stop test build up down log
+.PHONY: check-python venv setup setup-terminal run terminal cli bridge-fallback dev-web stop test build up down log
 
 check-python:
 	@test -n "$(PYTHON_BIN)" || (echo "Python 3.10+ is required." && exit 1)
@@ -33,34 +33,36 @@ venv: check-python
 
 setup: venv
 	$(PIP) install -e .
-	@if [ -f web/package-lock.json ]; then cd web && npm ci; else cd web && npm install; fi
-	@if [ -n "$(BUN)" ]; then cd tui && $(BUN) install; else echo "bun is required for the Ink TUI; install bun or run make cli-python."; fi
+	@if [ -f apps/web/package-lock.json ]; then cd apps/web && npm ci; else cd apps/web && npm install; fi
+	@if [ -n "$(BUN)" ]; then cd apps/terminal && $(BUN) install; else echo "bun is required for the terminal app. Install bun or run make bridge-fallback."; fi
 
-setup-tui:
-	@test -n "$(BUN)" || (echo "bun is required for the Ink TUI." && exit 1)
-	cd tui && $(BUN) install
+setup-terminal:
+	@test -n "$(BUN)" || (echo "bun is required for the terminal app." && exit 1)
+	cd apps/terminal && $(BUN) install
 
 run: venv
-	$(PYTHON) main.py
+	PYTHONPATH=$(CURDIR)/src $(PYTHON) -m agents.interfaces.server
 
-cli: venv
-	@test -n "$(BUN)" || (echo "bun is required for make cli. Use make cli-python for the Python fallback." && exit 1)
-	@cd tui && $(BUN) run src/main.tsx --repo-root .. --python $(PYTHON) $(ARGS)
+terminal: venv
+	@test -n "$(BUN)" || (echo "bun is required for make terminal. Use make bridge-fallback for the Python debug fallback." && exit 1)
+	@cd apps/terminal && PYTHONPATH=$(CURDIR)/src $(BUN) run src/main.tsx --repo-root ../.. --python $(PYTHON) $(ARGS)
 
-cli-python: venv
-	@$(PYTHON) -m cli.main chat
+cli: terminal
+
+bridge-fallback: venv
+	@PYTHONPATH=$(CURDIR)/src $(PYTHON) -m agents.interfaces.bridge.fallback.main chat
 
 dev-web: venv
 	@echo "Starting backend..."
-	@$(PYTHON) main.py & BACKEND_PID=$$!; \
+	@PYTHONPATH=$(CURDIR)/src $(PYTHON) -m agents.interfaces.server & BACKEND_PID=$$!; \
 	trap "kill $$BACKEND_PID 2>/dev/null" EXIT; \
-	cd web && npm run dev
+	cd apps/web && npm run dev
 
 stop:
-	-pkill -f "main:app" 2>/dev/null || true
+	-pkill -f "agents.interfaces.server.app:app" 2>/dev/null || true
 
 test: venv
-	$(PYTHON) -m pytest tests -q
+	PYTHONPATH=$(CURDIR)/src $(PYTHON) -m pytest tests -q
 
 build:
 	docker build -f deploy/Dockerfile -t $(IMAGE):$(TAG) .

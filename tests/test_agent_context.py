@@ -1,7 +1,7 @@
-from agent.context import ContextBuilder, ContextFragment, ContextLayer, ContextPack, ContextScope
-from agent.context.window import ContextWindowManager
-from agent.schema import Message
-from agent.state.workspaces import LocalWorkspaceStore
+from agents.kernel.context import ContextBuilder, ContextFragment, ContextLayer, ContextPack, ContextScope
+from agents.kernel.context.window import ContextWindowManager
+from agents.kernel.schema import Message
+from agents.kernel.state.workspaces import LocalWorkspaceStore
 
 
 def test_context_builder_orders_layers_and_records_trace():

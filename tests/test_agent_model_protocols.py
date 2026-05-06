@@ -8,18 +8,18 @@
 # 2026/04/24   Create
 # =====================================================
 
-from agent.models.adapters import (
+from agents.kernel.models.adapters import (
     ClaudeMessagesAdapter,
     GeminiGenerateContentAdapter,
     OpenAIChatCompletionsAdapter,
     OpenAIResponsesAdapter,
 )
-from agent.models.client import ModelClient, ModelClientConfig
-from agent.models.errors import ModelConnectionError
-from agent.models.protocol import ModelStreamEventType, ModelStreamState, reasoning_delta, text_delta, usage_event
-from agent.models.retry import RetryPolicy
-from agent.models.transports import HttpxModelTransport, parse_sse_json_line
-from agent.schema import Message, ModelRequest, ModelUsage, ToolCall, ToolSpec
+from agents.kernel.models.client import ModelClient, ModelClientConfig
+from agents.kernel.models.errors import ModelConnectionError
+from agents.kernel.models.protocol import ModelStreamEventType, ModelStreamState, reasoning_delta, text_delta, usage_event
+from agents.kernel.models.retry import RetryPolicy
+from agents.kernel.models.transports import HttpxModelTransport, parse_sse_json_line
+from agents.kernel.schema import Message, ModelRequest, ModelUsage, ToolCall, ToolSpec
 
 
 class FakeTransport:
@@ -141,7 +141,7 @@ def test_httpx_transport_uses_configured_proxy(monkeypatch):
             captured["url"] = url
             return FakeResponse()
 
-    monkeypatch.setattr("agent.models.transports.http.httpx.AsyncClient", FakeClient)
+    monkeypatch.setattr("agents.kernel.models.transports.http.httpx.AsyncClient", FakeClient)
 
     response = asyncio.run(
         HttpxModelTransport("https://api.example/v1", proxy_url="http://127.0.0.1:7890").async_post_json(
@@ -172,7 +172,7 @@ def test_httpx_transport_reports_empty_http_errors(monkeypatch):
         async def aclose(self):
             return None
 
-    monkeypatch.setattr("agent.models.transports.http.httpx.AsyncClient", FakeClient)
+    monkeypatch.setattr("agents.kernel.models.transports.http.httpx.AsyncClient", FakeClient)
 
     try:
         asyncio.run(

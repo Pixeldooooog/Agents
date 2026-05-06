@@ -10,7 +10,7 @@
 
 from fastapi.testclient import TestClient
 
-from gateway.app import create_app
+from agents.interfaces.server.app import create_app
 
 
 def test_health():

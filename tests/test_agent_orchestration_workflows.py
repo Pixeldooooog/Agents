@@ -1,8 +1,8 @@
 import pytest
 
-from agent.orchestration import AgentRole, AgentRoleKind, StaticAgentRouter
-from agent.specs import AgentSpec
-from agent.workflows import WorkflowEdge, WorkflowNode, WorkflowNodeKind, WorkflowPlan
+from agents.kernel.orchestration import AgentRole, AgentRoleKind, StaticAgentRouter
+from agents.kernel.specs import AgentSpec
+from agents.kernel.workflows import WorkflowEdge, WorkflowNode, WorkflowNodeKind, WorkflowPlan
 
 
 def test_static_agent_router_selects_default_role():

@@ -1,10 +1,10 @@
 import asyncio
 
-from agent.specs import AgentSpec
-from agent.runtime import AgentResult
-from agent.schema import Message, RuntimeEvent
-from agent.state.runs import InMemoryRunStore, RunStatus
-from agent.tasks import (
+from agents.kernel.specs import AgentSpec
+from agents.kernel.runtime import AgentResult
+from agents.kernel.schema import Message, RuntimeEvent
+from agents.kernel.state.runs import InMemoryRunStore, RunStatus
+from agents.kernel.tasks import (
     InMemoryTaskStore,
     SQLiteTaskStore,
     TaskAttemptRecord,
@@ -17,7 +17,7 @@ from agent.tasks import (
     TaskStepRecord,
     TaskStepStatus,
 )
-from agent.persistence import SQLiteDatabase
+from agents.kernel.persistence import SQLiteDatabase
 
 
 def test_task_engine_tracks_step_attempt_lifecycle():

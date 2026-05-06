@@ -1,0 +1,68 @@
+from __future__ import annotations
+
+from agents.kernel.schema import ModelResponse, RuntimeEvent, ToolCall, ToolResult
+from agents.kernel.governance.permissions import ToolPermissionDecision
+from agents.kernel.governance.tool_impact import describe_tool_impact
+
+
+def model_message_event(response: ModelResponse) -> RuntimeEvent:
+    return RuntimeEvent(
+        type="model_message",
+        name="assistant",
+        payload={
+            "content": response.content_text(),
+            "tool_call_count": len(response.tool_calls),
+        },
+    )
+
+
+def tool_start_event(call: ToolCall) -> RuntimeEvent:
+    payload = call.to_dict()
+    payload["impact"] = describe_tool_impact(call).to_dict()
+    return RuntimeEvent(type="tool_start", name=call.name, payload=payload)
+
+
+def tool_result_event(result: ToolResult) -> RuntimeEvent:
+    return RuntimeEvent(type="tool_result", name=result.name, payload=result.to_dict())
+
+
+def tool_approval_required_event(call: ToolCall, decision: ToolPermissionDecision) -> RuntimeEvent:
+    return RuntimeEvent(
+        type="tool_approval_required",
+        name=call.name,
+        payload={
+            "approval_id": tool_approval_id(call),
+            "tool_call": call.to_dict(),
+            "permission": decision.to_dict(),
+            "impact": describe_tool_impact(call).to_dict(),
+        },
+    )
+
+
+def tool_approval_decision_event(
+    call: ToolCall,
+    approved: bool,
+    reason: str = "",
+    scope: str = "allow_once",
+    grant_key: str = "",
+) -> RuntimeEvent:
+    payload = {
+        "approval_id": tool_approval_id(call),
+        "tool_call": call.to_dict(),
+        "approved": approved,
+        "scope": scope,
+        "impact": describe_tool_impact(call).to_dict(),
+    }
+    if reason:
+        payload["reason"] = reason
+    if grant_key:
+        payload["grant_key"] = grant_key
+    return RuntimeEvent(type="tool_approval_decision", name=call.name, payload=payload)
+
+
+def tool_approval_id(call: ToolCall) -> str:
+    return call.id or call.name
+
+
+def error_event(kind: str, message: str) -> RuntimeEvent:
+    return RuntimeEvent(type="error", name=kind, payload={"message": message})

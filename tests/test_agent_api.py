@@ -10,16 +10,37 @@
 
 import asyncio
 
+import pytest
 from fastapi.testclient import TestClient
 
-from gateway.api.agent import api_agent
-from gateway.api.agent.schemas import AgentChatRequest
-from gateway.app import create_app
-from agent.specs import AgentSpec
-from agent.governance.approval_grants import APPROVAL_ALLOW_FOR_RUN, approval_grant_key
-from agent.runtime import AgentResult, InMemoryCheckpointStore, RuntimeCheckpoint
-from agent.schema import Message, RuntimeEvent, ToolCall
-from agent.tasks import TaskStepRecord
+from agents.interfaces.server.api.agent import routes as agent_routes
+from agents.interfaces.server.api.agent.schemas import AgentChatRequest
+from agents.interfaces.server.app import create_app
+from agents.kernel.specs import AgentSpec
+from agents.kernel.governance.approval_grants import APPROVAL_ALLOW_FOR_RUN, approval_grant_key
+from agents.kernel.runtime import AgentResult, InMemoryCheckpointStore, RuntimeCheckpoint
+from agents.kernel.schema import Message, RuntimeEvent, ToolCall
+from agents.kernel.tasks import TaskStepRecord
+from agents.platform import create_ephemeral_persistence
+from agents.platform.sessions import RunService, create_trace_recorder
+
+
+@pytest.fixture(autouse=True)
+def isolate_agent_route_persistence(monkeypatch, tmp_path):
+    persistence = create_ephemeral_persistence(agent_routes.settings, workspace_path=str(tmp_path))
+    monkeypatch.setattr(agent_routes, "persistence", persistence)
+    monkeypatch.setattr(agent_routes, "trace_store", persistence.traces)
+    monkeypatch.setattr(
+        agent_routes,
+        "run_service",
+        RunService(
+            persistence.runs,
+            trace_recorder=create_trace_recorder(agent_routes.settings, persistence.traces),
+            sandbox_store=persistence.sandboxes,
+        ),
+    )
+    monkeypatch.setattr(agent_routes, "checkpoint_store", persistence.checkpoints)
+    monkeypatch.setattr(agent_routes, "approval_audit_store", persistence.approval_audit)
 
 
 class FakeSession:
@@ -56,7 +77,7 @@ def test_agent_chat_api_returns_final_answer(monkeypatch):
     async def create_session(**kwargs):
         return FakeSession()
 
-    monkeypatch.setattr(api_agent, "create_agent_session", create_session)
+    monkeypatch.setattr(agent_routes, "create_agent_session", create_session)
     client = TestClient(create_app())
 
     response = client.post("/api/v1/agent/chat", json={"message": "hello"})
@@ -101,7 +122,7 @@ def test_agent_stream_api_returns_sse_events(monkeypatch):
     async def create_session(**kwargs):
         return FakeSession()
 
-    monkeypatch.setattr(api_agent, "create_agent_session", create_session)
+    monkeypatch.setattr(agent_routes, "create_agent_session", create_session)
     client = TestClient(create_app())
 
     response = client.post("/api/v1/agent/chat/stream", json={"message": "hello"})
@@ -116,7 +137,7 @@ def test_agent_run_api_returns_record(monkeypatch):
     async def create_session(**kwargs):
         return FakeSession()
 
-    monkeypatch.setattr(api_agent, "create_agent_session", create_session)
+    monkeypatch.setattr(agent_routes, "create_agent_session", create_session)
     client = TestClient(create_app())
 
     chat_response = client.post("/api/v1/agent/chat", json={"message": "hello"})
@@ -134,7 +155,7 @@ def test_agent_run_trace_api_returns_spans(monkeypatch):
     async def create_session(**kwargs):
         return FakeSession()
 
-    monkeypatch.setattr(api_agent, "create_agent_session", create_session)
+    monkeypatch.setattr(agent_routes, "create_agent_session", create_session)
     client = TestClient(create_app())
 
     chat_response = client.post("/api/v1/agent/chat", json={"message": "hello"})
@@ -148,7 +169,7 @@ def test_agent_run_trace_api_returns_spans(monkeypatch):
     assert data["spans"][0]["status"] == "done"
     assert data["approvals"] == []
     assert data["sandbox_leases"] == []
-    assert data["sandbox_artifacts"]["downloads"] == "artifacts/downloads"
+    assert data["artifacts"] == []
     assert data["sandbox_events"] == []
     assert data["sandbox_snapshots"] == []
 
@@ -165,7 +186,7 @@ def test_agent_task_api_creates_reads_and_runs_task(monkeypatch):
     async def create_session(**kwargs):
         return FakeSession()
 
-    monkeypatch.setattr(api_agent, "create_agent_session", create_session)
+    monkeypatch.setattr(agent_routes, "create_agent_session", create_session)
     client = TestClient(create_app())
 
     create_response = client.post(
@@ -215,17 +236,17 @@ def test_agent_run_approval_api_resumes_checkpoint(monkeypatch):
                 pending_tool_calls=[call],
             )
         )
-        record = await api_agent.run_service.store.create_run(AgentSpec.from_overrides(agent_id="agent-1"), run_id="run-approval")
-        await api_agent.run_service.record_event(record.run_id, RuntimeEvent(type="tool_approval_required", name="echo", payload={"approval_id": "call-1"}))
-        await api_agent.run_service.pause_for_approval(record.run_id)
-        task = await api_agent.persistence.tasks.create_task(record.to_agent_spec(), title="Approval task", input="approve")
-        await api_agent.persistence.tasks.add_step(
+        record = await agent_routes.run_service.store.create_run(AgentSpec.from_overrides(agent_id="agent-1"), run_id="run-approval")
+        await agent_routes.run_service.record_event(record.run_id, RuntimeEvent(type="tool_approval_required", name="echo", payload={"approval_id": "call-1"}))
+        await agent_routes.run_service.pause_for_approval(record.run_id)
+        task = await agent_routes.persistence.tasks.create_task(record.to_agent_spec(), title="Approval task", input="approve")
+        await agent_routes.persistence.tasks.add_step(
             TaskStepRecord.create(task_id=task.task_id, index=0, name="execute", run_id=record.run_id)
         )
         return store
 
-    monkeypatch.setattr(api_agent, "checkpoint_store", asyncio.run(seed()))
-    monkeypatch.setattr(api_agent, "create_agent_session", create_session)
+    monkeypatch.setattr(agent_routes, "checkpoint_store", asyncio.run(seed()))
+    monkeypatch.setattr(agent_routes, "create_agent_session", create_session)
     client = TestClient(create_app())
 
     response = client.post("/api/v1/agent/runs/run-approval/approval", json={"tool_call_ids": ["call-1"], "decision": "allow_for_run"})
@@ -234,7 +255,7 @@ def test_agent_run_approval_api_resumes_checkpoint(monkeypatch):
     data = response.json()["data"]
     assert data["status"] == "finished"
     assert [event["type"] for event in data["events"]] == ["tool_approval_decision", "model_message"]
-    step = asyncio.run(api_agent.persistence.tasks.load_step_for_run("run-approval"))
-    task = asyncio.run(api_agent.persistence.tasks.load_task(step.task_id))
+    step = asyncio.run(agent_routes.persistence.tasks.load_step_for_run("run-approval"))
+    task = asyncio.run(agent_routes.persistence.tasks.load_task(step.task_id))
     assert step.status.value == "succeeded"
     assert task.status.value == "finished"

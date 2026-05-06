@@ -3,7 +3,7 @@
 
 from fastapi.testclient import TestClient
 
-from gateway.app import create_app
+from agents.interfaces.server.app import create_app
 
 
 def test_root_redirects_to_conversation_ui():

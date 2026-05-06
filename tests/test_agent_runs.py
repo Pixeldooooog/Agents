@@ -1,8 +1,8 @@
 import asyncio
 
-from agent.specs import AgentSpec
-from agent.state.runs import InMemoryRunStore, LocalFileRunStore, RunRecord, RunStatus
-from agent.schema import RuntimeEvent
+from agents.kernel.specs import AgentSpec
+from agents.kernel.state.runs import InMemoryRunStore, LocalFileRunStore, RunRecord, RunStatus
+from agents.kernel.schema import RuntimeEvent
 
 
 def test_in_memory_run_store_tracks_agent_scope_and_events():
