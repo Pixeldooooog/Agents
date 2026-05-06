@@ -107,6 +107,14 @@ cp .env.example .env
 
 Edit `.env` and configure at least one model protocol API key and model. `make setup` installs Python dependencies, the web frontend dependencies, and the terminal app dependencies when `bun` is available.
 
+Run the deterministic local smoke check before using real model credentials:
+
+```bash
+make smoke
+```
+
+`make smoke` does not call external model APIs. It checks the packaged `agents smoke` command, server health, native workspace tools, sandboxed git/test execution, the scripted runtime tool loop, terminal typecheck, and the web production build.
+
 Start the server:
 
 ```bash
@@ -189,6 +197,14 @@ Run tests:
 ```bash
 make test
 ```
+
+For a faster customer-delivery gate, use:
+
+```bash
+agents smoke
+```
+
+That command validates the kernel/runtime/tool/server baseline without requiring model API keys or frontend toolchains.
 
 ## Configuration
 

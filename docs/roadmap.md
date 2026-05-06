@@ -167,6 +167,7 @@ TODO:
 - [ ] Docker sandbox integration test。
 - [ ] protocol live test profile。
 - [ ] DB migration strategy。
+- [x] 本地交付 smoke：server health、workspace tools、sandboxed git/test、runtime tool loop。
 - [ ] structured logging。
 - [ ] metrics。
 - [ ] failure injection tests。

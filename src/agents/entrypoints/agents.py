@@ -46,6 +46,14 @@ def bridge_command(ctx: typer.Context) -> None:
     bridge_main(list(ctx.args))
 
 
+@app.command()
+def smoke() -> None:
+    """Run deterministic local delivery smoke checks without model API keys."""
+    from agents.entrypoints.smoke import main as smoke_main
+
+    raise typer.Exit(smoke_main())
+
+
 def main() -> None:
     app()
 

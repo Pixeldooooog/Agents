@@ -9,7 +9,7 @@ HOST_PIP ?= $(shell command -v pip3 2>/dev/null || command -v pip 2>/dev/null)
 PYTHON ?= $(VENV)/bin/python
 PIP ?= $(PYTHON) -m pip
 
-.PHONY: check-python venv setup setup-terminal run terminal cli bridge-fallback dev-web stop test build up down log
+.PHONY: check-python venv setup setup-terminal run terminal cli bridge-fallback dev-web stop test smoke build up down log
 
 check-python:
 	@test -n "$(PYTHON_BIN)" || (echo "Python 3.10+ is required." && exit 1)
@@ -32,7 +32,7 @@ venv: check-python
 	@$(PYTHON) -m pip --version >/dev/null
 
 setup: venv
-	$(PIP) install -e .
+	$(PIP) install -e ".[test]"
 	@if [ -f apps/web/package-lock.json ]; then cd apps/web && npm ci; else cd apps/web && npm install; fi
 	@if [ -n "$(BUN)" ]; then cd apps/terminal && $(BUN) install; else echo "bun is required for the terminal app. Install bun or run make bridge-fallback."; fi
 
@@ -63,6 +63,13 @@ stop:
 
 test: venv
 	PYTHONPATH=$(CURDIR)/src $(PYTHON) -m pytest tests -q
+
+smoke: venv
+	PYTHONPATH=$(CURDIR)/src $(PYTHON) -m agents.entrypoints.smoke
+	PYTHONPATH=$(CURDIR)/src $(PYTHON) -m pytest tests/test_delivery_smoke.py tests/test_agent_api.py::test_agent_run_trace_api_returns_spans -q
+	@test -n "$(BUN)" || (echo "bun is required for terminal typecheck. Run make setup-terminal first." && exit 1)
+	cd apps/terminal && $(BUN) run typecheck
+	cd apps/web && npm run build
 
 build:
 	docker build -f deploy/Dockerfile -t $(IMAGE):$(TAG) .
