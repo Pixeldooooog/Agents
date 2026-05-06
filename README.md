@@ -206,6 +206,15 @@ agents smoke
 
 That command validates the kernel/runtime/tool/server baseline without requiring model API keys or frontend toolchains.
 
+Check local readiness and configured model profiles:
+
+```bash
+agents doctor
+agents doctor --json
+```
+
+`agents doctor` reports model profile names, protocol/model/endpoint, workspace root, sandbox mode, database mode, terminal/web toolchain status, and web search readiness. It never prints API keys.
+
 ## Configuration
 
 Kernel, platform, bridge, and server share runtime configuration through `agents.kernel.config`.

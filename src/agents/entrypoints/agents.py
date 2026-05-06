@@ -54,6 +54,14 @@ def smoke() -> None:
     raise typer.Exit(smoke_main())
 
 
+@app.command()
+def doctor(json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON.")) -> None:
+    """Check local readiness without leaking credentials."""
+    from agents.entrypoints.doctor import main as doctor_main
+
+    raise typer.Exit(doctor_main(json_output=json_output))
+
+
 def main() -> None:
     app()
 
