@@ -24,4 +24,5 @@ config/local.toml
 .idea/
 .vscode/
 old/
+nexus-code/
 !apps/web/dist/
