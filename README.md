@@ -209,6 +209,7 @@ That command validates the kernel/runtime/tool/server baseline without requiring
 Check local readiness and configured model profiles:
 
 ```bash
+make doctor
 agents doctor
 agents doctor --json
 ```
