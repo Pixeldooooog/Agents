@@ -40,7 +40,11 @@ class Resp(BaseModel):
 
 
 def ok(response: Resp, data: Optional[Any] = None) -> Response:
-    logger.info("\n\n=====================DONE========================\n%s\n", response.info_dict)
+    logger.info(
+        "response success request_id=%s code=%s",
+        response.request_id or "",
+        response.code,
+    )
     return JSONResponse(
         status_code=http_status.HTTP_200_OK,
         content=jsonable_encoder(data if data is not None else response.resp_dict),
@@ -54,7 +58,13 @@ def fail(response: Resp) -> Response:
     if response.code == "0000":
         response.code = "9999"
 
-    logger.error("\n\n=====================DONE========================\n%s\n", response.info_dict)
+    logger.error(
+        "response failed request_id=%s code=%s http_status=%s detail_type=%s",
+        response.request_id or "",
+        response.code,
+        response.http_status,
+        type(response.detail).__name__,
+    )
     return JSONResponse(
         status_code=response.http_status,
         content=jsonable_encoder(response.resp_dict),
