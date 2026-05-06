@@ -150,8 +150,9 @@ TODO:
 - [x] Terminal command palette、status line、thinking/tool 中间状态和长内容折叠。
 - [x] Terminal input history、tool focus 和逐项 detail expand/collapse。
 - [ ] Terminal task monitor。
-- [ ] Web run timeline。
-- [ ] Web tool approval panel。
+- [x] Web run timeline。
+- [x] Web tool approval panel。
+- [x] Web run artifact summary。
 - [ ] Web workspace file/artifact browser。
 - [ ] Web task dashboard。
 - [ ] Web trace/context debugger。

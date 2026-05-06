@@ -249,7 +249,7 @@ export function createAgentSession() {
   return {
     baseUrl, setBaseUrl, token, setToken, protocol, setProtocol, model, setModel, modelBaseUrl, setModelBaseUrl,
     apiKey, setApiKey, systemPrompt, setSystemPrompt, enabledTools, setEnabledTools, permissionMode, setPermissionMode,
-    streaming, setStreaming, input, setInput, messages, activity, pendingApprovals, busy, health, latency, canSend,
+    streaming, setStreaming, input, setInput, messages, activity, pendingApprovals, runId, busy, health, latency, canSend,
     toolList, send, decideApproval, clear, checkHealth
   };
 }

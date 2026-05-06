@@ -48,6 +48,7 @@ agents.kernel       -> no platform, interface, FastAPI, bridge, or UI dependency
 - Long-term data stores for tenants/users, agent profiles, workspace records, memories, sandbox leases, and credential references.
 - Traceable run timelines through `agents.kernel.governance.tracing`, with separate approval audit records through `agents.kernel.governance.audit`.
 - Server chat APIs return `run_id`; streaming emits a `run_created` event before model/tool events.
+- Web UI can refresh the active run trace and display spans, approval records, sandbox events, and run artifacts.
 - Terminal coding profile runs on the agent kernel through a local NDJSON bridge, binds a local workspace, enables read/write/patch/search/git/test/shell tools, and keeps terminal UI concerns outside `agents.kernel`.
 
 ## Repository Layout

@@ -12,6 +12,7 @@ def test_frontend_is_split_into_focused_modules():
         "App.tsx",
         "components/ActionTimeline.tsx",
         "components/ChatThread.tsx",
+        "components/RunInspector.tsx",
         "components/SettingsDrawer.tsx",
         "runtime/agentSession.ts",
         "types.ts",
@@ -40,6 +41,14 @@ def test_action_timeline_language_is_product_visible():
     assert "Tool call" in timeline
     assert "Code execution" in timeline
     assert "Web search" in timeline
+
+
+def test_run_inspector_exposes_trace_and_artifacts():
+    inspector = (FRONTEND_SRC / "components/RunInspector.tsx").read_text(encoding="utf-8")
+
+    assert "/api/v1/agent/runs/" in inspector
+    assert "Artifacts" in inspector
+    assert "Timeline" in inspector
 
 
 def test_tool_approval_panel_exposes_scoped_decisions():

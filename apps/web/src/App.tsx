@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js";
 import { ActionTimeline } from "./components/ActionTimeline";
 import { ChatThread } from "./components/ChatThread";
+import { RunInspector } from "./components/RunInspector";
 import { SettingsDrawer } from "./components/SettingsDrawer";
 import { TopBar } from "./components/TopBar";
 import { createAgentSession } from "./runtime/agentSession";
@@ -40,7 +41,10 @@ export function App() {
           decideApproval={session.decideApproval}
           clear={session.clear}
         />
-        <ActionTimeline events={session.activity} open={activityOpen} />
+        <div class="side-stack" classList={{ "side-stack-open": activityOpen() }}>
+          <ActionTimeline events={session.activity} open={activityOpen} />
+          <RunInspector runId={session.runId} baseUrl={session.baseUrl} token={session.token} open={activityOpen} />
+        </div>
       </main>
       <SettingsDrawer
         open={settingsOpen}
