@@ -12,14 +12,14 @@
 - 执行隔离：文件读写、命令执行、测试运行、浏览器自动化等高风险操作进入 sandbox。
 - 治理系统：权限确认、审批、审计、追踪、凭证引用、payload 保护。
 - 长程任务：task、step、attempt、run、checkpoint、resume、worker。
-- 多租户：tenant/user/agent/workspace/run 的完整隔离和可追溯记录。
+- 多租户：tenant/user/agents/kernel/workspace/run 的完整隔离和可追溯记录。
 
 ## 三个平面
 
 当前架构按三个平面组织：
 
 ```text
-control plane  : gateway / runtime / model calls / credentials / permissions / audit / tracing
+control plane  : server / runtime / model calls / credentials / permissions / audit / tracing
 data plane     : workspace / memory / run records / checkpoints / task records / artifacts
 execution plane: sandbox provider / sandbox client / filesystem / shell / browser / tests
 ```
@@ -141,7 +141,7 @@ RemoteSandboxProvider
 | `git.status` | high | sandbox | 查看 Git 状态 |
 | `git.diff` | high | sandbox | 查看 diff |
 | `test.run` | high | sandbox | 运行测试命令 |
-| `browser.open` / `browser.download` | high | sandbox | 网络抓取并写入 artifacts/downloads |
+| `browser.open` / `browser.download` | high | sandbox | 网络抓取；默认写入 run artifact store，显式 path 才写 workspace |
 | `web.search` / `web.extract` | medium | control plane | Tavily provider，返回 sources/usage |
 | `web.map` | high | control plane | 站点 URL 发现 |
 | `shell.run` | high | sandbox | 兜底命令执行 |
@@ -168,8 +168,8 @@ web.search/extract/map -> Tavily provider -> normalized sources/usage/request_id
 网页抓取、页面解析、浏览器点击、下载文件适合进入 execution plane。当前 `browser.open` / `browser.download` 已经走 sandbox process/network 权限，真实点击、输入、截图需要后续 browser runtime provider：
 
 ```text
-browser.open/download -> SandboxClient -> sandbox process/network -> workspace/artifacts
-browser.click/type/screenshot -> SandboxClient -> browser runtime -> workspace/artifacts
+browser.open/download -> SandboxClient -> sandbox process/network -> artifact store or explicit workspace path
+browser.click/type/screenshot -> SandboxClient -> browser runtime -> artifact store
 ```
 
 ### Browser
@@ -184,13 +184,13 @@ browser.screenshot
 browser.download
 ```
 
-浏览器进程应运行在 sandbox 或 remote sandbox 内。下载文件和截图落到 workspace 的 artifacts 区域。
+浏览器进程应运行在 sandbox 或 remote sandbox 内。下载文件和截图默认落到 run-scoped artifact store；只有用户显式要求保存到项目路径时才写入 workspace。
 
 ### MCP
 
 MCP 分两类：
 
-- 远程可信 MCP：由 gateway 代理，凭证留在 control plane。
+- 远程可信 MCP：由 server 代理，凭证留在 control plane。
 - 本地或用户上传 MCP：必须跑在 sandbox 内，通过受控网络和文件权限访问 workspace。
 
 当前 MCP stdio loader 标记 `execution_mode` 和 `sandbox_profile` metadata，用于权限/UI/审计区分。真正的 local MCP sandbox provider 仍是后续工作，不能和 trusted control-plane MCP 混用。
@@ -236,7 +236,8 @@ Trace 和 audit 的边界不同：
 - trace tool span 关联 sandbox metadata。
 - run 结束时 release 对应 sandbox leases。
 - sandbox profiles：`restricted`、`coding`、`test`、`browser`。
-- workspace artifacts 目录：`artifacts/downloads`、`artifacts/screenshots`、`artifacts/logs`、`artifacts/snapshots`。
+- run artifact blob store：CLI 默认 `~/.agents/projects/{workspace_hash}/runs/{run_id}/artifacts/...`；Server 默认 `.agents/server/artifacts/{tenant_id}/{user_id}/{agent_id}/{workspace_id}/runs/{run_id}/artifacts/...`；数据库只保存 `artifact_records` 索引。
+- SQLite 表：`artifact_records`，记录 artifact URI、hash、size、kind、role 和 tool_call_id。
 - workspace snapshot/diff 记录。
 - web search 控制面工具：`web.search`、`web.extract`、`web.map`，当前 provider 为 Tavily。
 
@@ -251,8 +252,8 @@ Trace 和 audit 的边界不同：
 
 新增能力时遵守这些规则：
 
-- 只要会读写文件、执行命令、跑测试、启动浏览器、运行用户代码，就必须通过 `agent.capabilities.sandbox`。
-- 不要在 `agent.capabilities.tools.builtin` 里直接调用宿主 `Path.write_text` 或 `asyncio.create_subprocess_shell`。
+- 只要会读写文件、执行命令、跑测试、启动浏览器、运行用户代码，就必须通过 `agents.kernel.capabilities.sandbox`。
+- 不要在 `agents.kernel.capabilities.tools.builtin` 里直接调用宿主 `Path.write_text` 或 `asyncio.create_subprocess_shell`。
 - 不要让模型看到 Docker、容器 ID、宿主路径、密钥路径。
 - 不要为了兼容旧结构保留双通道执行。
 - 能用语义工具表达，就不要让模型写 shell。

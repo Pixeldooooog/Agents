@@ -1,6 +1,6 @@
 # Sandbox 模块说明
 
-`agent.capabilities.sandbox` 是执行资源边界。它的目标不是把 agent 放进容器，而是让所有高风险工具通过统一执行接口进入受控环境。
+`agents.kernel.capabilities.sandbox` 是执行资源边界。它的目标不是把 agent 放进容器，而是让所有高风险工具通过统一执行接口进入受控环境。
 
 ## 关键概念
 
@@ -17,13 +17,13 @@ WorkspaceContext -> SandboxPolicy -> SandboxProvider -> SandboxClient -> Tool Re
 ## 文件结构
 
 ```text
-agent/capabilities/sandbox/
+agents/kernel/capabilities/sandbox/
   types.py    协议、lease、结构化结果
   local.py    本地 workspace 执行
   docker.py   Docker workspace 挂载执行
   factory.py  settings -> provider/client
   store.py    lease/event store
-  workspace.py artifact 目录和 workspace snapshot/diff
+  workspace.py run-scoped artifact layout 和 workspace snapshot/diff
 ```
 
 ## 为什么放在 capabilities 下
@@ -82,23 +82,22 @@ sandbox_{run_id}_{task_id}
 
 写入类工具例如 `patch.apply`、`browser.open`、`browser.download` 仍然只看到模型层的语义工具；真正的文件写入、进程执行、网络访问都要先通过 `SandboxPolicy`。
 
-run 完成或失败时，gateway 会把该 run 下的 sandbox leases 标记为 `released`。这让 trace、sandbox events、run record 和 task step 能串成同一条操作动线。
+run 完成或失败时，server 会把该 run 下的 sandbox leases 标记为 `released`。这让 trace、sandbox events、run record 和 task step 能串成同一条操作动线。
 
 ## Artifacts And Snapshots
 
-每个 workspace 会创建固定 artifact 目录：
+workspace 文件和 runtime artifact 是两类不同的数据。用户要求生成的代码、文档、数据文件写入 workspace 正常路径；工具中间产物、截图、下载页面、raw 响应和日志进入控制面的 run-scoped artifact blob store：
 
 ```text
-artifacts/
-artifacts/downloads/
-artifacts/screenshots/
-artifacts/logs/
-artifacts/snapshots/
+CLI:    ~/.agents/projects/{workspace_hash}/runs/{run_id}/artifacts/{downloads,screenshots,logs,raw}/
+Server: .agents/server/artifacts/{tenant_id}/{user_id}/{agent_id}/{workspace_id}/runs/{run_id}/artifacts/{downloads,screenshots,logs,raw}/
 ```
+
+CLI 默认不写数据库，使用内存态 run/checkpoint/trace/artifact index，artifact 文件写到用户级项目缓存。Server 默认写 SQLite，`artifact_records` 只保存 URI、hash、size、kind、role、run_id、task_id 和 tool_call_id，不保存大文件本体。托管部署可以把同一个 artifact blob store 替换为对象存储。
 
 本地默认 workspace 会落在 `.agents/workspaces/local/default`。`tenant_id / user_id / agent_id / workspace_id` 仍作为逻辑 scope 记录到 run、memory、permission 和 sandbox audit 里；真实多租户部署可以通过 scoped workspace layout 落盘到 `.agents/workspaces/{tenant_id}/{user_id}/{agent_id}/{workspace_id}`。
 
-工具执行前会记录 `before` workspace snapshot，工具执行后会记录 `after` snapshot 和 diff summary。snapshot 默认跳过 `.git`、`.venv`、`node_modules`、`__pycache__` 和 `artifacts`，避免把依赖目录和运行产物误当成代码变更。
+工具执行前会记录 `before` workspace snapshot，工具执行后会记录 `after` snapshot 和 diff summary。snapshot 默认跳过 `.agents`、`.git`、`.venv`、`node_modules` 和 `__pycache__`，避免把依赖目录和运行态数据误当成用户代码变更。
 
 ## 和早期代码片段执行器的关系
 

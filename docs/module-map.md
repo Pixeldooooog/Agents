@@ -5,18 +5,20 @@
 ## 总体边界
 
 ```text
-web  -> gateway -> agent
-tui  -> cli.bridge -> agent
-cli  -> agent
+apps/web      -> agents.interfaces.server -> agents.platform -> agents.kernel
+apps/terminal -> agents.interfaces.bridge -> agents.platform -> agents.kernel
+interfaces    -> platform + kernel schema/assembly
+platform      -> kernel
 ```
 
-- `agent` 是核心 SDK/kernel，不依赖 FastAPI、web UI 或 CLI。
-- `gateway` 是 HTTP/SSE 服务适配层，负责外部协议、run 生命周期和持久化组合。
-- `tui` 是 TypeScript/Ink 本地终端前端，负责高质量交互体验。
-- `cli` 是 Python 本地适配层，包含 TUI NDJSON bridge 和 Python fallback CLI。
-- `web` 是浏览器界面。
+- `agents.kernel` 是核心 SDK/kernel，不依赖 FastAPI、platform、interfaces 或 UI。
+- `agents.platform` 是共享运行控制层，负责 run/session、persistence、profile、commands 等可复用控制逻辑。
+- `agents.interfaces.server` 是 HTTP/SSE 服务适配层，负责外部协议和 Web UI 静态挂载。
+- `agents.interfaces.bridge` 是 Python 本地 NDJSON 适配层，负责终端 app 到 kernel/platform 的协议转换。
+- `apps/terminal` 是 TypeScript/Ink 本地终端产品，负责高质量交互体验。
+- `apps/web` 是浏览器界面。
 
-## agent.assembly
+## agents.kernel.assembly
 
 职责：
 
@@ -28,7 +30,7 @@ cli  -> agent
 
 为什么这样做：
 
-- 保留一个明确的 SDK 入口，避免 gateway、cli、测试各自拼 session。
+- 保留一个明确的 SDK 入口，避免 server、bridge、测试各自拼 session。
 - 让 agent 内核可以被外部项目直接作为库使用。
 
 后续方向：
@@ -36,18 +38,18 @@ cli  -> agent
 - 扩展不同 agent profile 的装配策略，例如 coding agent、browser agent、research agent。
 - 支持 profile 化装配，例如 coding agent、browser agent、research agent。
 
-## agent.config
+## agents.kernel.config
 
 职责：
 
 - 读取 `config/defaults.toml`、`config/local.toml`、`.env` 和 shell env。
-- 提供 CLI 与 gateway 共用的 runtime settings。
+- 提供 bridge 与 server 共用的 runtime settings。
 - 解析模型 protocol fallback、API key、base URL、model、proxy。
-- 解析命名 model profile，供 CLI `/model` 和后续 Web 设置页选择。
+- 解析命名 model profile，供 Terminal `/model` 和后续 Web 设置页选择。
 
 为什么这样做：
 
-- `cli` 应该直接依赖 `agent`，不能为了读配置 import `gateway`。
+- `agents.interfaces.bridge` 应该通过 kernel/platform 读取配置，不能为了读配置 import server。
 - model profile 是“配置组”，protocol 是“模型 API 协议”，二者必须分开，避免出现 `openai-chat/kimi` 这类语义混乱。
 
 后续方向：
@@ -55,7 +57,7 @@ cli  -> agent
 - 导出 model profile schema 给 Web 设置页。
 - 增加配置诊断，明确显示缺 key、缺 model、endpoint 不可达等状态。
 
-## agent.models
+## agents.kernel.models
 
 职责：
 
@@ -74,7 +76,7 @@ cli  -> agent
 - 更完整地保存 request/response trace。
 - 对 protocol-specific tool call 修复做统一归一化。
 
-## agent.context
+## agents.kernel.context
 
 职责：
 
@@ -94,7 +96,7 @@ cli  -> agent
 - task/run scoped context injection。
 - 压缩摘要持久化和引用追踪。
 
-## agent.capabilities.tools
+## agents.kernel.capabilities.tools
 
 职责：
 
@@ -114,7 +116,7 @@ cli  -> agent
 - 工具执行事件统一写入 trace。
 - tool result schema validation。
 
-## agent.capabilities.sandbox
+## agents.kernel.capabilities.sandbox
 
 职责：
 
@@ -132,13 +134,13 @@ cli  -> agent
 当前结构：
 
 ```text
-agent/capabilities/sandbox/
+agents/kernel/capabilities/sandbox/
   types.py    协议、lease、结构化结果
   local.py    本地执行 provider
   docker.py   Docker 执行 provider
   factory.py  从 settings 创建 provider/client
   store.py    lease/event 持久化接口和实现
-  workspace.py artifacts 和 workspace snapshot/diff
+  workspace.py run-scoped artifact layout 和 workspace snapshot/diff
 ```
 
 后续方向：
@@ -147,7 +149,7 @@ agent/capabilities/sandbox/
 - resource quotas 和 remote execution lifecycle。
 - browser/runtime-specific sandbox providers，用于 click/type/screenshot 等真实浏览器动作。
 
-## agent.capabilities.skills
+## agents.kernel.capabilities.skills
 
 职责：
 
@@ -157,7 +159,7 @@ agent/capabilities/sandbox/
 
 为什么这样做：
 
-- skill 是 agent 能力的一部分，但不应该散落到 runtime 或 gateway。
+- skill 是 agent 能力的一部分，但不应该散落到 runtime 或 server。
 - 纯 prompt skill 和执行型 skill 要分层处理。
 
 后续方向：
@@ -166,7 +168,7 @@ agent/capabilities/sandbox/
 - skill 版本锁定。
 - 执行型 skill 统一走 sandbox。
 
-## agent.capabilities.web
+## agents.kernel.capabilities.web
 
 职责：
 
@@ -187,12 +189,12 @@ agent/capabilities/sandbox/
 - per-tenant search quota。
 - crawl 工具需要 approval 和 quota 完整后再暴露。
 
-## agent.capabilities.memory
+## agents.kernel.capabilities.memory
 
 职责：
 
 - 定义长期 memory record 和 store。
-- 由 `agent.context.memory` 按 scope 检索并注入上下文。
+- 由 `agents.kernel.context.memory` 按 scope 检索并注入上下文。
 
 为什么这样做：
 
@@ -205,7 +207,7 @@ agent/capabilities/sandbox/
 - 用户级、agent 级、workspace 级、run 级 memory 策略。
 - memory 写入审批和可见性控制。
 
-## agent.runtime
+## agents.kernel.runtime
 
 职责：
 
@@ -217,7 +219,7 @@ agent/capabilities/sandbox/
 
 为什么这样做：
 
-- runtime 是内核，不关心 HTTP、web UI、CLI。
+- runtime 是内核，不关心 HTTP、web UI、Terminal。
 - 模型回合和工具回合拆开，方便测试和扩展。
 
 后续方向：
@@ -228,7 +230,7 @@ agent/capabilities/sandbox/
 - deterministic replay。
 - richer runtime state snapshots。
 
-## agent.governance
+## agents.kernel.governance
 
 职责：
 
@@ -250,7 +252,7 @@ agent/capabilities/sandbox/
 - tenant/user/agent 级权限继承。
 - 审计查询 API。
 
-## agent.state
+## agents.kernel.state
 
 职责：
 
@@ -259,8 +261,8 @@ agent/capabilities/sandbox/
 
 为什么这样做：
 
-- 状态域比 runtime 更长寿，不能散落在工具或 gateway 代码里。
-- gateway 只选择 store，不拥有业务语义。
+- 状态域比 runtime 更长寿，不能散落在工具或 interface 代码里。
+- platform 只选择和组合 store，不拥有底层业务语义。
 
 后续方向：
 
@@ -268,7 +270,7 @@ agent/capabilities/sandbox/
 - agent profile versioning。
 - tenant/user auth 绑定。
 
-## agent.tasks
+## agents.kernel.tasks
 
 职责：
 
@@ -288,7 +290,7 @@ agent/capabilities/sandbox/
 - scheduled task。
 - multi-agent workflow execution。
 
-## agent.orchestration 与 agent.workflows
+## agents.kernel.orchestration 与 agents.kernel.workflows
 
 职责：
 
@@ -305,21 +307,41 @@ agent/capabilities/sandbox/
 - workflow executor。
 - cross-agent shared workspace policy。
 
-## gateway
+## agents.platform
+
+职责：
+
+- run/session 生命周期服务。
+- run/checkpoint/trace/audit/identity/profile/workspace/memory/credential/task/sandbox store 组合。
+- Terminal coding/chat/browser profile、默认工具、权限模式和 workspace 解析。
+- slash command 元数据。
+
+为什么这样做：
+
+- run/session/persistence/profile 不是 HTTP 专属，也不是 kernel 内核逻辑。
+- server 和 bridge 必须共享同一套控制语义，否则本地和云端行为会分叉。
+- platform 只依赖 kernel，不依赖 server、bridge 或 UI。
+
+后续方向：
+
+- session registry 和 run resume/cancel/interrupt。
+- durable worker/queue service。
+- workspace selector 和 hosted tenant binding。
+- model profile health diagnostics。
+
+## agents.interfaces.server
 
 职责：
 
 - HTTP/SSE API。
 - 请求 schema 和 response schema。
-- run lifecycle service。
-- persistence service container。
 - future auth/session。
 - static UI mount。
 
 为什么这样做：
 
-- gateway 是服务适配层，不拥有 agent 内核逻辑。
-- web 只通过 gateway 访问 agent。
+- server 是服务适配层，不拥有 agent 内核逻辑。
+- web 只通过 server 访问 platform/kernel。
 
 后续方向：
 
@@ -328,24 +350,24 @@ agent/capabilities/sandbox/
 - approval/websocket protocol。
 - background worker service。
 
-## tui
+## apps/terminal
 
 职责：
 
 - 本地终端前端体验。
 - 渲染欢迎页、消息流、tool timeline、model profiles、approval prompt。
 - 提供 slash command、`@file` 输入补全和快捷键。
-- 通过 NDJSON 与 `cli.bridge` 通信。
+- 通过 NDJSON 与 `agents.interfaces.bridge` 通信。
 
 当前结构：
 
 ```text
-tui/src/
+apps/terminal/src/
   App.tsx                 会话级状态、bridge event 路由、全局快捷键
   protocol/               NDJSON bridge client/types
   ui/                     命令定义、显示格式、主题 token、runtime event/markdown/diff/text helpers
   hooks/                  输入状态机、@file suggestions、输入队列、tool timeline、live draft、ticker/blink hooks
-  components/design/      Dialog、Select、Divider、StatusIcon 等 TUI 设计系统
+  components/design/      Dialog、Select、Divider、StatusIcon 等 Terminal 设计系统
   components/messages/    user/assistant/thinking/tool/status/table/model 消息族
   components/prompt/      输入框、footer、slash/file suggestions、history search
   components/permissions/ permission request body/options/dialog family
@@ -354,7 +376,7 @@ tui/src/
 
 为什么这样做：
 
-- TUI 是产品界面，应该可以使用 Ink/React 组件化表达，而不是把复杂交互压进 Python print/Rich。
+- Terminal 是产品界面，应该可以使用 Ink/React 组件化表达，而不是把复杂交互压进 Python print/Rich。
 - 前端只关心显示协议，不直接耦合 agent runtime 内部对象。
 - 可以更接近 Claude Code/Codex/Nexus Code 的终端交互质量。
 - design/messages/prompt 分层后，后续对齐 Claude Code/Nexus Code 时可以逐个模块替换，而不是改一个巨大终端脚本。
@@ -363,7 +385,7 @@ tui/src/
 - `components/MarkdownBlock.tsx` + `ui/markdown.ts` 负责终端 Markdown 渲染，assistant/thinking 消息不再只是纯文本输出。
 - `components/tools/DiffPreview.tsx` + `ui/diff.ts` 负责 patch/git unified diff 预览，文件修改结果不再混在 JSON raw output 里。
 - `ui/textBuffer.ts` 收束 Unicode-safe 输入编辑操作，slash picker 和 prompt input 共享同一套字符处理。
-- `hooks/useFileSuggestions.ts` 只在 TUI 层索引本地文件，用 `@file` 提升输入体验，不把文件联想逻辑塞进 agent runtime。
+- `hooks/useFileSuggestions.ts` 只在 Terminal 层索引本地文件，用 `@file` 提升输入体验，不把文件联想逻辑塞进 agent runtime。
 
 后续方向：
 
@@ -373,19 +395,19 @@ tui/src/
 - running turn input queue 已具备基础排队，后续补 interrupt/cancel。
 - task run monitor。
 
-## cli
+## agents.interfaces.bridge
 
 职责：
 
-- `cli.bridge`：TUI 与 agent 的本地 NDJSON 协议适配。
-- `cli.main`：Python fallback 终端入口。
+- `agents.interfaces.bridge.ndjson`：Terminal 与 kernel/platform 的本地 NDJSON 协议适配。
+- `agents.interfaces.bridge.fallback`：仅用于调试的 Python fallback 终端入口。
 - 解析本地 profile、workspace、permission、model profile 参数。
-- 将 slash commands 转为 agent/session 操作。
+- 将 slash commands 转为 session 操作。
 
 为什么这样做：
 
-- 本地交互不需要走 HTTP round trip，但 UI 也不应该直接 import agent 内部 Python 对象。
-- bridge 把“本地进程协议”和“agent SDK 装配”收束在 Python 侧，保持 `agent/` 不依赖 UI。
+- 本地交互不需要走 HTTP round trip，但 UI 也不应该直接 import kernel 内部 Python 对象。
+- bridge 把“本地进程协议”和“agent SDK 装配”收束在 Python 侧，保持 `agents.kernel` 不依赖 UI。
 
 后续方向：
 
@@ -393,7 +415,7 @@ tui/src/
 - task run monitor bridge events。
 - workspace selector bridge events。
 
-## web
+## apps/web
 
 职责：
 
@@ -402,7 +424,7 @@ tui/src/
 
 为什么这样做：
 
-- web 是 UI，不应该实现 agent 决策逻辑。
+- apps/web 是 UI，不应该实现 agent 决策逻辑。
 
 后续方向：
 

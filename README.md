@@ -1,23 +1,22 @@
 # Agents
 
-Agents is a Python-first agent system organized as a reusable agent core plus service and UI adapters.
+Agents is a Python-first agent system organized as a reusable kernel, a shared platform/control layer, and product interfaces.
 
 The project boundary is intentionally strict:
 
 ```text
-web  -> gateway HTTP/SSE -> agent
-tui  -> cli bridge -> agent
-cli  -> agent
+apps/web      -> agents.interfaces.server -> agents.platform -> agents.kernel
+apps/terminal -> agents.interfaces.bridge -> agents.platform -> agents.kernel
 
-gateway -> agent
-agent   -> no gateway, FastAPI, or UI dependency
+agents.interfaces.* -> agents.platform -> agents.kernel
+agents.kernel       -> no platform, interface, FastAPI, bridge, or UI dependency
 ```
 
-`agent/` is the core SDK/kernel. It defines agent specs, model protocols, context assembly, capabilities, governance, runtime loops, checkpoints, run records, workspaces, skills, memory, and MCP integration.
+`src/agents/kernel/` is the core SDK/kernel. It defines agent specs, model protocols, context assembly, capabilities, governance, runtime loops, checkpoints, run records, workspaces, skills, memory, and MCP integration.
 
-`gateway/` is the service adapter. It exposes the agent core over HTTP/SSE, owns request/response schemas, service concurrency, run lifecycle tracking, and future auth/session persistence.
+`src/agents/platform/` is the shared control plane. It owns run/session lifecycle services, store composition, terminal profiles, and command metadata that must be reused by both local and hosted interfaces.
 
-`tui/`, `cli/`, and `web/` are interfaces. They should not implement agent logic. The default terminal client is a TypeScript Ink UI that talks to the Python agent core through an NDJSON bridge in `cli.bridge`.
+`src/agents/interfaces/server/` is the HTTP/SSE adapter. `src/agents/interfaces/bridge/` is the local NDJSON adapter used by the terminal product. `apps/terminal/` and `apps/web/` are UI products and do not import Python kernel internals.
 
 ## Technical Documentation
 
@@ -43,47 +42,57 @@ agent   -> no gateway, FastAPI, or UI dependency
 - Memory retrieval and deterministic context compaction integrated into session assembly/windowing for long-context runs.
 - Multi-agent role/router and workflow DAG primitives for future planner/worker/reviewer orchestration.
 - Governance security primitives for secret redaction and pluggable payload protection providers.
-- Workspace isolation through `tenant_id / user_id / agent_id / workspace_id`, with a compact local filesystem layout for dev and CLI usage.
+- Workspace isolation through `tenant_id / user_id / agent_id / workspace_id`, with a compact local filesystem layout for dev and terminal usage.
 - Run tracking through `RunStore`, backed by memory, local JSON files, or SQLite.
 - SQLite persistence for run records, runtime events, checkpoints, approval audit, and trace spans.
 - Long-term data stores for tenants/users, agent profiles, workspace records, memories, sandbox leases, and credential references.
-- Traceable run timelines through `agent.governance.tracing`, with separate approval audit records through `agent.governance.audit`.
-- Gateway chat APIs return `run_id`; streaming emits a `run_created` event before model/tool events.
-- Terminal coding profile runs on the agent core through a local NDJSON bridge, binds a local workspace, enables read/write/patch/search/git/test/shell tools, and keeps terminal UI concerns outside `agent/`.
+- Traceable run timelines through `agents.kernel.governance.tracing`, with separate approval audit records through `agents.kernel.governance.audit`.
+- Server chat APIs return `run_id`; streaming emits a `run_created` event before model/tool events.
+- Terminal coding profile runs on the agent kernel through a local NDJSON bridge, binds a local workspace, enables read/write/patch/search/git/test/shell tools, and keeps terminal UI concerns outside `agents.kernel`.
 
 ## Repository Layout
 
 ```text
-agent/
-  assembly/       Build AgentSession from settings + AgentSpec
-  capabilities/   Tools, skills, MCP loading, and memory capability APIs
-    sandbox/      Local/Docker sandbox clients and sandbox lease records
-  config/         Shared runtime settings, config loader, and model profile resolution
-  context/        ContextPack, ContextBuilder, windowing, request compilation
-  governance/     Permissions, credentials, audit, tracing
-  hooks/          Runtime hooks and hook composition
-  models/         ModelClient, adapters, protocol, transports, retry, errors
-  orchestration/  Future multi-agent planner/router/supervisor boundary
-  persistence/    Shared local persistence primitives
-  runtime/        Agent loop, session, state, events, turns, checkpoints
-  specs/          AgentSpec, model/workspace/permission specs
-  state/          Runs, identity, agent profiles, workspace records
-  tasks/          Long-running task, step, and attempt state machine
-  workflows/      Future workflow/DAG boundary
-  schema.py       Core message/tool/model/runtime data types
+src/
+  agents/
+    kernel/
+      assembly/       Build AgentSession from settings + AgentSpec
+      capabilities/   Tools, skills, MCP loading, and memory capability APIs
+        sandbox/      Local/Docker sandbox clients and sandbox lease records
+      config/         Shared runtime settings, config loader, and model profile resolution
+      context/        ContextPack, ContextBuilder, windowing, request compilation
+      governance/     Permissions, credentials, audit, tracing
+      hooks/          Runtime hooks and hook composition
+      models/         ModelClient, adapters, protocol, transports, retry, errors
+      orchestration/  Future multi-agent planner/router/supervisor boundary
+      persistence/    Shared local persistence primitives
+      runtime/        Agent loop, session, state, events, turns, checkpoints
+      specs/          AgentSpec, model/workspace/permission specs
+      state/          Runs, identity, agent profiles, workspace records
+      tasks/          Long-running task, step, and attempt state machine
+      workflows/      Future workflow/DAG boundary
+      schema.py       Core message/tool/model/runtime data types
 
-gateway/
-  api/            FastAPI routes and HTTP schemas
-  auth/           Future auth boundary
-  core/           Server settings, logging, middleware, exceptions
-  services/       Cross-cutting gateway service containers
-  sessions/       Gateway run lifecycle service
-  streaming/      Future SSE/WebSocket protocol helpers
-  static_ui.py    Mounts web/dist at /ui
+    platform/
+      commands.py     Shared slash command metadata
+      persistence.py  Store composition for runs, checkpoints, traces, tasks, memory
+      profiles.py     Local profile/tool/permission defaults
+      sessions/       Run lifecycle service and store factories
 
-tui/              TypeScript Ink terminal interface
-cli/              Python fallback CLI and NDJSON bridge for tui/
-web/              SolidJS + Vite browser interface
+    interfaces/
+      server/
+        api/          FastAPI routes and HTTP schemas
+        auth/         Future auth boundary
+        core/         Server settings, logging, middleware, exceptions
+        streaming/    Future SSE/WebSocket protocol helpers
+        static.py     Mounts apps/web/dist at /ui
+      bridge/         Internal NDJSON bridge for the terminal app
+
+    entrypoints/      Console entrypoints
+
+apps/
+  terminal/       TypeScript Ink terminal interface
+  web/            SolidJS + Vite browser interface
 tests/            Unit and boundary tests
 docs/             Architecture notes
 ```
@@ -95,9 +104,9 @@ make setup
 cp .env.example .env
 ```
 
-Edit `.env` and configure at least one model protocol API key and model. `make setup` installs Python dependencies, the web frontend dependencies, and the Ink TUI dependencies when `bun` is available.
+Edit `.env` and configure at least one model protocol API key and model. `make setup` installs Python dependencies, the web frontend dependencies, and the terminal app dependencies when `bun` is available.
 
-Start the gateway:
+Start the server:
 
 ```bash
 make run
@@ -107,38 +116,36 @@ curl http://127.0.0.1:8010/health
 Start the terminal chat:
 
 ```bash
-make cli
+make terminal
 ```
 
-`make cli` starts the TypeScript Ink terminal frontend. It launches the Python bridge locally, binds the current directory as the workspace, enables coding tools, and asks before write/execute tools. The older Python terminal is still available for debugging:
+`make terminal` starts the TypeScript Ink terminal frontend. It launches the Python bridge locally, binds the current directory as the workspace, enables coding tools, and asks before write/execute tools. The Python fallback remains only as a bridge/debug path:
 
 ```bash
-make cli-python
-# or
-agents chat --model-profile openai-chat
+make bridge-fallback
 ```
 
 For a different workspace:
 
 ```bash
-make cli ARGS="--workspace-path ./sandbox-game"
+make terminal ARGS="--workspace-path ./sandbox-game"
 ```
 
 Useful terminal switches are forwarded to the Python bridge:
 
 ```bash
-make cli ARGS="--profile chat"                  # read-oriented chat profile
-make cli ARGS="--profile coding"                # local coding profile, default
-make cli ARGS="--profile browser"               # coding tools plus browser/web tools
-make cli ARGS="--permission auto"               # run enabled tools without approval prompts
-make cli ARGS="--permission guarded"            # read automatically, confirm writes/commands
-make cli ARGS="--tools filesystem.read,patch.apply,test.run"
+make terminal ARGS="--profile chat"                  # read-oriented chat profile
+make terminal ARGS="--profile coding"                # local coding profile, default
+make terminal ARGS="--profile browser"               # coding tools plus browser/web tools
+make terminal ARGS="--permission auto"               # run enabled tools without approval prompts
+make terminal ARGS="--permission guarded"            # read automatically, confirm writes/commands
+make terminal ARGS="--tools filesystem.read,patch.apply,test.run"
 ```
 
 Inside the terminal chat:
 
 ```text
-/help       show CLI commands
+/help       show terminal commands
 /status     show protocol, workspace, permission, token estimate
 /model      show configured model profiles and switch with /model <profile>
 /models     alias for /model
@@ -155,7 +162,7 @@ Inside the terminal chat:
 /exit       leave the chat
 ```
 
-Ink TUI shortcuts:
+Terminal shortcuts:
 
 ```text
 up/down    browse input history, or move inside an active picker/suggestion list
@@ -184,8 +191,8 @@ make test
 
 ## Configuration
 
-Agent, CLI, and gateway share runtime configuration through `agent.config`.
-`gateway.core.config.settings` is the service-facing aggregate that adds server/logging settings on top of the shared agent config.
+Kernel, platform, bridge, and server share runtime configuration through `agents.kernel.config`.
+`agents.interfaces.server.core.config.settings` is the service-facing aggregate that adds server/logging settings on top of the shared agent config.
 
 Non-secret defaults are committed in `config/defaults.toml`. Local non-secret overrides belong in `config/local.toml`, which is gitignored. `.env` should stay focused on tokens, secrets, and deployment-only overrides.
 
@@ -223,7 +230,7 @@ Model protocol names:
 
 Claude-compatible config prefers project-owned `AGENT_CLAUDE_*` values before falling back to ambient `ANTHROPIC_*` values.
 
-The terminal CLI builds `/model` choices from configured model profile groups. The standard groups are `OPENAI_*`, `OPENAI_RESPONSES_*`, `AGENT_CLAUDE_*`, and `GEMINI_*`. For named OpenAI-compatible endpoints such as Kimi, add a profile group:
+The terminal app builds `/model` choices from configured model profile groups. The standard groups are `OPENAI_*`, `OPENAI_RESPONSES_*`, `AGENT_CLAUDE_*`, and `GEMINI_*`. For named OpenAI-compatible endpoints such as Kimi, add a profile group:
 
 ```bash
 AGENT_MODEL_PROFILES=kimi
@@ -234,7 +241,7 @@ AGENT_MODEL_PROFILE_KIMI_API_KEY=
 AGENT_MODEL_PROFILE_KIMI_ALIASES=moonshot
 ```
 
-Then switch the whole protocol/base URL/model/key group with `/model kimi`, or start directly with `make cli ARGS="--model-profile kimi"`.
+Then switch the whole protocol/base URL/model/key group with `/model kimi`, or start directly with `make terminal ARGS="--model-profile kimi"`.
 
 Run records use memory by default. To keep run records as local JSON files:
 
@@ -252,7 +259,7 @@ AGENT_DB_PATH=.agents/agents.db
 
 ## Sandbox And Workspace Model
 
-The agent runtime does not run inside the sandbox. Runtime, gateway, model calls, credentials, approval state, traces, and audit records stay in the control plane. The sandbox is the execution plane for high-risk native tools.
+The agent runtime does not run inside the sandbox. Runtime, server, model calls, credentials, approval state, traces, and audit records stay in the control plane. The sandbox is the execution plane for high-risk native tools.
 
 ```text
 model -> runtime -> tool registry -> builtin tool -> SandboxClient -> local/docker execution -> workspace
@@ -300,16 +307,33 @@ Builtin tools are semantic APIs, not direct container controls:
 | `web.map` | high | Control-plane site URL discovery; not enabled by default. |
 | `git.status`, `git.diff` | high | Requires process permission for `git`. |
 | `test.run` | high | Runs an allowlisted test command. |
-| `browser.open`, `browser.download` | high | Requires file write, process, and network permission; stores outputs under workspace paths. |
+| `browser.open`, `browser.download` | high | Requires file write, process, and network permission; stores internal outputs in the run artifact store unless an explicit workspace path is provided. |
 | `shell.run` | high | Fallback escape hatch; prefer native tools. |
 
-Network-capable tools have two execution modes. `web.search`, `web.extract`, and `web.map` are control-plane tools for API-backed information retrieval; provider credentials and credit policy stay outside the sandbox. `browser.open` and `browser.download` execute through sandbox process/network permission and write outputs into the workspace. Full interactive browser tools such as click/type/screenshot still need a dedicated browser runtime provider.
+Network-capable tools have two execution modes. `web.search`, `web.extract`, and `web.map` are control-plane tools for API-backed information retrieval; provider credentials and credit policy stay outside the sandbox. `browser.open` and `browser.download` execute through sandbox process/network permission. Internal fetches, screenshots, raw pages, and logs are stored in the control-plane artifact blob store; explicit user-requested paths still write normal workspace files. Full interactive browser tools such as click/type/screenshot still need a dedicated browser runtime provider.
 
 Approval events include a tool impact payload with risk, paths, commands, network domains, write flags, external disclosure flags, cost estimates, and patch previews. Approval audit records persist the same impact payload for later review.
 
 MCP stdio tools currently run as trusted control-plane extensions by default and are tagged with `MCP_EXECUTION_MODE` metadata. Untrusted local MCP servers should not be enabled until a sandboxed MCP provider is configured.
 
-Each workspace also gets stable artifact directories under `artifacts/`, including `downloads/`, `screenshots/`, `logs/`, and `snapshots/`. Sandbox runs record workspace snapshots before and after tool execution, with diff summaries stored alongside sandbox events.
+Workspace files and runtime artifacts are separate. User deliverables stay in the workspace. Tool artifacts are run-scoped control-plane blobs and are indexed by `artifact_records`; file bodies do not live in the workspace unless the user explicitly asks for a workspace path.
+
+Local terminal sessions use an ephemeral in-memory control plane and write artifact files under a per-project cache:
+
+```text
+~/.agents/projects/{workspace_hash}/runs/{run_id}/artifacts/downloads/
+~/.agents/projects/{workspace_hash}/runs/{run_id}/artifacts/screenshots/
+~/.agents/projects/{workspace_hash}/runs/{run_id}/artifacts/logs/
+~/.agents/projects/{workspace_hash}/runs/{run_id}/artifacts/raw/
+```
+
+The HTTP server uses durable SQLite-backed control-plane state by default. Its local artifact blob root is scoped by tenant/user/agent/workspace and can later be replaced with object storage without changing the tool contract:
+
+```text
+.agents/server/artifacts/{tenant_id}/{user_id}/{agent_id}/{workspace_id}/runs/{run_id}/artifacts/downloads/
+```
+
+The database stores artifact references in `artifact_records`: URI, hash, size, kind, role, run id, task id, and tool call id. Sandbox runs still record workspace snapshots before and after tool execution, but snapshots skip `.agents`, `.git`, `.venv`, `node_modules`, and `__pycache__` so internal runtime state is not reported as user code changes.
 
 ## HTTP API
 
@@ -355,7 +379,7 @@ data: {"type":"run_created","name":"run","payload":{"run_id":"run_..."}}
 
 Then the stream emits runtime events such as `text_delta`, `reasoning_delta`, `tool_approval_required`, `tool_approval_decision`, `tool_start`, `tool_result`, `error`, and `done`.
 
-Create and run a long-running task through the gateway:
+Create and run a long-running task through the server:
 
 ```bash
 curl -X POST http://127.0.0.1:8010/api/v1/agent/tasks \
@@ -413,7 +437,7 @@ curl -X POST http://127.0.0.1:8010/api/v1/agent/runs/run_.../approval \
   -d '{"tool_call_ids":["call_..."],"approved":true}'
 ```
 
-The web UI uses this endpoint for the Approve/Deny panel. The gateway owns the HTTP flow; `agent/runtime` owns the pause/resume semantics.
+The web UI uses this endpoint for the Approve/Deny panel. The server owns the HTTP flow; `agents.kernel.runtime` owns the pause/resume semantics.
 
 ## Agent And Run Model
 
@@ -425,21 +449,22 @@ External callers construct an `AgentSpec`. The spec carries:
 - tool permission mode/rules and memory profile names
 - metadata
 
-Gateway and CLI convert request/options into `AgentSpec`, then call:
+Server routes and the terminal bridge convert request/options into `AgentSpec`, then call:
 
 ```python
-from agent.assembly import create_agent_session, create_agent_session_async
+from agents.kernel.assembly import create_agent_session, create_agent_session_async
 ```
 
-Each chat request creates a new run. `run_id` is generated by the gateway run service and passed into `AgentSession.send()` or `AgentSession.stream()`. Runtime checkpoints, gateway run records, trace spans, and approval audit records share that same ID. In file mode, each run is stored as one JSON document under `AGENT_RUN_ROOT`. In SQLite mode, runs, runtime events, checkpoints, trace spans, approval audit records, and long-term domain records share `AGENT_DB_PATH`.
+Each chat request creates a new run. `run_id` is generated by `agents.platform.sessions.RunService` and passed into `AgentSession.send()` or `AgentSession.stream()`. Runtime checkpoints, platform run records, trace spans, and approval audit records share that same ID. In file mode, each run is stored as one JSON document under `AGENT_RUN_ROOT`. In SQLite mode, runs, runtime events, checkpoints, trace spans, approval audit records, and long-term domain records share `AGENT_DB_PATH`.
 
 SQLite domain tables:
 
 | Table | Purpose |
 |---|---|
-| `tenants`, `users` | Identity scope used by later gateway auth. |
+| `tenants`, `users` | Identity scope used by later server auth. |
 | `agent_profiles` | Stored agent definitions without API keys. |
 | `workspace_records` | Workspace ownership, path, status, and metadata. |
+| `artifact_records` | Run-scoped tool artifacts and workspace-output references; stores URI, hash, size, type, and tool call linkage. |
 | `memory_records` | User, agent, workspace, and run-scoped memories. |
 | `tasks`, `task_steps`, `task_attempts` | Long-running task state, step lifecycle, and retry attempts. |
 | `sandbox_leases`, `sandbox_events`, `sandbox_workspace_snapshots` | Sandbox execution leases, tool execution events, and workspace diff snapshots. |
@@ -458,14 +483,14 @@ run_id       generated per request
 
 ## Web UI
 
-Build and serve through the gateway:
+Build and serve through the server:
 
 ```bash
-cd web && npm run build
+cd apps/web && npm run build
 make run
 ```
 
-When `web/dist/` exists, the gateway mounts it at `/ui/` and redirects `/` to `/ui/`.
+When `apps/web/dist/` exists, the server mounts it at `/ui/` and redirects `/` to `/ui/`.
 
 For frontend development:
 
@@ -475,12 +500,14 @@ make dev-web
 
 ## Development Rules
 
-- Put agent logic in `agent/`, not in `gateway/`, `tui/`, `cli/`, or `web/`.
-- Put HTTP/session/auth protocol code in `gateway/`.
-- Add model protocol adapters under `agent/models/adapters/`; keep shared stream semantics in `agent/models/protocol/`.
-- Add tools under `agent/capabilities/tools/` or load them through MCP.
-- Route host-affecting tools through `agent/capabilities/sandbox/`; do not let tools touch host paths or subprocesses directly.
-- Add new context sources through `agent/context/sources.py`.
-- Add long-running task orchestration under `agent/tasks/`; keep gateway APIs as adapters.
-- Add new run persistence backends by implementing `agent.state.runs.RunStore`; checkpoint, trace, and approval audit storage should stay behind their own store interfaces. Gateway should only choose and call adapters.
-- Add identity/auth from gateway login state later; do not trust user-supplied `tenant_id` or `user_id` in cloud mode.
+- Put agent kernel logic in `src/agents/kernel/`, not in platform, interfaces, or apps.
+- Put shared run/session/persistence/profile control code in `src/agents/platform/`.
+- Put HTTP/SSE/auth/static protocol code in `src/agents/interfaces/server/`.
+- Put local NDJSON protocol code in `src/agents/interfaces/bridge/`.
+- Add model protocol adapters under `agents.kernel.models.adapters`; keep shared stream semantics in `agents.kernel.models.protocol`.
+- Add tools under `agents.kernel.capabilities.tools` or load them through MCP.
+- Route host-affecting tools through `agents.kernel.capabilities.sandbox`; do not let tools touch host paths or subprocesses directly.
+- Add new context sources through `agents.kernel.context.sources`.
+- Add long-running task orchestration under `agents.kernel.tasks`; keep server APIs as adapters.
+- Add new run persistence backends by implementing `agents.kernel.state.runs.RunStore`; checkpoint, trace, and approval audit storage should stay behind their own store interfaces. The platform should compose stores, and interfaces should only call adapters.
+- Add identity/auth from server login state later; do not trust user-supplied `tenant_id` or `user_id` in cloud mode.

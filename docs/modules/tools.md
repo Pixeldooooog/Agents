@@ -1,6 +1,6 @@
 # Tools 模块说明
 
-`agent.capabilities.tools` 是模型可见能力的注册和执行边界。
+`agents.kernel.capabilities.tools` 是模型可见能力的注册和执行边界。
 
 ## 工具设计原则
 
@@ -25,8 +25,8 @@
 | `git.status` | 查看 Git 状态 |
 | `git.diff` | 查看 Git diff |
 | `test.run` | 运行测试命令 |
-| `browser.open` | 在 sandbox 内抓取 HTTP(S) 页面并写入 artifacts |
-| `browser.download` | 在 sandbox 内下载 HTTP(S) 资源到 workspace 路径 |
+| `browser.open` | 在 sandbox 内抓取 HTTP(S) 页面，默认写入 run artifact store |
+| `browser.download` | 在 sandbox 内下载 HTTP(S) 资源；无 path 时写 artifact store，有 path 时写 workspace |
 | `shell.run` | 兜底 shell 命令 |
 
 ## Tool Impact
@@ -44,7 +44,7 @@ approval 事件和 audit 记录会附带 `impact`：
 
 ## Web Search
 
-内置 web 搜索不走 MCP。`web.search`、`web.extract`、`web.map` 使用 `agent.capabilities.web` 下的 provider 抽象，当前实现为 Tavily REST provider。
+内置 web 搜索不走 MCP。`web.search`、`web.extract`、`web.map` 使用 `agents.kernel.capabilities.web` 下的 provider 抽象，当前实现为 Tavily REST provider。
 
 边界：
 

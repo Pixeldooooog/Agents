@@ -1,6 +1,6 @@
 # Runtime 模块说明
 
-`agent.runtime` 是单 Agent 执行内核。它负责一次或多次模型回合、工具调用、审批暂停和恢复。
+`agents.kernel.runtime` 是单 Agent 执行内核。它负责一次或多次模型回合、工具调用、审批暂停和恢复。
 
 ## 当前职责
 

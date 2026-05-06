@@ -14,7 +14,7 @@
 - builtin tools：filesystem、search、git、test、shell。
 - sandbox abstraction：local/Docker provider、SandboxClient、lease/event store。
 - run/task/checkpoint/trace/audit/memory/credential/workspace SQLite foundation。
-- gateway HTTP/SSE run lifecycle。
+- server HTTP/SSE run lifecycle。
 - basic web approval controls。
 - TypeScript/Ink terminal frontend shell and Python NDJSON bridge。
 
@@ -29,7 +29,7 @@ TODO:
 - [x] trace span 关联 sandbox lease id。
 - [x] Docker provider 增加端到端 smoke test，Docker 不可用时跳过。
 - [x] 增加 sandbox profile：coding、browser、test、restricted。
-- [x] 增加 workspace artifacts 目录约定：`artifacts/`、`downloads/`、`screenshots/`。
+- [x] 增加 run-scoped artifact blob store：CLI 使用项目级本地缓存，Server 使用 scoped control-plane artifact root，DB 记录 `artifact_records` 索引。
 - [x] 增加 workspace snapshot/diff 记录，用于任务完成后的变更摘要。
 
 ## Phase 2: Native Tool Expansion
@@ -137,19 +137,19 @@ TODO:
 
 ## Phase 9: Product Interfaces
 
-目标：让 TUI/CLI 和 Web 都能真实操作长程 agent。
+目标：让 Terminal 和 Web 都能真实操作长程 agent。
 
 TODO:
 
-- [x] CLI 多轮 session。
-- [x] CLI approval prompt。
-- [x] CLI 启动页、状态/工具/上下文小命令。
-- [x] TUI NDJSON bridge。
-- [x] TUI model profile list/switch 和 interactive picker。
-- [x] TUI approval allow once / allow for run / deny。
-- [x] TUI command palette、status line、thinking/tool 中间状态和长内容折叠。
-- [x] TUI input history、tool focus 和逐项 detail expand/collapse。
-- [ ] TUI task monitor。
+- [x] Terminal 多轮 session。
+- [x] Terminal approval prompt。
+- [x] Terminal 启动页、状态/工具/上下文小命令。
+- [x] Terminal NDJSON bridge。
+- [x] Terminal model profile list/switch 和 interactive picker。
+- [x] Terminal approval allow once / allow for run / deny。
+- [x] Terminal command palette、status line、thinking/tool 中间状态和长内容折叠。
+- [x] Terminal input history、tool focus 和逐项 detail expand/collapse。
+- [ ] Terminal task monitor。
 - [ ] Web run timeline。
 - [ ] Web tool approval panel。
 - [ ] Web workspace file/artifact browser。
