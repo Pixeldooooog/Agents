@@ -150,7 +150,7 @@ def _web_check(root: Path, command_lookup: CommandLookup) -> DoctorCheck:
     if not command_lookup("npm"):
         return DoctorCheck("web", "warn", "npm missing; web UI cannot build")
     if not (web_root / "dist" / "index.html").is_file():
-        return DoctorCheck("web", "warn", "npm available; run npm run build or make smoke to create dist")
+        return DoctorCheck("web", "warn", "npm available; run npm run build to create dist")
     return DoctorCheck("web", "ready", "dist build present")
 
 

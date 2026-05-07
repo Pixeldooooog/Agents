@@ -47,14 +47,6 @@ def bridge_command(ctx: typer.Context) -> None:
 
 
 @app.command()
-def smoke() -> None:
-    """Run deterministic local delivery smoke checks without model API keys."""
-    from agents.entrypoints.smoke import main as smoke_main
-
-    raise typer.Exit(smoke_main())
-
-
-@app.command()
 def doctor(json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON.")) -> None:
     """Check local readiness without leaking credentials."""
     from agents.entrypoints.doctor import main as doctor_main

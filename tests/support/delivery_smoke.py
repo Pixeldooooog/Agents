@@ -193,6 +193,3 @@ async def _must_tool(registry: ToolRegistry, name: str, arguments: dict):
         raise RuntimeError("%s failed: %s" % (name, result.content))
     return result
 
-
-if __name__ == "__main__":
-    raise SystemExit(main())

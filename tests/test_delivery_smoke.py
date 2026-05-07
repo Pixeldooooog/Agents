@@ -1,4 +1,4 @@
-from agents.entrypoints.smoke import run_smoke
+from tests.support.delivery_smoke import run_smoke
 
 
 def test_delivery_smoke_checks_server_tools_git_test_and_runtime():

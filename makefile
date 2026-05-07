@@ -9,7 +9,7 @@ HOST_PIP ?= $(shell command -v pip3 2>/dev/null || command -v pip 2>/dev/null)
 PYTHON ?= $(VENV)/bin/python
 PIP ?= $(PYTHON) -m pip
 
-.PHONY: check-python venv setup setup-terminal run terminal cli bridge-fallback dev-web stop test smoke doctor build up down log
+.PHONY: check-python venv setup setup-terminal run terminal cli bridge-fallback dev-web stop test doctor build up down log
 
 check-python:
 	@test -n "$(PYTHON_BIN)" || (echo "Python 3.10+ is required." && exit 1)
@@ -63,13 +63,6 @@ stop:
 
 test: venv
 	PYTHONPATH=$(CURDIR)/src $(PYTHON) -m pytest tests -q
-
-smoke: venv
-	PYTHONPATH=$(CURDIR)/src $(PYTHON) -m agents.entrypoints.smoke
-	PYTHONPATH=$(CURDIR)/src $(PYTHON) -m pytest tests/test_delivery_smoke.py tests/test_agent_api.py::test_agent_run_trace_api_returns_spans -q
-	@test -n "$(BUN)" || (echo "bun is required for terminal typecheck. Run make setup-terminal first." && exit 1)
-	cd apps/terminal && $(BUN) run typecheck
-	cd apps/web && npm run build
 
 doctor: venv
 	PYTHONPATH=$(CURDIR)/src $(PYTHON) -m agents.entrypoints.doctor
