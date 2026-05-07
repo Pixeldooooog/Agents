@@ -26,8 +26,8 @@ export function ChatThread(props: Props) {
     <section class="thread-card">
       <div class="thread-header">
         <div>
-          <p class="eyebrow">Live runtime</p>
-          <h2>Agent command session</h2>
+          <p class="eyebrow">Live session</p>
+          <h2>Agent workspace</h2>
         </div>
         <button class="icon-button" onClick={props.clear} title="Clear conversation">
           <Eraser size={16} />
@@ -86,8 +86,8 @@ function EmptyState() {
   return (
     <div class="empty-state">
       <Sparkles size={36} />
-      <h3>Ready when you are</h3>
-      <p>Start with the question that matters.</p>
+      <h3>Ready</h3>
+      <p>Send a task to start a run.</p>
     </div>
   );
 }

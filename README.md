@@ -51,6 +51,16 @@ agents.kernel       -> no platform, interface, FastAPI, bridge, or UI dependency
 - Web UI can refresh the active run trace and display spans, approval records, sandbox events, and run artifacts.
 - Terminal coding profile runs on the agent kernel through a local NDJSON bridge, binds a local workspace, enables read/write/patch/search/git/test/shell tools, and keeps terminal UI concerns outside `agents.kernel`.
 
+## MVP Readiness
+
+The promotable minimum version is a local-first agent product:
+
+- Core kernel: model protocols, streaming, context assembly, tool execution, approvals, checkpoints, workspace isolation, sandbox execution, run records, trace/audit stores, artifacts, memory, tasks, MCP, and skills have working boundaries and tests.
+- Terminal product: `agents tui` is the primary local interface, with streaming text/reasoning, retry status, tool timeline, approvals, folding, @file references, command suggestions, and model profile switching from configured `.env`/config groups.
+- Web product: `agents gui` serves a minimal browser workspace over the HTTP/SSE adapter, with chat, streaming, approval controls, activity timeline, run inspector, and runtime settings.
+
+Still post-MVP: hosted account login, tenant admin screens, managed sandbox pool scheduling, hosted billing/rate limits, and full browser automation beyond the current built-in fetch/download tools.
+
 ## Repository Layout
 
 ```text
@@ -181,7 +191,7 @@ ctrl+k     clear text after the cursor
 esc        close the active picker or clear current input
 ```
 
-`/model` opens a filterable model picker. `/model <profile>` still switches directly. If a turn is running, normal user messages are queued and sent after the current turn finishes.
+`/model` opens a filterable model picker. Typing `/model ` also shows configured profile suggestions inline, and `/model <profile>` switches directly. If a turn is running, normal user messages are queued and sent after the current turn finishes.
 
 The terminal UI streams reasoning/text deltas while a turn is running, shows retry attempts as status events, renders assistant Markdown/list/table/code output, previews patch/git diffs, supports @file references, and keeps tool approval/detail rendering separate from the agent core.
 

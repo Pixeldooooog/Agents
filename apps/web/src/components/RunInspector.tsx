@@ -51,7 +51,7 @@ export function RunInspector(props: Props) {
     <aside class="run-inspector" classList={{ "run-inspector-open": props.open() }}>
       <div class="run-inspector-header">
         <div>
-          <p class="eyebrow">Run trace</p>
+          <p class="eyebrow">Trace</p>
           <h2>{props.runId() || "No active run"}</h2>
         </div>
         <button class="icon-button" onClick={loadTrace} disabled={!props.runId()} title="Refresh run trace">

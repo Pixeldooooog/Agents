@@ -13,7 +13,7 @@ export function ActionTimeline(props: Props) {
     <aside class="action-rail" classList={{ "action-rail-open": props.open() }}>
       <div class="action-rail-header">
         <div>
-          <p class="eyebrow">Visible execution</p>
+          <p class="eyebrow">Run events</p>
           <h2>Agent activity</h2>
         </div>
         <Activity size={18} />

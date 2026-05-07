@@ -1,23 +1,22 @@
 .composer {
-  padding: 16px 22px 20px;
-  border-top: 1px solid rgba(244, 239, 228, 0.11);
-  background: rgba(8, 10, 8, 0.86);
-  backdrop-filter: blur(16px);
+  padding: 14px 22px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .telemetry {
   display: flex;
-  gap: 8px;
+  gap: 7px;
   flex-wrap: wrap;
   margin-bottom: 10px;
 }
 
 .telemetry span {
-  border: 1px solid rgba(244, 239, 228, 0.12);
+  border: 1px solid var(--border);
   border-radius: 999px;
-  padding: 5px 10px;
-  background: rgba(244, 239, 228, 0.055);
-  color: #bfc3b4;
+  padding: 4px 9px;
+  background: var(--surface-muted);
+  color: var(--muted);
 }
 
 .approval-panel {
@@ -31,10 +30,10 @@
   grid-template-columns: 34px minmax(0, 1fr) auto;
   gap: 10px;
   align-items: flex-start;
-  border: 1px solid rgba(255, 178, 79, 0.34);
+  border: 1px solid #e6c27c;
   border-radius: 8px;
   padding: 10px;
-  background: rgba(255, 178, 79, 0.10);
+  background: #fff8ea;
 }
 
 .approval-icon {
@@ -43,9 +42,9 @@
   display: grid;
   place-items: center;
   border-radius: 8px;
-  color: #ffb24f;
-  background: rgba(255, 178, 79, 0.12);
-  border: 1px solid rgba(255, 178, 79, 0.28);
+  color: var(--amber);
+  background: #fff1d6;
+  border: 1px solid #ebd3a5;
 }
 
 .approval-copy {
@@ -62,7 +61,7 @@
 }
 
 .approval-copy strong {
-  color: #fff8e8;
+  color: var(--text);
   font-size: 13px;
 }
 
@@ -74,29 +73,29 @@
 }
 
 .approval-copy span {
-  color: #d6c9b4;
+  color: #766b59;
   font-size: 12px;
 }
 
 .approval-copy code {
-  color: #ffdaa8;
+  color: #8a5a20;
   font: 11px/1.4 "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
 }
 
 .risk-pill {
   flex: 0 0 auto;
-  border: 1px solid rgba(255, 178, 79, 0.3);
+  border: 1px solid #dfbd81;
   border-radius: 999px;
   padding: 2px 7px;
-  color: #ffdaa8;
+  color: #8a5a20;
   font-size: 10px;
   text-transform: uppercase;
 }
 
 .risk-high,
 .risk-critical {
-  color: #ffd6da;
-  border-color: rgba(255, 111, 125, 0.42);
+  color: var(--red);
+  border-color: #e8abb2;
 }
 
 .approval-meta {
@@ -110,11 +109,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  border: 1px solid rgba(244, 239, 228, 0.1);
+  border: 1px solid #ead7b6;
   border-radius: 999px;
   padding: 3px 7px;
-  color: #cdd2c1;
-  background: rgba(244, 239, 228, 0.055);
+  color: #766b59;
+  background: rgba(255, 255, 255, 0.58);
   font-size: 11px;
 }
 
@@ -122,11 +121,11 @@
   max-height: 90px;
   margin: 2px 0 0;
   overflow: auto;
-  border: 1px solid rgba(244, 239, 228, 0.1);
+  border: 1px solid #ead7b6;
   border-radius: 8px;
   padding: 8px;
-  color: #ffdaa8;
-  background: rgba(0, 0, 0, 0.18);
+  color: #6d4a1f;
+  background: rgba(255, 255, 255, 0.72);
   font: 11px/1.45 "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
 }
 
@@ -143,7 +142,7 @@
   justify-content: center;
   gap: 6px;
   border-radius: 8px;
-  border: 1px solid rgba(244, 239, 228, 0.12);
+  border: 1px solid var(--border);
   cursor: pointer;
   padding: 0 9px;
   font-size: 12px;
@@ -152,35 +151,25 @@
 
 .approve-once-button,
 .approve-run-button {
-  color: #071008;
-  background: linear-gradient(135deg, #dfff6f, #39d98a);
+  color: #fffaf2;
+  background: #262624;
+  border-color: #262624;
 }
 
 .approve-once-button {
-  background: #dfff6f;
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .deny-button {
-  color: #fff8e8;
-  background: rgba(255, 111, 125, 0.18);
-  border-color: rgba(255, 111, 125, 0.34);
-}
-
-@media (max-width: 720px) {
-  .approval-row {
-    grid-template-columns: 34px minmax(0, 1fr);
-  }
-
-  .approval-actions {
-    grid-column: 1 / -1;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    min-width: 0;
-  }
+  color: var(--red);
+  background: #fff1f2;
+  border-color: #f0c3ca;
 }
 
 .composer-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 54px;
+  grid-template-columns: minmax(0, 1fr) 52px;
   gap: 10px;
 }
 
@@ -188,11 +177,11 @@ textarea,
 input,
 select {
   width: 100%;
-  border: 1px solid rgba(244, 239, 228, 0.14);
-  background: rgba(244, 239, 228, 0.055);
-  color: #fff8e8;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
   border-radius: 8px;
-  padding: 12px 13px;
+  padding: 11px 12px;
   outline: none;
 }
 
@@ -208,36 +197,50 @@ textarea {
 
 input::placeholder,
 textarea::placeholder {
-  color: #85897d;
+  color: var(--faint);
 }
 
 input:focus,
 select:focus,
 textarea:focus {
-  border-color: #dfff6f;
-  box-shadow: 0 0 0 4px rgba(222, 255, 127, 0.12), 0 0 36px rgba(57, 217, 138, 0.12);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px rgba(217, 119, 87, 0.14);
 }
 
 .composer-row textarea {
-  min-height: 78px;
+  min-height: 76px;
   max-height: 190px;
   line-height: 1.55;
 }
 
 .send-button {
-  height: 54px;
-  width: 54px;
+  height: 52px;
+  width: 52px;
   border-radius: 8px;
   align-self: end;
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, #dfff6f, #39d98a);
-  color: #071008;
-  box-shadow: 0 18px 42px rgba(57, 217, 138, 0.28);
+  background: #262624;
+  color: #fffaf2;
+}
+
+.send-button:hover:not(:disabled) {
+  background: var(--accent-strong);
 }
 
 .send-button:disabled {
   cursor: not-allowed;
   opacity: 0.42;
-  box-shadow: none;
+}
+
+@media (max-width: 720px) {
+  .approval-row {
+    grid-template-columns: 34px minmax(0, 1fr);
+  }
+
+  .approval-actions {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    min-width: 0;
+  }
 }
