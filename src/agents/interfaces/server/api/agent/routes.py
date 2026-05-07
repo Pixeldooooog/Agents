@@ -74,6 +74,7 @@ async def chat(request_data: AgentChatRequest):
     async with _agent_semaphore:
         spec = request_data.to_agent_spec()
         run = await run_service.start(spec)
+        session = None
         try:
             session = await create_agent_session(spec=spec)
             result = await session.send(request_data.message, run_id=run.run_id)
@@ -85,6 +86,8 @@ async def chat(request_data: AgentChatRequest):
         except Exception as exc:  # noqa: BLE001 - server must persist failed run state before returning.
             await _fail_run(run.run_id, "runtime", str(exc))
             return resp.fail(resp.Resp(code="500", detail={"run_id": run.run_id, "message": str(exc)}, http_status=500))
+        finally:
+            await _close_session(session)
         return resp.ok(
             response=resp.Resp(
                 data={
@@ -104,6 +107,7 @@ async def chat_stream(request_data: AgentChatRequest):
     async def event_source():
         spec = request_data.to_agent_spec()
         run = None
+        session = None
         try:
             run = await run_service.start(spec)
             yield _sse("run_created", run_created_event(run.run_id).to_dict())
@@ -126,6 +130,8 @@ async def chat_stream(request_data: AgentChatRequest):
             if run is not None:
                 await _fail_run(run.run_id, "runtime", str(exc))
             yield _sse("error", {"type": "error", "payload": {"message": str(exc)}})
+        finally:
+            await _close_session(session)
 
     # 流式请求的并发限制：获取 semaphore 后启动生成器
     await _agent_semaphore.acquire()
@@ -261,6 +267,7 @@ async def approve_run_tools(run_id: str, request_data: RunApprovalRequest):
             approval_grants = _approval_grants(checkpoint.pending_tool_calls, approvals, approval_scopes)
         except ValueError as exc:
             return resp.fail(resp.Resp(code="400", detail=str(exc), http_status=400))
+        session = None
         try:
             await _record_approval_audit(run_id, request_data, checkpoint.pending_tool_calls, approvals, approval_scopes)
             await run_service.mark_running(run_id)
@@ -283,6 +290,8 @@ async def approve_run_tools(run_id: str, request_data: RunApprovalRequest):
         except Exception as exc:  # noqa: BLE001 - approval resume must persist failed run state.
             await _fail_run(run_id, "runtime", str(exc))
             return resp.fail(resp.Resp(code="500", detail={"run_id": run_id, "message": str(exc)}, http_status=500))
+        finally:
+            await _close_session(session)
         return resp.ok(
             response=resp.Resp(
                 data={
@@ -392,3 +401,11 @@ async def _record_approval_audit(
                 reason=reason,
             )
         )
+
+
+async def _close_session(session) -> None:
+    if session is None:
+        return
+    close = getattr(session, "aclose", None)
+    if close is not None:
+        await close()

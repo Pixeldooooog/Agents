@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any, AsyncIterable, Dict
 from urllib.parse import urljoin
 
@@ -21,18 +22,19 @@ class HttpxModelTransport:
         self.base_url = base_url.rstrip("/") + "/"
         self.proxy_url = proxy_url.strip()
         limits = httpx.Limits(max_connections=100, max_keepalive_connections=20)
-        self._client = httpx.AsyncClient(
-            limits=limits,
-            http2=False,
-            proxy=self.proxy_url or None,
-            trust_env=not bool(self.proxy_url),
-        )
+        self._client_options = {
+            "limits": limits,
+            "http2": False,
+            "proxy": self.proxy_url or None,
+            "trust_env": not bool(self.proxy_url),
+        }
+        self._clients: Dict[asyncio.AbstractEventLoop, httpx.AsyncClient] = {}
 
     async def async_post_json(
         self, path: str, payload: Dict[str, Any], headers: Dict[str, str], timeout: float
     ) -> Dict[str, Any]:
         try:
-            response = await self._client.post(
+            response = await self._client().post(
                 self._url(path), json=payload, headers=self._headers(headers), timeout=timeout
             )
             if response.status_code < 200 or response.status_code >= 300:
@@ -49,7 +51,7 @@ class HttpxModelTransport:
         self, path: str, payload: Dict[str, Any], headers: Dict[str, str], timeout: float
     ) -> AsyncIterable[Dict[str, Any]]:
         try:
-            async with self._client.stream(
+            async with self._client().stream(
                 "POST", self._url(path), json=payload, headers=self._headers(headers), timeout=timeout
             ) as response:
                 if response.status_code < 200 or response.status_code >= 300:
@@ -73,8 +75,26 @@ class HttpxModelTransport:
     def _headers(self, headers: Dict[str, str]) -> Dict[str, str]:
         return {"Content-Type": "application/json", **headers}
 
+    def _client(self) -> httpx.AsyncClient:
+        loop = asyncio.get_running_loop()
+        client = self._clients.get(loop)
+        if client is None or bool(getattr(client, "is_closed", False)):
+            client = httpx.AsyncClient(**self._client_options)
+            self._clients[loop] = client
+        return client
+
     async def async_close(self) -> None:
-        await self._client.aclose()
+        for loop, client in list(self._clients.items()):
+            close = getattr(client, "aclose", None)
+            try:
+                if close is not None:
+                    await close()
+            except RuntimeError as exc:
+                message = str(exc).lower()
+                if "event loop" not in message:
+                    raise
+            finally:
+                self._clients.pop(loop, None)
 
 
 def _raise_from_status(status_code: int, body: str) -> None:

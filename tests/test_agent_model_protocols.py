@@ -157,6 +157,40 @@ def test_httpx_transport_uses_configured_proxy(monkeypatch):
     assert captured["trust_env"] is False
 
 
+def test_httpx_transport_uses_event_loop_scoped_clients(monkeypatch):
+    import asyncio
+
+    clients = []
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"ok": True}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.loop_ids = []
+            self.closed = False
+            clients.append(self)
+
+        async def post(self, url, json=None, headers=None, timeout=None):
+            self.loop_ids.append(id(asyncio.get_running_loop()))
+            return FakeResponse()
+
+        async def aclose(self):
+            self.closed = True
+
+    monkeypatch.setattr("agents.kernel.models.transports.http.httpx.AsyncClient", FakeClient)
+    transport = HttpxModelTransport("https://api.example/v1")
+
+    asyncio.run(transport.async_post_json("/chat/completions", {}, {}, 30))
+    asyncio.run(transport.async_post_json("/chat/completions", {}, {}, 30))
+
+    assert len(clients) == 2
+    assert clients[0].loop_ids != clients[1].loop_ids
+
+
 def test_httpx_transport_reports_empty_http_errors(monkeypatch):
     import asyncio
     import httpx
@@ -488,6 +522,28 @@ def test_model_client_closes_transport():
 
     client.close()
 
+    assert transport.closed is True
+
+
+def test_model_client_sync_complete_closes_transport_after_request():
+    transport = FakeTransport(
+        {
+            "choices": [
+                {
+                    "message": {"role": "assistant", "content": "done"},
+                    "finish_reason": "stop",
+                }
+            ]
+        }
+    )
+    client = ModelClient(
+        ModelClientConfig(protocol="openai-chat", model="test-model", api_key="test-key"),
+        transport=transport,
+    )
+
+    response = client.complete(sample_request())
+
+    assert response.content_text() == "done"
     assert transport.closed is True
 
 

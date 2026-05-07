@@ -7,7 +7,7 @@ from agents.kernel.capabilities.memory import MemoryStore
 from agents.kernel.capabilities.sandbox.store import SandboxStore
 from agents.kernel.capabilities.sandbox.recording import SandboxToolExecutionRecorder
 from agents.kernel.capabilities.web import create_web_search_provider
-from agents.kernel.config import resolve_model_client_config
+from agents.kernel.config import AgentConfigError, resolve_model_client_config
 from agents.kernel.context.builder import ContextBuilder
 from agents.kernel.context.memory import MemoryContextRetriever, MemoryRetrievalScope
 from agents.kernel.context.sources import build_context_pack
@@ -66,6 +66,7 @@ async def create_agent_session_async(
     await load_configured_mcp(settings, registry)
 
     active_tools = _resolve_active_tools(settings, skill_registry, resolved_spec.enabled_tools, builtin_tools)
+    _validate_active_tools(active_tools, registry)
     memory_fragments = await _memory_fragments(settings, memory_store, workspace)
     context_pack = build_context_pack(
         system_prompt=settings.agent.SYSTEM_PROMPT if resolved_spec.system_prompt is None else resolved_spec.system_prompt,
@@ -137,6 +138,13 @@ def _resolve_active_tools(settings: Any, skill_registry, enabled_tools: Optional
         return active_tools
     builtin_defaults = [name for name in _csv_setting(getattr(settings.agent, "BUILTIN_TOOLS", "")) if name in builtin_tools]
     return _merge_unique(builtin_defaults, active_tools)
+
+
+def _validate_active_tools(active_tools: list[str], registry: ToolRegistry) -> None:
+    registered = set(registry.names())
+    unknown = sorted({name for name in active_tools if name not in registered})
+    if unknown:
+        raise AgentConfigError("unknown enabled tool(s): %s" % ", ".join(unknown))
 
 
 async def _memory_fragments(settings: Any, memory_store: Optional[MemoryStore], workspace) -> list:

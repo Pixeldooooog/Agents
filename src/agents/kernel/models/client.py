@@ -96,12 +96,22 @@ class ModelClient:
 
     def complete(self, request_data: ModelRequest) -> ModelResponse:
         """同步便捷方法（内部使用 asyncio.run）。"""
-        return asyncio.run(self.async_complete(request_data))
+        async def _run():
+            try:
+                return await self.async_complete(request_data)
+            finally:
+                await self.async_close()
+
+        return asyncio.run(_run())
 
     def stream(self, request_data: ModelRequest) -> Iterable[ModelStreamEvent]:
         """同步便捷方法（内部使用 asyncio.run）。"""
         async def _collect():
-            return [event async for event in self.async_stream(request_data)]
+            try:
+                return [event async for event in self.async_stream(request_data)]
+            finally:
+                await self.async_close()
+
         return iter(asyncio.run(_collect()))
 
     async def async_close(self) -> None:

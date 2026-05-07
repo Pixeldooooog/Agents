@@ -44,6 +44,12 @@ class AgentSession:
     def _truncate_messages(self, messages: List[Message]) -> List[Message]:
         return self.context_window.fit(messages)
 
+    async def aclose(self) -> None:
+        model_client = getattr(self.runtime, "model_client", None)
+        close = getattr(model_client, "async_close", None)
+        if close is not None:
+            await close()
+
     async def send(self, text: str, run_id: str | None = None, task_id: str | None = None) -> AgentResult:
         candidate = self.messages + [Message.from_text("user", text)]
         candidate = self.context_window.fit(candidate)

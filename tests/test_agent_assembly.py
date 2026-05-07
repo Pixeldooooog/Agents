@@ -13,7 +13,7 @@ import json
 
 from agents.kernel.assembly import create_agent_session, create_agent_session_async
 from agents.kernel.capabilities.memory import InMemoryMemoryStore, MemoryRecord, MemoryScope
-from agents.kernel.config import resolve_model_client_config
+from agents.kernel.config import AgentConfigError, resolve_model_client_config
 from agents.kernel.specs import AgentSpec
 
 
@@ -151,7 +151,7 @@ def test_create_session_composes_skill_prompt_and_declared_tools(tmp_path, monke
             {
                 "name": "focus",
                 "prompt_fragments": ["prompts/focus.md"],
-                "tools": ["skill_tool"],
+                "tools": ["filesystem.read"],
             }
         ),
         encoding="utf-8",
@@ -161,7 +161,7 @@ def test_create_session_composes_skill_prompt_and_declared_tools(tmp_path, monke
     settings.server.ROOT_PATH = tmp_path
     settings.agent.SYSTEM_PROMPT = "Base prompt."
     settings.agent.SKILLS = "focus"
-    settings.agent.ENABLED_TOOLS = "base_tool"
+    settings.agent.ENABLED_TOOLS = "filesystem.list"
     settings.models.openai.API_KEY = "key"
     settings.models.openai.MODEL = "model"
 
@@ -170,7 +170,7 @@ def test_create_session_composes_skill_prompt_and_declared_tools(tmp_path, monke
     assert "## system: system.user_configured\nBase prompt." in session.system_prompt
     assert "## skills: skill.focus.0\nFocus on agents." in session.system_prompt
     assert "## runtime_policy: runtime.tool_contract" in session.system_prompt
-    assert session.runtime.enabled_tools == ["base_tool", "skill_tool"]
+    assert session.runtime.enabled_tools == ["filesystem.list", "filesystem.read"]
     assert session.workspace.tenant_id == "default"
     assert session.workspace.user_id == "anonymous"
     assert session.workspace.agent_id == "default"
@@ -182,7 +182,7 @@ def test_create_session_composes_skill_prompt_and_declared_tools(tmp_path, monke
 def test_create_session_respects_explicit_enabled_tools(tmp_path, monkeypatch):
     (tmp_path / "skills").mkdir()
     (tmp_path / "skills" / "focus.json").write_text(
-        json.dumps({"name": "focus", "tools": ["skill_tool"]}),
+        json.dumps({"name": "focus", "tools": ["filesystem.list"]}),
         encoding="utf-8",
     )
     monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
@@ -192,9 +192,25 @@ def test_create_session_respects_explicit_enabled_tools(tmp_path, monkeypatch):
     settings.models.openai.API_KEY = "key"
     settings.models.openai.MODEL = "model"
 
-    session = create_agent_session(settings, AgentSpec.from_overrides(enabled_tools=["explicit_tool"]))
+    session = create_agent_session(settings, AgentSpec.from_overrides(enabled_tools=["filesystem.read"]))
 
-    assert session.runtime.enabled_tools == ["explicit_tool"]
+    assert session.runtime.enabled_tools == ["filesystem.read"]
+
+
+def test_create_session_rejects_unknown_enabled_tools(tmp_path, monkeypatch):
+    monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
+    settings = FakeSettings()
+    settings.server.ROOT_PATH = tmp_path
+    settings.agent.ENABLED_TOOLS = "missing.tool"
+    settings.models.openai.API_KEY = "key"
+    settings.models.openai.MODEL = "model"
+
+    try:
+        create_agent_session(settings, AgentSpec())
+    except AgentConfigError as exc:
+        assert "unknown enabled tool(s): missing.tool" in str(exc)
+    else:
+        raise AssertionError("expected unknown tool configuration to fail")
 
 
 def test_create_session_uses_configured_builtin_tools_by_default(tmp_path, monkeypatch):
@@ -258,7 +274,7 @@ def test_create_session_injects_memory_context(tmp_path, monkeypatch):
 def test_create_session_uses_agent_spec(tmp_path, monkeypatch):
     (tmp_path / "skills").mkdir()
     (tmp_path / "skills" / "focus.json").write_text(
-        json.dumps({"name": "focus", "tools": ["skill_tool"]}),
+        json.dumps({"name": "focus", "tools": ["filesystem.read"]}),
         encoding="utf-8",
     )
     monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
@@ -277,7 +293,7 @@ def test_create_session_uses_agent_spec(tmp_path, monkeypatch):
     session = create_agent_session(settings, spec)
 
     assert session.runtime.model == "spec-model"
-    assert session.runtime.enabled_tools == ["skill_tool"]
+    assert session.runtime.enabled_tools == ["filesystem.read"]
     assert session.workspace.user_id == "user-1"
     assert session.workspace.agent_id == "agent-1"
 

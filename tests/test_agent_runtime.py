@@ -292,6 +292,24 @@ def test_agent_session_forwards_run_id_to_runtime_checkpoints():
     assert checkpoint.step == "finished"
 
 
+def test_agent_session_closes_model_client_when_supported():
+    class ClosableModel(ScriptedModelClient):
+        def __init__(self):
+            super().__init__([ModelResponse(message=Message.from_text("assistant", "done"))])
+            self.closed = False
+
+        async def async_close(self):
+            self.closed = True
+
+    llm = ClosableModel()
+    runtime = AgentRuntime(model_client=llm, tools=ToolRegistry(), protocol="scripted", model="scripted")
+    session = AgentSession(runtime=runtime)
+
+    asyncio.run(session.aclose())
+
+    assert llm.closed is True
+
+
 def test_agent_runtime_resumes_pending_tool_checkpoint():
     call = ToolCall(id="call-1", name="echo", arguments={"text": "hi"})
     checkpoint = RuntimeCheckpoint(

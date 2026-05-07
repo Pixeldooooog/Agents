@@ -69,6 +69,8 @@ class TaskRunner:
             await self.engine.fail_step(step.step_id, str(exc))
             await self.run_coordinator.finish(run.run_id, str(exc))
             raise
+        finally:
+            await _close_session(session)
 
         await self.run_coordinator.record_events(run.run_id, result.events)
         if result.status == "awaiting_approval" or any(event.type == "tool_approval_required" for event in result.events):
@@ -97,3 +99,9 @@ class TaskRunner:
     async def _mark_awaiting_approval(self, task_id: str, step_id: str) -> None:
         await self.store.set_task_status(task_id, TaskStatus.AWAITING_APPROVAL)
         await self.store.update_step_status(step_id, TaskStepStatus.AWAITING_APPROVAL)
+
+
+async def _close_session(session: AgentSession) -> None:
+    close = getattr(session, "aclose", None)
+    if close is not None:
+        await close()
