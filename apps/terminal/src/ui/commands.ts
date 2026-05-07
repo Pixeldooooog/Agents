@@ -1,11 +1,12 @@
 export type CommandDef = {
-  kind?: 'command' | 'file'
+  kind?: 'command' | 'file' | 'model'
   name: string
   description: string
   argumentHint?: string
   local?: boolean
   availability?: 'idle' | 'always'
   insertText?: string
+  active?: boolean
 }
 
 export const COMMANDS: CommandDef[] = [
@@ -27,6 +28,7 @@ export const COMMANDS: CommandDef[] = [
 
 export function commandMatches(value: string): CommandDef[] {
   if (!value.startsWith('/')) return []
+  if (/^\/\S+\s/.test(value)) return []
   const [command] = value.split(/\s+/, 1)
   return COMMANDS.filter(item => item.name.startsWith(command || '/')).slice(0, 9)
 }

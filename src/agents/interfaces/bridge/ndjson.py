@@ -300,6 +300,7 @@ def _write_ready(state: BridgeState) -> None:
             "sandbox": str(getattr(state.settings.agent, "SANDBOX_PROVIDER", "local")),
             "tools": list(state.active_tools),
             "commands": [item.name for item in COMMANDS[:4]],
+            "model_profiles": _model_profiles_payload(state),
         }
     )
 

@@ -29,6 +29,7 @@ export function App({python, repoRoot, bridgeArgs}: {python: string; repoRoot: s
   const [busy, setBusy] = useState(false)
   const [collapsed, setCollapsed] = useState(true)
   const [inputHistory, setInputHistory] = useState<string[]>([])
+  const [modelProfiles, setModelProfiles] = useState<ModelProfile[]>([])
   const [modelPicker, setModelPicker] = useState<ModelProfile[] | null>(null)
   const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null)
   const assistantDraft = useLiveDraft()
@@ -83,6 +84,7 @@ export function App({python, repoRoot, bridgeArgs}: {python: string; repoRoot: s
       setPermission(event.permission)
       setSandbox(event.sandbox)
       setToolCount(event.tools.length)
+      setModelProfiles(event.model_profiles ?? [])
       return
     }
     if (event.type === 'turn_started') {
@@ -117,6 +119,7 @@ export function App({python, repoRoot, bridgeArgs}: {python: string; repoRoot: s
       return
     }
     if (event.type === 'model_profiles') {
+      setModelProfiles(event.profiles)
       if (suppressNextModelProfiles.current) {
         suppressNextModelProfiles.current = false
         return
@@ -302,7 +305,7 @@ export function App({python, repoRoot, bridgeArgs}: {python: string; repoRoot: s
       {busy ? <LiveTurn assistant={assistantDraft.live} reasoning={reasoningDraft.live} label={runtimeLabel(runtime?.protocol, runtime?.model)} collapsed={collapsed} /> : null}
       {pendingApproval ? <ApprovalPrompt approval={pendingApproval} onDecision={decideApproval} /> : null}
       {modelPicker ? <ModelPicker profiles={modelPicker} onSelect={selectModel} onCancel={() => setModelPicker(null)} /> : null}
-      <PromptInput disabled={Boolean(inputDisabledReason)} disabledReason={inputDisabledReason} repoRoot={repoRoot} history={inputHistory} onSubmit={submit} onExit={stop} />
+      <PromptInput disabled={Boolean(inputDisabledReason)} disabledReason={inputDisabledReason} repoRoot={repoRoot} modelProfiles={modelProfiles} history={inputHistory} onSubmit={submit} onExit={stop} />
       <StatusLine runtime={runtime} workspace={workspace} permission={permission} sandbox={sandbox} toolCount={toolCount} busy={busy} folded={collapsed} queued={inputQueue.items.length} />
     </Box>
   )

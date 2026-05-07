@@ -50,6 +50,7 @@ export type BridgeEvent =
       sandbox: string
       tools: string[]
       commands: string[]
+      model_profiles?: ModelProfile[]
     }
   | { type: 'turn_started'; run_id: string }
   | { type: 'runtime_event'; event: RuntimeEvent }

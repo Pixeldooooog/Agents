@@ -1,18 +1,22 @@
 import {useEffect, useMemo, useState} from 'react'
 import {useInput, useStdin} from 'ink'
 import {commandMatches, findCommand} from '../ui/commands.js'
+import type {CommandDef} from '../ui/commands.js'
+import type {ModelProfile} from '../protocol/types.js'
 import {charAt, charLength, insertAt, removeAt, removeBefore, sliceChars} from '../ui/textBuffer.js'
 import {useFileSuggestions} from './useFileSuggestions.js'
 
 export function useTextBuffer({
   disabled,
   repoRoot,
+  modelProfiles,
   history,
   onSubmit,
   onExit
 }: {
   disabled?: boolean
   repoRoot: string
+  modelProfiles?: ModelProfile[]
   history?: string[]
   onSubmit: (value: string) => void
   onExit: () => void
@@ -27,12 +31,14 @@ export function useTextBuffer({
   const [historyMatchIndex, setHistoryMatchIndex] = useState(0)
   const {isRawModeSupported} = useStdin()
   const fileSuggestions = useFileSuggestions({repoRoot, value, cursor})
+  const modelSuggestions = useMemo(() => modelProfileMatches(value, modelProfiles ?? []), [modelProfiles, value])
   const commandSuggestions = useMemo(() => commandMatches(value), [value])
   const suggestions = useMemo(() => {
     if (historySearchActive) return []
     if (fileSuggestions.active) return fileSuggestions.suggestions
+    if (isModelProfileQuery(value)) return modelSuggestions
     return commandSuggestions
-  }, [commandSuggestions, fileSuggestions.active, fileSuggestions.suggestions, historySearchActive])
+  }, [commandSuggestions, fileSuggestions.active, fileSuggestions.suggestions, historySearchActive, modelSuggestions, value])
   const activeCommand = fileSuggestions.active ? undefined : findCommand(value)
   const historyMatches = useMemo(() => {
     if (!history?.length) return []
@@ -309,4 +315,29 @@ function nextWordBoundary(value: string, cursor: number): number {
   while (index < chars.length && /\s/.test(chars[index] ?? '')) index += 1
   while (index < chars.length && !/\s/.test(chars[index] ?? '')) index += 1
   return index
+}
+
+function isModelProfileQuery(value: string): boolean {
+  return /^\/models?\s/.test(value)
+}
+
+function modelProfileMatches(value: string, profiles: ModelProfile[]): CommandDef[] {
+  if (!isModelProfileQuery(value)) return []
+  const query = value.replace(/^\/models?\s*/, '').trim().toLowerCase()
+  return profiles
+    .filter(profile => {
+      if (!query) return true
+      return [profile.name, profile.protocol, profile.model, profile.endpoint]
+        .filter(Boolean)
+        .some(item => String(item).toLowerCase().includes(query))
+    })
+    .slice(0, 8)
+    .map(profile => ({
+      kind: 'model',
+      name: profile.name,
+      description: `${profile.protocol} · ${profile.model}`,
+      argumentHint: profile.endpoint,
+      insertText: `/model ${profile.name}`,
+      active: profile.active
+    }))
 }

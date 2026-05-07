@@ -1,6 +1,7 @@
 import React from 'react'
 import {Box} from 'ink'
 import {useTextBuffer} from '../hooks/useTextBuffer.js'
+import type {ModelProfile} from '../protocol/types.js'
 import {PromptFooter} from './prompt/PromptFooter.js'
 import {PromptLine} from './prompt/PromptLine.js'
 
@@ -8,6 +9,7 @@ export function PromptInput({
   disabled,
   disabledReason,
   repoRoot,
+  modelProfiles,
   history,
   onSubmit,
   onExit
@@ -15,11 +17,12 @@ export function PromptInput({
   disabled?: boolean
   disabledReason?: string
   repoRoot: string
+  modelProfiles?: ModelProfile[]
   history?: string[]
   onSubmit: (value: string) => void
   onExit: () => void
 }) {
-  const buffer = useTextBuffer({disabled, repoRoot, history, onSubmit, onExit})
+  const buffer = useTextBuffer({disabled, repoRoot, modelProfiles, history, onSubmit, onExit})
   const placeholder = disabled ? disabledReason || 'waiting…' : 'ask or type / for commands'
 
   return (
