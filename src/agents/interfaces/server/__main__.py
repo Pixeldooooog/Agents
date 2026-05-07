@@ -14,8 +14,9 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
-def main() -> None:
-    utils.print_info(settings, logger)
+def main(*, show_settings: bool = True) -> None:
+    if show_settings:
+        utils.print_info(settings, logger)
     uvicorn.run(
         "agents.interfaces.server.app:app" if settings.server.DEBUG else app,
         host=settings.server.HOST,

@@ -19,26 +19,40 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def root(ctx: typer.Context) -> None:
-    """Launch the terminal app by default."""
+    """Launch the TUI app by default."""
     if ctx.invoked_subcommand is None:
-        raise typer.Exit(_run_terminal(list(ctx.args)))
+        raise typer.Exit(_run_tui(list(ctx.args)))
 
 
 @app.command(context_settings=CONTEXT)
+def tui(ctx: typer.Context) -> None:
+    """Launch the local TUI."""
+    raise typer.Exit(_run_tui(list(ctx.args)))
+
+
+@app.command(context_settings=CONTEXT, hidden=True)
 def terminal(ctx: typer.Context) -> None:
-    """Launch the terminal app."""
-    raise typer.Exit(_run_terminal(list(ctx.args)))
+    """Compatibility alias for tui."""
+    raise typer.Exit(_run_tui(list(ctx.args)))
 
 
 @app.command()
+def gui(
+    build: bool = typer.Option(True, "--build/--no-build", help="Build apps/web/dist when it is missing."),
+) -> None:
+    """Launch the local web interface."""
+    raise typer.Exit(_run_gui(build=build))
+
+
+@app.command(hidden=True)
 def serve() -> None:
-    """Run the HTTP/SSE server."""
+    """Run the HTTP/SSE service process."""
     from agents.interfaces.server.__main__ import main as server_main
 
     server_main()
 
 
-@app.command("bridge", context_settings=CONTEXT)
+@app.command("bridge", context_settings=CONTEXT, hidden=True)
 def bridge_command(ctx: typer.Context) -> None:
     """Run the internal terminal bridge."""
     from agents.interfaces.bridge.ndjson import main as bridge_main
@@ -58,7 +72,7 @@ def main() -> None:
     app()
 
 
-def _run_terminal(args: list[str]) -> int:
+def _run_tui(args: list[str]) -> int:
     repo_root = _repo_root()
     terminal_dir = repo_root / "apps" / "terminal"
     bun = os.environ.get("BUN", "bun")
@@ -77,7 +91,36 @@ def _run_terminal(args: list[str]) -> int:
     try:
         return subprocess.call(command, cwd=terminal_dir, env=env)
     except FileNotFoundError:
-        typer.echo("bun is required for the terminal app. Install bun or run make bridge-fallback.", err=True)
+        typer.echo("bun is required for the TUI. Install bun or run make bridge-fallback.", err=True)
+        return 127
+
+
+def _run_gui(*, build: bool = True) -> int:
+    repo_root = _repo_root()
+    ready = _ensure_web_dist(repo_root, build=build)
+    if ready != 0:
+        return ready
+    from agents.interfaces.server.__main__ import main as server_main
+    from agents.interfaces.server.core.config import settings
+
+    typer.echo("GUI: %s/ui/" % str(getattr(settings.server, "DOMAIN", "http://localhost:8010")).rstrip("/"))
+    server_main(show_settings=False)
+    return 0
+
+
+def _ensure_web_dist(repo_root: Path, *, build: bool = True) -> int:
+    web_dir = repo_root / "apps" / "web"
+    index = web_dir / "dist" / "index.html"
+    if index.is_file():
+        return 0
+    if not build:
+        typer.echo("apps/web/dist is missing. Run `cd apps/web && npm run build`.", err=True)
+        return 1
+    npm = os.environ.get("NPM", "npm")
+    try:
+        return subprocess.call([npm, "run", "build"], cwd=web_dir)
+    except FileNotFoundError:
+        typer.echo("npm is required to build the GUI. Install npm or run `agents gui --no-build` after building apps/web/dist.", err=True)
         return 127
 
 

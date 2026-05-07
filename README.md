@@ -107,40 +107,41 @@ cp .env.example .env
 
 Edit `.env` and configure at least one model protocol API key and model. `make setup` installs Python dependencies, the web frontend dependencies, and the terminal app dependencies when `bun` is available.
 
-Start the server:
+Start the terminal UI:
 
 ```bash
-make run
-curl http://127.0.0.1:8010/health
+agents tui
 ```
 
-Start the terminal chat:
-
-```bash
-make terminal
-```
-
-`make terminal` starts the TypeScript Ink terminal frontend. It launches the Python bridge locally, binds the current directory as the workspace, enables coding tools, and asks before write/execute tools. The Python fallback remains only as a bridge/debug path:
+`agents tui` starts the TypeScript Ink terminal frontend. It launches the Python bridge locally, binds the current directory as the workspace, enables coding tools, and asks before write/execute tools. The Python fallback remains only as a bridge/debug path:
 
 ```bash
 make bridge-fallback
 ```
 
+Start the web UI:
+
+```bash
+agents gui
+```
+
+`agents gui` serves `apps/web/dist` through the local HTTP/SSE service. If the web build is missing, it builds `apps/web` first. The service process is still available for deployment through `make run`, but it is not the primary user-facing command.
+
 For a different workspace:
 
 ```bash
-make terminal ARGS="--workspace-path ./sandbox-game"
+agents tui --workspace-path ./sandbox-game
 ```
 
 Useful terminal switches are forwarded to the Python bridge:
 
 ```bash
-make terminal ARGS="--profile chat"                  # read-oriented chat profile
-make terminal ARGS="--profile coding"                # local coding profile, default
-make terminal ARGS="--profile browser"               # coding tools plus browser/web tools
-make terminal ARGS="--permission auto"               # run enabled tools without approval prompts
-make terminal ARGS="--permission guarded"            # read automatically, confirm writes/commands
-make terminal ARGS="--tools filesystem.read,patch.apply,test.run"
+agents tui --profile chat                  # read-oriented chat profile
+agents tui --profile coding                # local coding profile, default
+agents tui --profile browser               # coding tools plus browser/web tools
+agents tui --permission auto               # run enabled tools without approval prompts
+agents tui --permission guarded            # read automatically, confirm writes/commands
+agents tui --tools filesystem.read,patch.apply,test.run
 ```
 
 Inside the terminal chat:
@@ -258,7 +259,7 @@ AGENT_MODEL_PROFILE_KIMI_API_KEY=
 AGENT_MODEL_PROFILE_KIMI_ALIASES=moonshot
 ```
 
-Then switch the whole protocol/base URL/model/key group with `/model kimi`, or start directly with `make terminal ARGS="--model-profile kimi"`.
+Then switch the whole protocol/base URL/model/key group with `/model kimi`, or start directly with `agents tui --model-profile kimi`.
 
 Run records use memory by default. To keep run records as local JSON files:
 
@@ -503,14 +504,13 @@ run_id       generated per request
 
 ## Web UI
 
-Build and serve through the server:
+Build and serve through the GUI command:
 
 ```bash
-cd apps/web && npm run build
-make run
+agents gui
 ```
 
-When `apps/web/dist/` exists, the server mounts it at `/ui/` and redirects `/` to `/ui/`.
+When `apps/web/dist/` exists, the service mounts it at `/ui/` and redirects `/` to `/ui/`. `agents gui` starts that local service and prints the UI URL.
 
 For frontend development:
 

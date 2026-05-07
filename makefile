@@ -9,7 +9,7 @@ HOST_PIP ?= $(shell command -v pip3 2>/dev/null || command -v pip 2>/dev/null)
 PYTHON ?= $(VENV)/bin/python
 PIP ?= $(PYTHON) -m pip
 
-.PHONY: check-python venv setup setup-terminal run terminal cli bridge-fallback dev-web stop test doctor build up down log
+.PHONY: check-python venv setup setup-tui setup-terminal run tui gui terminal cli bridge-fallback dev-web stop test doctor build up down log
 
 check-python:
 	@test -n "$(PYTHON_BIN)" || (echo "Python 3.10+ is required." && exit 1)
@@ -34,20 +34,27 @@ venv: check-python
 setup: venv
 	$(PIP) install -e ".[test]"
 	@if [ -f apps/web/package-lock.json ]; then cd apps/web && npm ci; else cd apps/web && npm install; fi
-	@if [ -n "$(BUN)" ]; then cd apps/terminal && $(BUN) install; else echo "bun is required for the terminal app. Install bun or run make bridge-fallback."; fi
+	@if [ -n "$(BUN)" ]; then cd apps/terminal && $(BUN) install; else echo "bun is required for the TUI. Install bun or run make bridge-fallback."; fi
 
-setup-terminal:
-	@test -n "$(BUN)" || (echo "bun is required for the terminal app." && exit 1)
+setup-tui:
+	@test -n "$(BUN)" || (echo "bun is required for the TUI." && exit 1)
 	cd apps/terminal && $(BUN) install
+
+setup-terminal: setup-tui
 
 run: venv
 	PYTHONPATH=$(CURDIR)/src $(PYTHON) -m agents.interfaces.server
 
-terminal: venv
-	@test -n "$(BUN)" || (echo "bun is required for make terminal. Use make bridge-fallback for the Python debug fallback." && exit 1)
+tui: venv
+	@test -n "$(BUN)" || (echo "bun is required for make tui. Use make bridge-fallback for the Python debug fallback." && exit 1)
 	@cd apps/terminal && PYTHONPATH=$(CURDIR)/src $(BUN) run src/main.tsx --repo-root ../.. --python $(PYTHON) $(ARGS)
 
-cli: terminal
+gui: venv
+	PYTHONPATH=$(CURDIR)/src $(PYTHON) -m agents.entrypoints.agents gui
+
+terminal: tui
+
+cli: tui
 
 bridge-fallback: venv
 	@PYTHONPATH=$(CURDIR)/src $(PYTHON) -m agents.interfaces.bridge.fallback.main chat
