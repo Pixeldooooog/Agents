@@ -1,13 +1,13 @@
 <div align="center">
 
-```
+<pre>
  █████╗  ██████╗ ███████╗███╗   ██╗████████╗███████╗
 ██╔══██╗██╔════╝ ██╔════╝████╗  ██║╚══██╔══╝██╔════╝
 ███████║██║  ███╗█████╗  ██╔██╗ ██║   ██║   ███████╗
 ██╔══██║██║   ██║██╔══╝  ██║╚██╗██║   ██║   ╚════██║
 ██║  ██║╚██████╔╝███████╗██║ ╚████║   ██║   ███████║
 ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚══════╝
-```
+</pre>
 
 ### 🚀 Production-Grade AI Agent Framework
 
@@ -266,7 +266,9 @@ agents gui
 
 Agents is organized around strict boundaries that make the system understandable, testable, and maintainable as it grows.
 
-```
+<div align="center">
+
+<pre>
 ┌─────────────────────────────────────────┐
 │         Apps (Terminal / Web)           │
 └─────────────────────────────────────────┘
@@ -283,7 +285,9 @@ Agents is organized around strict boundaries that make the system understandable
 │  Kernel (Models, Runtime, Tools, etc)   │
 │  ✓ Zero dependency on web/UI layers    │
 └─────────────────────────────────────────┘
-```
+</pre>
+
+</div>
 
 **Design Principles:**
 - 🎯 **Separation of Concerns** — Kernel is pure SDK, no web/UI dependencies
