@@ -63,12 +63,20 @@ class ContextWindowManager:
 
         return system_messages + _flatten(turns)
 
-    def _compact_messages(self, messages: List[Message]) -> List[Message]:
+    def compact(self, messages: List[Message], target_tokens: int | None = None) -> List[Message]:
+        if not messages:
+            return messages
+        target = target_tokens or self.compaction_target_tokens
+        compacted = self._compact_messages(messages, force=True, target_tokens=target)
+        return compacted or messages
+
+    def _compact_messages(self, messages: List[Message], *, force: bool = False, target_tokens: int | None = None) -> List[Message]:
         system_messages: List[Message] = []
         rest = list(messages)
         if rest and rest[0].role == "system":
             system_messages = [rest.pop(0)]
-        compaction = self.compactor.compact(rest, self.max_context_tokens, self.compaction_target_tokens)
+        max_tokens = 0 if force else self.max_context_tokens
+        compaction = self.compactor.compact(rest, max_tokens, target_tokens or self.compaction_target_tokens)
         if not compaction.summary:
             return []
         return system_messages + [Message.from_text("system", compaction.summary)] + compaction.kept_messages

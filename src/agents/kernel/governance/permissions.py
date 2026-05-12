@@ -57,17 +57,27 @@ class StaticToolPermissionPolicy:
 
     async def authorize(self, call: ToolCall) -> ToolPermissionDecision:
         if call.name in self.denied_tools:
-            return ToolPermissionDecision(allowed=False, reason="tool denied by policy")
+            return ToolPermissionDecision(
+                allowed=False,
+                reason="tool denied by policy",
+                metadata={"source": "agent_spec", "rule": "deny", "tool": call.name},
+            )
         if self.restrict_allowed_tools and call.name not in self.allowed_tools:
-            return ToolPermissionDecision(allowed=False, reason="tool is not in the allowed tool set")
+            return ToolPermissionDecision(
+                allowed=False,
+                reason="tool is not in the allowed tool set",
+                metadata={"source": "agent_spec", "rule": "allowlist", "tool": call.name},
+            )
         if self.require_approval_for_all or call.name in self.approval_required_tools:
+            rule = "mode:ask" if self.require_approval_for_all else "ask"
             return ToolPermissionDecision(
                 allowed=False,
                 reason="tool requires user approval",
                 requires_approval=True,
-                metadata={"permission": "ask"},
+                metadata={"permission": "ask", "source": "agent_spec", "rule": rule, "tool": call.name},
             )
-        return ToolPermissionDecision(allowed=True)
+        metadata = {"source": "agent_spec" if self.restrict_allowed_tools else "policy_default", "rule": "allow", "tool": call.name}
+        return ToolPermissionDecision(allowed=True, metadata=metadata)
 
 
 PermissionResult = Union[bool, ToolPermissionDecision]

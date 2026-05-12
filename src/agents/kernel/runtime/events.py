@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from agents.kernel.schema import ModelResponse, RuntimeEvent, ToolCall, ToolResult
+from agents.kernel.schema import Message, ModelResponse, RuntimeEvent, ToolCall, ToolResult
 from agents.kernel.governance.permissions import ToolPermissionDecision
 from agents.kernel.governance.tool_impact import describe_tool_impact
 
@@ -66,3 +66,24 @@ def tool_approval_id(call: ToolCall) -> str:
 
 def error_event(kind: str, message: str) -> RuntimeEvent:
     return RuntimeEvent(type="error", name=kind, payload={"message": message})
+
+
+def done_event(
+    content: str,
+    messages: list[Message],
+    event_count: int,
+    *,
+    error: str | None = None,
+    status: str = "finished",
+) -> RuntimeEvent:
+    return RuntimeEvent(
+        type="done",
+        name="assistant",
+        payload={
+            "content": content,
+            "messages": [message.to_dict() for message in messages],
+            "event_count": event_count,
+            "error": error,
+            "status": status,
+        },
+    )

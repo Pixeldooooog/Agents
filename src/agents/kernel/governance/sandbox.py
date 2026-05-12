@@ -117,12 +117,80 @@ def classify_tool_risk(name: str) -> ToolRisk:
         return ToolRisk.LOW
     if name.startswith("search."):
         return ToolRisk.LOW
+    if name in {"command.save", "command.delete"}:
+        return ToolRisk.MEDIUM
+    if name.startswith("command."):
+        return ToolRisk.LOW
+    if name in {"skill.install", "skill.uninstall", "skill.use", "skill.disable", "plugin.install", "plugin.uninstall", "plugin.enable", "plugin.disable"}:
+        return ToolRisk.MEDIUM
+    if name.startswith("tool.") or name.startswith("skill.") or name.startswith("plugin."):
+        return ToolRisk.LOW
+    if name in {"mcp.configure", "mcp.enable", "mcp.disable", "mcp.remove", "mcp.clear"}:
+        return ToolRisk.MEDIUM
+    if name in {"mcp.read_resource", "mcp.get_prompt"}:
+        return ToolRisk.MEDIUM
+    if name.startswith("mcp."):
+        return ToolRisk.LOW
+    if name in {"memory.add", "memory.edit", "memory.forget"}:
+        return ToolRisk.MEDIUM
+    if name.startswith("memory."):
+        return ToolRisk.LOW
     if name.startswith("filesystem.write") or name in {"filesystem.delete", "filesystem.move"}:
         return ToolRisk.MEDIUM
     if name.startswith("patch."):
         return ToolRisk.MEDIUM
     if name == "test.discover":
         return ToolRisk.LOW
+    if name.startswith("todo."):
+        return ToolRisk.LOW
+    if name == "plan.exit":
+        return ToolRisk.MEDIUM
+    if name.startswith("plan."):
+        return ToolRisk.LOW
+    if name in {"prompt.save", "prompt.delete"}:
+        return ToolRisk.MEDIUM
+    if name.startswith("prompt."):
+        return ToolRisk.LOW
+    if name in {"context.compact", "context.rewind", "session.export"}:
+        return ToolRisk.MEDIUM
+    if name.startswith("context.") or name.startswith("session."):
+        return ToolRisk.LOW
+    if name in {"permission.add_rule", "permission.remove_rule"}:
+        return ToolRisk.MEDIUM
+    if name.startswith("permission."):
+        return ToolRisk.LOW
+    if name in {"hook.add", "hook.delete"}:
+        return ToolRisk.MEDIUM
+    if name.startswith("hook."):
+        return ToolRisk.LOW
+    if name in {"workflow.run", "workflow.run_saved"}:
+        return ToolRisk.HIGH
+    if name in {"workflow.save", "workflow.delete"}:
+        return ToolRisk.MEDIUM
+    if name.startswith("workflow."):
+        return ToolRisk.LOW
+    if name in {"task.run", "task.background"}:
+        return ToolRisk.HIGH
+    if name in {"task.create", "task.update", "task.stop"}:
+        return ToolRisk.MEDIUM
+    if name.startswith("task."):
+        return ToolRisk.LOW
+    if name == "schedule.run":
+        return ToolRisk.HIGH
+    if name in {"schedule.create", "schedule.delete"}:
+        return ToolRisk.MEDIUM
+    if name.startswith("schedule."):
+        return ToolRisk.LOW
+    if name == "agent.profiles":
+        return ToolRisk.LOW
+    if name == "agent.save_profile":
+        return ToolRisk.MEDIUM
+    if name == "team.run_member":
+        return ToolRisk.HIGH
+    if name.startswith("team."):
+        return ToolRisk.LOW
+    if name.startswith("agent."):
+        return ToolRisk.HIGH
     if name in {"web.search", "web.extract"}:
         return ToolRisk.MEDIUM
     if name.startswith("browser.") or name.startswith("web."):

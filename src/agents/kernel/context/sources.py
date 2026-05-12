@@ -14,12 +14,14 @@ def build_context_pack(
     enabled_tools: Iterable[str],
     workspace: WorkspaceContext,
     memory_fragments: Iterable[ContextFragment] = (),
+    extension_fragments: Iterable[ContextFragment] = (),
 ) -> ContextPack:
     fragments: List[ContextFragment] = []
     fragments.extend(_system_fragments(system_prompt))
     fragments.extend(_runtime_policy_fragments())
     fragments.extend(_workspace_instruction_fragments(workspace))
     fragments.extend(_skill_fragments(skill_registry))
+    fragments.extend(extension_fragments)
     fragments.extend(memory_fragments)
     fragments.extend(_tool_hint_fragments(enabled_tools))
     return ContextPack.of(fragments)

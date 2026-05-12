@@ -8,16 +8,14 @@ from agents.kernel.models.errors import ModelClientError
 from agents.kernel.runtime.checkpoints import CheckpointStore, NullCheckpointStore, RuntimeCheckpoint
 from agents.kernel.runtime.config import RuntimeConfig
 from agents.kernel.runtime.errors import AgentRuntimeError
+from agents.kernel.runtime.approvals import apply_approval_updates, pending_approval_events, resolve_authorization_decisions
 from agents.kernel.runtime.events import (
+    done_event,
     error_event,
     model_message_event,
-    tool_approval_decision_event,
-    tool_approval_id,
-    tool_approval_required_event,
     tool_start_event,
 )
-from agents.kernel.governance.approval_grants import APPROVAL_ALLOW_FOR_RUN, APPROVAL_ALLOW_ONCE, APPROVAL_DENY, approval_grant_key
-from agents.kernel.governance.permissions import ToolPermissionDecision, ToolPermissionPolicy
+from agents.kernel.governance.permissions import ToolPermissionPolicy
 from agents.kernel.context.compiler import ModelRequestCompiler
 from agents.kernel.runtime.state import RuntimeState
 from agents.kernel.runtime.turns import ModelTurnRunner, ToolOrchestrator
@@ -40,7 +38,7 @@ class AgentRuntime:
         protocol: str,
         model: str,
         enabled_tools: List[str] = None,
-        max_tool_iterations: int = 8,
+        max_tool_iterations: int | None = 0,
         hooks: Optional[AgentHooks] = None,
         permission_policy: Optional[ToolPermissionPolicy] = None,
         checkpoint_store: Optional[CheckpointStore] = None,
@@ -72,7 +70,7 @@ class AgentRuntime:
         return list(self.config.enabled_tools)
 
     @property
-    def max_tool_iterations(self) -> int:
+    def max_tool_iterations(self) -> int | None:
         return self.config.max_tool_iterations
 
     async def run(self, messages: List[Message], run_id: str | None = None, task_id: str | None = None) -> AgentResult:
@@ -90,13 +88,7 @@ class AgentRuntime:
         if checkpoint is None:
             raise AgentRuntimeError("checkpoint not found: %s" % run_id)
         state = checkpoint.to_state()
-        if approvals:
-            state.tool_approvals.update({str(key): bool(value) for key, value in approvals.items()})
-        if approval_scopes:
-            state.tool_approval_scopes.update({str(key): str(value) for key, value in approval_scopes.items()})
-        if approval_grants:
-            state.tool_approval_grants.update({str(key): bool(value) for key, value in approval_grants.items()})
-        self._derive_run_grants_from_scopes(state)
+        apply_approval_updates(state, approvals, approval_scopes, approval_grants)
         return await self._run_state(state, run_id=run_id, task_id=task_id)
 
     async def _run_state(
@@ -112,7 +104,7 @@ class AgentRuntime:
                     return self._approval_result(state)
                 state.iteration += 1
 
-            while state.iteration < self.config.max_tool_iterations:
+            while self._can_continue_tool_loop(state):
                 response = await self._complete_once(state.messages)
                 calls = await self._apply_model_response(state, response, run_id)
                 if not calls:
@@ -153,11 +145,49 @@ class AgentRuntime:
         task_id: str | None = None,
     ) -> AsyncIterable[RuntimeEvent]:
         state = RuntimeState.from_messages(messages)
+        async for event in self._stream_state(state, run_id=run_id, task_id=task_id):
+            yield event
+
+    async def resume_stream(
+        self,
+        run_id: str,
+        approvals: Mapping[str, bool] | None = None,
+        approval_scopes: Mapping[str, str] | None = None,
+        approval_grants: Mapping[str, bool] | None = None,
+        task_id: str | None = None,
+    ) -> AsyncIterable[RuntimeEvent]:
+        checkpoint = await self.checkpoints.load(run_id)
+        if checkpoint is None:
+            message = "checkpoint not found: %s" % run_id
+            yield error_event("runtime", message)
+            yield done_event(message, [], 0, error=message, status="error")
+            return
+        state = checkpoint.to_state()
+        apply_approval_updates(state, approvals, approval_scopes, approval_grants)
+        async for event in self._stream_state(state, run_id=run_id, task_id=task_id):
+            yield event
+
+    async def _stream_state(
+        self,
+        state: RuntimeState,
+        run_id: str | None = None,
+        task_id: str | None = None,
+    ) -> AsyncIterable[RuntimeEvent]:
         error_msg = None
         terminal_status = "finished"
         terminal_content = ""
         try:
-            while state.iteration < self.config.max_tool_iterations:
+            if state.pending_tool_calls:
+                outcome = await self._execute_pending_tools(state, run_id, task_id)
+                for event in outcome.events:
+                    yield event
+                if outcome.approval_required:
+                    terminal_status = "awaiting_approval"
+                    terminal_content = "tool approval required"
+                    return
+                state.iteration += 1
+
+            while self._can_continue_tool_loop(state):
                 final_response = None
                 async for update in self.model_turn_runner.stream(state.messages, self.config):
                     if update.event is not None:
@@ -191,19 +221,20 @@ class AgentRuntime:
             error_msg = "unexpected error: %s" % exc
             yield await self._record_error(state, run_id, "runtime", error_msg)
         finally:
-            yield RuntimeEvent(
-                type="done",
-                name="assistant",
-                payload={
-                    "content": error_msg or terminal_content or (state.messages[-1].content_text() if state.messages else ""),
-                    "messages": [message.to_dict() for message in state.messages],
-                    "error": error_msg,
-                    "status": "error" if error_msg else terminal_status,
-                },
+            yield done_event(
+                error_msg or terminal_content or (state.messages[-1].content_text() if state.messages else ""),
+                state.messages,
+                len(state.events),
+                error=error_msg,
+                status="error" if error_msg else terminal_status,
             )
 
     async def _complete_once(self, messages: List[Message]) -> ModelResponse:
         return await self.model_turn_runner.complete(messages, self.config)
+
+    def _can_continue_tool_loop(self, state: RuntimeState) -> bool:
+        limit = self.config.max_tool_iterations
+        return limit is None or limit <= 0 or state.iteration < limit
 
     async def _apply_model_response(
         self,
@@ -231,77 +262,25 @@ class AgentRuntime:
             return ToolExecutionOutcome([])
         emitted: List[RuntimeEvent] = []
         authorizations = await self.tool_orchestrator.authorize(state.pending_tool_calls)
-        approval_events = []
-        for item in authorizations:
-            approval_id = tool_approval_id(item.call)
-            if approval_id in state.tool_approvals:
-                continue
-            if item.decision.requires_approval and approval_grant_key(item.call) in state.tool_approval_grants:
-                continue
-            if item.decision.requires_approval:
-                approval_events.append(tool_approval_required_event(item.call, item.decision))
+        approval_events = pending_approval_events(state, authorizations)
         if approval_events:
             state.events.extend(approval_events)
             await self._save_checkpoint(run_id, "approval_required", state)
             return ToolExecutionOutcome(approval_events, approval_required=True)
 
-        decisions: List[ToolPermissionDecision] = []
-        decided_call_ids: set[str] = set()
-        for item in authorizations:
-            approval_id = tool_approval_id(item.call)
-            grant_key = approval_grant_key(item.call)
-            if item.decision.requires_approval and approval_id in state.tool_approvals:
-                approved = state.tool_approvals[approval_id]
-                scope = state.tool_approval_scopes.get(approval_id, APPROVAL_ALLOW_ONCE if approved else APPROVAL_DENY)
-                decided_call_ids.add(approval_id)
-                if approved and scope == APPROVAL_ALLOW_FOR_RUN:
-                    state.tool_approval_grants[grant_key] = True
-                event = tool_approval_decision_event(
-                    item.call,
-                    approved,
-                    scope=scope,
-                    grant_key=grant_key if scope == APPROVAL_ALLOW_FOR_RUN else "",
-                )
-                state.events.append(event)
-                emitted.append(event)
-                decisions.append(
-                    ToolPermissionDecision(
-                        allowed=approved,
-                        reason="" if approved else "tool denied by user approval",
-                        metadata={"source": "user_approval", "scope": scope, "grant_key": grant_key if scope == APPROVAL_ALLOW_FOR_RUN else ""},
-                    )
-                )
-                continue
-            if item.decision.requires_approval and grant_key in state.tool_approval_grants:
-                approved = state.tool_approval_grants[grant_key]
-                event = tool_approval_decision_event(
-                    item.call,
-                    approved,
-                    reason="run approval grant",
-                    scope=APPROVAL_ALLOW_FOR_RUN,
-                    grant_key=grant_key,
-                )
-                state.events.append(event)
-                emitted.append(event)
-                decisions.append(
-                    ToolPermissionDecision(
-                        allowed=approved,
-                        reason="" if approved else "tool denied by run approval grant",
-                        metadata={"source": "run_approval_grant", "scope": APPROVAL_ALLOW_FOR_RUN, "grant_key": grant_key},
-                    )
-                )
-                continue
-            decisions.append(item.decision)
+        approval_resolution = resolve_authorization_decisions(state, authorizations)
+        state.events.extend(approval_resolution.events)
+        emitted.extend(approval_resolution.events)
+        decisions = approval_resolution.decisions
 
-        for call, decision in zip(state.pending_tool_calls, decisions):
-            if not decision.allowed:
-                continue
+        prepared = await self.tool_orchestrator.prepare_with_decisions(state.pending_tool_calls, decisions)
+
+        for call in prepared.executable_calls:
             event = tool_start_event(call)
             state.events.append(event)
             emitted.append(event)
-        batch = await self.tool_orchestrator.execute_with_decisions(
-            state.pending_tool_calls,
-            decisions,
+        batch = await self.tool_orchestrator.execute_prepared(
+            prepared,
             run_id=run_id or "",
             task_id=task_id or "",
         )
@@ -309,20 +288,12 @@ class AgentRuntime:
         state.events.extend(batch.events)
         emitted.extend(batch.events)
         state.messages.extend(batch.messages)
-        for approval_id in decided_call_ids:
+        for approval_id in approval_resolution.decided_call_ids:
             state.tool_approvals.pop(approval_id, None)
             state.tool_approval_scopes.pop(approval_id, None)
         state.pending_tool_calls = []
         await self._save_checkpoint(run_id, "tool_results", state)
         return ToolExecutionOutcome(emitted)
-
-    def _derive_run_grants_from_scopes(self, state: RuntimeState) -> None:
-        for call in state.pending_tool_calls:
-            approval_id = tool_approval_id(call)
-            if not state.tool_approvals.get(approval_id):
-                continue
-            if state.tool_approval_scopes.get(approval_id) == APPROVAL_ALLOW_FOR_RUN:
-                state.tool_approval_grants[approval_grant_key(call)] = True
 
     async def _record_error(
         self,
