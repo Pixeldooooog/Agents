@@ -109,6 +109,24 @@ result = await runtime.run("Find the latest Python best practices and create a s
 
 ---
 
+## 📦 Build & Delivery
+
+```bash
+# Validate backend + terminal tests
+make check
+
+# Build Python artifacts (sdist + wheel) and verify metadata
+make package
+
+# Build web assets
+make build-web
+
+# Build deployment image
+make build
+```
+
+---
+
 ## ✨ Features
 
 <details open>

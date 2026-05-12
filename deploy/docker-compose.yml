@@ -3,7 +3,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    image: ${IMAGE:-agents/framework-template}:${TAG:-latest}
+    image: ${IMAGE:-agents}:${TAG:-latest}
     restart: unless-stopped
     environment:
       - TZ=Asia/Shanghai

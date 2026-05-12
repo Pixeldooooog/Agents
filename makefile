@@ -9,7 +9,7 @@ HOST_PIP ?= $(shell command -v pip3 2>/dev/null || command -v pip 2>/dev/null)
 PYTHON ?= $(VENV)/bin/python
 PIP ?= $(PYTHON) -m pip
 
-.PHONY: check-python venv setup setup-tui setup-terminal run tui gui terminal terminal-fixture terminal-fixture-fullscreen terminal-manual-smoke manual-smoke terminal-audit terminal-audit-complete cli bridge-fallback dev-web stop test test-terminal check doctor build up down log
+.PHONY: check-python venv setup setup-tui setup-terminal run tui gui terminal terminal-fixture terminal-fixture-fullscreen terminal-manual-smoke manual-smoke terminal-audit terminal-audit-complete cli bridge-fallback dev-web stop test test-terminal check doctor package build-web build up down log
 
 check-python:
 	@test -n "$(PYTHON_BIN)" || (echo "Python 3.10+ is required." && exit 1)
@@ -101,6 +101,15 @@ check: test test-terminal
 
 doctor: venv
 	PYTHONPATH=$(CURDIR)/src $(PYTHON) -m agents.entrypoints.doctor
+
+package: venv
+	$(PIP) install --upgrade build twine
+	rm -rf dist build
+	$(PYTHON) -m build
+	$(PYTHON) -m twine check dist/*
+
+build-web:
+	cd apps/web && npm run build
 
 build:
 	docker build -f deploy/Dockerfile -t $(IMAGE):$(TAG) .
