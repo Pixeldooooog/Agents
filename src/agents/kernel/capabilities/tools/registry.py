@@ -156,6 +156,8 @@ class ToolRegistry:
                 raw=result.raw,
             )
 
+        if self._requires_sequential_execution(call_list):
+            return [await run(call) for call in call_list]
         return list(await asyncio.gather(*(run(call) for call in call_list)))
 
     def _spec_for(self, name: str) -> ToolSpec:
@@ -169,6 +171,13 @@ class ToolRegistry:
             source="registry",
             raw={"metadata": dict(tool.metadata or {})} if tool.metadata else None,
         )
+
+    def _requires_sequential_execution(self, calls: Iterable[ToolCall]) -> bool:
+        for call in calls:
+            tool = self._tools.get(call.name)
+            if tool is not None and tool.metadata.get("writes_state"):
+                return True
+        return False
 
     def _semaphore_for_running_loop(self) -> asyncio.Semaphore:
         loop = asyncio.get_running_loop()

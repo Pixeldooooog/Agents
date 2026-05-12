@@ -37,11 +37,45 @@ class MCPToolDefinition:
     parameters: Dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class MCPResourceDefinition:
+    uri: str
+    name: str = ""
+    description: str = ""
+    mime_type: str = ""
+
+
+@dataclass(frozen=True)
+class MCPPromptArgumentDefinition:
+    name: str
+    description: str = ""
+    required: bool = False
+
+
+@dataclass(frozen=True)
+class MCPPromptDefinition:
+    name: str
+    description: str = ""
+    arguments: List[MCPPromptArgumentDefinition] = field(default_factory=list)
+
+
 class MCPClient(Protocol):
     async def list_tools(self) -> List[MCPToolDefinition]:
         raise NotImplementedError()
 
     async def call_tool(self, name: str, arguments: Dict[str, Any]) -> Any:
+        raise NotImplementedError()
+
+    async def list_resources(self) -> List[MCPResourceDefinition]:
+        raise NotImplementedError()
+
+    async def read_resource(self, uri: str) -> Any:
+        raise NotImplementedError()
+
+    async def list_prompts(self) -> List[MCPPromptDefinition]:
+        raise NotImplementedError()
+
+    async def get_prompt(self, name: str, arguments: Dict[str, Any] | None = None) -> Any:
         raise NotImplementedError()
 
     async def close(self) -> None:
@@ -97,6 +131,53 @@ class MCPStdioClient:
         result = await self._session.call_tool(name, arguments)
         return _format_mcp_result(result)
 
+    async def list_resources(self) -> List[MCPResourceDefinition]:
+        await self.initialize()
+        response = await self._session.list_resources()
+        raw_resources = getattr(response, "resources", None)
+        if raw_resources is None:
+            raw_resources = []
+            for item in response:
+                if isinstance(item, tuple) and item[0] == "resources":
+                    raw_resources.extend(item[1])
+        return [
+            MCPResourceDefinition(
+                uri=str(getattr(resource, "uri", "") or ""),
+                name=str(getattr(resource, "name", "") or ""),
+                description=str(getattr(resource, "description", "") or ""),
+                mime_type=str(getattr(resource, "mimeType", None) or getattr(resource, "mime_type", "") or ""),
+            )
+            for resource in raw_resources
+        ]
+
+    async def read_resource(self, uri: str) -> Any:
+        await self.initialize()
+        result = await self._session.read_resource(uri)
+        return _format_mcp_resource_result(result)
+
+    async def list_prompts(self) -> List[MCPPromptDefinition]:
+        await self.initialize()
+        response = await self._session.list_prompts()
+        raw_prompts = getattr(response, "prompts", None)
+        if raw_prompts is None:
+            raw_prompts = []
+            for item in response:
+                if isinstance(item, tuple) and item[0] == "prompts":
+                    raw_prompts.extend(item[1])
+        return [
+            MCPPromptDefinition(
+                name=str(getattr(prompt, "name", "") or ""),
+                description=str(getattr(prompt, "description", "") or ""),
+                arguments=_prompt_arguments(getattr(prompt, "arguments", []) or []),
+            )
+            for prompt in raw_prompts
+        ]
+
+    async def get_prompt(self, name: str, arguments: Dict[str, Any] | None = None) -> Any:
+        await self.initialize()
+        result = await self._session.get_prompt(name, arguments or {})
+        return _format_mcp_prompt_result(result)
+
     async def close(self) -> None:
         if self._session_context is not None:
             await self._session_context.__aexit__(None, None, None)
@@ -141,6 +222,30 @@ class MCPToolProvider:
 
         return call_remote
 
+    async def list_resources(self) -> List[MCPResourceDefinition]:
+        list_resources = getattr(self.client, "list_resources", None)
+        if list_resources is None:
+            return []
+        return await list_resources()
+
+    async def read_resource(self, uri: str) -> Any:
+        read_resource = getattr(self.client, "read_resource", None)
+        if read_resource is None:
+            raise RuntimeError("MCP server does not support resources")
+        return await read_resource(uri)
+
+    async def list_prompts(self) -> List[MCPPromptDefinition]:
+        list_prompts = getattr(self.client, "list_prompts", None)
+        if list_prompts is None:
+            return []
+        return await list_prompts()
+
+    async def get_prompt(self, name: str, arguments: Dict[str, Any] | None = None) -> Any:
+        get_prompt = getattr(self.client, "get_prompt", None)
+        if get_prompt is None:
+            raise RuntimeError("MCP server does not support prompts")
+        return await get_prompt(name, arguments or {})
+
     async def close(self) -> None:
         close = getattr(self.client, "close", None)
         if close is not None:
@@ -161,3 +266,81 @@ def _format_mcp_result(result: Any) -> Any:
         else:
             parts.append(json.dumps(item, ensure_ascii=False, sort_keys=True, default=str))
     return "\n".join(part for part in parts if part)
+
+
+def _format_mcp_resource_result(result: Any) -> Any:
+    contents = getattr(result, "contents", None)
+    if contents is None and isinstance(result, dict):
+        contents = result.get("contents")
+    if contents is None:
+        return result
+    formatted = []
+    for item in contents:
+        if isinstance(item, dict):
+            formatted.append(dict(item))
+            continue
+        payload = {
+            "uri": str(getattr(item, "uri", "") or ""),
+            "mimeType": str(getattr(item, "mimeType", None) or getattr(item, "mime_type", "") or ""),
+        }
+        if hasattr(item, "text"):
+            payload["text"] = getattr(item, "text")
+        if hasattr(item, "blob"):
+            payload["blob"] = getattr(item, "blob")
+        formatted.append(payload)
+    return {"contents": formatted}
+
+
+def _prompt_arguments(raw_arguments: Any) -> List[MCPPromptArgumentDefinition]:
+    arguments: List[MCPPromptArgumentDefinition] = []
+    for argument in raw_arguments or []:
+        if isinstance(argument, dict):
+            arguments.append(
+                MCPPromptArgumentDefinition(
+                    name=str(argument.get("name") or ""),
+                    description=str(argument.get("description") or ""),
+                    required=bool(argument.get("required")),
+                )
+            )
+            continue
+        arguments.append(
+            MCPPromptArgumentDefinition(
+                name=str(getattr(argument, "name", "") or ""),
+                description=str(getattr(argument, "description", "") or ""),
+                required=bool(getattr(argument, "required", False)),
+            )
+        )
+    return arguments
+
+
+def _format_mcp_prompt_result(result: Any) -> Any:
+    if isinstance(result, dict):
+        description = result.get("description", "")
+        messages = result.get("messages", [])
+    else:
+        description = getattr(result, "description", "") or ""
+        messages = getattr(result, "messages", []) or []
+    return {
+        "description": str(description or ""),
+        "messages": [_prompt_message_payload(message) for message in messages],
+    }
+
+
+def _prompt_message_payload(message: Any) -> dict[str, Any]:
+    if isinstance(message, dict):
+        role = str(message.get("role") or "")
+        content = message.get("content")
+    else:
+        role = str(getattr(message, "role", "") or "")
+        content = getattr(message, "content", None)
+    return {"role": role, "content": _prompt_content_payload(content)}
+
+
+def _prompt_content_payload(content: Any) -> Any:
+    if content is None or isinstance(content, (str, int, float, bool, list, dict)):
+        return content
+    payload = {"type": str(getattr(content, "type", "") or "")}
+    for field_name in ["text", "blob", "mimeType", "mime_type", "uri", "name", "description"]:
+        if hasattr(content, field_name):
+            payload[field_name] = getattr(content, field_name)
+    return {key: value for key, value in payload.items() if value not in ("", None)}

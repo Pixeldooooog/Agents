@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -65,6 +66,10 @@ class TaskRunner:
         session = await self.session_factory.create(task)
         try:
             result = await session.send(step.input, run_id=run.run_id, task_id=task.task_id)
+        except asyncio.CancelledError:
+            await self.engine.cancel_task(task.task_id)
+            await self.run_coordinator.finish(run.run_id, "canceled")
+            raise
         except Exception as exc:
             await self.engine.fail_step(step.step_id, str(exc))
             await self.run_coordinator.finish(run.run_id, str(exc))
@@ -86,10 +91,11 @@ class TaskRunner:
 
         final_task = await self.store.load_task(task.task_id)
         final_step = await self.store.load_step(step.step_id)
+        final_run = await _load_run(self.run_coordinator, run.run_id)
         return TaskExecutionResult(
             task=final_task or task,
             step=final_step or step,
-            run=run,
+            run=final_run or run,
             result=result,
         )
 
@@ -105,3 +111,11 @@ async def _close_session(session: AgentSession) -> None:
     close = getattr(session, "aclose", None)
     if close is not None:
         await close()
+
+
+async def _load_run(run_coordinator: TaskRunCoordinator, run_id: str) -> RunRecord | None:
+    store = getattr(run_coordinator, "store", None)
+    load_run = getattr(store, "load_run", None)
+    if load_run is None:
+        return None
+    return await load_run(run_id)

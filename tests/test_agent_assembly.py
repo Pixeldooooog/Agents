@@ -14,6 +14,8 @@ import json
 from agents.kernel.assembly import create_agent_session, create_agent_session_async
 from agents.kernel.capabilities.memory import InMemoryMemoryStore, MemoryRecord, MemoryScope
 from agents.kernel.config import AgentConfigError, resolve_model_client_config
+from agents.kernel.mcp_config import InMemoryMCPConfigStore, MCPServerRecord
+from agents.kernel.session_state import InMemorySessionStateStore, SessionStateRecord
 from agents.kernel.specs import AgentSpec
 
 
@@ -77,6 +79,8 @@ class FakeMcpConfig:
     SERVER_COMMAND = ""
     SERVER_NAME = ""
     CLIENT_TIMEOUT = 5.0
+    EXECUTION_MODE = ""
+    SANDBOX_PROFILE = ""
 
 
 class FakeRuntimeClient:
@@ -177,6 +181,8 @@ def test_create_session_composes_skill_prompt_and_declared_tools(tmp_path, monke
     assert session.workspace.workspace_id == "default"
     assert session.workspace.path == tmp_path / ".agents" / "workspaces" / "local" / "default"
     assert any(item.id == "skill.focus.0" and item.included for item in session.context_trace)
+    assert session.tool_context.enabled_tools == session.runtime.enabled_tools
+    assert session.tool_context.skill_registry.names() == ["focus"]
 
 
 def test_create_session_respects_explicit_enabled_tools(tmp_path, monkeypatch):
@@ -244,6 +250,7 @@ def test_create_session_injects_memory_context(tmp_path, monkeypatch):
     monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
     settings = FakeSettings()
     settings.server.ROOT_PATH = tmp_path
+    settings.agent.SYSTEM_PROMPT = "Configured prompt."
     settings.models.openai.API_KEY = "key"
     settings.models.openai.MODEL = "model"
     store = InMemoryMemoryStore()
@@ -269,6 +276,155 @@ def test_create_session_injects_memory_context(tmp_path, monkeypatch):
 
     assert "## memory: memory." in session.system_prompt
     assert "User wants concise implementation notes." in session.system_prompt
+    assert session.tool_context.memory_store is store
+
+
+def test_create_session_hydrates_mcp_config_store_before_loading(tmp_path, monkeypatch):
+    monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
+    captured = {}
+
+    async def fake_load_mcp(settings, registry):
+        captured["name"] = settings.mcp.SERVER_NAME
+        captured["command"] = settings.mcp.SERVER_COMMAND
+        captured["execution_mode"] = settings.mcp.EXECUTION_MODE
+        captured["sandbox_profile"] = settings.mcp.SANDBOX_PROFILE
+        return []
+
+    monkeypatch.setattr("agents.kernel.assembly.session.load_configured_mcp", fake_load_mcp)
+    settings = FakeSettings()
+    settings.server.ROOT_PATH = tmp_path
+    settings.models.openai.API_KEY = "key"
+    settings.models.openai.MODEL = "model"
+    store = InMemoryMCPConfigStore()
+
+    async def create():
+        await store.save(
+            MCPServerRecord(
+                name="docs",
+                command="python server.py",
+                execution_mode="workspace",
+                sandbox_profile="coding",
+                tenant_id="default",
+                user_id="user-1",
+                agent_id="agent-1",
+                workspace_id="default",
+            )
+        )
+        return await create_agent_session_async(
+            settings,
+            AgentSpec.from_overrides(user_id="user 1", agent_id="agent 1"),
+            mcp_config_store=store,
+        )
+
+    session = asyncio.run(create())
+
+    assert captured == {
+        "name": "docs",
+        "command": "python server.py",
+        "execution_mode": "workspace",
+        "sandbox_profile": "coding",
+    }
+    assert session.tool_context.mcp_config_store is store
+
+
+def test_create_session_hydrates_session_state_store(tmp_path, monkeypatch):
+    monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
+    (tmp_path / "skills").mkdir()
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / "focus.md").write_text("Persisted skill prompt.", encoding="utf-8")
+    (tmp_path / "skills" / "focus.json").write_text(
+        json.dumps(
+            {
+                "name": "focus",
+                "prompt_fragments": ["prompts/focus.md"],
+                "tools": ["filesystem.read"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    plugin_dir = tmp_path / ".agents" / "plugins" / "planner"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps(
+            {
+                "name": "planner",
+                "prompt": "Persisted plugin prompt.",
+                "tools": ["todo.write"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    settings = FakeSettings()
+    settings.server.ROOT_PATH = tmp_path
+    settings.models.openai.API_KEY = "key"
+    settings.models.openai.MODEL = "model"
+    store = InMemorySessionStateStore()
+
+    async def create():
+        await store.save(
+            SessionStateRecord(
+                tenant_id="default",
+                user_id="user-1",
+                agent_id="agent-1",
+                workspace_id="default",
+                todos=[
+                    {"content": "Run checks", "status": "in_progress", "activeForm": "Running checks"},
+                ],
+                plan_mode=True,
+                plan_text="Inspect then implement.",
+                plan_allowed_prompts=[{"tool": "shell.run", "prompt": "pytest"}],
+                system_prompt_override="Persisted session prompt.",
+                system_prompt_overridden=True,
+                permission_profile_override="guarded",
+                permission_mode_override="auto",
+                permission_restrict_allowed_tools=True,
+                permission_allowed_tools_override=["filesystem.read"],
+                permission_denied_tools_override=["shell.run"],
+                approval_required_tools_override=["shell.run"],
+                permission_overridden=True,
+                enabled_skills=["focus"],
+                enabled_plugins=["planner"],
+                skill_tools={"focus": ["filesystem.read"]},
+                plugin_tools={"planner": ["todo.write"]},
+            )
+        )
+        return await create_agent_session_async(
+            settings,
+            AgentSpec.from_overrides(user_id="user 1", agent_id="agent 1"),
+            session_state_store=store,
+        )
+
+    session = asyncio.run(create())
+
+    assert session.tool_context.session_state_store is store
+    assert session.tool_context.todos[0]["content"] == "Run checks"
+    assert session.tool_context.plan_mode is True
+    assert session.tool_context.plan_text == "Inspect then implement."
+    assert session.tool_context.plan_allowed_prompts == [{"tool": "shell.run", "prompt": "pytest"}]
+    assert session.tool_context.system_prompt_override == "Persisted session prompt."
+    assert session.tool_context.system_prompt_overridden is True
+    assert "Persisted session prompt." in session.system_prompt
+    assert "Persisted skill prompt." in session.system_prompt
+    assert "Persisted plugin prompt." in session.system_prompt
+    assert "Configured prompt." not in session.system_prompt
+    assert session.tool_context.permission_profile_override == "guarded"
+    assert session.tool_context.permission_mode_override == "auto"
+    assert session.tool_context.permission_restrict_allowed_tools is True
+    assert session.tool_context.permission_allowed_tools_override == ["filesystem.read"]
+    assert session.tool_context.permission_denied_tools_override == ["shell.run"]
+    assert session.tool_context.approval_required_tools_override == ["shell.run"]
+    assert session.tool_context.permission_overridden is True
+    assert session.tool_context.agent_spec.permission_profile == "guarded"
+    assert session.tool_context.agent_spec.tool_permissions.mode == "auto"
+    assert session.tool_context.agent_spec.tool_permissions.allowed_tools == ["filesystem.read"]
+    assert session.tool_context.agent_spec.tool_permissions.denied_tools == ["shell.run"]
+    assert session.tool_context.agent_spec.tool_permissions.approval_required_tools == ["shell.run"]
+    assert session.tool_context.enabled_skills == {"focus"}
+    assert session.tool_context.enabled_plugins == {"planner"}
+    assert session.tool_context.skill_tools == {"focus": ["filesystem.read"]}
+    assert session.tool_context.plugin_tools == {"planner": ["todo.write"]}
+    assert "filesystem.read" in session.runtime.enabled_tools
+    assert "todo.write" in session.runtime.enabled_tools
 
 
 def test_create_session_uses_agent_spec(tmp_path, monkeypatch):

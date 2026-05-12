@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from agents.kernel.capabilities.sandbox.factory import (
@@ -14,6 +14,7 @@ from agents.kernel.capabilities.sandbox.store import SandboxLeaseRecord, Sandbox
 from agents.kernel.capabilities.sandbox.types import SandboxClient, SandboxProfile
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.governance import SandboxPolicy
+from agents.kernel.hooks import SessionHookRegistry
 from agents.kernel.state.artifacts import ArtifactBlobLocation, ArtifactBlobStore, ArtifactStore, InMemoryArtifactStore, LocalArtifactBlobStore
 
 
@@ -26,6 +27,47 @@ class ToolRuntimeContext:
     sandbox_store: SandboxStore | None = None
     artifact_store: ArtifactStore | None = None
     artifact_blob_store: ArtifactBlobStore | None = None
+    task_store: Any | None = None
+    run_service: Any | None = None
+    agent_profile_store: Any | None = None
+    memory_store: Any | None = None
+    schedule_store: Any | None = None
+    team_store: Any | None = None
+    hook_store: Any | None = None
+    mcp_config_store: Any | None = None
+    session_state_store: Any | None = None
+    skill_registry: Any | None = None
+    mcp_providers: list[Any] = field(default_factory=list)
+    settings: Any | None = None
+    enabled_tools: list[str] = field(default_factory=list)
+    agent_spec: Any | None = None
+    session: Any | None = None
+    agent_session_factory: Any | None = None
+    subagent_depth: int = 0
+    max_subagent_depth: int = 1
+    todos: list[dict[str, str]] = field(default_factory=list)
+    plan_mode: bool = False
+    plan_text: str = ""
+    plan_allowed_prompts: list[dict[str, str]] = field(default_factory=list)
+    system_prompt_override: str = ""
+    system_prompt_overridden: bool = False
+    permission_profile_override: str = ""
+    permission_mode_override: str = ""
+    permission_restrict_allowed_tools: bool = False
+    permission_allowed_tools_override: list[str] = field(default_factory=list)
+    permission_denied_tools_override: list[str] = field(default_factory=list)
+    approval_required_tools_override: list[str] = field(default_factory=list)
+    permission_overridden: bool = False
+    enabled_skills: set[str] = field(default_factory=set)
+    enabled_plugins: set[str] = field(default_factory=set)
+    skill_tools: dict[str, list[str]] = field(default_factory=dict)
+    plugin_tools: dict[str, list[str]] = field(default_factory=dict)
+    background_tasks: dict[str, Any] = field(default_factory=dict)
+    background_task_results: dict[str, Any] = field(default_factory=dict)
+    scheduled_tasks: dict[str, dict[str, Any]] = field(default_factory=dict)
+    hook_registry: SessionHookRegistry = field(default_factory=SessionHookRegistry)
+    teams: dict[str, Any] = field(default_factory=dict)
+    team_messages: list[dict[str, Any]] = field(default_factory=list)
     task_id: str = ""
     current_run_id: str = ""
     current_task_id: str = ""
@@ -56,6 +98,20 @@ class ToolRuntimeContext:
         sandbox_store: SandboxStore | None = None,
         artifact_store: ArtifactStore | None = None,
         artifact_blob_store: ArtifactBlobStore | None = None,
+        task_store: Any | None = None,
+        run_service: Any | None = None,
+        agent_profile_store: Any | None = None,
+        memory_store: Any | None = None,
+        schedule_store: Any | None = None,
+        team_store: Any | None = None,
+        hook_store: Any | None = None,
+        mcp_config_store: Any | None = None,
+        session_state_store: Any | None = None,
+        skill_registry: Any | None = None,
+        agent_spec: Any | None = None,
+        agent_session_factory: Any | None = None,
+        subagent_depth: int = 0,
+        max_subagent_depth: int = 1,
         task_id: str = "",
     ) -> "ToolRuntimeContext":
         profile = sandbox_profile_from_settings(settings)
@@ -69,6 +125,21 @@ class ToolRuntimeContext:
             sandbox_store=sandbox_store,
             artifact_store=artifact_store,
             artifact_blob_store=artifact_blob_store,
+            task_store=task_store,
+            run_service=run_service,
+            agent_profile_store=agent_profile_store,
+            memory_store=memory_store,
+            schedule_store=schedule_store,
+            team_store=team_store,
+            hook_store=hook_store,
+            mcp_config_store=mcp_config_store,
+            session_state_store=session_state_store,
+            skill_registry=skill_registry,
+            settings=settings,
+            agent_spec=agent_spec,
+            agent_session_factory=agent_session_factory,
+            subagent_depth=subagent_depth,
+            max_subagent_depth=max_subagent_depth,
             task_id=str(task_id or ""),
         )
 

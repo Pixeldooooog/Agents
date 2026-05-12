@@ -7,10 +7,10 @@ from agents.kernel.capabilities.tools.mcp import MCPServerConfig, MCPStdioClient
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 
 
-async def load_configured_mcp(settings: Any, registry: ToolRegistry) -> None:
+async def load_configured_mcp(settings: Any, registry: ToolRegistry) -> list[MCPToolProvider]:
     command = str(settings.mcp.SERVER_COMMAND or "").strip()
     if not command:
-        return
+        return []
     command_parts = shlex.split(command)
     server = MCPServerConfig(
         name=settings.mcp.SERVER_NAME or "default",
@@ -22,3 +22,4 @@ async def load_configured_mcp(settings: Any, registry: ToolRegistry) -> None:
     )
     provider = MCPToolProvider(client=MCPStdioClient(server), server=server)
     await provider.load_tools(registry)
+    return [provider]

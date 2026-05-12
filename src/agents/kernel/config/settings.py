@@ -5,7 +5,7 @@ import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from agents.kernel.config.loader import config_value
-from agents.kernel.config.paths import ENV_FILE
+from agents.kernel.config.paths import ENV_FILE, ROOT_PATH
 
 
 class AgentConfig(BaseSettings):
@@ -21,7 +21,7 @@ class AgentConfig(BaseSettings):
     PROTOCOL: str = config_value("agent", "PROTOCOL", "openai-chat")
     TIMEOUT: float = config_value("agent", "TIMEOUT", 60.0)
     MAX_TOKENS: int = config_value("agent", "MAX_TOKENS", 16384)
-    MAX_TOOL_ITERATIONS: int = config_value("agent", "MAX_TOOL_ITERATIONS", 8)
+    MAX_TOOL_ITERATIONS: int = config_value("agent", "MAX_TOOL_ITERATIONS", 0)
     SYSTEM_PROMPT: str = config_value("agent", "SYSTEM_PROMPT", "")
     ENABLED_TOOLS: str = config_value("agent", "ENABLED_TOOLS", "")
     SKILLS: str = config_value("agent", "SKILLS", "")
@@ -171,6 +171,10 @@ class WebSearchConfig(BaseSettings):
     ALLOW_RAW_CONTENT: bool = config_value("web_search", "ALLOW_RAW_CONTENT", False)
 
 
+class RuntimeServerConfig:
+    ROOT_PATH: str = ROOT_PATH
+
+
 class RuntimeSettings:
     """Shared non-HTTP settings consumed by the agent SDK and local terminal."""
 
@@ -179,6 +183,7 @@ class RuntimeSettings:
         self.models = ModelConfigs()
         self.mcp = MCPConfig()
         self.web_search = WebSearchConfig()
+        self.server = RuntimeServerConfig()
 
 
 agent_config = AgentConfig()

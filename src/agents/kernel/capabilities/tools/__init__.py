@@ -10,8 +10,11 @@
 
 from agents.kernel.capabilities.tools.mcp import (
     MCPClient,
+    MCPPromptArgumentDefinition,
+    MCPPromptDefinition,
     MCPServerConfig,
     MCPStdioClient,
+    MCPResourceDefinition,
     MCPToolDefinition,
     MCPToolProvider,
 )
@@ -22,8 +25,11 @@ from agents.kernel.capabilities.tools.registry import RegisteredTool, ToolRegist
 
 __all__ = [
     "MCPClient",
+    "MCPPromptArgumentDefinition",
+    "MCPPromptDefinition",
     "MCPServerConfig",
     "MCPStdioClient",
+    "MCPResourceDefinition",
     "MCPToolDefinition",
     "MCPToolProvider",
     "RegisteredTool",

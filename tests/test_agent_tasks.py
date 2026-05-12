@@ -6,7 +6,10 @@ from agents.kernel.schema import Message, RuntimeEvent
 from agents.kernel.state.runs import InMemoryRunStore, RunStatus
 from agents.kernel.tasks import (
     InMemoryTaskStore,
+    SQLiteScheduleStore,
+    SQLiteTaskQueue,
     SQLiteTaskStore,
+    ScheduleRecord,
     TaskAttemptRecord,
     TaskAttemptStatus,
     TaskEngine,
@@ -84,6 +87,98 @@ def test_sqlite_task_store_persists_tasks_steps_and_attempts(tmp_path):
     assert attempts[0].ended_at is not None
 
 
+def test_sqlite_task_queue_persists_scoped_items(tmp_path):
+    queue = SQLiteTaskQueue(SQLiteDatabase(tmp_path / "agents.db"))
+
+    async def execute():
+        await queue.enqueue(
+            "task-1",
+            metadata={"source": "terminal"},
+            tenant_id="tenant-1",
+            user_id="user-1",
+            agent_id="agent-1",
+            workspace_id="workspace-1",
+        )
+        await queue.enqueue(
+            "task-2",
+            metadata={"source": "terminal"},
+            tenant_id="tenant-1",
+            user_id="user-1",
+            agent_id="agent-1",
+            workspace_id="workspace-2",
+        )
+        reopened = SQLiteTaskQueue(SQLiteDatabase(tmp_path / "agents.db"))
+        workspace_one = await reopened.items(
+            tenant_id="tenant-1",
+            user_id="user-1",
+            agent_id="agent-1",
+            workspace_id="workspace-1",
+        )
+        first = await reopened.dequeue(
+            tenant_id="tenant-1",
+            user_id="user-1",
+            agent_id="agent-1",
+            workspace_id="workspace-1",
+        )
+        workspace_one_after = await reopened.items(
+            tenant_id="tenant-1",
+            user_id="user-1",
+            agent_id="agent-1",
+            workspace_id="workspace-1",
+        )
+        workspace_two = await reopened.items(
+            tenant_id="tenant-1",
+            user_id="user-1",
+            agent_id="agent-1",
+            workspace_id="workspace-2",
+        )
+        return workspace_one, first, workspace_one_after, workspace_two
+
+    workspace_one, first, workspace_one_after, workspace_two = asyncio.run(execute())
+
+    assert [item.task_id for item in workspace_one] == ["task-1"]
+    assert first.task_id == "task-1"
+    assert first.metadata == {"source": "terminal"}
+    assert workspace_one_after == []
+    assert [item.task_id for item in workspace_two] == ["task-2"]
+
+
+def test_sqlite_schedule_store_persists_scoped_schedules(tmp_path):
+    database = SQLiteDatabase(tmp_path / "agents.db")
+    store = SQLiteScheduleStore(database)
+    spec = AgentSpec.from_overrides(
+        tenant_id="tenant-1",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="workspace-1",
+    )
+
+    async def execute():
+        schedule = ScheduleRecord.create(
+            spec=spec,
+            title="Daily check",
+            input="Check repository health",
+            schedule="0 9 * * *",
+            metadata={"kind": "test"},
+        )
+        await store.save(schedule)
+        updated = schedule.with_last_run("task-1")
+        await store.save(updated)
+        reopened = SQLiteScheduleStore(SQLiteDatabase(tmp_path / "agents.db"))
+        return (
+            await reopened.load(schedule.schedule_id),
+            await reopened.list_for_scope("tenant-1", user_id="user-1", agent_id="agent-1", workspace_id="workspace-1"),
+        )
+
+    loaded, schedules = asyncio.run(execute())
+
+    assert loaded is not None
+    assert loaded.title == "Daily check"
+    assert loaded.last_run_task_id == "task-1"
+    assert loaded.metadata == {"kind": "test"}
+    assert schedules[0].schedule_id == loaded.schedule_id
+
+
 class FakeRunCoordinator:
     def __init__(self):
         self.store = InMemoryRunStore()
@@ -150,10 +245,12 @@ def test_task_worker_runs_queued_tasks_until_empty():
         second = await store.create_task(spec, title="Second", input="two")
         await queue.enqueue(first.task_id)
         await queue.enqueue(second.task_id)
+        queued = await queue.items()
         results = await TaskWorker(queue, TaskRunner(store, coordinator, FakeSessionFactory())).run_until_empty()
-        return results, await queue.size()
+        return queued, results, await queue.size()
 
-    results, size = asyncio.run(execute())
+    queued, results, size = asyncio.run(execute())
 
+    assert [item.task_id for item in queued] == [results[0].task.task_id, results[1].task.task_id]
     assert [result.task.status for result in results] == [TaskStatus.FINISHED, TaskStatus.FINISHED]
     assert size == 0
