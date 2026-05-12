@@ -32,7 +32,8 @@ from agents.kernel.capabilities.tools.builtin.mcp_management import mcp_clear, m
 from agents.kernel.capabilities.tools.builtin.planning import plan_clear, plan_enter, plan_exit, todo_write
 from agents.kernel.capabilities.tools.builtin.extensions import skill_install, skill_uninstall
 from agents.kernel.capabilities.tools.builtin.permissions import permission_add_rule, permission_remove_rule, permission_sources
-from agents.kernel.capabilities.tools.builtin.prompts import prompt_render
+from agents.kernel.capabilities.tools.builtin.plugins import plugin_install, plugin_uninstall
+from agents.kernel.capabilities.tools.builtin.prompts import prompt_delete, prompt_render, prompt_save
 from agents.kernel.capabilities.tools.builtin.session_context import session_summary
 from agents.kernel.capabilities.tools.builtin.schedules import (
     schedule_create,
@@ -44,6 +45,8 @@ from agents.kernel.assembly.session import create_agent_session_async
 from agents.kernel.config import resolve_model_profile
 from agents.kernel.context import ContextLayer, ContextTraceItem
 from agents.kernel.governance import build_tool_permission_policy
+from agents.kernel.governance.permissions import ToolPermissionDecision
+from agents.kernel.schema import ToolCall
 from agents.kernel.session_state import save_session_state
 from agents.kernel.specs import AgentSpec
 from agents.kernel.state import AgentProfile
@@ -111,7 +114,7 @@ async def handle_slash_command(
         write({"type": "commands", "commands": commands_payload_for_state(state)})
         return
     if command in {"/commands", "/cmds"}:
-        _handle_commands_command(state, argument, write=write)
+        await _handle_commands_command(state, argument, write=write)
         return
     if command in {"/model", "/models"}:
         await _handle_model_command(state, argument, make_session=make_session, close_session_model_client=close_session_model_client, write=write)
@@ -247,7 +250,7 @@ async def _handle_model_command(
     write({"type": "model_profiles", "profiles": model_profiles_payload(state)})
 
 
-def _handle_commands_command(state: Any, argument: str, *, write: BridgeWriter) -> None:
+async def _handle_commands_command(state: Any, argument: str, *, write: BridgeWriter) -> None:
     action, rest = _split_once(argument)
     if not action or action in {"list", "ls"}:
         write({"type": "commands", "commands": commands_payload_for_state(state)})
@@ -285,10 +288,20 @@ def _handle_commands_command(state: Any, argument: str, *, write: BridgeWriter) 
         if not name or not body:
             write({"type": "error", "message": "usage: /commands save <name> [description] -- <prompt>"})
             return
-        try:
-            payload = command_save(context, name=name, content=body, description=_command_description(body), overwrite=True)
-        except Exception as exc:  # noqa: BLE001 - validation and sandbox errors are command output.
-            write({"type": "error", "message": "command save failed: %s" % exc})
+        payload = await _execute_slash_tool(
+            state,
+            tool_name="command.save",
+            arguments={
+                "name": name,
+                "content": body,
+                "description": _command_description(body),
+                "overwrite": True,
+            },
+            write=write,
+            error_label="command save",
+            fallback=lambda: command_save(context, name=name, content=body, description=_command_description(body), overwrite=True),
+        )
+        if payload is None:
             return
         write({"type": "notice", "message": "command saved: %s" % payload["name"]})
         write({"type": "commands", "commands": commands_payload_for_state(state)})
@@ -298,10 +311,15 @@ def _handle_commands_command(state: Any, argument: str, *, write: BridgeWriter) 
         if not name:
             write({"type": "error", "message": "usage: /commands delete <name>"})
             return
-        try:
-            payload = command_delete(context, name=name)
-        except Exception as exc:  # noqa: BLE001 - validation and sandbox errors are command output.
-            write({"type": "error", "message": "command delete failed: %s" % exc})
+        payload = await _execute_slash_tool(
+            state,
+            tool_name="command.delete",
+            arguments={"name": name},
+            write=write,
+            error_label="command delete",
+            fallback=lambda: command_delete(context, name=name),
+        )
+        if payload is None:
             return
         if not payload.get("deleted"):
             write({"type": "error", "message": "command not found: %s" % payload["name"]})
@@ -479,7 +497,7 @@ async def _handle_prompt_command(state: Any, argument: str, *, write: BridgeWrit
         write({"type": "prompt", "prompt": _prompt_templates_payload(state)})
         return
     if action == "save":
-        _handle_prompt_save(state, rest, write=write)
+        await _handle_prompt_save(state, rest, write=write)
         return
     if action == "use":
         await _handle_prompt_use(state, rest, write=write)
@@ -488,7 +506,7 @@ async def _handle_prompt_command(state: Any, argument: str, *, write: BridgeWrit
         _handle_prompt_render(state, rest, write=write)
         return
     if action in {"delete", "remove"}:
-        _handle_prompt_delete(state, rest, write=write)
+        await _handle_prompt_delete(state, rest, write=write)
         return
     write({"type": "error", "message": "unknown prompt command: %s" % action})
 
@@ -600,7 +618,7 @@ async def _handle_permission_remove_rule_command(state: Any, rest: str, *, write
     _handle_permissions_sources(state, write=write)
 
 
-def _handle_prompt_save(state: Any, rest: str, *, write: BridgeWriter) -> None:
+async def _handle_prompt_save(state: Any, rest: str, *, write: BridgeWriter) -> None:
     name, content = _split_once_preserve(rest)
     safe_name = _safe_file_stem(name)
     if not safe_name:
@@ -610,9 +628,19 @@ def _handle_prompt_save(state: Any, rest: str, *, write: BridgeWriter) -> None:
     if not text:
         write({"type": "error", "message": "prompt is empty"})
         return
-    root = _prompt_template_root(state)
-    root.mkdir(parents=True, exist_ok=True)
-    (root / ("%s.md" % safe_name)).write_text(text, encoding="utf-8")
+    context = _tool_context(state)
+    payload = await _execute_slash_tool(
+        state,
+        tool_name="prompt.save",
+        arguments={"name": safe_name, "content": text, "overwrite": True},
+        write=write,
+        error_label="prompt save",
+        fallback=(lambda: prompt_save(context, name=safe_name, content=text, overwrite=True))
+        if context is not None
+        else (lambda: _prompt_save_local(state, safe_name, text)),
+    )
+    if payload is None:
+        return
     write({"type": "notice", "message": "prompt saved: %s" % safe_name})
     write({"type": "prompt", "prompt": _prompt_templates_payload(state)})
 
@@ -652,16 +680,27 @@ def _handle_prompt_render(state: Any, rest: str, *, write: BridgeWriter) -> None
     write({"type": "prompt", "prompt": [["template", payload["name"]], ["prompt", payload["prompt"]]]})
 
 
-def _handle_prompt_delete(state: Any, rest: str, *, write: BridgeWriter) -> None:
+async def _handle_prompt_delete(state: Any, rest: str, *, write: BridgeWriter) -> None:
     safe_name = _safe_file_stem(rest.strip())
     if not safe_name:
         write({"type": "error", "message": "usage: /prompt delete <name>"})
         return
-    path = _prompt_template_root(state) / ("%s.md" % safe_name)
-    if not path.exists():
+    context = _tool_context(state)
+    payload = await _execute_slash_tool(
+        state,
+        tool_name="prompt.delete",
+        arguments={"name": safe_name},
+        write=write,
+        error_label="prompt delete",
+        fallback=(lambda: prompt_delete(context, name=safe_name))
+        if context is not None
+        else (lambda: _prompt_delete_local(state, safe_name)),
+    )
+    if payload is None:
+        return
+    if not payload.get("deleted", True):
         write({"type": "error", "message": "prompt template not found: %s" % safe_name})
         return
-    path.unlink()
     write({"type": "notice", "message": "prompt deleted: %s" % safe_name})
     write({"type": "prompt", "prompt": _prompt_templates_payload(state)})
 
@@ -687,10 +726,10 @@ async def _handle_skills_command(state: Any, argument: str, *, write: BridgeWrit
         await _handle_skill_disable(state, rest, write=write)
         return
     if action == "install":
-        _handle_skill_install(state, rest, write=write)
+        await _handle_skill_install(state, rest, write=write)
         return
     if action in {"uninstall", "delete"}:
-        _handle_skill_uninstall(state, rest, write=write)
+        await _handle_skill_uninstall(state, rest, write=write)
         return
     write({"type": "error", "message": "unknown skills command: %s" % action})
 
@@ -707,10 +746,10 @@ async def _handle_plugins_command(state: Any, argument: str, *, write: BridgeWri
         await _handle_plugin_disable(state, rest, write=write)
         return
     if action == "install":
-        _handle_plugin_install(state, rest, write=write)
+        await _handle_plugin_install(state, rest, write=write)
         return
     if action in {"uninstall", "delete"}:
-        _handle_plugin_uninstall(state, rest, write=write)
+        await _handle_plugin_uninstall(state, rest, write=write)
         return
     write({"type": "error", "message": "unknown plugins command: %s" % action})
 
@@ -774,47 +813,48 @@ async def _handle_plugin_disable(state: Any, name: str, *, write: BridgeWriter) 
         write({"type": "tools", "tools": tools_payload(state)})
 
 
-def _handle_plugin_install(state: Any, rest: str, *, write: BridgeWriter) -> None:
+async def _handle_plugin_install(state: Any, rest: str, *, write: BridgeWriter) -> None:
     source = Path(rest.strip()).expanduser()
-    if not rest.strip() or not source.exists() or not source.is_dir():
+    if not rest.strip():
         write({"type": "error", "message": "usage: /plugins install <local_plugin_dir>"})
         return
-    manifest_path = _plugin_manifest_for_dir(source)
-    if manifest_path is None:
-        write({"type": "error", "message": "plugin manifest not found in: %s" % source})
+    context = _tool_context(state)
+    payload = await _execute_slash_tool(
+        state,
+        tool_name="plugin.install",
+        arguments={"source": str(source)},
+        write=write,
+        error_label="plugin install",
+        fallback=(lambda: plugin_install(context, source=str(source)))
+        if context is not None
+        else (lambda: _plugin_install_local(state, source)),
+    )
+    if payload is None:
         return
-    try:
-        raw = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        write({"type": "error", "message": "plugin manifest is invalid: %s" % exc})
-        return
-    plugin_name = _safe_file_stem(str(raw.get("name") or source.name))
-    if not plugin_name:
-        write({"type": "error", "message": "plugin name is invalid"})
-        return
-    target = _plugin_install_root(state) / plugin_name
-    if target.exists():
-        write({"type": "error", "message": "plugin already installed: %s" % plugin_name})
-        return
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(source, target)
+    plugin = dict(payload.get("plugin") or {})
+    plugin_name = str(plugin.get("name") or source.name)
     write({"type": "notice", "message": "plugin installed: %s" % plugin_name})
     write({"type": "plugins", "plugins": plugins_payload(state)})
 
 
-def _handle_plugin_uninstall(state: Any, rest: str, *, write: BridgeWriter) -> None:
+async def _handle_plugin_uninstall(state: Any, rest: str, *, write: BridgeWriter) -> None:
     plugin_name = _safe_file_stem(rest.strip())
     if not plugin_name:
         write({"type": "error", "message": "usage: /plugins uninstall <name>"})
         return
-    if plugin_name in set(getattr(state, "enabled_plugins", set()) or set()):
-        write({"type": "error", "message": "disable plugin before uninstalling: %s" % plugin_name})
+    context = _tool_context(state)
+    payload = await _execute_slash_tool(
+        state,
+        tool_name="plugin.uninstall",
+        arguments={"name": plugin_name},
+        write=write,
+        error_label="plugin uninstall",
+        fallback=(lambda: plugin_uninstall(context, name=plugin_name))
+        if context is not None
+        else (lambda: _plugin_uninstall_local(state, plugin_name)),
+    )
+    if payload is None:
         return
-    target = _plugin_install_root(state) / plugin_name
-    if not target.exists():
-        write({"type": "error", "message": "plugin not installed: %s" % plugin_name})
-        return
-    shutil.rmtree(target)
     write({"type": "notice", "message": "plugin uninstalled: %s" % plugin_name})
     write({"type": "plugins", "plugins": plugins_payload(state)})
 
@@ -1006,7 +1046,7 @@ async def _handle_skill_disable(state: Any, name: str, *, write: BridgeWriter) -
         write({"type": "tools", "tools": tools_payload(state)})
 
 
-def _handle_skill_install(state: Any, rest: str, *, write: BridgeWriter) -> None:
+async def _handle_skill_install(state: Any, rest: str, *, write: BridgeWriter) -> None:
     context = _tool_context(state)
     if context is None:
         write({"type": "error", "message": "tool context is not available"})
@@ -1014,16 +1054,21 @@ def _handle_skill_install(state: Any, rest: str, *, write: BridgeWriter) -> None
     if not rest.strip():
         write({"type": "error", "message": "usage: /skills install <local_skill_json_or_dir>"})
         return
-    try:
-        payload = skill_install(context, source=rest.strip())
-    except Exception as exc:  # noqa: BLE001 - install errors should be surfaced.
-        write({"type": "error", "message": "skill install failed: %s" % exc})
+    payload = await _execute_slash_tool(
+        state,
+        tool_name="skill.install",
+        arguments={"source": rest.strip()},
+        write=write,
+        error_label="skill install",
+        fallback=lambda: skill_install(context, source=rest.strip()),
+    )
+    if payload is None:
         return
     write({"type": "notice", "message": "skill installed: %s" % payload["skill"]["name"]})
     write({"type": "skills", "skills": skills_payload(state)})
 
 
-def _handle_skill_uninstall(state: Any, rest: str, *, write: BridgeWriter) -> None:
+async def _handle_skill_uninstall(state: Any, rest: str, *, write: BridgeWriter) -> None:
     context = _tool_context(state)
     if context is None:
         write({"type": "error", "message": "tool context is not available"})
@@ -1031,10 +1076,15 @@ def _handle_skill_uninstall(state: Any, rest: str, *, write: BridgeWriter) -> No
     if not rest.strip():
         write({"type": "error", "message": "usage: /skills uninstall <name>"})
         return
-    try:
-        payload = skill_uninstall(context, name=rest.strip())
-    except Exception as exc:  # noqa: BLE001 - uninstall errors should be surfaced.
-        write({"type": "error", "message": "skill uninstall failed: %s" % exc})
+    payload = await _execute_slash_tool(
+        state,
+        tool_name="skill.uninstall",
+        arguments={"name": rest.strip()},
+        write=write,
+        error_label="skill uninstall",
+        fallback=lambda: skill_uninstall(context, name=rest.strip()),
+    )
+    if payload is None:
         return
     write({"type": "notice", "message": "skill uninstalled: %s" % payload["skill"]})
     write({"type": "skills", "skills": skills_payload(state)})
@@ -2008,6 +2058,43 @@ def _plugin_manifest_paths(root: Path) -> list[Path]:
     return paths
 
 
+def _plugin_install_local(state: Any, source: Path) -> dict[str, Any]:
+    source_dir = Path(source).expanduser()
+    if not source_dir.exists() or not source_dir.is_dir():
+        raise FileNotFoundError("plugin source not found: %s" % source)
+    manifest_path = _plugin_manifest_for_dir(source_dir)
+    if manifest_path is None:
+        raise FileNotFoundError("plugin manifest not found in: %s" % source_dir)
+    raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+    plugin_name = _safe_file_stem(str(raw.get("name") or source_dir.name))
+    if not plugin_name:
+        raise ValueError("plugin name is invalid")
+    target = _plugin_install_root(state) / plugin_name
+    if target.exists():
+        raise FileExistsError("plugin already installed: %s" % plugin_name)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source_dir, target)
+    return {
+        "plugin": {
+            "name": plugin_name,
+            "description": str(raw.get("description") or ""),
+            "version": str(raw.get("version") or ""),
+            "path": str(target),
+        },
+        "installed": True,
+    }
+
+
+def _plugin_uninstall_local(state: Any, plugin_name: str) -> dict[str, Any]:
+    if plugin_name in set(getattr(state, "enabled_plugins", set()) or set()):
+        raise RuntimeError("disable plugin before uninstalling: %s" % plugin_name)
+    target = _plugin_install_root(state) / plugin_name
+    if not target.exists():
+        raise FileNotFoundError("plugin not installed: %s" % plugin_name)
+    shutil.rmtree(target)
+    return {"plugin": plugin_name, "uninstalled": True}
+
+
 def _plugin_install_root(state: Any) -> Path:
     root = Path(getattr(getattr(state.settings, "server", None), "ROOT_PATH", ".")).expanduser()
     return root / ".agents" / "plugins"
@@ -2281,6 +2368,107 @@ def _tool_context(state: Any) -> Any | None:
     return getattr(getattr(state, "session", None), "tool_context", None)
 
 
+async def _execute_slash_tool(
+    state: Any,
+    *,
+    tool_name: str,
+    arguments: dict[str, Any],
+    write: BridgeWriter,
+    error_label: str,
+    fallback: Callable[[], Any] | None = None,
+) -> dict[str, Any] | None:
+    runtime = getattr(getattr(state, "session", None), "runtime", None)
+    orchestrator = getattr(runtime, "tool_orchestrator", None)
+    if orchestrator is None:
+        return await _execute_slash_fallback(fallback, write=write, error_label=error_label)
+
+    call = ToolCall(
+        id="slash_%s" % uuid4().hex[:12],
+        name=tool_name,
+        arguments=dict(arguments or {}),
+        raw={"source": "slash"},
+    )
+    try:
+        authorizations = await orchestrator.authorize([call])
+    except Exception as exc:  # noqa: BLE001 - policy failures should surface to command output.
+        write({"type": "error", "message": "%s failed: %s" % (error_label, _error_message(exc))})
+        return None
+    if not authorizations:
+        write({"type": "error", "message": "%s failed: missing permission decision" % error_label})
+        return None
+
+    decision = authorizations[0].decision
+    if not decision.allowed and decision.requires_approval:
+        decision = ToolPermissionDecision(
+            allowed=True,
+            reason=decision.reason,
+            metadata={"source": "slash", "approval": "explicit_command"},
+        )
+    if not decision.allowed:
+        reason = decision.reason or "tool call denied by permission policy"
+        write({"type": "error", "message": "%s failed: %s" % (error_label, reason)})
+        return None
+
+    try:
+        batch = await orchestrator.execute_with_decisions(
+            [call],
+            [decision],
+            run_id="slash_%s" % uuid4().hex[:8],
+        )
+    except Exception as exc:  # noqa: BLE001 - registry failures should surface to command output.
+        write({"type": "error", "message": "%s failed: %s" % (error_label, _error_message(exc))})
+        return None
+    if not batch.results:
+        write({"type": "error", "message": "%s failed: no tool result returned" % error_label})
+        return None
+    result = batch.results[0]
+    if result.is_error:
+        if fallback is not None and str(result.content or "").strip().startswith("unknown tool:"):
+            return await _execute_slash_fallback(fallback, write=write, error_label=error_label)
+        message = str(result.content or "").strip() or "tool execution failed"
+        write({"type": "error", "message": "%s failed: %s" % (error_label, message)})
+        return None
+    return _tool_result_payload(result.raw, result.content)
+
+
+async def _execute_slash_fallback(
+    fallback: Callable[[], Any] | None,
+    *,
+    write: BridgeWriter,
+    error_label: str,
+) -> dict[str, Any] | None:
+    if fallback is None:
+        write({"type": "error", "message": "%s failed: runtime tool orchestration is not available" % error_label})
+        return None
+    try:
+        result = fallback()
+        if asyncio.iscoroutine(result):
+            result = await result
+    except Exception as exc:  # noqa: BLE001 - fallback failures should surface to command output.
+        write({"type": "error", "message": "%s failed: %s" % (error_label, _error_message(exc))})
+        return None
+    return _tool_result_payload(result, "")
+
+
+def _tool_result_payload(raw: Any, content: str) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return dict(raw)
+    text = str(content or "").strip()
+    if text:
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                return dict(parsed)
+            return {"result": parsed}
+        except Exception:
+            return {"result": text}
+    if isinstance(raw, str):
+        return {"result": raw}
+    if raw is None:
+        return {}
+    return {"result": raw}
+
+
 def _parse_export_argument(state: Any, argument: str) -> tuple[str, Path]:
     first, rest = _split_once(argument)
     if first in {"json", "markdown", "md"}:
@@ -2416,6 +2604,23 @@ def _rewind_messages(messages: list[Any], drop_count: int) -> tuple[list[Any], i
 def _prompt_template_root(state: Any) -> Path:
     base = Path(getattr(state, "active_workspace", "") or getattr(getattr(state.settings, "server", None), "ROOT_PATH", ".") or ".")
     return base.expanduser() / ".agents" / "prompts"
+
+
+def _prompt_save_local(state: Any, name: str, content: str) -> dict[str, Any]:
+    root = _prompt_template_root(state)
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / ("%s.md" % name)
+    text = str(content or "")
+    path.write_text(text, encoding="utf-8")
+    return {"name": name, "path": str(path), "bytes": len(text.encode("utf-8"))}
+
+
+def _prompt_delete_local(state: Any, name: str) -> dict[str, Any]:
+    path = _prompt_template_root(state) / ("%s.md" % name)
+    if not path.exists():
+        return {"name": name, "path": str(path), "deleted": False}
+    path.unlink()
+    return {"name": name, "path": str(path), "deleted": True}
 
 
 def _parse_workflow_json_arg(value: str) -> dict[str, Any]:

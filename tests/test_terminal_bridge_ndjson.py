@@ -1931,6 +1931,83 @@ def test_ndjson_bridge_saves_uses_and_deletes_prompt_templates(tmp_path):
     assert not template_path.exists()
 
 
+def test_ndjson_bridge_prompt_save_respects_runtime_deny_policy(tmp_path):
+    tools = ToolRegistry()
+    tools.register("prompt.save", "Save prompt template.", {}, lambda name, content, overwrite=False: {"name": name})
+    runtime = AgentRuntime(
+        model_client=ScriptedModelClient([]),
+        tools=tools,
+        protocol="scripted",
+        model="prompt",
+        permission_policy=StaticToolPermissionPolicy(denied_tools={"prompt.save"}),
+    )
+    state = ndjson.BridgeState(
+        args=SimpleNamespace(),
+        profile="coding",
+        permission="guarded",
+        active_workspace=tmp_path,
+        active_tools=[],
+        permission_mode="auto",
+        approval_tools=[],
+        settings=SimpleNamespace(),
+        persistence=SimpleNamespace(),
+        model_profiles=[],
+        session=SimpleNamespace(runtime=runtime, system_prompt="Base prompt."),
+        session_store=TerminalSessionStore(tmp_path / "sessions"),
+        session_id="session-test",
+        event_offsets={},
+    )
+    emitted = []
+
+    asyncio.run(run_slash(state, "/prompt save reviewer Review carefully before editing.", emitted))
+
+    assert emitted[0]["type"] == "error"
+    assert "prompt save failed: tool denied by policy" in emitted[0]["message"]
+    assert not (tmp_path / ".agents" / "prompts" / "reviewer.md").exists()
+
+
+def test_ndjson_bridge_prompt_save_explicit_slash_auto_approves_ask_policy(tmp_path):
+    def save_prompt(name, content, overwrite=False):
+        target = tmp_path / ".agents" / "prompts" / ("%s.md" % name)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        text = str(content or "")
+        target.write_text(text, encoding="utf-8")
+        return {"name": name, "path": str(target), "bytes": len(text.encode("utf-8"))}
+
+    tools = ToolRegistry()
+    tools.register("prompt.save", "Save prompt template.", {}, save_prompt)
+    runtime = AgentRuntime(
+        model_client=ScriptedModelClient([]),
+        tools=tools,
+        protocol="scripted",
+        model="prompt",
+        permission_policy=StaticToolPermissionPolicy(approval_required_tools={"prompt.save"}),
+    )
+    state = ndjson.BridgeState(
+        args=SimpleNamespace(),
+        profile="coding",
+        permission="guarded",
+        active_workspace=tmp_path,
+        active_tools=[],
+        permission_mode="ask",
+        approval_tools=["prompt.save"],
+        settings=SimpleNamespace(),
+        persistence=SimpleNamespace(),
+        model_profiles=[],
+        session=SimpleNamespace(runtime=runtime, system_prompt="Base prompt."),
+        session_store=TerminalSessionStore(tmp_path / "sessions"),
+        session_id="session-test",
+        event_offsets={},
+    )
+    emitted = []
+
+    asyncio.run(run_slash(state, "/prompt save reviewer Review carefully before editing.", emitted))
+
+    assert emitted[0] == {"type": "notice", "message": "prompt saved: reviewer"}
+    assert emitted[1]["type"] == "prompt"
+    assert dict(emitted[1]["prompt"])["reviewer"] == "Review carefully before editing."
+
+
 def test_ndjson_bridge_lists_session_agents_and_tasks(tmp_path):
     profiles = InMemoryAgentProfileStore()
     tasks = InMemoryTaskStore()
