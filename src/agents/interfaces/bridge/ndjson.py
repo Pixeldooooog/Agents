@@ -10,24 +10,23 @@ from typing import Any
 from uuid import uuid4
 
 from agents.kernel.assembly import create_agent_session_async
+from agents.kernel.capabilities.tools.builtin.commands import command_render
 from agents.kernel.config import (
     AgentConfigError,
     ModelProfile,
-    active_profile_name,
     build_model_profiles,
     resolve_model_profile,
     runtime_settings,
 )
-from agents.kernel.config.paths import ENV_FILE
-from agents.kernel.governance.approval_grants import (
-    APPROVAL_ALLOW_ONCE,
-    APPROVAL_DENY,
-    normalize_approval_decision,
-)
-from agents.kernel.schema import RuntimeEvent
 from agents.kernel.specs import AgentSpec
-from agents.platform import create_ephemeral_persistence
-from agents.platform.commands import COMMANDS
+from agents.platform import create_terminal_persistence
+from agents.platform.sessions import RunService
+from agents.interfaces.bridge.active import active_task_running, cancel_active_run, start_active_task
+from agents.interfaces.bridge.payloads import commands_payload_for_state, model_profiles_payload, runtime_payload, workspace_payload
+from agents.interfaces.bridge.sessions import TerminalSessionStore
+from agents.interfaces.bridge.slash import handle_slash_command
+from agents.interfaces.bridge.turns import run_approval, run_turn
+from agents.platform.commands import command_lookup
 from agents.platform.profiles import (
     enabled_tools,
     local_user_id,
@@ -52,7 +51,12 @@ class BridgeState:
     persistence: Any
     model_profiles: list[ModelProfile]
     session: Any
+    session_store: TerminalSessionStore
+    session_id: str
     event_offsets: dict[str, int]
+    active_task: asyncio.Task | None = None
+    active_run_id: str = ""
+    task_queue: Any = None
 
 
 async def main_async(argv: list[str] | None = None) -> int:
@@ -89,12 +93,13 @@ async def _create_state(args: argparse.Namespace) -> BridgeState:
     active_workspace = resolve_terminal_workspace_path(profile, Path(args.workspace_path) if args.workspace_path else None)
     active_tools = enabled_tools(profile, args.tools)
     permission_mode, approval_tools = permission_settings(args.permission, profile)
-    settings = settings_for_terminal(profile, args.sandbox_provider)
+    settings = settings_for_terminal(profile, args.sandbox_provider, workspace_root=active_workspace)
     model_profiles = build_model_profiles(settings)
-    persistence = create_ephemeral_persistence(settings, workspace_path=str(active_workspace or Path.cwd()))
+    persistence = create_terminal_persistence(settings, workspace_path=str(active_workspace or Path.cwd()))
     selected = resolve_model_profile(model_profiles, args.model_profile) if args.model_profile else None
     if args.model_profile and selected is None:
         raise AgentConfigError("unknown model profile: %s" % args.model_profile)
+    session_store = TerminalSessionStore.for_workspace(active_workspace)
     session = await _make_session(
         args,
         settings=settings,
@@ -106,7 +111,7 @@ async def _create_state(args: argparse.Namespace) -> BridgeState:
         approval_tools=approval_tools,
         model_profile=selected,
     )
-    return BridgeState(
+    state = BridgeState(
         args=args,
         profile=profile,
         permission=args.permission,
@@ -118,8 +123,26 @@ async def _create_state(args: argparse.Namespace) -> BridgeState:
         persistence=persistence,
         model_profiles=model_profiles,
         session=session,
+        session_store=session_store,
+        session_id=args.session_id or session_store.new_session_id(),
         event_offsets={},
     )
+    _hydrate_bridge_extension_state(state)
+    return state
+
+
+def _hydrate_bridge_extension_state(state: BridgeState) -> None:
+    context = getattr(getattr(state, "session", None), "tool_context", None)
+    if context is None:
+        return
+    state.enabled_skills = set(getattr(context, "enabled_skills", set()) or set())
+    state.enabled_plugins = set(getattr(context, "enabled_plugins", set()) or set())
+    state.skill_tools = dict(getattr(context, "skill_tools", {}) or {})
+    state.plugin_tools = dict(getattr(context, "plugin_tools", {}) or {})
+    if bool(getattr(context, "permission_overridden", False)):
+        state.permission = str(getattr(context, "permission_profile_override", "") or state.permission)
+        state.permission_mode = str(getattr(context, "permission_mode_override", "") or state.permission_mode)
+        state.approval_tools = [str(tool) for tool in list(getattr(context, "approval_required_tools_override", []) or [])]
 
 
 async def _make_session(
@@ -141,8 +164,18 @@ async def _make_session(
     return await create_agent_session_async(
         settings,
         checkpoint_store=persistence.checkpoints,
+        memory_store=persistence.memories,
+        schedule_store=persistence.schedules,
+        team_store=persistence.teams,
+        hook_store=persistence.hooks,
+        mcp_config_store=persistence.mcp_configs,
+        session_state_store=persistence.session_states,
+        sandbox_store=persistence.sandboxes,
         artifact_store=persistence.artifacts,
         artifact_blob_store=persistence.artifact_blobs,
+        task_store=persistence.tasks,
+        run_service=RunService(persistence.runs, sandbox_store=persistence.sandboxes),
+        agent_profile_store=persistence.agent_profiles,
         spec=AgentSpec.from_overrides(
             protocol=model_profile.protocol if model_profile else None,
             model=model_profile.model if model_profile else None,
@@ -164,14 +197,32 @@ async def _make_session(
 async def _handle_command(state: BridgeState, command: dict[str, Any]) -> bool:
     command_type = str(command.get("type") or "")
     if command_type == "exit":
+        await cancel_active_run(state, _write, quiet=True)
         return False
+    if command_type == "cancel":
+        await cancel_active_run(state, _write)
+        return True
+    if active_task_running(state):
+        if command_type == "slash" and str(command.get("text") or "").strip() == "/cancel":
+            await cancel_active_run(state, _write)
+        else:
+            _write({"type": "error", "message": "run already active; use /cancel to interrupt"})
+        return True
     if command_type == "user_message":
-        await _run_turn(state, str(command.get("text") or ""), str(command.get("run_id") or _run_id()))
+        run_id = str(command.get("run_id") or _run_id())
+        start_active_task(state, run_id, _run_turn(state, str(command.get("text") or ""), run_id), _write)
         return True
     if command_type == "approval":
-        await _run_approval(state, command)
+        run_id = str(command.get("run_id") or "")
+        start_active_task(state, run_id, _run_approval(state, command), _write)
         return True
     if command_type == "slash":
+        rendered = _render_workspace_command_prompt(state, str(command.get("text") or ""))
+        if rendered is not None:
+            run_id = str(command.get("run_id") or _run_id())
+            _write({"type": "notice", "message": "command rendered"})
+            start_active_task(state, run_id, _run_turn(state, rendered, run_id), _write)
+            return True
         await _run_slash(state, str(command.get("text") or ""))
         return True
     _write({"type": "error", "message": "unknown bridge command: %s" % command_type})
@@ -179,242 +230,62 @@ async def _handle_command(state: BridgeState, command: dict[str, Any]) -> bool:
 
 
 async def _run_turn(state: BridgeState, text: str, run_id: str) -> None:
-    if not text.strip():
-        return
-    _write({"type": "turn_started", "run_id": run_id})
-    status = "finished"
-    persisted_events = 0
-    try:
-        async for event in state.session.stream(text, run_id=run_id):
-            if event.type == "done":
-                status = str(event.payload.get("status") or status)
-            elif _is_persisted_runtime_event(event):
-                persisted_events += 1
-            _write({"type": "runtime_event", "event": event.to_dict()})
-    except Exception as exc:  # noqa: BLE001 - bridge must keep the client alive after one bad turn.
-        status = "error"
-        _write({"type": "runtime_event", "event": {"type": "error", "name": "bridge", "payload": {"message": str(exc)}}})
-    state.event_offsets[run_id] = persisted_events
-    _write({"type": "turn_finished", "status": status, "run_id": run_id})
+    await run_turn(state, text, run_id, _write)
 
 
 async def _run_approval(state: BridgeState, command: dict[str, Any]) -> None:
-    run_id = str(command.get("run_id") or "")
-    if not run_id:
-        _write({"type": "error", "message": "approval command requires run_id"})
-        return
-    approvals_payload = command.get("approvals") if isinstance(command.get("approvals"), dict) else {}
-    scopes_payload = command.get("approval_scopes") if isinstance(command.get("approval_scopes"), dict) else {}
-    approvals: dict[str, bool] = {}
-    approval_scopes: dict[str, str] = {}
-    for approval_id, raw_approved in approvals_payload.items():
-        approval_key = str(approval_id)
-        approved = bool(raw_approved)
-        raw_scope = scopes_payload.get(approval_key, APPROVAL_ALLOW_ONCE if approved else APPROVAL_DENY)
-        try:
-            scope = normalize_approval_decision(raw_scope, approved=approved)
-        except ValueError as exc:
-            _write({"type": "error", "message": str(exc)})
-            return
-        approvals[approval_key] = scope != APPROVAL_DENY
-        approval_scopes[approval_key] = scope if approvals[approval_key] else APPROVAL_DENY
-    status = "finished"
-    try:
-        result = await state.session.resume(run_id, approvals=approvals, approval_scopes=approval_scopes)
-        for event in _new_events(result.events, state.event_offsets.get(run_id, 0)):
-            _write({"type": "runtime_event", "event": event.to_dict()})
-        state.event_offsets[run_id] = len(result.events)
-        status = result.status
-    except Exception as exc:  # noqa: BLE001 - keep the bridge process alive after a failed resume.
-        status = "error"
-        _write({"type": "runtime_event", "event": {"type": "error", "name": "bridge", "payload": {"message": str(exc)}}})
-    _write({"type": "turn_finished", "status": status, "run_id": run_id})
+    await run_approval(state, command, _write)
 
 
 async def _run_slash(state: BridgeState, value: str) -> None:
-    parts = value.strip().split(maxsplit=1)
-    command = parts[0] if parts else ""
-    argument = parts[1] if len(parts) > 1 else ""
-    if command in {"/quit", "/exit"}:
-        _write({"type": "exit"})
-        return
-    if command == "/clear":
-        state.session.clear()
-        _write({"type": "notice", "message": "cleared"})
-        return
-    if command in {"/help", "?"}:
-        _write({"type": "commands", "commands": [{"name": item.name, "action": item.action, "aliases": list(item.aliases)} for item in COMMANDS]})
-        return
-    if command in {"/model", "/models"}:
-        if argument:
-            profile = resolve_model_profile(state.model_profiles, argument)
-            if profile is None:
-                _write({"type": "error", "message": "unknown model profile: %s" % argument})
-                return
-            previous_messages = list(getattr(state.session, "messages", []))
-            await _close_session_model_client(state.session)
-            state.session = await _make_session(
-                state.args,
-                settings=state.settings,
-                persistence=state.persistence,
-                profile=state.profile,
-                active_workspace=state.active_workspace,
-                active_tools=state.active_tools,
-                permission_mode=state.permission_mode,
-                approval_tools=state.approval_tools,
-                model_profile=profile,
-            )
-            state.session.messages = previous_messages
-            _write({"type": "model_switched", "profile": profile.name, "runtime": _runtime_payload(state)})
-        _write({"type": "model_profiles", "profiles": _model_profiles_payload(state)})
-        return
-    if command == "/status":
-        _write({"type": "status", "status": _status_payload(state)})
-        return
-    if command == "/tools":
-        _write({"type": "tools", "tools": list(state.active_tools)})
-        return
-    if command == "/workspace":
-        _write({"type": "workspace", "workspace": _workspace_payload(state)})
-        return
-    if command == "/context":
-        _write({"type": "context", "context": _context_payload(state)})
-        return
-    if command == "/trace":
-        _write({"type": "trace", "trace": _trace_payload(state)})
-        return
-    if command == "/doctor":
-        _write({"type": "doctor", "doctor": _doctor_payload(state)})
-        return
-    _write({"type": "error", "message": "unknown command: %s" % value})
+    await handle_slash_command(
+        state,
+        value,
+        make_session=_make_session,
+        close_session_model_client=_close_session_model_client,
+        write=_write,
+    )
+
+
+def _render_workspace_command_prompt(state: BridgeState, value: str) -> str | None:
+    text = str(value or "").strip()
+    if not text.startswith("/"):
+        return None
+    name, arguments = _split_command_input(text)
+    if not name or name in command_lookup():
+        return None
+    context = getattr(getattr(state, "session", None), "tool_context", None)
+    if context is None:
+        return None
+    try:
+        payload = command_render(context, name=name, arguments=arguments)
+    except (FileNotFoundError, ValueError):
+        return None
+    return str(payload.get("prompt") or "")
+
+
+def _split_command_input(value: str) -> tuple[str, str]:
+    parts = str(value or "").strip().split(maxsplit=1)
+    if not parts:
+        return "", ""
+    return parts[0], parts[1] if len(parts) > 1 else ""
 
 
 def _write_ready(state: BridgeState) -> None:
     _write(
         {
             "type": "ready",
-            "runtime": _runtime_payload(state),
-            "workspace": _workspace_payload(state),
+            "session_id": state.session_id,
+            "runtime": runtime_payload(state),
+            "workspace": workspace_payload(state),
             "profile": state.profile,
             "permission": state.permission,
             "sandbox": str(getattr(state.settings.agent, "SANDBOX_PROVIDER", "local")),
             "tools": list(state.active_tools),
-            "commands": [item.name for item in COMMANDS[:4]],
-            "model_profiles": _model_profiles_payload(state),
+            "commands": commands_payload_for_state(state),
+            "model_profiles": model_profiles_payload(state),
         }
     )
-
-
-def _runtime_payload(state: BridgeState) -> dict[str, Any]:
-    return {
-        "protocol": str(state.session.runtime.protocol),
-        "model": str(state.session.runtime.model),
-        "model_profile": active_profile_name(
-            state.model_profiles,
-            state.session.runtime.protocol,
-            state.session.runtime.model,
-            _model_base_url(state.session),
-        ),
-        "endpoint": _model_endpoint(state.session),
-    }
-
-
-def _model_profiles_payload(state: BridgeState) -> list[dict[str, Any]]:
-    active_protocol = str(state.session.runtime.protocol)
-    active_model = str(state.session.runtime.model)
-    active_base_url = _model_base_url(state.session).rstrip("/")
-    rows = []
-    for profile in state.model_profiles:
-        profile_base_url = str(profile.base_url or "").rstrip("/")
-        rows.append(
-            {
-                "name": profile.name,
-                "protocol": profile.protocol,
-                "model": profile.model,
-                "endpoint": profile.endpoint,
-                "configured": profile.configured,
-                "active": profile.protocol == active_protocol
-                and profile.model == active_model
-                and (not active_base_url or not profile_base_url or profile_base_url == active_base_url),
-            }
-        )
-    return rows
-
-
-def _workspace_payload(state: BridgeState) -> dict[str, Any]:
-    workspace = getattr(state.session, "workspace", None)
-    if workspace is None:
-        return {"path": "", "display": "no workspace"}
-    return {
-        "path": str(workspace.path),
-        "display": _short_path(str(workspace.path)),
-        "tenant_id": workspace.tenant_id,
-        "user_id": workspace.user_id,
-        "agent_id": workspace.agent_id,
-        "workspace_id": workspace.workspace_id,
-    }
-
-
-def _status_payload(state: BridgeState) -> dict[str, str]:
-    payload = {
-        "model": "%s · %s" % (state.session.runtime.protocol, state.session.runtime.model),
-        "profile": state.profile,
-        "permission": state.permission,
-        "messages": str(max(0, len(getattr(state.session, "messages", [])) - 1)),
-        "tokens": _estimate_session_tokens(state.session),
-        "tools": str(len(state.active_tools)),
-    }
-    endpoint = _model_endpoint(state.session)
-    if endpoint:
-        payload["endpoint"] = endpoint
-    return payload
-
-
-def _context_payload(state: BridgeState) -> dict[str, str]:
-    return {
-        "tokens": _estimate_session_tokens(state.session),
-        "limit": str(getattr(state.session, "max_context_tokens", "")),
-        "messages": str(len(getattr(state.session, "messages", []))),
-        "trace_items": str(len(getattr(state.session, "context_trace", []))),
-    }
-
-
-def _doctor_payload(state: BridgeState) -> dict[str, str]:
-    return {
-        "env_file": ENV_FILE,
-        "model": "%s · %s" % (state.session.runtime.protocol, state.session.runtime.model),
-        "endpoint": _model_endpoint(state.session) or "not exposed",
-        "timeout": str(getattr(state.settings.agent, "TIMEOUT", "")),
-        "max_retries": str(getattr(state.settings.agent, "MAX_RETRIES", "")),
-        "retry_base_delay": str(getattr(state.settings.agent, "RETRY_BASE_DELAY", "")),
-        "configured_profiles": str(len([profile for profile in state.model_profiles if profile.configured])),
-        "enabled_tools": str(len(state.active_tools)),
-        "workspace": _workspace_payload(state).get("path", "not bound"),
-    }
-
-
-def _trace_payload(state: BridgeState) -> list[list[str]]:
-    trace = list(getattr(state.session, "context_trace", []) or [])
-    rows: list[list[str]] = []
-    for item in trace[:30]:
-        layer = getattr(getattr(item, "layer", ""), "value", getattr(item, "layer", ""))
-        source = str(getattr(item, "source", ""))
-        status = "in" if bool(getattr(item, "included", False)) else "out"
-        tokens = str(getattr(item, "tokens", ""))
-        reason = str(getattr(item, "reason", ""))
-        rows.append([str(layer), "%s · %s tokens · %s%s" % (source, tokens, status, (" · " + reason) if reason else "")])
-    if len(trace) > 30:
-        rows.append(["...", "%s more" % (len(trace) - 30)])
-    if not rows:
-        rows.append(["trace", "not available"])
-    return rows
-
-
-def _estimate_session_tokens(session: Any) -> str:
-    try:
-        return str(session._estimate_tokens(getattr(session, "messages", [])))
-    except Exception:
-        return "unknown"
 
 
 async def _close_session_model_client(session: Any) -> None:
@@ -428,52 +299,8 @@ async def _close_session_model_client(session: Any) -> None:
             return
 
 
-def _model_base_url(session: Any) -> str:
-    runtime = getattr(session, "runtime", None)
-    model_client = getattr(runtime, "model_client", None)
-    config = getattr(model_client, "config", None)
-    return str(getattr(config, "base_url", "") or "")
-
-
-def _model_endpoint(session: Any) -> str:
-    base_url = _model_base_url(session)
-    if not base_url:
-        return ""
-    from urllib.parse import urlparse
-
-    parsed = urlparse(base_url)
-    return parsed.netloc or base_url
-
-
-def _short_path(path: str) -> str:
-    try:
-        value = Path(path).expanduser()
-        home = Path.home()
-        return "~/%s" % value.relative_to(home) if value.is_relative_to(home) else str(value)
-    except Exception:
-        return str(path)
-
-
 def _run_id() -> str:
     return "terminal_%s" % uuid4().hex
-
-
-def _is_persisted_runtime_event(event: RuntimeEvent) -> bool:
-    return event.type in {
-        "model_message",
-        "tool_approval_required",
-        "tool_approval_decision",
-        "tool_start",
-        "tool_result",
-        "error",
-    }
-
-
-def _new_events(events: list[RuntimeEvent], offset: int) -> list[RuntimeEvent]:
-    if offset and len(events) >= offset:
-        new_events = list(events)[offset:]
-        return new_events or list(events)
-    return list(events)
 
 
 def _write(payload: dict[str, Any]) -> None:
@@ -494,6 +321,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--user-id", default="")
     parser.add_argument("--agent-id", default="")
     parser.add_argument("--workspace-id", default="")
+    parser.add_argument("--session-id", default="")
     return parser.parse_args(argv)
 
 

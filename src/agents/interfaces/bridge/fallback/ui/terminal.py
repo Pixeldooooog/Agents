@@ -1,19 +1,19 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import Any, Iterable
-from urllib.parse import urlparse
+from typing import Iterable
 
 from rich.console import Console
-from rich.table import Table
 from rich.text import Text
 
 from agents.kernel.schema import RuntimeEvent
-from agents.platform.commands import COMMANDS
 from agents.interfaces.bridge.fallback.ui.activity import ToolActivity, TurnActivity, plural
 from agents.interfaces.bridge.fallback.ui.adapter import RuntimeEventAdapter
 from agents.interfaces.bridge.fallback.ui.events import UIEvent
+from agents.interfaces.bridge.fallback.ui import panels
+from agents.interfaces.bridge.fallback.ui.format import (
+    compact,
+    tool_arguments,
+)
 
 
 class TerminalUI:
@@ -31,99 +31,16 @@ class TerminalUI:
         tools: Iterable[str],
         model_profile: str = "",
     ) -> None:
-        model_label = _model_label(model_profile, session.runtime.protocol, session.runtime.model)
-        if getattr(session, "workspace", None) is not None:
-            workspace = _short_path(str(session.workspace.path))
-        else:
-            workspace = "no workspace"
-        tool_list = list(tools)
-
-        self.console.print(Text.assemble(("Agents Code", "bold cyan"), ("  ", "dim"), (model_label, "bold")))
-        self.console.print(
-            Text.assemble(
-                ("  ", "dim"),
-                (workspace, "dim"),
-                ("  ", "dim"),
-                profile,
-                (" · ", "dim"),
-                permission,
-                (" · ", "dim"),
-                sandbox_provider,
-                (" · ", "dim"),
-                str(len(tool_list)),
-                " tools",
-            )
-        )
-        self.console.print(
-            Text.assemble(("  ", "dim"), ("/help", "dim"), " ", ("/model", "dim"), " ", ("/status", "dim"), " ", ("/doctor", "dim"))
-        )
+        panels.startup(self.console, session, profile=profile, permission=permission, sandbox_provider=sandbox_provider, tools=tools, model_profile=model_profile)
 
     def help(self) -> None:
-        table = Table.grid(padding=(0, 2))
-        table.add_column(style="cyan")
-        table.add_column(style="dim")
-        self.console.print(Text("commands", style="bold"))
-        for command in COMMANDS:
-            label = ", ".join((command.name, *command.aliases))
-            table.add_row(label, command.action)
-        self.console.print(table)
+        panels.help(self.console)
 
     def status(self, session, *, profile: str, permission: str, tools: Iterable[str], model_profile: str = "") -> None:
-        rows = {
-            "model": "%s · %s" % (session.runtime.protocol, session.runtime.model),
-            "profile": profile,
-            "permission": permission,
-            "messages": str(max(0, len(getattr(session, "messages", [])) - 1)),
-            "tokens": _estimate_session_tokens(session),
-            "tools": str(len(list(tools))),
-        }
-        if model_profile:
-            rows["model profile"] = model_profile
-        endpoint = _model_endpoint(session)
-        if endpoint:
-            rows["endpoint"] = endpoint
-        if getattr(session, "workspace", None) is not None:
-            rows["workspace"] = str(session.workspace.path)
-        self.key_values("Status", rows)
+        panels.status(self.console, session, profile=profile, permission=permission, tools=tools, model_profile=model_profile)
 
     def model(self, session, profiles: Iterable[Any] = ()) -> None:
-        profile_list = list(profiles)
-        if not profile_list:
-            self.key_values(
-                "Model",
-                {
-                    "protocol": str(session.runtime.protocol),
-                    "model": str(session.runtime.model),
-                },
-            )
-            return
-        active_protocol = str(session.runtime.protocol)
-        active_model = str(session.runtime.model)
-        active_base_url = _model_base_url(session).rstrip("/")
-        self.console.print(Text("models", style="bold"))
-        for profile in profile_list:
-            profile_base_url = str(getattr(profile, "base_url", "") or "").rstrip("/")
-            is_active = (
-                getattr(profile, "protocol", "") == active_protocol
-                and getattr(profile, "model", "") == active_model
-                and (not active_base_url or not profile_base_url or active_base_url == profile_base_url)
-            )
-            status = "ready" if getattr(profile, "configured", False) else "missing key/model"
-            marker = "●" if is_active else " "
-            name = str(getattr(profile, "name", ""))
-            protocol = str(getattr(profile, "protocol", ""))
-            model = str(getattr(profile, "model", "")) or "-"
-            endpoint = _short_endpoint(str(getattr(profile, "endpoint", "")) or "-", limit=22)
-            status_suffix = "" if status == "ready" else "  %s" % status
-            self.console.print(
-                Text.assemble(
-                    ("%s " % marker, "bold cyan" if is_active else "dim"),
-                    (name.ljust(16), "bold" if is_active else ""),
-                    (" %s · %s" % (protocol, model), "cyan" if is_active else ""),
-                    ("  %s" % endpoint, "dim"),
-                    (status_suffix, "yellow" if status != "ready" else "dim"),
-                )
-            )
+        panels.model(self.console, session, profiles=profiles)
 
     def model_switched(self, session, profile: str = "") -> None:
         runtime = "%s · %s" % (session.runtime.protocol, session.runtime.model)
@@ -141,86 +58,26 @@ class TerminalUI:
         env_file: str,
         model_profile: str = "",
     ) -> None:
-        profile_list = list(profiles)
-        workspace = getattr(session, "workspace", None)
-        workspace_path = Path(str(workspace.path)) if workspace is not None else None
-        retry_policy = getattr(getattr(session.runtime, "model_client", None), "retry_policy", None)
-        rows = {
-            "env file": env_file,
-            "model": "%s · %s" % (session.runtime.protocol, session.runtime.model),
-            "model profile": model_profile or "custom override",
-            "endpoint": _model_endpoint(session) or "not exposed",
-            "max retries": str(getattr(retry_policy, "max_attempts", "unknown")),
-            "retry base delay": str(getattr(retry_policy, "base_delay", "unknown")),
-            "configured profiles": str(len([profile for profile in profile_list if getattr(profile, "configured", False)])),
-            "enabled tools": str(len(list(tools))),
-            "workspace": str(workspace_path) if workspace_path is not None else "not bound",
-            "workspace writable": _yes_no(_path_writable(workspace_path)) if workspace_path is not None else "n/a",
-        }
-        self.key_values("Doctor", rows)
+        panels.doctor(self.console, session, profiles=profiles, tools=tools, env_file=env_file, model_profile=model_profile)
 
     def workspace(self, session) -> None:
         workspace = getattr(session, "workspace", None)
         if workspace is None:
             self.notice("No workspace is bound to this session.")
             return
-        self.key_values(
-            "Workspace",
-            {
-                "path": str(workspace.path),
-                "tenant": workspace.tenant_id,
-                "user": workspace.user_id,
-                "agent": workspace.agent_id,
-                "workspace": workspace.workspace_id,
-            },
-        )
+        panels.workspace(self.console, session)
 
     def tools(self, tools: Iterable[str]) -> None:
-        table = Table.grid(padding=(0, 1))
-        table.add_column(style="magenta")
-        self.console.print(Text("enabled tools", style="bold"))
-        for tool in tools:
-            table.add_row(str(tool))
-        self.console.print(table)
+        panels.tools(self.console, tools)
 
     def context(self, session) -> None:
-        self.key_values(
-            "Context",
-            {
-                "tokens": _estimate_session_tokens(session),
-                "limit": str(getattr(session, "max_context_tokens", "")),
-                "messages": str(len(getattr(session, "messages", []))),
-                "trace items": str(len(getattr(session, "context_trace", []))),
-            },
-        )
+        panels.context(self.console, session)
 
     def trace(self, session) -> None:
-        trace = list(getattr(session, "context_trace", []) or [])
-        if not trace:
-            self.notice("No context trace is available.")
-            return
-        table = Table.grid(padding=(0, 2))
-        table.add_column(style="cyan")
-        table.add_column(style="dim")
-        table.add_column()
-        self.console.print(Text("context trace", style="bold"))
-        for item in trace[:20]:
-            included = "included" if getattr(item, "included", False) else "skipped"
-            reason = getattr(item, "reason", "")
-            status = included if not reason else "%s: %s" % (included, reason)
-            table.add_row(str(getattr(item, "id", "")), str(getattr(item, "tokens", "")), status)
-        if len(trace) > 20:
-            table.add_row("...", "", "%s more" % (len(trace) - 20))
-        self.console.print(table)
+        panels.trace(self.console, session)
 
     def key_values(self, title: str, rows: dict[str, str]) -> None:
-        table = Table.grid(padding=(0, 2))
-        table.add_column(style="cyan")
-        table.add_column()
-        self.console.print(Text(title.lower(), style="bold"))
-        for key, value in rows.items():
-            table.add_row(key, str(value))
-        self.console.print(table)
+        panels.key_values(self.console, title, rows)
 
     def user_prompt_label(self) -> str:
         return "›"
@@ -259,7 +116,7 @@ class TerminalUI:
         next_attempt = str(event.payload.get("next_attempt") or "?")
         max_attempts = str(event.payload.get("max_attempts") or "?")
         delay = float(event.payload.get("delay_seconds") or 0)
-        error = _compact(str(event.payload.get("error") or "model request failed"))
+        error = compact(str(event.payload.get("error") or "model request failed"))
         self.status_line("retry", "model request %s/%s in %.1fs  %s" % (next_attempt, max_attempts, delay, error), "yellow")
 
     def turn_finished(self, *, status: str, state: TurnActivity) -> None:
@@ -344,7 +201,7 @@ class TerminalUI:
         )
         state.record_tool_start(activity)
         detail = activity.name
-        args = _tool_arguments(activity.arguments)
+        args = tool_arguments(activity.arguments)
         if args:
             detail = "%s  %s" % (detail, args)
         self.status_line("tool", detail, "magenta")
@@ -377,7 +234,7 @@ class TerminalUI:
 
     def approval_request(self, event: UIEvent) -> None:
         self.status_line("approval", "%s · risk %s" % (event.name, str(event.payload.get("risk", "unknown"))), "yellow")
-        args = _compact(event.payload.get("arguments") or {})
+        args = compact(event.payload.get("arguments") or {})
         if args:
             self.result_line(args, "dim")
 
@@ -409,77 +266,3 @@ class TerminalUI:
             self.newline()
         state.wrote_text = False
         state.assistant_line_open = False
-
-def _estimate_session_tokens(session) -> str:
-    try:
-        return str(session._estimate_tokens(getattr(session, "messages", [])))
-    except Exception:
-        return "unknown"
-
-
-def _compact(value) -> str:
-    text = str(value)
-    return text if len(text) <= 220 else text[:217] + "..."
-
-
-def _tool_arguments(arguments: Any | None) -> str:
-    if not arguments:
-        return ""
-    try:
-        text = json.dumps(arguments, ensure_ascii=False)
-    except TypeError:
-        text = str(arguments)
-    return _compact(text)
-
-
-def _short_path(path: str) -> str:
-    try:
-        value = Path(path).expanduser()
-        home = Path.home()
-        return "~/%s" % value.relative_to(home) if value.is_relative_to(home) else str(value)
-    except Exception:
-        return str(path)
-
-
-def _model_base_url(session) -> str:
-    runtime = getattr(session, "runtime", None)
-    model_client = getattr(runtime, "model_client", None)
-    config = getattr(model_client, "config", None)
-    return str(getattr(config, "base_url", "") or "")
-
-
-def _model_endpoint(session) -> str:
-    base_url = _model_base_url(session)
-    if not base_url:
-        return ""
-    parsed = urlparse(base_url)
-    return parsed.netloc or base_url
-
-
-def _short_endpoint(endpoint: str, limit: int = 36) -> str:
-    value = str(endpoint or "")
-    return value if len(value) <= limit else value[: limit - 1] + "…"
-
-
-def _path_writable(path: Path | None) -> bool:
-    if path is None:
-        return False
-    try:
-        path.mkdir(parents=True, exist_ok=True)
-        probe = path / ".agents-terminal-write-check"
-        probe.write_text("", encoding="utf-8")
-        probe.unlink(missing_ok=True)
-        return True
-    except OSError:
-        return False
-
-
-def _yes_no(value: bool) -> str:
-    return "yes" if value else "no"
-
-
-def _model_label(profile: str, protocol: str, model: str) -> str:
-    base = "%s · %s" % (protocol, model)
-    if not profile or profile in {protocol, model}:
-        return base
-    return "%s · %s" % (profile, base)

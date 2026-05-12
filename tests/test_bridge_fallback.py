@@ -459,5 +459,7 @@ def test_bridge_prompts_for_tool_approval_and_resumes(monkeypatch):
     assert result.exit_code == 0
     assert "approval" in result.stdout
     assert "filesystem.write · risk medium" in result.stdout
+    assert "Allow for this run" in result.stdout
+    assert "[y=yes, r=this run, n=no]" not in result.stdout
     assert "created" in result.stdout
     assert session.resume_args == ({"call-1": True}, {"call-1": "allow_for_run"})

@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import asyncio
-import shlex
 import sys
 from pathlib import Path
 from typing import Annotated, Optional
@@ -24,16 +23,14 @@ from agents.kernel.assembly import create_agent_session as _create_agent_session
 from agents.kernel.assembly import create_agent_session_async as _create_agent_session_async
 from agents.kernel.config import (
     AgentConfigError,
-    ModelProfile,
     active_profile_name,
     build_model_profiles,
-    resolve_model_profile,
     runtime_settings as settings,
 )
-from agents.kernel.config.paths import ENV_FILE
 from agents.kernel.specs import AgentSpec
-from agents.platform import create_ephemeral_persistence
-from agents.platform.commands import COMMANDS, command_lookup
+from agents.platform import create_terminal_persistence
+from agents.platform.commands import COMMANDS
+from agents.platform.sessions import RunService
 from agents.platform.profiles import (
     enabled_tools,
     local_user_id,
@@ -42,6 +39,13 @@ from agents.platform.profiles import (
     settings_for_terminal,
     system_prompt as terminal_system_prompt,
     workspace_path as resolve_terminal_workspace_path,
+)
+from agents.interfaces.bridge.fallback.commands import (
+    close_session_model_client as _close_session_model_client,
+    handle_command as _handle_command,
+    model_base_url as _model_base_url,
+    resolve_start_model_profile as _resolve_start_model_profile,
+    switch_model_session as _switch_model_session,
 )
 from agents.interfaces.bridge.fallback.turns import print_streaming_turn
 from agents.interfaces.bridge.fallback.ui import ChatInput, TerminalUI
@@ -114,8 +118,8 @@ def chat(
     active_workspace = resolve_terminal_workspace_path(profile_name, workspace_path)
     active_tools = enabled_tools(profile_name, tools)
     permission_mode, approval_tools = permission_settings(permission, profile_name)
-    runtime_settings = settings_for_terminal(profile_name, sandbox_provider)
-    persistence = create_ephemeral_persistence(runtime_settings, workspace_path=str(active_workspace or Path.cwd()))
+    runtime_settings = settings_for_terminal(profile_name, sandbox_provider, workspace_root=active_workspace)
+    persistence = create_terminal_persistence(runtime_settings, workspace_path=str(active_workspace or Path.cwd()))
     ui = TerminalUI()
     model_profiles = build_model_profiles(runtime_settings)
     chat_input = ChatInput(COMMANDS, model_profiles)
@@ -139,8 +143,18 @@ def chat(
             settings_override=runtime_settings,
             loop=turn_loop,
             checkpoint_store=persistence.checkpoints,
+            memory_store=persistence.memories,
+            schedule_store=persistence.schedules,
+            team_store=persistence.teams,
+            hook_store=persistence.hooks,
+            mcp_config_store=persistence.mcp_configs,
+            session_state_store=persistence.session_states,
+            sandbox_store=persistence.sandboxes,
             artifact_store=persistence.artifacts,
             artifact_blob_store=persistence.artifact_blobs,
+            task_store=persistence.tasks,
+            run_service=RunService(persistence.runs, sandbox_store=persistence.sandboxes),
+            agent_profile_store=persistence.agent_profiles,
             spec=AgentSpec.from_overrides(
                 protocol=protocol_override,
                 model=model_override,
@@ -237,154 +251,8 @@ def chat(
         turn_loop.close()
 
 
-def _handle_command(
-    command: str,
-    session,
-    ui: TerminalUI,
-    profile: str,
-    permission: str,
-    active_tools: list[str],
-    model_profiles: list[ModelProfile],
-    *,
-    active_model_profile: str = "",
-    switch_model,
-) -> tuple[bool, object]:
-    base_command = command.split(maxsplit=1)[0]
-    canonical = command_lookup().get(base_command)
-    command_name = canonical.name if canonical is not None else base_command
-    if command_name == "/exit":
-        return False, session
-    if command_name == "/help":
-        ui.help()
-        return True, session
-    if command_name == "/clear":
-        session.clear()
-        ui.notice("cleared")
-        return True, session
-    if command_name == "/status":
-        ui.status(session, profile=profile, permission=permission, tools=active_tools, model_profile=active_model_profile)
-        return True, session
-    if command_name == "/doctor":
-        ui.doctor(
-            session,
-            profiles=model_profiles,
-            tools=active_tools,
-            env_file=ENV_FILE,
-            model_profile=active_model_profile,
-        )
-        return True, session
-    if command_name in {"/model"}:
-        target = _parse_model_command(command, model_profiles=model_profiles)
-        if target is None:
-            ui.model(session, profiles=model_profiles)
-            return True, session
-        if target == "list":
-            ui.model(session, profiles=model_profiles)
-            return True, session
-        if not isinstance(target, ModelProfile):
-            ui.error(str(target))
-            return True, session
-        next_session = switch_model(target)
-        return True, next_session
-    if command_name == "/workspace":
-        ui.workspace(session)
-        return True, session
-    if command_name == "/tools":
-        ui.tools(active_tools)
-        return True, session
-    if command_name == "/context":
-        ui.context(session)
-        return True, session
-    if command_name == "/trace":
-        ui.trace(session)
-        return True, session
-    ui.error("unknown command: %s" % command)
-    ui.notice("Run /help to see available commands.")
-    return True, session
-
-
-def _resolve_start_model_profile(name: Optional[str], profiles: list[ModelProfile], ui: TerminalUI) -> ModelProfile | None:
-    if not name:
-        return None
-    profile = resolve_model_profile(profiles, name)
-    if profile is None:
-        ui.error("unknown model profile: %s. Run /model to see configured profiles." % name)
-        raise typer.Exit(code=2)
-    return profile
-
-
-def _parse_model_command(command: str, *, model_profiles: list[ModelProfile]) -> ModelProfile | str | None:
-    parts = shlex.split(command)
-    if len(parts) <= 1:
-        return None
-    if parts[1] in {"list", "ls"}:
-        return "list"
-    if len(parts) > 2:
-        return "/model only accepts a configured profile name. Example: /model kimi"
-    value = parts[1]
-    profile = resolve_model_profile(model_profiles, value)
-    if profile is None:
-        return "unknown model profile: %s. Run /model to see configured profiles." % value
-    return profile
-
-
-def _switch_model_session(
-    session,
-    ui: TerminalUI,
-    make_session,
-    *,
-    profile: ModelProfile,
-    profiles: list[ModelProfile],
-    close_current=None,
-):
-    try:
-        next_session = make_session(
-            protocol_override=profile.protocol,
-            model_override=profile.model or None,
-            base_url_override=profile.base_url or None,
-            api_key_override=profile.api_key or None,
-        )
-    except AgentConfigError as exc:
-        ui.error(str(exc))
-        return session
-    next_session.messages = list(getattr(session, "messages", []))
-    if close_current is not None:
-        close_current(session)
-    ui.model_switched(
-        next_session,
-        profile=active_profile_name(
-            [profile],
-            next_session.runtime.protocol,
-            next_session.runtime.model,
-            _model_base_url(next_session),
-        )
-        or profile.name,
-    )
-    ui.model(next_session, profiles=profiles)
-    return next_session
-
-
 def _run_id() -> str:
     return "fallback_%s" % uuid4().hex
-
-
-def _close_session_model_client(loop: asyncio.AbstractEventLoop, session) -> None:
-    runtime = getattr(session, "runtime", None)
-    model_client = getattr(runtime, "model_client", None)
-    close = getattr(model_client, "async_close", None)
-    if close is None or loop.is_closed():
-        return
-    try:
-        loop.run_until_complete(close())
-    except Exception:
-        return
-
-
-def _model_base_url(session) -> str:
-    runtime = getattr(session, "runtime", None)
-    model_client = getattr(runtime, "model_client", None)
-    config = getattr(model_client, "config", None)
-    return str(getattr(config, "base_url", "") or "")
 
 
 def main() -> None:

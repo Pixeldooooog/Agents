@@ -58,14 +58,14 @@ def prompt_approvals(events: list[RuntimeEvent]) -> tuple[dict[str, bool], dict[
         call = event.payload.get("tool_call") or {}
         tool_name = call.get("name") or event.name
         choice = typer.prompt(
-            "Approve %s? [y=yes, r=this run, n=no]" % tool_name,
-            default="y",
+            "Permission required for %s\n  1  Allow once\n  2  Allow for this run\n  3  Deny\nChoose" % tool_name,
+            default="1",
             prompt_suffix=" ",
         ).strip().lower()
-        if choice in {"r", "run", "always"}:
+        if choice in {"2", "r", "run", "always", "allow_for_run"}:
             approvals[approval_id] = True
             scopes[approval_id] = APPROVAL_ALLOW_FOR_RUN
-        elif choice in {"n", "no", "deny", "d"}:
+        elif choice in {"3", "n", "no", "deny", "d"}:
             approvals[approval_id] = False
             scopes[approval_id] = APPROVAL_DENY
         else:

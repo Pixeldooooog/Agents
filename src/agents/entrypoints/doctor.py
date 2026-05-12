@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import shutil
+import socket
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, Iterable
+from urllib.parse import urlparse
 
 from agents.kernel.config.paths import ENV_FILE
 from agents.kernel.config.profiles import ModelProfile, build_model_profiles
@@ -22,6 +24,7 @@ class DoctorCheck:
 
 
 CommandLookup = Callable[[str], str | None]
+TcpConnect = Callable[[str, int, float], bool]
 
 
 def run_doctor(
@@ -30,6 +33,7 @@ def run_doctor(
     settings=None,
     model_profiles: Iterable[ModelProfile] | None = None,
     command_lookup: CommandLookup = shutil.which,
+    tcp_connect: TcpConnect | None = None,
     env_file: Path | None = None,
 ) -> list[DoctorCheck]:
     root = repo_root or Path(__file__).resolve().parents[3]
@@ -40,6 +44,7 @@ def run_doctor(
         _python_check(),
         _env_check(env_path),
         _model_check(profiles),
+        _proxy_check(runtime_settings, tcp_connect or _tcp_connect),
         _server_check(runtime_settings),
         _workspace_check(runtime_settings, root),
         _sandbox_check(runtime_settings, command_lookup),
@@ -89,6 +94,55 @@ def _model_check(profiles: list[ModelProfile]) -> DoctorCheck:
     if len(profiles) > 6:
         summary += ", +%d more" % (len(profiles) - 6)
     return DoctorCheck("models", "ready", summary)
+
+
+def _proxy_check(settings, tcp_connect: TcpConnect) -> DoctorCheck:
+    name, value = _configured_proxy(settings)
+    if not value:
+        return DoctorCheck("proxy", "ready", "project proxy not configured; transport can use shell proxy env")
+
+    parsed = urlparse(value)
+    host = parsed.hostname or ""
+    port = parsed.port or _default_proxy_port(parsed.scheme)
+    display = "%s:%s" % (host or "unknown", port or "unknown")
+    if not host or port is None:
+        return DoctorCheck("proxy", "fail", "%s is invalid; set a URL such as http://127.0.0.1:7890" % name)
+    if _is_localhost(host) and not tcp_connect(host, port, 0.25):
+        return DoctorCheck(
+            "proxy",
+            "fail",
+            "%s %s is not listening; project proxy overrides shell proxy env for model requests" % (name, display),
+        )
+    return DoctorCheck("proxy", "ready", "%s %s" % (name, display))
+
+
+def _configured_proxy(settings) -> tuple[str, str]:
+    agent = getattr(settings, "agent", None)
+    for name in ("HTTPS_PROXY", "ALL_PROXY", "HTTP_PROXY"):
+        value = str(getattr(agent, name, "") or "").strip()
+        if value:
+            return "AGENT_%s" % name, value
+    return "", ""
+
+
+def _default_proxy_port(scheme: str) -> int | None:
+    if scheme in {"http", "socks5", "socks4"}:
+        return 80 if scheme == "http" else 1080
+    if scheme == "https":
+        return 443
+    return None
+
+
+def _is_localhost(host: str) -> bool:
+    return host.lower() in {"localhost", "127.0.0.1", "::1"}
+
+
+def _tcp_connect(host: str, port: int, timeout: float) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
 
 
 def _server_check(settings) -> DoctorCheck:

@@ -20,6 +20,9 @@ def test_doctor_reports_readiness_without_leaking_keys(tmp_path):
             DB_PATH=".agents/agents.db",
             SANDBOX_PROVIDER="local",
             SANDBOX_PROFILE="coding",
+            HTTPS_PROXY="",
+            ALL_PROXY="",
+            HTTP_PROXY="",
         ),
         web_search=SimpleNamespace(PROVIDER="tavily", TAVILY_API_KEY="secret"),
     )
@@ -58,6 +61,9 @@ def test_doctor_fails_when_no_model_profile_is_configured(tmp_path):
             DB_PATH=".agents/agents.db",
             SANDBOX_PROVIDER="local",
             SANDBOX_PROFILE="restricted",
+            HTTPS_PROXY="",
+            ALL_PROXY="",
+            HTTP_PROXY="",
         ),
         web_search=SimpleNamespace(PROVIDER="none", TAVILY_API_KEY=""),
     )
@@ -71,3 +77,43 @@ def test_doctor_fails_when_no_model_profile_is_configured(tmp_path):
     )
 
     assert any(check.name == "models" and check.status == "fail" for check in checks)
+
+
+def test_doctor_fails_when_project_proxy_port_is_not_listening(tmp_path):
+    settings = SimpleNamespace(
+        server=SimpleNamespace(HOST="127.0.0.1", PORT=8010, API_PREFIX="/api"),
+        agent=SimpleNamespace(
+            WORKSPACE_ROOT=".agents/workspaces",
+            RUN_STORE="memory",
+            DB_PATH=".agents/agents.db",
+            SANDBOX_PROVIDER="local",
+            SANDBOX_PROFILE="restricted",
+            HTTPS_PROXY="http://127.0.0.1:7890",
+            ALL_PROXY="",
+            HTTP_PROXY="",
+        ),
+        web_search=SimpleNamespace(PROVIDER="none", TAVILY_API_KEY=""),
+    )
+    profiles = [
+        ModelProfile(
+            name="openai-chat",
+            protocol="openai-chat",
+            model="gpt-test",
+            base_url="https://api.example.com/v1",
+            api_key="secret",
+        )
+    ]
+
+    checks = run_doctor(
+        repo_root=tmp_path,
+        settings=settings,
+        model_profiles=profiles,
+        command_lookup=lambda command: None,
+        tcp_connect=lambda host, port, timeout: False,
+        env_file=tmp_path / ".env",
+    )
+
+    proxy_check = next(check for check in checks if check.name == "proxy")
+    assert proxy_check.status == "fail"
+    assert "AGENT_HTTPS_PROXY 127.0.0.1:7890 is not listening" in proxy_check.detail
+    assert "shell proxy env" in proxy_check.detail
