@@ -18,16 +18,23 @@ from fastapi.responses import StreamingResponse
 
 from agents.kernel.assembly import create_agent_session_async as _create_agent_session_async
 from agents.kernel.governance.audit import ApprovalAuditRecord
-from agents.kernel.governance.approval_grants import (
-    APPROVAL_ALLOW_FOR_RUN,
-    approval_grant_key,
-    approval_is_allowed,
-    normalize_approval_decision,
-)
 from agents.kernel.config import AgentConfigError
 from agents.kernel.schema import RuntimeEvent
-from agents.kernel.tasks import TaskRunner, TaskStatus, TaskStepStatus
+from agents.kernel.tasks import TaskStatus, TaskStepStatus
+from agents.interfaces.server.api.agent.approval import (
+    approval_bool_map,
+    approval_grant_map,
+    decision_map_from_request,
+    new_runtime_events,
+)
 from agents.interfaces.server.api.agent.schemas import AgentChatRequest, AgentTaskCreateRequest, RunApprovalRequest
+from agents.interfaces.server.api.agent.task_handlers import (
+    cancel_task_response,
+    create_task_response,
+    get_task_response,
+    list_tasks_response,
+    run_task_response,
+)
 from agents.interfaces.server.core.config import settings
 from agents.platform import create_durable_persistence
 from agents.platform.sessions import (
@@ -57,9 +64,17 @@ async def create_agent_session(**kwargs):
         settings,
         checkpoint_store=checkpoint_store,
         memory_store=persistence.memories,
+        schedule_store=persistence.schedules,
+        team_store=persistence.teams,
+        hook_store=persistence.hooks,
+        mcp_config_store=persistence.mcp_configs,
+        session_state_store=persistence.session_states,
         sandbox_store=persistence.sandboxes,
         artifact_store=persistence.artifacts,
         artifact_blob_store=persistence.artifact_blobs,
+        task_store=persistence.tasks,
+        run_service=run_service,
+        agent_profile_store=persistence.agent_profiles,
         **kwargs,
     )
 
@@ -182,73 +197,28 @@ async def get_run_trace(run_id: str):
 
 @router.post("/tasks")
 async def create_task(request_data: AgentTaskCreateRequest):
-    spec = request_data.to_agent_spec()
-    task = await persistence.tasks.create_task(
-        spec,
-        title=request_data.title or _default_task_title(request_data.message),
-        input=request_data.message,
-        metadata=request_data.metadata,
-    )
-    return resp.ok(response=resp.Resp(data=task.to_dict()))
+    return await create_task_response(persistence, request_data)
 
 
 @router.get("/tasks")
 async def list_tasks(tenant_id: str = "", user_id: str = "", agent_id: str = ""):
-    tasks = await persistence.tasks.list_tasks(tenant_id, user_id=user_id, agent_id=agent_id)
-    return resp.ok(response=resp.Resp(data={"tasks": [task.to_dict() for task in tasks]}))
+    return await list_tasks_response(persistence, tenant_id, user_id=user_id, agent_id=agent_id)
 
 
 @router.get("/tasks/{task_id}")
 async def get_task(task_id: str):
-    task = await persistence.tasks.load_task(task_id)
-    if task is None:
-        return resp.fail(resp.Resp(code="404", detail="task not found: %s" % task_id, http_status=404))
-    steps = await persistence.tasks.list_steps(task_id)
-    return resp.ok(
-        response=resp.Resp(
-            data={
-                "task": task.to_dict(),
-                "steps": [step.to_dict() for step in steps],
-            }
-        )
-    )
+    return await get_task_response(persistence, task_id)
 
 
 @router.post("/tasks/{task_id}/run")
 async def run_task(task_id: str):
     async with _agent_semaphore:
-        task = await persistence.tasks.load_task(task_id)
-        if task is None:
-            return resp.fail(resp.Resp(code="404", detail="task not found: %s" % task_id, http_status=404))
-        try:
-            result = await TaskRunner(persistence.tasks, run_service, _TaskSessionFactory()).run_task(task_id)
-        except AgentConfigError as exc:
-            return resp.fail(resp.Resp(code="400", detail={"task_id": task_id, "message": str(exc)}, http_status=400))
-        except Exception as exc:  # noqa: BLE001 - task API must report persisted runner failures.
-            return resp.fail(resp.Resp(code="500", detail={"task_id": task_id, "message": str(exc)}, http_status=500))
-        return resp.ok(
-            response=resp.Resp(
-                data={
-                    "task": result.task.to_dict(),
-                    "step": result.step.to_dict(),
-                    "run": (await run_service.store.load_run(result.run.run_id) or result.run).to_dict(),
-                    "result": {
-                        "status": result.result.status,
-                        "content": result.result.content,
-                        "events": [event.to_dict() for event in result.result.events],
-                    },
-                }
-            )
-        )
+        return await run_task_response(persistence, run_service, _TaskSessionFactory(), task_id)
 
 
 @router.post("/tasks/{task_id}/cancel")
 async def cancel_task(task_id: str):
-    task = await persistence.tasks.load_task(task_id)
-    if task is None:
-        return resp.fail(resp.Resp(code="404", detail="task not found: %s" % task_id, http_status=404))
-    canceled = await TaskRunner(persistence.tasks, run_service, _TaskSessionFactory()).cancel_task(task_id)
-    return resp.ok(response=resp.Resp(data=canceled.to_dict()))
+    return await cancel_task_response(persistence, run_service, _TaskSessionFactory(), task_id)
 
 
 @router.post("/runs/{run_id}/approval")
@@ -262,9 +232,9 @@ async def approve_run_tools(run_id: str, request_data: RunApprovalRequest):
             return resp.fail(resp.Resp(code="409", detail="run is not waiting for tool approval", http_status=409))
 
         try:
-            approval_scopes = _approval_decision_map(request_data, checkpoint.pending_tool_calls)
-            approvals = _approval_map(approval_scopes)
-            approval_grants = _approval_grants(checkpoint.pending_tool_calls, approvals, approval_scopes)
+            approval_scopes = decision_map_from_request(request_data, checkpoint.pending_tool_calls)
+            approvals = approval_bool_map(approval_scopes)
+            approval_grants = approval_grant_map(checkpoint.pending_tool_calls, approvals, approval_scopes)
         except ValueError as exc:
             return resp.fail(resp.Resp(code="400", detail=str(exc), http_status=400))
         session = None
@@ -280,7 +250,7 @@ async def approve_run_tools(run_id: str, request_data: RunApprovalRequest):
                 approval_grants=approval_grants,
                 task_id=step.task_id if step else None,
             )
-            new_events = _new_runtime_events(record.events, result.events)
+            new_events = new_runtime_events(record.events, result.events)
             await run_service.record_events(run_id, new_events)
             await _complete_or_pause(run_id, result.status, new_events)
             await _sync_task_for_run(run_id, result.status, result.content, new_events)
@@ -308,11 +278,6 @@ async def approve_run_tools(run_id: str, request_data: RunApprovalRequest):
 
 def _sse(event: str, data: dict) -> str:
     return "event: %s\ndata: %s\n\n" % (event, json.dumps(data, ensure_ascii=False))
-
-
-def _default_task_title(message: str) -> str:
-    text = " ".join(str(message or "").split())
-    return text[:80] or "Untitled task"
 
 
 def _result_error(events) -> str:
@@ -349,35 +314,6 @@ async def _sync_task_for_run(run_id: str, status: str, content: str, events) -> 
 async def _fail_run(run_id: str, kind: str, message: str) -> None:
     await run_service.record_event(run_id, RuntimeEvent(type="error", name=kind, payload={"message": message}))
     await run_service.finish(run_id, message)
-
-
-def _approval_decision_map(request_data: RunApprovalRequest, pending_calls) -> dict[str, str]:
-    if request_data.decisions:
-        return {str(key): normalize_approval_decision(value) for key, value in request_data.decisions.items()}
-    if request_data.approvals:
-        return {str(key): normalize_approval_decision(value) for key, value in request_data.approvals.items()}
-    pending_ids = [call.id or call.name for call in pending_calls]
-    selected = request_data.tool_call_ids or pending_ids
-    decision = normalize_approval_decision(request_data.decision, request_data.approved)
-    return {str(item): decision for item in selected}
-
-
-def _approval_map(decisions: dict[str, str]) -> dict[str, bool]:
-    return {approval_id: approval_is_allowed(decision) for approval_id, decision in decisions.items()}
-
-
-def _approval_grants(pending_calls, approvals: dict[str, bool], decisions: dict[str, str]) -> dict[str, bool]:
-    grants: dict[str, bool] = {}
-    for call in pending_calls:
-        approval_id = call.id or call.name
-        if approvals.get(approval_id) and decisions.get(approval_id) == APPROVAL_ALLOW_FOR_RUN:
-            grants[approval_grant_key(call)] = True
-    return grants
-
-
-def _new_runtime_events(record_events, result_events) -> list[RuntimeEvent]:
-    recorded_runtime_events = [event for event in record_events if event.type != "run_created"]
-    return list(result_events)[len(recorded_runtime_events):]
 
 
 async def _record_approval_audit(

@@ -9,10 +9,14 @@ from agents.kernel.state.runs import RunStatus
 from agents.kernel.runtime import RuntimeCheckpoint
 from agents.kernel.schema import RuntimeEvent
 from agents.kernel.governance import CredentialRef
+from agents.kernel.hooks import SessionHookRegistry
+from agents.kernel.mcp_config import MCPServerRecord
+from agents.kernel.session_state import SessionStateRecord
 from agents.kernel.state import AgentProfile
 from agents.kernel.state.workspaces import WorkspaceRecord
+from agents.kernel.teams import TeamRecord
 from agents.kernel.governance.tracing import InMemoryTraceStore, RuntimeTraceRecorder, TraceStatus
-from agents.platform import create_durable_persistence, create_ephemeral_persistence, create_platform_persistence
+from agents.platform import create_durable_persistence, create_ephemeral_persistence, create_platform_persistence, create_terminal_persistence
 from agents.platform.sessions import RunService, create_checkpoint_store, create_run_store
 
 
@@ -269,6 +273,35 @@ def test_server_persistence_container_uses_sqlite_stores(tmp_path):
         await persistence.memories.save(memory)
         await persistence.credentials.save(credential)
         task = await persistence.tasks.create_task(spec, title="Task", input="Do work")
+        await persistence.task_queue.enqueue(
+            task.task_id,
+            metadata={"source": "server"},
+            tenant_id="tenant-1",
+            user_id="user-1",
+            agent_id="agent-1",
+        )
+        await persistence.teams.save_team(
+            TeamRecord.create(
+                spec=spec,
+                team_id="feature",
+                name="Feature Team",
+                members={"researcher": {"agent_id": "researcher", "role": "research"}},
+            )
+        )
+        hook = SessionHookRegistry().add(event="pre_tool_use", name="block-shell", action="deny_tool", tool="shell.run")
+        await persistence.hooks.save(hook, "tenant-1", user_id="user-1", agent_id="agent-1")
+        await persistence.mcp_configs.save(
+            MCPServerRecord(name="docs", command="python server.py", tenant_id="tenant-1", user_id="user-1", agent_id="agent-1")
+        )
+        await persistence.session_states.save(
+            SessionStateRecord(
+                tenant_id="tenant-1",
+                user_id="user-1",
+                agent_id="agent-1",
+                workspace_id="workspace-1",
+                todos=[{"content": "Run checks", "status": "pending", "activeForm": "Running checks"}],
+            )
+        )
         return (
             await persistence.identities.load_user("tenant-1", "user-1"),
             await persistence.agent_profiles.load("tenant-1", "user-1", "agent-1"),
@@ -276,9 +309,14 @@ def test_server_persistence_container_uses_sqlite_stores(tmp_path):
             await persistence.memories.list_for_context("tenant-1", "user-1", "agent-1"),
             await persistence.credentials.list_for_scope("tenant-1", "user-1", "agent-1"),
             await persistence.tasks.load_task(task.task_id),
+            await persistence.task_queue.items(tenant_id="tenant-1", user_id="user-1", agent_id="agent-1"),
+            await persistence.teams.load_team("feature", "tenant-1", user_id="user-1", agent_id="agent-1", workspace_id=""),
+            await persistence.hooks.list_for_scope("tenant-1", user_id="user-1", agent_id="agent-1"),
+            await persistence.mcp_configs.list_for_scope("tenant-1", user_id="user-1", agent_id="agent-1"),
+            await persistence.session_states.load_for_scope("tenant-1", user_id="user-1", agent_id="agent-1", workspace_id="workspace-1"),
         )
 
-    user, profile, workspace, memories, credentials, task = asyncio.run(execute())
+    user, profile, workspace, memories, credentials, task, task_queue, team, hooks, mcp_servers, session_state = asyncio.run(execute())
 
     assert user.user_id == "user-1"
     assert profile.name == "Agent"
@@ -286,6 +324,11 @@ def test_server_persistence_container_uses_sqlite_stores(tmp_path):
     assert memories[0].content == "remember this"
     assert credentials[0].secret_ref == "vault://secret"
     assert task.title == "Task"
+    assert task_queue[0].metadata["source"] == "server"
+    assert team.name == "Feature Team"
+    assert hooks[0].metadata["tool"] == "shell.run"
+    assert mcp_servers[0].command == "python server.py"
+    assert session_state.todos[0]["content"] == "Run checks"
 
 
 def test_persistence_profiles_split_terminal_and_server_storage(tmp_path):
@@ -312,6 +355,7 @@ def test_persistence_profiles_split_terminal_and_server_storage(tmp_path):
     )
 
     terminal = create_ephemeral_persistence(Settings(), workspace_path=str(workspace_path))
+    terminal_durable = create_terminal_persistence(Settings(), workspace_path=str(workspace_path))
     server = create_durable_persistence(Settings())
 
     terminal_root = terminal.artifact_blobs.run_artifact_root(workspace, "run-1")
@@ -321,6 +365,13 @@ def test_persistence_profiles_split_terminal_and_server_storage(tmp_path):
     assert terminal.artifacts.__class__.__name__ == "InMemoryArtifactStore"
     assert terminal_root.as_posix().endswith("/runs/run-1/artifacts")
     assert ".agents/projects/" in terminal_root.as_posix()
+
+    assert terminal_durable.runs.__class__.__name__ == "SQLiteRunStore"
+    assert terminal_durable.memories.__class__.__name__ == "SQLiteMemoryStore"
+    assert terminal_durable.session_states.__class__.__name__ == "SQLiteSessionStateStore"
+    assert terminal_durable.task_queue.__class__.__name__ == "SQLiteTaskQueue"
+    assert terminal_durable.artifact_blobs.run_artifact_root(workspace, "run-1").as_posix().endswith("/runs/run-1/artifacts")
+    assert ".agents/projects/" in terminal_durable.artifact_blobs.run_artifact_root(workspace, "run-1").as_posix()
 
     assert server.runs.__class__.__name__ == "SQLiteRunStore"
     assert server.artifacts.__class__.__name__ == "SQLiteArtifactStore"
