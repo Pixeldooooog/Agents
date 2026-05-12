@@ -17,6 +17,8 @@ logs/
 cache/
 data/
 config/local.toml
+.agents/terminal-history.json
+.agents/terminal-sessions/
 .agents/runtime/
 .agents/server/
 .agents/agents.db*
@@ -25,4 +27,6 @@ config/local.toml
 .vscode/
 old/
 nexus-code/
+Library/
+**/.DS_Store
 !apps/web/dist/
