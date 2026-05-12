@@ -1,5 +1,5 @@
 import React from 'react'
-import {Box, Text} from 'ink'
+import {Box, Text, useStdout} from 'ink'
 import figures from 'figures'
 import type {CommandDef} from '../../ui/commands.js'
 import {colors} from '../../ui/theme.js'
@@ -13,16 +13,19 @@ export function PromptSuggestions({
   selected: number
   maxVisible?: number
 }) {
+  const {stdout} = useStdout()
+  const columns = typeof stdout.columns === 'number' ? stdout.columns : 90
+  const width = Math.min(86, Math.max(24, columns - 4))
   if (!commands.length) return null
   const start = Math.max(0, Math.min(selected - Math.floor(maxVisible / 2), commands.length - maxVisible))
   const visible = commands.slice(start, start + maxVisible)
   const title = suggestionTitle(commands)
 
   return (
-    <Box flexDirection="column" marginTop={1} marginLeft={1} borderStyle="round" borderColor={colors.dim} paddingX={1} width={86}>
+    <Box flexDirection="column" marginTop={1} marginLeft={1} borderStyle="round" borderColor={colors.dim} paddingX={1} width={width}>
       <Box>
         <Text color={colors.accent} bold>{title}</Text>
-        <Text dimColor>  tab to accept · ↑/↓ to move</Text>
+        <Text dimColor>  {suggestionHint(commands)}</Text>
       </Box>
       {visible.map(command => {
         const index = commands.indexOf(command)
@@ -64,4 +67,10 @@ function suggestionTitle(commands: CommandDef[]): string {
   if (commands.some(command => command.kind === 'file')) return 'Files'
   if (commands.some(command => command.kind === 'model')) return 'Model profiles'
   return 'Commands'
+}
+
+function suggestionHint(commands: CommandDef[]): string {
+  if (commands.some(command => command.kind === 'file')) return 'enter/tab insert · ↑/↓ move'
+  if (commands.some(command => command.kind === 'model')) return 'enter switch · tab insert · ↑/↓ move'
+  return 'enter run · tab insert · ↑/↓ move'
 }

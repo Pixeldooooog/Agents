@@ -1,6 +1,6 @@
 export type TranscriptItem =
   | {kind: 'user'; text: string}
-  | {kind: 'assistant'; text: string}
+  | {kind: 'assistant'; text: string; live?: boolean; clipped?: boolean}
   | {kind: 'thinking'; text: string}
   | {kind: 'status'; label: string; text?: string; level?: 'info' | 'warning' | 'error' | 'success'}
   | {kind: 'tool'; id?: string; name: string; args?: Record<string, unknown>; result?: string; detail?: string; error?: boolean; durationMs?: number}

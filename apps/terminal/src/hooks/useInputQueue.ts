@@ -1,14 +1,19 @@
 import {useRef, useState} from 'react'
 
-export function useInputQueue(onRun: (value: string) => void) {
-  const [items, setItems] = useState<string[]>([])
-  const itemsRef = useRef<string[]>([])
+export type QueuedInput = {
+  value: string
+  display: string
+}
+
+export function useInputQueue(onRun: (value: string, displayValue?: string) => void) {
+  const [items, setItems] = useState<QueuedInput[]>([])
+  const itemsRef = useRef<QueuedInput[]>([])
   const onRunRef = useRef(onRun)
   onRunRef.current = onRun
 
-  function enqueue(value: string) {
+  function enqueue(value: string, display = value) {
     setItems(current => {
-      const next = [...current, value]
+      const next = [...current, {value, display}]
       itemsRef.current = next
       return next
     })
@@ -18,7 +23,7 @@ export function useInputQueue(onRun: (value: string) => void) {
     setItems(current => {
       const [next, ...rest] = current
       itemsRef.current = rest
-      if (next) queueMicrotask(() => onRunRef.current(next))
+      if (next) queueMicrotask(() => onRunRef.current(next.value, next.display))
       return rest
     })
   }

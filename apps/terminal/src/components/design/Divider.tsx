@@ -13,13 +13,13 @@ export function Divider({
   char?: string
   color?: string
 }) {
-  if (!title) return <Text color={color}>{char.repeat(width)}</Text>
+  if (!title) return <Text color={color} wrap="truncate-end">{char.repeat(width)}</Text>
   const label = ` ${title} `
   const side = Math.max(0, width - label.length)
   const left = Math.floor(side / 2)
   const right = side - left
   return (
-    <Text color={color}>
+    <Text color={color} wrap="truncate-end">
       {char.repeat(left)}
       {label}
       {char.repeat(right)}

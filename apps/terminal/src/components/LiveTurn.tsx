@@ -8,18 +8,22 @@ export function LiveTurn({
   assistant,
   reasoning,
   label,
-  collapsed
+  collapsed,
+  maxLines
 }: {
   assistant: string
   reasoning: string
   label: string
   collapsed: boolean
+  maxLines?: number
 }) {
   if (assistant || reasoning) {
+    const liveCollapsed = typeof maxLines === 'number'
+    const assistantLines = typeof maxLines === 'number' ? Math.max(1, maxLines - (reasoning ? 1 : 0)) : undefined
     return (
       <Box flexDirection="column">
         {reasoning ? <ThinkingMessage text={reasoning} collapsed={collapsed} live /> : null}
-        {assistant ? <AssistantMessage text={assistant} collapsed={collapsed} live /> : null}
+        {assistant ? <AssistantMessage text={assistant} collapsed={liveCollapsed} maxLines={assistantLines} live /> : null}
       </Box>
     )
   }

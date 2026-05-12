@@ -34,7 +34,7 @@ export function DiffPreview({
         </Text>
       ))}
       {collapsed && hidden > 0 ? (
-        <Text color={colors.dim}>  ... {hidden} lines hidden · ctrl+o or ctrl+d</Text>
+        <Text color={colors.dim}>  ... {hidden} lines hidden · ctrl+o</Text>
       ) : null}
     </Box>
   )

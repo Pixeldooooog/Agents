@@ -15,7 +15,7 @@ export function pendingApprovalFromEvent(event: RuntimeEvent, runId: string): Pe
   const impact = isObject(payload.impact) ? payload.impact : {}
   const permission = isObject(payload.permission) ? payload.permission : {}
   return {
-    runId,
+    runId: String(payload.run_id ?? runId),
     approvalId: String(payload.approval_id ?? call.id ?? event.name ?? 'approval'),
     toolName: String(call.name ?? event.name ?? 'tool'),
     args: isObject(call.arguments) ? call.arguments : {},
@@ -67,6 +67,17 @@ export function retryText(payload: Record<string, unknown>): string {
   const attempt = next && max ? `attempt ${next}/${max}` : failed ? `after attempt ${failed}` : ''
   const wait = delay !== undefined ? `in ${delay.toFixed(1)}s` : ''
   return [attempt, wait, error].filter(Boolean).join(' · ')
+}
+
+export function runtimeErrorStatus(message: string): {label: string; text: string; level: 'error'} {
+  if (message.includes('tool-call loop exceeded max iterations')) {
+    return {
+      label: 'tool loop stopped',
+      text: 'model kept requesting tools past the configured max_tool_iterations limit',
+      level: 'error'
+    }
+  }
+  return {label: 'error', text: message, level: 'error'}
 }
 
 export function toolIds(items: Array<{kind: string; id?: string}>): string[] {

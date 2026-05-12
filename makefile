@@ -9,7 +9,7 @@ HOST_PIP ?= $(shell command -v pip3 2>/dev/null || command -v pip 2>/dev/null)
 PYTHON ?= $(VENV)/bin/python
 PIP ?= $(PYTHON) -m pip
 
-.PHONY: check-python venv setup setup-tui setup-terminal run tui gui terminal cli bridge-fallback dev-web stop test doctor build up down log
+.PHONY: check-python venv setup setup-tui setup-terminal run tui gui terminal terminal-fixture terminal-fixture-fullscreen terminal-manual-smoke manual-smoke terminal-audit terminal-audit-complete cli bridge-fallback dev-web stop test test-terminal check doctor build up down log
 
 check-python:
 	@test -n "$(PYTHON_BIN)" || (echo "Python 3.10+ is required." && exit 1)
@@ -54,6 +54,28 @@ gui: venv
 
 terminal: tui
 
+terminal-fixture: venv
+	@test -n "$(BUN)" || (echo "bun is required for make terminal-fixture." && exit 1)
+	@cd apps/terminal && $(BUN) run fixture
+
+terminal-fixture-fullscreen: venv
+	@test -n "$(BUN)" || (echo "bun is required for make terminal-fixture-fullscreen." && exit 1)
+	@cd apps/terminal && AGENTS_TERMINAL_FULLSCREEN=1 $(BUN) run fixture
+
+terminal-manual-smoke:
+	@test -n "$(BUN)" || (echo "bun is required for make terminal-manual-smoke." && exit 1)
+	@cd apps/terminal && $(BUN) run manual-smoke:record
+
+manual-smoke: terminal-manual-smoke
+
+terminal-audit:
+	@test -n "$(BUN)" || (echo "bun is required for make terminal-audit." && exit 1)
+	@cd apps/terminal && $(BUN) run tui-audit
+
+terminal-audit-complete:
+	@test -n "$(BUN)" || (echo "bun is required for make terminal-audit-complete." && exit 1)
+	@cd apps/terminal && $(BUN) run tui-audit:complete
+
 cli: tui
 
 bridge-fallback: venv
@@ -70,6 +92,12 @@ stop:
 
 test: venv
 	PYTHONPATH=$(CURDIR)/src $(PYTHON) -m pytest tests -q
+
+test-terminal:
+	@test -n "$(BUN)" || (echo "bun is required for terminal tests." && exit 1)
+	cd apps/terminal && $(BUN) run typecheck && $(BUN) run render-smoke && $(BUN) run interaction-smoke && $(BUN) run app-smoke && $(BUN) run app-compact-smoke && $(BUN) run app-short-smoke && $(BUN) run app-narrow-smoke && $(BUN) run app-tiny-smoke && $(BUN) run app-tiny-fullscreen-smoke && $(BUN) run app-flow-smoke && $(BUN) run app-compact-flow-smoke && $(BUN) run app-short-fullscreen-flow-smoke && $(BUN) run app-fullscreen-smoke && $(BUN) run app-compact-fullscreen-smoke && $(BUN) run app-inline-smoke && $(BUN) run app-pending-resume-smoke
+
+check: test test-terminal
 
 doctor: venv
 	PYTHONPATH=$(CURDIR)/src $(PYTHON) -m agents.entrypoints.doctor

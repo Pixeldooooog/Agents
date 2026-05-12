@@ -19,7 +19,7 @@ export function PermissionRequest({
       title="Permission Request"
       subtitle={approval.toolName}
       borderColor={colors.warning}
-      footer={<ShortcutHint items={[['y', 'allow once'], ['r', 'allow run'], ['n/esc', 'deny']]} />}
+      footer={<ShortcutHint items={[['↑/↓', 'move'], ['enter', 'confirm'], ['esc', 'deny']]} />}
     >
       <Box flexDirection="column">
         <PermissionRequestBody approval={approval} />

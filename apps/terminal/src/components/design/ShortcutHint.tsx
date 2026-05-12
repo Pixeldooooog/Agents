@@ -4,7 +4,7 @@ import {colors, glyphs} from '../../ui/theme.js'
 
 export function ShortcutHint({items}: {items: Array<[string, string] | string>}) {
   return (
-    <Text dimColor>
+    <Text dimColor wrap="truncate-end">
       {items.map((item, index) => (
         <React.Fragment key={String(item)}>
           {index > 0 ? <Text color={colors.dim}> {glyphs.separator} </Text> : null}

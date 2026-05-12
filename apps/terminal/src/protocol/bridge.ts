@@ -7,10 +7,12 @@ export type BridgeOptions = {
   python: string
   repoRoot: string
   args: string[]
+  module?: string
 }
 
 export class BridgeClient {
   private child: ChildProcessWithoutNullStreams | null = null
+  private shutdownTimer: NodeJS.Timeout | null = null
   private listeners = new Set<(event: BridgeEvent) => void>()
 
   constructor(private readonly options: BridgeOptions) {}
@@ -26,12 +28,14 @@ export class BridgeClient {
     const python = path.isAbsolute(this.options.python)
       ? this.options.python
       : path.resolve(repoRoot, this.options.python)
-    this.child = spawn(python, ['-m', 'agents.interfaces.bridge.ndjson', ...this.options.args], {
+    const moduleName = this.options.module || 'agents.interfaces.bridge.ndjson'
+    const child = spawn(python, ['-m', moduleName, ...this.options.args], {
       cwd: repoRoot,
       env: process.env,
       stdio: ['pipe', 'pipe', 'pipe']
     })
-    const lines = createInterface({input: this.child.stdout})
+    this.child = child
+    const lines = createInterface({input: child.stdout})
     lines.on('line', line => {
       if (!line.trim()) return
       try {
@@ -40,11 +44,16 @@ export class BridgeClient {
         this.emit({type: 'error', message: `invalid bridge event: ${String(error)}`})
       }
     })
-    this.child.stderr.on('data', chunk => {
+    child.stderr.on('data', chunk => {
       const message = String(chunk).trim()
       if (message) this.emit({type: 'error', message})
     })
-    this.child.on('exit', code => {
+    child.on('exit', code => {
+      if (this.child === child) this.child = null
+      if (this.shutdownTimer) {
+        clearTimeout(this.shutdownTimer)
+        this.shutdownTimer = null
+      }
       if (code && code !== 0) this.emit({type: 'error', message: `bridge exited with code ${code}`})
       this.emit({type: 'exit'})
     })
@@ -56,10 +65,14 @@ export class BridgeClient {
   }
 
   stop(): void {
-    if (!this.child) return
+    const child = this.child
+    if (!child) return
     this.send({type: 'exit'})
-    this.child.kill()
-    this.child = null
+    if (this.shutdownTimer) clearTimeout(this.shutdownTimer)
+    this.shutdownTimer = setTimeout(() => {
+      if (this.child === child) child.kill()
+    }, 750)
+    this.shutdownTimer.unref?.()
   }
 
   private emit(event: BridgeEvent): void {

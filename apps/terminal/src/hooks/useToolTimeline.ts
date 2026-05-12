@@ -12,6 +12,8 @@ export function useToolTimeline(setItems: Dispatch<SetStateAction<TranscriptItem
   function reset() {
     indexes.current.clear()
     startTimes.current.clear()
+    setSelectedToolId(undefined)
+    setExpandedToolIds(new Set())
   }
 
   function start(event: RuntimeEvent, payload: Record<string, unknown>) {
@@ -52,6 +54,22 @@ export function useToolTimeline(setItems: Dispatch<SetStateAction<TranscriptItem
     setSelectedToolId(tools[(current + 1 + tools.length) % tools.length])
   }
 
+  function cycleDetails(items: TranscriptItem[]) {
+    const tools = toolIds(items)
+    if (!tools.length) return
+    const current = selectedToolId ? tools.indexOf(selectedToolId) : -1
+    const currentId = current >= 0 ? tools[current] : tools[0]
+    if (!currentId) return
+    if (!expandedToolIds.has(currentId)) {
+      setSelectedToolId(currentId)
+      setExpandedToolIds(nextSetWith(currentId))
+      return
+    }
+    const nextId = tools[(current + 1 + tools.length) % tools.length]
+    setSelectedToolId(nextId)
+    if (nextId) setExpandedToolIds(nextSetWith(nextId))
+  }
+
   function toggle(id = selectedToolId) {
     if (!id) return
     setExpandedToolIds(current => {
@@ -62,5 +80,9 @@ export function useToolTimeline(setItems: Dispatch<SetStateAction<TranscriptItem
     })
   }
 
-  return {selectedToolId, expandedToolIds, reset, start, finish, focusNext, toggle}
+  function nextSetWith(id: string) {
+    return (current: Set<string>) => new Set([...current, id])
+  }
+
+  return {selectedToolId, expandedToolIds, reset, start, finish, focusNext, cycleDetails, toggle}
 }

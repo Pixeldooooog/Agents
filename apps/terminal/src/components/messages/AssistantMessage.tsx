@@ -6,12 +6,26 @@ import {MessageResponse} from '../MessageResponse.js'
 
 import {LiveBadge} from '../design/LiveBadge.js'
 
-export function AssistantMessage({text, collapsed, live}: {text: string; collapsed: boolean; live?: boolean}) {
+export function AssistantMessage({
+  text,
+  collapsed,
+  live,
+  maxLines
+}: {
+  text: string
+  collapsed: boolean
+  live?: boolean
+  maxLines?: number
+}) {
   return (
     <Box marginTop={1} flexDirection="column">
-      <Text color={colors.cyan} bold>assistant{live ? <LiveBadge /> : null}</Text>
+      <Box>
+        <Text color={colors.success}>● </Text>
+        <Text color={colors.text} bold>Assistant Reply</Text>
+        {live ? <LiveBadge /> : null}
+      </Box>
       <MessageResponse>
-        <MarkdownBlock text={text} collapsed={collapsed} />
+        <MarkdownBlock text={text} collapsed={collapsed} maxLines={maxLines} />
       </MessageResponse>
     </Box>
   )
