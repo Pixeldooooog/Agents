@@ -4,11 +4,13 @@ import time
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Any, Dict, List, Optional, Protocol, TYPE_CHECKING
 from uuid import uuid4
 
-from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.persistence import SQLiteDatabase, json_dict, json_dumps
+
+if TYPE_CHECKING:
+    from agents.kernel.context.workspace import WorkspaceContext
 
 
 _SAFE_SCOPE = re.compile(r"[^A-Za-z0-9_.-]+")

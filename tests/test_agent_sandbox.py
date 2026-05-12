@@ -237,6 +237,20 @@ def test_workspace_snapshot_skips_agent_runtime_state(tmp_path):
     assert ".agents/runtime/runs/run-1/log.txt" not in snapshot.files
 
 
+def test_workspace_snapshot_skips_excluded_symlinks_before_resolving(tmp_path):
+    workspace = _workspace(tmp_path)
+    external_python = tmp_path / "uv" / "python3.11"
+    external_python.parent.mkdir(parents=True)
+    external_python.write_text("#!/usr/bin/env python\n", encoding="utf-8")
+    python_link = workspace.path / ".venv" / "bin" / "python"
+    python_link.parent.mkdir(parents=True)
+    python_link.symlink_to(external_python)
+
+    snapshot = WorkspaceSnapshot.capture(workspace)
+
+    assert ".venv/bin/python" not in snapshot.files
+
+
 def test_sandbox_profile_defaults_apply_policy(tmp_path):
     workspace = _workspace(tmp_path)
 

@@ -5,6 +5,13 @@ from agents.platform.persistence import (
     create_durable_persistence,
     create_ephemeral_persistence,
     create_platform_persistence,
+    create_terminal_persistence,
 )
 
-__all__ = ["PlatformPersistence", "create_durable_persistence", "create_ephemeral_persistence", "create_platform_persistence"]
+__all__ = [
+    "PlatformPersistence",
+    "create_durable_persistence",
+    "create_ephemeral_persistence",
+    "create_platform_persistence",
+    "create_terminal_persistence",
+]

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, List, Optional
 
-from agents.kernel.schema import Message, ModelResponse, ToolResult
+from agents.kernel.schema import Message, ModelResponse, ToolCall, ToolResult
 
 if TYPE_CHECKING:
     from agents.kernel.runtime import AgentResult
@@ -19,6 +19,14 @@ class AgentHooks:
         """在模型返回后调用，可检查/修改响应。"""
         return response
 
+    async def before_tool_use(self, call: ToolCall) -> ToolCall:
+        """在工具执行前调用，可修改或拒绝工具调用。"""
+        return call
+
+    async def after_tool_use(self, call: ToolCall, result: ToolResult) -> ToolResult:
+        """在工具执行后调用，可记录或修改工具结果。"""
+        return result
+
     def format_tool_result(self, result: ToolResult) -> Message:
         """在工具结果加入消息列表前调用，返回格式化后的消息。"""
         return Message.from_text(
@@ -32,3 +40,10 @@ class AgentHooks:
     async def on_error(self, error: Exception, messages: List[Message]) -> Optional[AgentResult]:
         """出错时调用，返回恢复结果则覆盖默认错误处理，返回 None 走默认逻辑。"""
         return None
+
+
+class ToolHookDenied(RuntimeError):
+    def __init__(self, tool_name: str, reason: str = "tool denied by hook"):
+        super().__init__(reason)
+        self.tool_name = tool_name
+        self.reason = reason

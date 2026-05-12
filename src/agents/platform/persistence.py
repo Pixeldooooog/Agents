@@ -6,8 +6,12 @@ from typing import Any
 from agents.kernel.capabilities.sandbox import SandboxStore
 from agents.kernel.governance.audit import ApprovalAuditStore
 from agents.kernel.capabilities.memory import MemoryStore
+from agents.kernel.hooks import HookStore
+from agents.kernel.mcp_config import MCPConfigStore
 from agents.kernel.runtime import CheckpointStore
 from agents.kernel.governance import CredentialRefStore
+from agents.kernel.schedules import ScheduleStore
+from agents.kernel.session_state import SessionStateStore
 from agents.kernel.state import (
     AgentProfileStore,
     ArtifactBlobStore,
@@ -17,7 +21,8 @@ from agents.kernel.state import (
     RunStore,
     WorkspaceStore,
 )
-from agents.kernel.tasks import TaskStore
+from agents.kernel.tasks import TaskQueue, TaskStore
+from agents.kernel.teams import TeamStore
 from agents.kernel.governance.tracing import TraceStore
 from agents.platform.sessions import (
     create_agent_profile_store,
@@ -25,11 +30,17 @@ from agents.platform.sessions import (
     create_artifact_store,
     create_checkpoint_store,
     create_credential_ref_store,
+    create_hook_store,
     create_identity_store,
+    create_mcp_config_store,
     create_memory_store,
     create_run_store,
     create_sandbox_store,
+    create_schedule_store,
+    create_session_state_store,
+    create_task_queue,
     create_task_store,
+    create_team_store,
     create_trace_store,
     create_workspace_store,
 )
@@ -47,8 +58,14 @@ class PlatformPersistence:
     artifacts: ArtifactStore
     artifact_blobs: ArtifactBlobStore
     memories: MemoryStore
+    hooks: HookStore
+    mcp_configs: MCPConfigStore
+    session_states: SessionStateStore
     credentials: CredentialRefStore
     tasks: TaskStore
+    task_queue: TaskQueue
+    schedules: ScheduleStore
+    teams: TeamStore
     sandboxes: SandboxStore
 
 
@@ -59,6 +76,10 @@ def create_platform_persistence(settings: Any) -> PlatformPersistence:
 
 def create_ephemeral_persistence(settings: Any, *, workspace_path: str = "") -> PlatformPersistence:
     return _create_persistence(settings, store_kind="memory", durable_artifacts=False, workspace_path=workspace_path)
+
+
+def create_terminal_persistence(settings: Any, *, workspace_path: str = "") -> PlatformPersistence:
+    return _create_persistence(settings, store_kind="sqlite", durable_artifacts=False, workspace_path=workspace_path)
 
 
 def create_durable_persistence(settings: Any) -> PlatformPersistence:
@@ -83,8 +104,14 @@ def _create_persistence(
         artifacts=create_artifact_store(settings, store_kind=store_kind),
         artifact_blobs=_create_artifact_blob_store(settings, durable=durable_artifacts, workspace_path=workspace_path),
         memories=create_memory_store(settings, store_kind=store_kind),
+        hooks=create_hook_store(settings, store_kind=store_kind),
+        mcp_configs=create_mcp_config_store(settings, store_kind=store_kind),
+        session_states=create_session_state_store(settings, store_kind=store_kind),
         credentials=create_credential_ref_store(settings, store_kind=store_kind),
         tasks=create_task_store(settings, store_kind=store_kind),
+        task_queue=create_task_queue(settings, store_kind=store_kind),
+        schedules=create_schedule_store(settings, store_kind=store_kind),
+        teams=create_team_store(settings, store_kind=store_kind),
         sandboxes=create_sandbox_store(settings, store_kind=store_kind),
     )
 

@@ -40,8 +40,13 @@ class WorkspaceSnapshot:
         if not root.exists():
             return cls(captured_at=time.time(), files=files)
         for path in sorted(item for item in root.rglob("*") if item.is_file()):
-            relative = path.resolve().relative_to(root).as_posix()
+            try:
+                relative = path.relative_to(root).as_posix()
+            except ValueError:
+                continue
             if _should_skip(relative):
+                continue
+            if path.is_symlink() and not _target_stays_in_workspace(path, root):
                 continue
             try:
                 stat = path.stat()
@@ -81,6 +86,14 @@ class WorkspaceSnapshot:
 
 def _should_skip(relative_path: str) -> bool:
     return any(part in SKIPPED_PARTS for part in Path(relative_path).parts)
+
+
+def _target_stays_in_workspace(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root)
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 def _sha256(path: Path) -> str:

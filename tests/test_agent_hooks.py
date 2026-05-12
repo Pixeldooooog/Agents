@@ -18,11 +18,18 @@ from agents.kernel.hooks import (
     CompositeHooks,
     IntentGuide,
     IntentGuidanceHooks,
+    SessionHookRegistry,
+    SessionStateHooks,
     SystemPromptGuidanceHooks,
     ThinkingHooks,
     ToolApprovalError,
+    ToolHookDenied,
     hooks_from_settings,
 )
+from agents.kernel.context.workspace import WorkspaceContext
+from agents.kernel.hooks import InMemoryHookStore
+from agents.kernel.capabilities.tools.registry import ToolRegistry
+from agents.kernel.runtime.turns.tools import ToolOrchestrator
 from agents.kernel.schema import Message, ModelResponse, ToolCall
 
 
@@ -141,6 +148,85 @@ class TestSystemPromptGuidanceHooks:
         result2 = asyncio.run(hooks.before_request(result1))
 
         assert len(result2) == len(result1)
+
+
+class TestSessionStateHooks:
+    def test_session_hook_registry_appends_request_guidance(self):
+        registry = SessionHookRegistry()
+        hook = registry.add(
+            event="before_request",
+            name="coding-style",
+            action="append_system",
+            content="Prefer concise diffs.",
+        )
+        hooks = SessionStateHooks(registry)
+        messages = [
+            Message.from_text("system", "Base prompt."),
+            Message.from_text("user", "edit code"),
+        ]
+
+        result = asyncio.run(hooks.before_request(messages))
+
+        assert [message.role for message in result] == ["system", "system", "user"]
+        assert result[1].content_text() == "Prefer concise diffs."
+        assert hook.run_count == 1
+        assert registry.list()[0].short_id == hook.short_id
+
+        deleted = registry.delete(hook.short_id)
+        assert deleted.hook_id == hook.hook_id
+        assert registry.list() == []
+
+    def test_pre_tool_hook_can_block_matching_tool(self):
+        registry = SessionHookRegistry()
+        hook = registry.add(
+            event="pre_tool_use",
+            name="block-echo",
+            action="deny_tool",
+            content="echo blocked",
+            tool="echo",
+        )
+        hooks = SessionStateHooks(registry)
+
+        with pytest.raises(ToolHookDenied) as exc_info:
+            asyncio.run(hooks.before_tool_use(ToolCall(id="1", name="echo", arguments={})))
+
+        assert exc_info.value.reason == "echo blocked"
+        assert hook.run_count == 1
+
+    def test_tool_orchestrator_runs_pre_and_post_tool_hooks(self):
+        hook_registry = SessionHookRegistry()
+        pre = hook_registry.add(event="pre_tool_use", name="pre", action="record", tool="echo")
+        post = hook_registry.add(event="post_tool_use", name="post", action="record", tool="echo")
+        tools = ToolRegistry()
+        tools.register("echo", "Echo", {}, lambda text="": text)
+        orchestrator = ToolOrchestrator(tools, SessionStateHooks(hook_registry))
+
+        batch = asyncio.run(orchestrator.execute([ToolCall(id="1", name="echo", arguments={"text": "hi"})]))
+
+        assert batch.results[0].content == "hi"
+        assert pre.run_count == 1
+        assert post.run_count == 1
+
+    def test_session_state_hooks_persist_run_counts_to_store(self, tmp_path):
+        workspace = WorkspaceContext(
+            tenant_id="tenant",
+            user_id="user",
+            agent_id="agent",
+            workspace_id="workspace",
+            root=tmp_path,
+            path=tmp_path,
+        )
+        store = InMemoryHookStore()
+        registry = SessionHookRegistry()
+        hook = registry.add(event="before_request", name="style", action="append_system", content="Prefer small patches.")
+        hooks = SessionStateHooks(registry, store=store, workspace=workspace)
+
+        asyncio.run(hooks.before_request([Message.from_text("user", "edit")]))
+        stored = asyncio.run(store.list_for_scope("tenant", user_id="user", agent_id="agent", workspace_id="workspace"))
+
+        assert hook.run_count == 1
+        assert stored[0].hook_id == hook.hook_id
+        assert stored[0].run_count == 1
 
 
 class TestThinkingHooks:

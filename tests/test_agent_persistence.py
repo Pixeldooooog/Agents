@@ -2,6 +2,9 @@ import asyncio
 
 from agents.kernel.specs import AgentSpec
 from agents.kernel.governance.audit import ApprovalAuditRecord, SQLiteApprovalAuditStore
+from agents.kernel.hooks import SQLiteHookStore, SessionHookRegistry
+from agents.kernel.mcp_config import MCPServerRecord, SQLiteMCPConfigStore
+from agents.kernel.session_state import SessionStateRecord, SQLiteSessionStateStore
 from agents.kernel.state.identity import SQLiteIdentityStore, TenantRecord, UserRecord
 from agents.kernel.capabilities.memory import MemoryRecord, MemoryScope, SQLiteMemoryStore
 from agents.kernel.persistence import SQLiteDatabase
@@ -13,6 +16,7 @@ from agents.kernel.governance.approval_grants import APPROVAL_ALLOW_FOR_RUN, app
 from agents.kernel.state import AgentProfile, SQLiteAgentProfileStore
 from agents.kernel.state.workspaces import SQLiteWorkspaceStore, WorkspaceRecord
 from agents.kernel.governance.tracing import SQLiteTraceStore, TraceSpan, TraceStatus
+from agents.kernel.teams import SQLiteTeamStore, TeamMessageRecord, TeamRecord
 
 
 def test_sqlite_run_store_persists_records_and_events(tmp_path):
@@ -70,6 +74,203 @@ def test_sqlite_checkpoint_store_persists_pending_tools(tmp_path):
     assert checkpoint.tool_approvals == {"call-1": True}
     assert checkpoint.tool_approval_scopes == {"call-1": "allow_for_run"}
     assert checkpoint.tool_approval_grants == {approval_grant_key(call): True}
+
+
+def test_sqlite_team_store_persists_team_members_and_messages(tmp_path):
+    database = SQLiteDatabase(tmp_path / "agents.db")
+    store = SQLiteTeamStore(database)
+    spec = AgentSpec.from_overrides(
+        tenant_id="tenant-1",
+        user_id="user-1",
+        agent_id="lead",
+        workspace_id="workspace-1",
+    )
+
+    async def execute():
+        team = TeamRecord.create(
+            spec=spec,
+            team_id="feature",
+            name="Feature Team",
+            members={"researcher": {"agent_id": "researcher", "role": "research"}},
+        )
+        other_team = TeamRecord.create(
+            spec=AgentSpec.from_overrides(
+                tenant_id="tenant-1",
+                user_id="user-1",
+                agent_id="lead",
+                workspace_id="workspace-2",
+            ),
+            team_id="feature",
+            name="Other Workspace Team",
+        )
+        message = TeamMessageRecord.create(
+            spec=spec,
+            team_id=team.team_id,
+            from_agent="lead",
+            to_agent="researcher",
+            message="Check the repo.",
+        )
+        await store.save_team(team)
+        await store.save_team(other_team)
+        await store.add_message(message)
+        reopened = SQLiteTeamStore(SQLiteDatabase(tmp_path / "agents.db"))
+        loaded = await reopened.load_team("feature", "tenant-1", user_id="user-1", agent_id="lead", workspace_id="workspace-1")
+        other_loaded = await reopened.load_team("feature", "tenant-1", user_id="user-1", agent_id="lead", workspace_id="workspace-2")
+        inbox = await reopened.list_messages(
+            "tenant-1",
+            user_id="user-1",
+            agent_id="lead",
+            workspace_id="workspace-1",
+            team_id="feature",
+            to_agent="researcher",
+        )
+        await reopened.mark_messages_read([inbox[0].message_id])
+        read_inbox = await reopened.list_messages(
+            "tenant-1",
+            user_id="user-1",
+            agent_id="lead",
+            workspace_id="workspace-1",
+            team_id="feature",
+            to_agent="researcher",
+        )
+        return loaded, other_loaded, inbox, read_inbox
+
+    team, other_team, inbox, read_inbox = asyncio.run(execute())
+
+    assert team is not None
+    assert other_team is not None
+    assert team.members["researcher"]["role"] == "research"
+    assert other_team.name == "Other Workspace Team"
+    assert inbox[0].message == "Check the repo."
+    assert read_inbox == []
+
+
+def test_sqlite_hook_store_persists_scoped_hooks(tmp_path):
+    database = SQLiteDatabase(tmp_path / "agents.db")
+    store = SQLiteHookStore(database)
+    registry = SessionHookRegistry()
+    hook = registry.add(event="pre_tool_use", name="block-shell", action="deny_tool", tool="shell.run", content="blocked")
+    registry.mark_ran(hook)
+
+    async def execute():
+        await store.save(hook, "tenant-1", user_id="user-1", agent_id="agent-1", workspace_id="workspace-1")
+        reopened = SQLiteHookStore(SQLiteDatabase(tmp_path / "agents.db"))
+        hooks = await reopened.list_for_scope("tenant-1", user_id="user-1", agent_id="agent-1", workspace_id="workspace-1")
+        await reopened.delete(hook.hook_id, "tenant-1", user_id="user-1", agent_id="agent-1", workspace_id="workspace-1")
+        after_delete = await reopened.list_for_scope("tenant-1", user_id="user-1", agent_id="agent-1", workspace_id="workspace-1")
+        return hooks, after_delete
+
+    hooks, after_delete = asyncio.run(execute())
+
+    assert hooks[0].hook_id == hook.hook_id
+    assert hooks[0].metadata["tool"] == "shell.run"
+    assert hooks[0].run_count == 1
+    assert after_delete == []
+
+
+def test_sqlite_mcp_config_store_persists_scoped_servers(tmp_path):
+    database = SQLiteDatabase(tmp_path / "agents.db")
+    store = SQLiteMCPConfigStore(database)
+    server = MCPServerRecord(
+        name="docs",
+        command="python server.py",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="workspace-1",
+    )
+    other = MCPServerRecord(
+        name="docs",
+        command="python other.py",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="workspace-2",
+    )
+
+    async def execute():
+        await store.save(server)
+        await store.save(other)
+        reopened = SQLiteMCPConfigStore(SQLiteDatabase(tmp_path / "agents.db"))
+        servers = await reopened.list_for_scope("tenant-1", user_id="user-1", agent_id="agent-1", workspace_id="workspace-1")
+        other_servers = await reopened.list_for_scope("tenant-1", user_id="user-1", agent_id="agent-1", workspace_id="workspace-2")
+        await reopened.delete("docs", "tenant-1", user_id="user-1", agent_id="agent-1", workspace_id="workspace-1")
+        after_delete = await reopened.list_for_scope("tenant-1", user_id="user-1", agent_id="agent-1", workspace_id="workspace-1")
+        return servers, other_servers, after_delete
+
+    servers, other_servers, after_delete = asyncio.run(execute())
+
+    assert servers[0].command == "python server.py"
+    assert other_servers[0].command == "python other.py"
+    assert after_delete == []
+
+
+def test_sqlite_session_state_store_persists_scoped_planning_state(tmp_path):
+    database = SQLiteDatabase(tmp_path / "agents.db")
+    store = SQLiteSessionStateStore(database)
+    record = SessionStateRecord(
+        tenant_id="tenant-1",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="workspace-1",
+        todos=[{"content": "Run checks", "status": "pending", "activeForm": "Running checks"}],
+        plan_mode=True,
+        plan_text="Inspect then implement.",
+        plan_allowed_prompts=[{"tool": "shell.run", "prompt": "pytest"}],
+        system_prompt_override="Persisted prompt.",
+        system_prompt_overridden=True,
+        permission_profile_override="guarded",
+        permission_mode_override="auto",
+        permission_restrict_allowed_tools=True,
+        permission_allowed_tools_override=["filesystem.read"],
+        permission_denied_tools_override=["shell.run"],
+        approval_required_tools_override=["shell.run"],
+        permission_overridden=True,
+        enabled_skills=["focus"],
+        enabled_plugins=["planner"],
+        skill_tools={"focus": ["filesystem.read"]},
+        plugin_tools={"planner": ["todo.write"]},
+    )
+    other = SessionStateRecord(
+        tenant_id="tenant-1",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="workspace-2",
+        todos=[{"content": "Review output", "status": "pending", "activeForm": "Reviewing output"}],
+    )
+
+    async def execute():
+        await store.save(record)
+        await store.save(other)
+        reopened = SQLiteSessionStateStore(SQLiteDatabase(tmp_path / "agents.db"))
+        loaded = await reopened.load_for_scope("tenant-1", user_id="user-1", agent_id="agent-1", workspace_id="workspace-1")
+        other_loaded = await reopened.load_for_scope("tenant-1", user_id="user-1", agent_id="agent-1", workspace_id="workspace-2")
+        await reopened.delete("tenant-1", user_id="user-1", agent_id="agent-1", workspace_id="workspace-1")
+        after_delete = await reopened.load_for_scope("tenant-1", user_id="user-1", agent_id="agent-1", workspace_id="workspace-1")
+        return loaded, other_loaded, after_delete
+
+    loaded, other_loaded, after_delete = asyncio.run(execute())
+
+    assert loaded is not None
+    assert loaded.todos[0]["content"] == "Run checks"
+    assert loaded.plan_mode is True
+    assert loaded.plan_allowed_prompts == [{"tool": "shell.run", "prompt": "pytest"}]
+    assert loaded.system_prompt_override == "Persisted prompt."
+    assert loaded.system_prompt_overridden is True
+    assert loaded.permission_profile_override == "guarded"
+    assert loaded.permission_mode_override == "auto"
+    assert loaded.permission_restrict_allowed_tools is True
+    assert loaded.permission_allowed_tools_override == ["filesystem.read"]
+    assert loaded.permission_denied_tools_override == ["shell.run"]
+    assert loaded.approval_required_tools_override == ["shell.run"]
+    assert loaded.permission_overridden is True
+    assert loaded.enabled_skills == ["focus"]
+    assert loaded.enabled_plugins == ["planner"]
+    assert loaded.skill_tools == {"focus": ["filesystem.read"]}
+    assert loaded.plugin_tools == {"planner": ["todo.write"]}
+    assert other_loaded is not None
+    assert other_loaded.todos[0]["content"] == "Review output"
+    assert after_delete is None
 
 
 def test_sqlite_approval_audit_store_records_decisions(tmp_path):

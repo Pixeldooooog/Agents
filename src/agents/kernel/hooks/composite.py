@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, List, Optional
 
 from agents.kernel.hooks.base import AgentHooks
-from agents.kernel.schema import Message, ModelResponse, ToolResult
+from agents.kernel.schema import Message, ModelResponse, ToolCall, ToolResult
 
 if TYPE_CHECKING:
     from agents.kernel.runtime import AgentResult
@@ -34,6 +34,18 @@ class CompositeHooks(AgentHooks):
         working = response
         for hook in self.hooks:
             working = await hook.after_response(working)
+        return working
+
+    async def before_tool_use(self, call: ToolCall) -> ToolCall:
+        working = call
+        for hook in self.hooks:
+            working = await hook.before_tool_use(working)
+        return working
+
+    async def after_tool_use(self, call: ToolCall, result: ToolResult) -> ToolResult:
+        working = result
+        for hook in self.hooks:
+            working = await hook.after_tool_use(call, working)
         return working
 
     def format_tool_result(self, result: ToolResult) -> Message:
