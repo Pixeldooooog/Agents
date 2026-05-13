@@ -34,3 +34,21 @@ class InMemoryRunStore:
         updated = record.with_status(status)
         self._runs[run_id] = updated
         return updated
+
+    async def list_runs(
+        self,
+        *,
+        limit: int = 50,
+        tenant_id: str = "",
+        user_id: str = "",
+        agent_id: str = "",
+    ) -> list[RunRecord]:
+        records = list(self._runs.values())
+        if tenant_id:
+            records = [record for record in records if record.tenant_id == tenant_id]
+        if user_id:
+            records = [record for record in records if record.user_id == user_id]
+        if agent_id:
+            records = [record for record in records if record.agent_id == agent_id]
+        records.sort(key=lambda item: item.updated_at, reverse=True)
+        return records[: max(1, min(limit, 200))]

@@ -296,7 +296,7 @@ runtime = AgentRuntime(spec)
 Create a task:
 
 ```bash
-curl -X POST http://127.0.0.1:8010/api/v1/agent/tasks \
+curl -X POST http://127.0.0.1:8020/api/v1/agent/tasks \
   -H 'Content-Type: application/json' \
   -d '{
     "title": "Database migration",
@@ -307,13 +307,13 @@ curl -X POST http://127.0.0.1:8010/api/v1/agent/tasks \
 Run it:
 
 ```bash
-curl -X POST http://127.0.0.1:8010/api/v1/agent/tasks/task_xyz/run
+curl -X POST http://127.0.0.1:8020/api/v1/agent/tasks/task_xyz/run
 ```
 
 Approve when prompted:
 
 ```bash
-curl -X POST http://127.0.0.1:8010/api/v1/agent/runs/run_abc/approval \
+curl -X POST http://127.0.0.1:8020/api/v1/agent/runs/run_abc/approval \
   -H 'Content-Type: application/json' \
   -d '{"tool_call_ids":["call_123"],"approved":true}'
 ```

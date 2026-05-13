@@ -14,7 +14,15 @@ def test_frontend_is_split_into_focused_modules():
         "components/ChatThread.tsx",
         "components/RunInspector.tsx",
         "components/SettingsDrawer.tsx",
+        "components/OperationStage.tsx",
+        "components/OperationStageScenes.tsx",
         "runtime/agentSession.ts",
+        "runtime/config.ts",
+        "runtime/operationFrames.ts",
+        "runtime/operationProjector.ts",
+        "runtime/operationPlayback.ts",
+        "runtime/operationStageScript.ts",
+        "runtime/operationTrace.ts",
         "types.ts",
     }
 
@@ -58,3 +66,36 @@ def test_tool_approval_panel_exposes_scoped_decisions():
     assert "allow_for_run" in panel
     assert "Allow once" in panel
     assert "Allow for run" in panel
+
+
+def test_operation_stage_uses_normalized_operation_events():
+    types = (FRONTEND_SRC / "types.ts").read_text(encoding="utf-8")
+    app = (FRONTEND_SRC / "App.tsx").read_text(encoding="utf-8")
+    session = (FRONTEND_SRC / "runtime/agentSession.ts").read_text(encoding="utf-8")
+    projector = (FRONTEND_SRC / "runtime/operationProjector.ts").read_text(encoding="utf-8")
+    frames = (FRONTEND_SRC / "runtime/operationFrames.ts").read_text(encoding="utf-8")
+    playback = (FRONTEND_SRC / "runtime/operationPlayback.ts").read_text(encoding="utf-8")
+    script = (FRONTEND_SRC / "runtime/operationStageScript.ts").read_text(encoding="utf-8")
+    trace = (FRONTEND_SRC / "runtime/operationTrace.ts").read_text(encoding="utf-8")
+    stage = (FRONTEND_SRC / "components/OperationStage.tsx").read_text(encoding="utf-8")
+    scenes = (FRONTEND_SRC / "components/OperationStageScenes.tsx").read_text(encoding="utf-8")
+
+    assert "type OperationEvent" in types
+    assert "OperationSource" in types
+    assert "OperationFile" in types
+    assert "projectRuntimeEvent" in projector
+    assert "projectRunTrace" in projector
+    assert "operation_frames" in types
+    assert "sandbox_trace" in frames
+    assert "operationFromFrame" in projector
+    assert "sceneForTool" in projector
+    assert "playbackFrames" in playback
+    assert "scriptForOperation" in script
+    assert "StageStep" in script
+    assert "loadOperationTrace" in trace
+    assert "OperationStage" in app
+    assert "operations={session.operations}" in app
+    assert "slice(-80)" in session
+    assert "slice(-6)" in stage
+    assert "DesktopBackdrop" in scenes
+    assert "ProcessStrip" in scenes

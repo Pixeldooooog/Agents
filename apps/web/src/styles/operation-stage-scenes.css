@@ -1,0 +1,244 @@
+.finder-window {
+  left: 24px;
+  top: 58px;
+  width: min(360px, 42%);
+  height: 390px;
+}
+
+.desktop-backdrop {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.desktop-dock {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  z-index: 1;
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(237, 240, 232, 0.14);
+  border-radius: 14px;
+  background: rgba(16, 19, 15, 0.62);
+  box-shadow: 0 16px 52px rgba(0, 0, 0, 0.28);
+  transform: translateX(-50%);
+}
+
+.desktop-dock span {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  color: rgba(237, 240, 232, 0.56);
+  background: rgba(237, 240, 232, 0.06);
+}
+
+.desktop-dock span.active {
+  color: #15211c;
+  background: #dfc47e;
+  transform: translateY(-4px);
+}
+
+.process-strip {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  top: 16px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.process-strip span {
+  min-width: 0;
+  border: 1px solid rgba(237, 240, 232, 0.12);
+  border-radius: 999px;
+  padding: 6px 9px;
+  color: rgba(237, 240, 232, 0.52);
+  background: rgba(16, 19, 15, 0.46);
+  font-size: 11px;
+}
+
+.process-strip span.done {
+  color: rgba(237, 240, 232, 0.78);
+}
+
+.process-strip span.active {
+  color: #151812;
+  background: #dfc47e;
+  border-color: #dfc47e;
+}
+
+.editor-window-mini,
+.editor-window-large {
+  right: 24px;
+  top: 88px;
+  width: min(580px, calc(58% - 32px));
+  height: 430px;
+}
+
+.editor-window-large,
+.browser-window-mini,
+.terminal-window-mini,
+.document-window-mini,
+.summary-window-mini {
+  left: 46px;
+  right: 46px;
+  top: 68px;
+  width: auto;
+  height: min(520px, calc(100% - 88px));
+}
+
+.finder-grid {
+  display: grid;
+  grid-template-columns: 116px 1fr;
+  min-height: 100%;
+}
+
+.finder-sidebar {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  padding: 12px;
+  border-right: 1px solid #d8dee3;
+  background: #f1f4f3;
+  color: #68717d;
+  font-size: 12px;
+}
+
+.file-list-mini,
+.browser-results,
+.summary-grid {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.file-row-mini,
+.source-card-mini {
+  border: 1px solid #dbded4;
+  border-radius: 8px;
+  padding: 9px;
+  background: #fff;
+}
+
+.file-row-mini {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.file-row-mini.active,
+.source-card-mini.active {
+  border-color: rgba(85, 132, 118, 0.38);
+  background: #e7eee6;
+}
+
+.code-preview,
+.terminal-lines {
+  margin: 0;
+  min-height: 100%;
+  padding: 14px;
+  white-space: pre-wrap;
+  font: 12px/1.6 "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.code-preview,
+.terminal-window-mini .stage-window-body {
+  background: #0a1016;
+  color: #d8e7e1;
+}
+
+.line-no {
+  color: rgba(216, 231, 225, 0.34);
+}
+
+.code-add-line {
+  display: inline-block;
+  border-radius: 4px;
+  color: #ccefe2;
+  background: rgba(29, 116, 98, 0.22);
+}
+
+.browser-toolbar,
+.browser-address {
+  margin: 12px;
+  border: 1px solid #dbded4;
+  border-radius: 999px;
+  padding: 9px 12px;
+  color: #2a5e52;
+  background: #fff;
+  font: 12px/1.2 "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.browser-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.document-window-mini h3,
+.empty-stage h3 {
+  margin: 0 0 8px;
+}
+
+.document-window-mini .stage-window-body,
+.summary-window-mini .stage-window-body {
+  padding: 16px;
+  background: #fffdf8;
+}
+
+.operation-history {
+  max-height: 168px;
+  overflow: auto;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(10, 16, 22, 0.86);
+}
+
+.operation-history-row {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 18px;
+  gap: 9px;
+  align-items: center;
+  padding: 10px 12px;
+  color: rgba(234, 241, 239, 0.7);
+}
+
+.operation-history-row.active {
+  color: #f4f8f6;
+  background: rgba(29, 116, 98, 0.16);
+}
+
+.status-mark.running {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #76cdb2;
+  box-shadow: 0 0 0 4px rgba(118, 205, 178, 0.14);
+}
+
+.status-mark.done {
+  color: #76cdb2;
+}
+
+.status-mark.error {
+  color: #e28b90;
+}
+
+.empty-stage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+  color: rgba(234, 241, 239, 0.66);
+}

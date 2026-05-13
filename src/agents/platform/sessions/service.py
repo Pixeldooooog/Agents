@@ -47,6 +47,16 @@ class RunService:
         await self.sandbox_store.mark_released_for_run(run_id)
         await self.trace_recorder.finish_run(run_id, error=error)
 
+    async def list_runs(
+        self,
+        *,
+        limit: int = 50,
+        tenant_id: str = "",
+        user_id: str = "",
+        agent_id: str = "",
+    ) -> list[RunRecord]:
+        return await self.store.list_runs(limit=limit, tenant_id=tenant_id, user_id=user_id, agent_id=agent_id)
+
 
 def run_created_event(run_id: str) -> RuntimeEvent:
     return RuntimeEvent(type="run_created", name="run", payload={"run_id": run_id})

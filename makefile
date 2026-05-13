@@ -1,6 +1,6 @@
 IMAGE ?= agents
 TAG ?= latest
-PORT ?= 8010
+PORT ?= 8020
 VENV ?= .venv
 PYTHON_BIN ?= $(shell command -v python3.12 2>/dev/null || command -v python3.11 2>/dev/null || command -v python3.10 2>/dev/null)
 UV ?= $(shell command -v uv 2>/dev/null)
@@ -9,7 +9,7 @@ HOST_PIP ?= $(shell command -v pip3 2>/dev/null || command -v pip 2>/dev/null)
 PYTHON ?= $(VENV)/bin/python
 PIP ?= $(PYTHON) -m pip
 
-.PHONY: check-python venv setup setup-tui setup-terminal run tui gui terminal terminal-fixture terminal-fixture-fullscreen terminal-manual-smoke manual-smoke terminal-audit terminal-audit-complete cli bridge-fallback dev-web stop test test-terminal check doctor package build-web build up down log
+.PHONY: check-python venv setup setup-tui setup-terminal run tui web gui terminal terminal-fixture terminal-fixture-fullscreen terminal-manual-smoke manual-smoke terminal-audit terminal-audit-complete cli bridge-fallback dev-web stop test test-terminal check doctor package build-web build up down log
 
 check-python:
 	@test -n "$(PYTHON_BIN)" || (echo "Python 3.10+ is required." && exit 1)
@@ -49,8 +49,10 @@ tui: venv
 	@test -n "$(BUN)" || (echo "bun is required for make tui. Use make bridge-fallback for the Python debug fallback." && exit 1)
 	@cd apps/terminal && PYTHONPATH=$(CURDIR)/src $(BUN) run src/main.tsx --repo-root ../.. --python $(PYTHON) $(ARGS)
 
-gui: venv
+web: venv
 	PYTHONPATH=$(CURDIR)/src $(PYTHON) -m agents.entrypoints.agents gui
+
+gui: web
 
 terminal: tui
 
@@ -76,10 +78,10 @@ terminal-audit-complete:
 	@test -n "$(BUN)" || (echo "bun is required for make terminal-audit-complete." && exit 1)
 	@cd apps/terminal && $(BUN) run tui-audit:complete
 
-cli: tui
-
 bridge-fallback: venv
 	@PYTHONPATH=$(CURDIR)/src $(PYTHON) -m agents.interfaces.bridge.fallback.main chat
+
+cli: tui
 
 dev-web: venv
 	@echo "Starting backend..."

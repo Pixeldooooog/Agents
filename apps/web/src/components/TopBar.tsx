@@ -1,17 +1,22 @@
-import { Circle, Radio, Settings2, Sparkles, TerminalSquare } from "lucide-solid";
+import { Circle, Radio, Sparkles } from "lucide-solid";
 import type { Accessor, Setter } from "solid-js";
+import { For } from "solid-js";
 
 type Props = {
+  view: Accessor<string>;
+  setView: Setter<string>;
   health: Accessor<string>;
   streaming: Accessor<boolean>;
   setStreaming: Setter<boolean>;
-  activityCount: Accessor<number>;
-  activityOpen: Accessor<boolean>;
-  setActivityOpen: Setter<boolean>;
-  settingsOpen: Accessor<boolean>;
-  setSettingsOpen: Setter<boolean>;
   checkHealth: () => void;
 };
+
+const tabs = [
+  { id: "chat", label: "Chat" },
+  { id: "runs", label: "Runs" },
+  { id: "tasks", label: "Tasks" },
+  { id: "settings", label: "Settings" },
+];
 
 export function TopBar(props: Props) {
   return (
@@ -20,7 +25,7 @@ export function TopBar(props: Props) {
         <div class="mark"><Sparkles size={19} /></div>
         <div>
           <h1>Agents Code</h1>
-          <p>Agent Workspace</p>
+          <p>Web Console</p>
         </div>
       </div>
       <div class="top-actions">
@@ -32,14 +37,13 @@ export function TopBar(props: Props) {
           <Radio size={15} />
           <span>{props.streaming() ? "Streaming" : "Single response"}</span>
         </button>
-        <button class="plain-button" classList={{ active: props.activityOpen() }} onClick={() => props.setActivityOpen(!props.activityOpen())}>
-          <TerminalSquare size={16} />
-          <span>Activity {props.activityCount()}</span>
-        </button>
-        <button class="plain-button" classList={{ active: props.settingsOpen() }} onClick={() => props.setSettingsOpen(true)}>
-          <Settings2 size={16} />
-          <span>Settings</span>
-        </button>
+        <div class="view-tabs">
+          <For each={tabs}>{(item) => (
+            <button class="plain-button" classList={{ active: props.view() === item.id }} onClick={() => props.setView(item.id)}>
+              <span>{item.label}</span>
+            </button>
+          )}</For>
+        </div>
       </div>
     </header>
   );

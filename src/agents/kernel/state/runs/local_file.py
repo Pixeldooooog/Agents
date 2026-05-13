@@ -41,6 +41,30 @@ class LocalFileRunStore:
         self._write(updated)
         return updated
 
+    async def list_runs(
+        self,
+        *,
+        limit: int = 50,
+        tenant_id: str = "",
+        user_id: str = "",
+        agent_id: str = "",
+    ) -> list[RunRecord]:
+        records: list[RunRecord] = []
+        for path in self.root.glob("*.json"):
+            try:
+                record = RunRecord.from_dict(json.loads(path.read_text(encoding="utf-8")))
+            except Exception:  # noqa: BLE001 - invalid files should not break listing
+                continue
+            if tenant_id and record.tenant_id != tenant_id:
+                continue
+            if user_id and record.user_id != user_id:
+                continue
+            if agent_id and record.agent_id != agent_id:
+                continue
+            records.append(record)
+        records.sort(key=lambda item: item.updated_at, reverse=True)
+        return records[: max(1, min(limit, 200))]
+
     def _path(self, run_id: str) -> Path:
         safe = "".join(ch for ch in run_id if ch.isalnum() or ch in ("_", "-", ".")).strip(".")
         return self.root / ("%s.json" % (safe or "run"))

@@ -323,7 +323,7 @@ For the HTTP API server (`agents gui` or `make run`):
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `SERVER_HOST` | Bind host | `127.0.0.1` |
-| `SERVER_PORT` | Bind port | `8010` |
+| `SERVER_PORT` | Bind port | `8020` |
 | `SERVER_LOG_LEVEL` | Log verbosity | `info` |
 | `SERVER_CORS_ORIGINS` | Comma-separated allowed origins | (none) |
 | `SERVER_STATIC_PATH` | Web UI dist path | `apps/web/dist` |
@@ -422,7 +422,7 @@ AGENT_SANDBOX_PROFILE=coding
 
 # Server
 SERVER_HOST=0.0.0.0
-SERVER_PORT=8010
+SERVER_PORT=8020
 SERVER_LOG_LEVEL=info
 
 # Workspaces

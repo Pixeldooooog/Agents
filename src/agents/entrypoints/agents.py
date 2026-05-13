@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -103,7 +104,14 @@ def _run_gui(*, build: bool = True) -> int:
     from agents.interfaces.server.__main__ import main as server_main
     from agents.interfaces.server.core.config import settings
 
-    typer.echo("GUI: %s/ui/" % str(getattr(settings.server, "DOMAIN", "http://localhost:8010")).rstrip("/"))
+    configured_port = int(getattr(settings.server, "PORT", 8020))
+    chosen_port = _find_available_port(getattr(settings.server, "HOST", "0.0.0.0"), configured_port)
+    if chosen_port != configured_port:
+        typer.echo(f"Port {configured_port} is in use. Switching to {chosen_port}.")
+        settings.server.PORT = chosen_port
+        settings.server.update_dependent_settings()
+
+    typer.echo("GUI: %s/ui/" % str(getattr(settings.server, "DOMAIN", "http://localhost:8020")).rstrip("/"))
     server_main(show_settings=False)
     return 0
 
@@ -130,6 +138,30 @@ def _merge_pythonpath(first: str, existing: str) -> str:
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
+
+
+def _find_available_port(host: str, start_port: int, max_tries: int = 20) -> int:
+    for port in range(start_port, start_port + max_tries):
+        if not _port_in_use(host, port):
+            return port
+    typer.echo(f"No available port in range {start_port}-{start_port + max_tries - 1}.", err=True)
+    raise typer.Exit(1)
+
+
+def _port_in_use(host: str, port: int) -> bool:
+    target = _connect_host(host)
+    try:
+        with socket.create_connection((target, port), timeout=0.25):
+            return True
+    except OSError:
+        return False
+
+
+def _connect_host(host: str) -> str:
+    value = str(host or "").strip()
+    if value in {"", "0.0.0.0", "::"}:
+        return "127.0.0.1"
+    return value
 
 
 if __name__ == "__main__":

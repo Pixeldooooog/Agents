@@ -124,7 +124,7 @@ make run
 Then call the API:
 
 ```bash
-curl -X POST http://127.0.0.1:8010/api/v1/agent/chat \
+curl -X POST http://127.0.0.1:8020/api/v1/agent/chat \
   -H 'Content-Type: application/json' \
   -d '{
     "message": "Hello, agent!",
@@ -136,7 +136,7 @@ curl -X POST http://127.0.0.1:8010/api/v1/agent/chat \
 For streaming:
 
 ```bash
-curl -N -X POST http://127.0.0.1:8010/api/v1/agent/chat/stream \
+curl -N -X POST http://127.0.0.1:8020/api/v1/agent/chat/stream \
   -H 'Content-Type: application/json' \
   -d '{"message":"Hello, agent!"}'
 ```

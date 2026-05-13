@@ -7,9 +7,9 @@ project_name = "Agents"
 api_prefix = "/api"
 server_type = "uvicorn"
 host = "0.0.0.0"
-port = 8010
+port = 8020
 workers = 1
-domain = "http://localhost:8010"
+domain = "http://localhost:8020"
 enable_swagger_doc = false
 backend_cors_origins = ["*"]
 

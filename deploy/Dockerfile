@@ -32,6 +32,6 @@ RUN mkdir -p /opt/app/logs /opt/app/cache \
 
 USER agents
 
-EXPOSE 8010
+EXPOSE 8020
 
 CMD ["python", "-m", "agents.interfaces.server"]

@@ -100,6 +100,16 @@ class RunStore(Protocol):
     async def set_status(self, run_id: str, status: RunStatus) -> Optional[RunRecord]:
         raise NotImplementedError()
 
+    async def list_runs(
+        self,
+        *,
+        limit: int = 50,
+        tenant_id: str = "",
+        user_id: str = "",
+        agent_id: str = "",
+    ) -> List[RunRecord]:
+        raise NotImplementedError()
+
 
 def event_from_dict(payload: dict) -> RuntimeEvent:
     return RuntimeEvent(

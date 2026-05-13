@@ -48,3 +48,25 @@ def test_agents_terminal_alias_still_works_hidden(monkeypatch):
 
     assert result.exit_code == 0
     assert calls[0][0][-2:] == ["--profile", "chat"]
+
+
+def test_makefile_keeps_documented_terminal_aliases():
+    makefile = (_repo_root() / "makefile").read_text(encoding="utf-8")
+
+    assert "\nterminal: tui\n" in makefile
+    assert "\ncli: tui\n" in makefile
+    assert "\nmanual-smoke: terminal-manual-smoke\n" in makefile
+
+
+def test_find_available_port_skips_busy_port(monkeypatch):
+    monkeypatch.setattr(agents, "_port_in_use", lambda host, port: port == 8020)
+
+    port = agents._find_available_port("0.0.0.0", 8020)
+
+    assert port == 8021
+
+
+def test_connect_host_resolves_wildcard_hosts():
+    assert agents._connect_host("0.0.0.0") == "127.0.0.1"
+    assert agents._connect_host("::") == "127.0.0.1"
+    assert agents._connect_host("localhost") == "localhost"

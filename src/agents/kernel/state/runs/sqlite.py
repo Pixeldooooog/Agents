@@ -92,6 +92,34 @@ class SQLiteRunStore:
                 return None
         return await self.load_run(run_id)
 
+    async def list_runs(
+        self,
+        *,
+        limit: int = 50,
+        tenant_id: str = "",
+        user_id: str = "",
+        agent_id: str = "",
+    ) -> list[RunRecord]:
+        clauses = []
+        params = []
+        if tenant_id:
+            clauses.append("tenant_id = ?")
+            params.append(tenant_id)
+        if user_id:
+            clauses.append("user_id = ?")
+            params.append(user_id)
+        if agent_id:
+            clauses.append("agent_id = ?")
+            params.append(agent_id)
+        query = "SELECT * FROM runs"
+        if clauses:
+            query = "%s WHERE %s" % (query, " AND ".join(clauses))
+        query = "%s ORDER BY updated_at DESC LIMIT ?" % query
+        params.append(max(1, min(limit, 200)))
+        with self.database.connect() as connection:
+            rows = connection.execute(query, tuple(params)).fetchall()
+        return [_record_from_sqlite(run, []) for run in rows]
+
 
 def _record_from_sqlite(run, events) -> RunRecord:
     return RunRecord(

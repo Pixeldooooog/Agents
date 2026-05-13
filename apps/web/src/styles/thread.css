@@ -2,22 +2,22 @@
   min-height: calc(100vh - 112px);
   display: grid;
   grid-template-rows: auto minmax(300px, 1fr) auto;
-  border: 1px solid var(--border);
+  border: 1px solid #e1e2dc;
   border-radius: 8px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
+  background: rgba(255, 255, 252, 0.9);
+  box-shadow: 0 14px 44px rgba(31, 36, 43, 0.06);
   overflow: hidden;
 }
 
 .thread-header {
-  min-height: 78px;
-  padding: 18px 22px;
+  min-height: 64px;
+  padding: 14px 18px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   border-bottom: 1px solid var(--border);
-  background: var(--surface-raised);
+  background: rgba(255, 255, 252, 0.92);
 }
 
 .eyebrow,
@@ -28,7 +28,7 @@
 
 .thread-header h2 {
   margin-top: 3px;
-  font-size: 26px;
+  font-size: 21px;
   line-height: 1.12;
   color: var(--text);
 }
@@ -39,19 +39,19 @@
   display: flex;
   flex-direction: column;
   gap: 18px;
-  background: #fcfcfb;
+  background: #fffffc;
 }
 
 .message {
   display: grid;
-  grid-template-columns: 36px minmax(0, 780px);
+  grid-template-columns: 30px minmax(0, 820px);
   gap: 12px;
   align-items: start;
 }
 
 .message-user {
   justify-content: end;
-  grid-template-columns: minmax(0, 780px) 36px;
+  grid-template-columns: minmax(0, 720px) 30px;
 }
 
 .message-user .avatar {
@@ -84,23 +84,28 @@
 }
 
 .avatar {
-  width: 36px;
-  height: 36px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
   border-radius: 8px;
-  background: #f0f3f5;
+  background: #f3f4ef;
   border: 1px solid var(--border);
   color: var(--accent-strong);
 }
 
 .bubble {
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 8px;
-  background: var(--surface);
+  background: transparent;
   color: var(--text);
-  padding: 14px 16px;
-  box-shadow: 0 10px 34px rgba(31, 36, 43, 0.06);
+  padding: 2px 0;
+  box-shadow: none;
+}
+
+.message-user .bubble {
+  padding: 12px 14px;
+  box-shadow: none;
 }
 
 .bubble p {

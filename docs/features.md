@@ -172,7 +172,7 @@ spec = AgentSpec(
 ### Resume via API
 
 ```bash
-curl -X POST http://127.0.0.1:8010/api/v1/agent/runs/run_xxx/approval \
+curl -X POST http://127.0.0.1:8020/api/v1/agent/runs/run_xxx/approval \
   -H 'Content-Type: application/json' \
   -d '{
     "tool_call_ids": ["call_abc"],
@@ -334,7 +334,7 @@ Common events:
 Every run generates ordered trace spans:
 
 ```bash
-curl http://127.0.0.1:8010/api/v1/agent/runs/run_xxx/trace
+curl http://127.0.0.1:8020/api/v1/agent/runs/run_xxx/trace
 ```
 
 Returns:
@@ -383,14 +383,14 @@ Each task has:
 
 ```bash
 # Create task
-curl -X POST http://127.0.0.1:8010/api/v1/agent/tasks \
+curl -X POST http://127.0.0.1:8020/api/v1/agent/tasks \
   -d '{"title":"Daily report","message":"Generate today's metrics report"}'
 
 # Run it
-curl -X POST http://127.0.0.1:8010/api/v1/agent/tasks/task_xxx/run
+curl -X POST http://127.0.0.1:8020/api/v1/agent/tasks/task_xxx/run
 
 # Check status
-curl http://127.0.0.1:8010/api/v1/agent/tasks/task_xxx
+curl http://127.0.0.1:8020/api/v1/agent/tasks/task_xxx
 ```
 
 ---

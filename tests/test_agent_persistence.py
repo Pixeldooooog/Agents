@@ -40,6 +40,26 @@ def test_sqlite_run_store_persists_records_and_events(tmp_path):
     assert record.to_agent_spec().tool_permissions.mode == "ask"
 
 
+def test_sqlite_run_store_lists_scoped_runs(tmp_path):
+    store = SQLiteRunStore(SQLiteDatabase(tmp_path / "agents.db"))
+    first = AgentSpec.from_overrides(tenant_id="tenant-1", user_id="user-1", agent_id="agent-1")
+    second = AgentSpec.from_overrides(tenant_id="tenant-2", user_id="user-2", agent_id="agent-2")
+
+    async def execute():
+        await store.create_run(first, run_id="run-1")
+        await store.create_run(second, run_id="run-2")
+        await store.set_status("run-1", RunStatus.FINISHED)
+        await store.set_status("run-2", RunStatus.ERROR)
+        by_tenant = await store.list_runs(tenant_id="tenant-1")
+        limited = await store.list_runs(limit=1)
+        return by_tenant, limited
+
+    by_tenant, limited = asyncio.run(execute())
+
+    assert [run.run_id for run in by_tenant] == ["run-1"]
+    assert len(limited) == 1
+
+
 def test_sqlite_checkpoint_store_persists_pending_tools(tmp_path):
     call = ToolCall(id="call-1", name="echo", arguments={"text": "hi"})
     store = SQLiteCheckpointStore(SQLiteDatabase(tmp_path / "agents.db"))

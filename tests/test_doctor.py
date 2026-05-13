@@ -13,7 +13,7 @@ def test_doctor_reports_readiness_without_leaking_keys(tmp_path):
     env_file = tmp_path / ".env"
     env_file.write_text("OPENAI_API_KEY=secret\n", encoding="utf-8")
     settings = SimpleNamespace(
-        server=SimpleNamespace(HOST="127.0.0.1", PORT=8010, API_PREFIX="/api"),
+        server=SimpleNamespace(HOST="127.0.0.1", PORT=8020, API_PREFIX="/api"),
         agent=SimpleNamespace(
             WORKSPACE_ROOT=".agents/workspaces",
             RUN_STORE="sqlite",
@@ -54,7 +54,7 @@ def test_doctor_reports_readiness_without_leaking_keys(tmp_path):
 
 def test_doctor_fails_when_no_model_profile_is_configured(tmp_path):
     settings = SimpleNamespace(
-        server=SimpleNamespace(HOST="127.0.0.1", PORT=8010, API_PREFIX="/api"),
+        server=SimpleNamespace(HOST="127.0.0.1", PORT=8020, API_PREFIX="/api"),
         agent=SimpleNamespace(
             WORKSPACE_ROOT=".agents/workspaces",
             RUN_STORE="memory",
@@ -81,7 +81,7 @@ def test_doctor_fails_when_no_model_profile_is_configured(tmp_path):
 
 def test_doctor_fails_when_project_proxy_port_is_not_listening(tmp_path):
     settings = SimpleNamespace(
-        server=SimpleNamespace(HOST="127.0.0.1", PORT=8010, API_PREFIX="/api"),
+        server=SimpleNamespace(HOST="127.0.0.1", PORT=8020, API_PREFIX="/api"),
         agent=SimpleNamespace(
             WORKSPACE_ROOT=".agents/workspaces",
             RUN_STORE="memory",

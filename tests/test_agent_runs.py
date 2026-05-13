@@ -80,3 +80,28 @@ def test_local_file_run_store_persists_records(tmp_path):
     assert loaded is not None
     assert loaded.status == RunStatus.FINISHED
     assert loaded.events[0].payload["content"] == "ok"
+
+
+def test_run_stores_list_runs_with_scope_filters(tmp_path):
+    memory_store = InMemoryRunStore()
+    file_store = LocalFileRunStore(tmp_path)
+    spec_a = AgentSpec.from_overrides(tenant_id="tenant-a", user_id="user-a", agent_id="agent-a")
+    spec_b = AgentSpec.from_overrides(tenant_id="tenant-b", user_id="user-b", agent_id="agent-b")
+
+    async def execute():
+        await memory_store.create_run(spec_a, run_id="run-memory-a")
+        await memory_store.create_run(spec_b, run_id="run-memory-b")
+        await file_store.create_run(spec_a, run_id="run-file-a")
+        await file_store.create_run(spec_b, run_id="run-file-b")
+        memory_filtered = await memory_store.list_runs(tenant_id="tenant-a")
+        file_filtered = await file_store.list_runs(user_id="user-a")
+        memory_limited = await memory_store.list_runs(limit=1)
+        file_limited = await file_store.list_runs(limit=1)
+        return memory_filtered, file_filtered, memory_limited, file_limited
+
+    memory_filtered, file_filtered, memory_limited, file_limited = asyncio.run(execute())
+
+    assert [item.run_id for item in memory_filtered] == ["run-memory-a"]
+    assert [item.run_id for item in file_filtered] == ["run-file-a"]
+    assert len(memory_limited) == 1
+    assert len(file_limited) == 1

@@ -151,6 +151,36 @@ def test_agent_run_api_returns_record(monkeypatch):
     assert [event["type"] for event in data["events"]] == ["run_created", "model_message"]
 
 
+def test_agent_run_list_api_returns_scoped_runs(monkeypatch):
+    async def create_session(**kwargs):
+        return FakeSession()
+
+    monkeypatch.setattr(agent_routes, "create_agent_session", create_session)
+    client = TestClient(create_app())
+
+    first = client.post("/api/v1/agent/chat", json={"message": "hello-1", "tenant_id": "tenant-1", "user_id": "user-1", "agent_id": "agent-1"})
+    second = client.post("/api/v1/agent/chat", json={"message": "hello-2", "tenant_id": "tenant-2", "user_id": "user-2", "agent_id": "agent-2"})
+    listed = client.get("/api/v1/agent/runs", params={"tenant_id": "tenant-1"})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert listed.status_code == 200
+    runs = listed.json()["data"]["runs"]
+    assert len(runs) == 1
+    assert runs[0]["tenant_id"] == "tenant-1"
+
+
+def test_agent_model_profiles_api_returns_payload():
+    client = TestClient(create_app())
+
+    response = client.get("/api/v1/agent/model-profiles")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert "active_profile" in data
+    assert isinstance(data.get("profiles"), list)
+
+
 def test_agent_run_trace_api_returns_spans(monkeypatch):
     async def create_session(**kwargs):
         return FakeSession()
@@ -172,6 +202,7 @@ def test_agent_run_trace_api_returns_spans(monkeypatch):
     assert data["artifacts"] == []
     assert data["sandbox_events"] == []
     assert data["sandbox_snapshots"] == []
+    assert data["operation_frames"] == []
 
 
 def test_agent_run_api_returns_404_for_unknown_run():

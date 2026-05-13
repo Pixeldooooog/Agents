@@ -22,9 +22,9 @@ class ServerConfig(BaseSettings):
     API_PREFIX: str = config_value("server", "API_PREFIX", "/api")
     SERVER_TYPE: str = config_value("server", "SERVER_TYPE", "uvicorn")
     HOST: str = config_value("server", "HOST", "0.0.0.0")
-    PORT: int = config_value("server", "PORT", 8010)
+    PORT: int = config_value("server", "PORT", 8020)
     WORKERS: int = config_value("server", "WORKERS", 1)
-    DOMAIN: str = config_value("server", "DOMAIN", "http://localhost:8010")
+    DOMAIN: str = config_value("server", "DOMAIN", "http://localhost:8020")
     ENABLE_SWAGGER_DOC: bool = config_value("server", "ENABLE_SWAGGER_DOC", False)
     BACKEND_CORS_ORIGINS: list[str] = config_value("server", "BACKEND_CORS_ORIGINS", ["*"])
     ACCESS_TOKEN: Optional[str] = None

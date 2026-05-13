@@ -18,7 +18,7 @@ from fastapi.responses import StreamingResponse
 
 from agents.kernel.assembly import create_agent_session_async as _create_agent_session_async
 from agents.kernel.governance.audit import ApprovalAuditRecord
-from agents.kernel.config import AgentConfigError
+from agents.kernel.config import AgentConfigError, active_profile_name, build_model_profiles, resolve_model_client_config
 from agents.kernel.schema import RuntimeEvent
 from agents.kernel.tasks import TaskStatus, TaskStepStatus
 from agents.interfaces.server.api.agent.approval import (
@@ -27,6 +27,7 @@ from agents.interfaces.server.api.agent.approval import (
     decision_map_from_request,
     new_runtime_events,
 )
+from agents.interfaces.server.api.agent.operation_frames import build_operation_frames
 from agents.interfaces.server.api.agent.schemas import AgentChatRequest, AgentTaskCreateRequest, RunApprovalRequest
 from agents.interfaces.server.api.agent.task_handlers import (
     cancel_task_response,
@@ -161,6 +162,43 @@ async def chat_stream(request_data: AgentChatRequest):
     return StreamingResponse(_release_on_close(), media_type="text/event-stream")
 
 
+@router.get("/runs")
+async def list_runs(limit: int = 50, tenant_id: str = "", user_id: str = "", agent_id: str = ""):
+    records = await run_service.list_runs(limit=limit, tenant_id=tenant_id, user_id=user_id, agent_id=agent_id)
+    return resp.ok(response=resp.Resp(data={"runs": [record.to_dict() for record in records]}))
+
+
+@router.get("/model-profiles")
+async def list_model_profiles():
+    profiles = build_model_profiles(settings)
+    active = ""
+    try:
+        configured = resolve_model_client_config(settings, api_key="configured")
+        active = active_profile_name(profiles, configured.protocol, configured.model, configured.base_url)
+    except AgentConfigError:
+        active = ""
+    return resp.ok(
+        response=resp.Resp(
+            data={
+                "active_profile": active,
+                "profiles": [
+                    {
+                        "name": profile.name,
+                        "protocol": profile.protocol,
+                        "model": profile.model,
+                        "base_url": profile.base_url,
+                        "endpoint": profile.endpoint,
+                        "aliases": list(profile.aliases),
+                        "source": profile.source,
+                        "configured": profile.configured,
+                    }
+                    for profile in profiles
+                ],
+            }
+        )
+    )
+
+
 @router.get("/runs/{run_id}")
 async def get_run(run_id: str):
     record = await run_service.store.load_run(run_id)
@@ -180,6 +218,12 @@ async def get_run_trace(run_id: str):
     sandbox_events = await persistence.sandboxes.list_events_for_run(run_id)
     sandbox_snapshots = await persistence.sandboxes.list_workspace_snapshots_for_run(run_id)
     artifacts = await persistence.artifacts.list_for_run(run_id)
+    operation_frames = build_operation_frames(
+        run_id=run_id,
+        sandbox_events=sandbox_events,
+        sandbox_snapshots=sandbox_snapshots,
+        artifacts=[artifact.to_dict() for artifact in artifacts],
+    )
     return resp.ok(
         response=resp.Resp(
             data={
@@ -190,6 +234,7 @@ async def get_run_trace(run_id: str):
                 "artifacts": [artifact.to_dict() for artifact in artifacts],
                 "sandbox_events": [event.to_dict() for event in sandbox_events],
                 "sandbox_snapshots": [snapshot.to_dict() for snapshot in sandbox_snapshots],
+                "operation_frames": operation_frames,
             }
         )
     )

@@ -23,11 +23,11 @@ type Props = {
 
 export function ChatThread(props: Props) {
   return (
-    <section class="thread-card">
+    <section class="thread-card chat-mainline">
       <div class="thread-header">
         <div>
-          <p class="eyebrow">Live session</p>
-          <h2>Agent workspace</h2>
+          <p class="eyebrow">Conversation</p>
+          <h2>Agent thread</h2>
         </div>
         <button class="icon-button" onClick={props.clear} title="Clear conversation">
           <Eraser size={16} />
@@ -41,6 +41,7 @@ export function ChatThread(props: Props) {
         <Show when={props.busy()}>
           <div class="typing"><span></span><span></span><span></span></div>
         </Show>
+        <ToolApprovalPanel requests={props.pendingApprovals} busy={props.busy} decide={props.decideApproval} />
       </div>
 
       <footer class="composer">
@@ -48,10 +49,9 @@ export function ChatThread(props: Props) {
           <span>{props.protocol()}</span>
           <span>{props.model() || "model not set"}</span>
           <span>{props.latency() === null ? "no latency yet" : `${props.latency()} ms`}</span>
-          <span>{props.toolCount() ? `${props.toolCount()} tools` : "no tools"}</span>
+          <span>{props.toolCount() ? `${props.toolCount()} enabled tools` : "server default tools"}</span>
           <span>{props.permissionMode()} permissions</span>
         </div>
-        <ToolApprovalPanel requests={props.pendingApprovals} busy={props.busy} decide={props.decideApproval} />
         <div class="composer-row">
           <textarea
             value={props.input()}
