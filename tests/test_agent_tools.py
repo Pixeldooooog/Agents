@@ -32,6 +32,7 @@ from agents.kernel.capabilities.skills import SkillLoader, SkillRegistry
 from agents.kernel.capabilities.sandbox.local import LocalSandboxProvider
 from agents.kernel.capabilities.sandbox.types import SandboxCommandResult
 from agents.kernel.capabilities.mcp_loading import load_configured_mcp
+import agents.kernel.capabilities.tools.builtin.filesystem as filesystem_tools
 from agents.kernel.capabilities.tools.builtin.browser import browser_open
 from agents.kernel.capabilities.tools.builtin.shell import classify_shell_command, detect_blocked_sleep_pattern, is_silent_shell_command
 from agents.kernel.capabilities.tools.mcp import (
@@ -1641,7 +1642,7 @@ def test_filesystem_read_returns_src_origin_style_pdf_payload(tmp_path: Path):
     register_builtin_tools(registry, context)
 
     result = asyncio.run(registry.execute("filesystem.read", {"path": "sample.pdf"}))
-    pages = asyncio.run(registry.execute("filesystem.read", {"path": "sample.pdf", "pages": "1"}))
+    pages = asyncio.run(registry.execute("filesystem.read", {"path": "sample.pdf", "pages": "1-25"}))
 
     assert result.is_error is False
     assert result.raw["type"] == "pdf"
@@ -1653,7 +1654,75 @@ def test_filesystem_read_returns_src_origin_style_pdf_payload(tmp_path: Path):
     assert base64.b64decode(result.raw["file"]["base64"]) == pdf_bytes
     assert result.content == "PDF file read: sample.pdf (%d bytes)" % len(pdf_bytes)
     assert pages.is_error is True
-    assert "PDF page ranges are not supported yet" in pages.content
+    assert "exceeds maximum of 20 pages" in pages.content
+
+
+def test_filesystem_read_reports_pdf_page_extraction_dependency(monkeypatch, tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "sample.pdf").write_bytes(b"%PDF-1.4\n%%EOF\n")
+    monkeypatch.setattr(filesystem_tools.shutil, "which", lambda name: None)
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    result = asyncio.run(registry.execute("filesystem.read", {"path": "sample.pdf", "pages": "1"}))
+
+    assert result.is_error is True
+    assert "PDF page extraction requires poppler-utils" in result.content
+
+
+def test_filesystem_read_extracts_pdf_pages_with_poppler(monkeypatch, tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    pdf_bytes = b"%PDF-1.4\n%%EOF\n"
+    (tmp_path / "sample.pdf").write_bytes(pdf_bytes)
+
+    def fake_run(command, text=True, capture_output=True, check=False):
+        prefix = Path(command[-1])
+        (prefix.parent / "page-2.jpg").write_bytes(b"\xff\xd8\xffpage2")
+        (prefix.parent / "page-3.jpg").write_bytes(b"\xff\xd8\xffpage3")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(filesystem_tools.shutil, "which", lambda name: "/usr/bin/pdftoppm" if name == "pdftoppm" else None)
+    monkeypatch.setattr(filesystem_tools.subprocess, "run", fake_run)
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    result = asyncio.run(registry.execute("filesystem.read", {"path": "sample.pdf", "pages": "2-3"}))
+
+    assert result.is_error is False
+    assert result.raw["type"] == "parts"
+    assert result.raw["path"] == "sample.pdf"
+    assert result.raw["pages"] == "2-3"
+    assert result.raw["file"]["filePath"] == "sample.pdf"
+    assert result.raw["file"]["originalSize"] == len(pdf_bytes)
+    assert result.raw["file"]["count"] == 2
+    assert sorted(path.name for path in Path(result.raw["file"]["outputDir"]).glob("*.jpg")) == ["page-2.jpg", "page-3.jpg"]
+    assert result.content == "PDF pages extracted: 2 page(s) from sample.pdf (%d bytes)" % len(pdf_bytes)
 
 
 def test_filesystem_read_returns_src_origin_style_notebook_payload(tmp_path: Path):

@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import base64
 import json
+import re
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +20,7 @@ FILE_UNCHANGED_STUB = (
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 BINARY_READ_MAX_BYTES = 5 * 1024 * 1024
 NOTEBOOK_READ_MAX_BYTES = 2 * 1024 * 1024
+PDF_MAX_PAGES_PER_READ = 20
 
 
 READ_FILE_SCHEMA = {
@@ -115,6 +120,12 @@ def format_read_file_result(result: Any) -> str:
         file_path = str(file_payload.get("filePath") or payload.get("path") or "")
         original_size = int(file_payload.get("originalSize") or payload.get("bytes") or 0)
         return "PDF file read: %s (%d bytes)" % (file_path, original_size)
+    if payload.get("type") == "parts":
+        file_payload = payload.get("file") if isinstance(payload.get("file"), dict) else {}
+        file_path = str(file_payload.get("filePath") or payload.get("path") or "")
+        original_size = int(file_payload.get("originalSize") or payload.get("bytes") or 0)
+        count = int(file_payload.get("count") or 0)
+        return "PDF pages extracted: %d page(s) from %s (%d bytes)" % (count, file_path, original_size)
     if payload.get("type") == "notebook":
         file_payload = payload.get("file") if isinstance(payload.get("file"), dict) else {}
         file_path = str(file_payload.get("filePath") or payload.get("path") or "")
@@ -217,11 +228,18 @@ def _read_image_file(context: ToolRuntimeContext, path: str) -> dict[str, Any]:
 
 
 def _read_pdf_file(context: ToolRuntimeContext, path: str, pages: str | None = None) -> dict[str, Any]:
-    if pages:
-        raise ValueError("PDF page ranges are not supported yet")
-    _resolved, relative_path, data = _read_binary_file_bytes(context, path, max_bytes=BINARY_READ_MAX_BYTES, kind="PDF")
+    resolved, relative_path, data = _read_binary_file_bytes(context, path, max_bytes=BINARY_READ_MAX_BYTES, kind="PDF")
     if not data.startswith(b"%PDF"):
         raise ValueError("Unsupported or invalid PDF file: %s" % path)
+    if pages:
+        start_page, end_page = _parse_pdf_pages(pages)
+        return _extract_pdf_pages(
+            resolved=resolved,
+            relative_path=relative_path,
+            original_size=len(data),
+            start_page=start_page,
+            end_page=end_page,
+        )
     return {
         "type": "pdf",
         "path": relative_path,
@@ -231,6 +249,72 @@ def _read_pdf_file(context: ToolRuntimeContext, path: str, pages: str | None = N
             "filePath": relative_path,
             "base64": base64.b64encode(data).decode("ascii"),
             "originalSize": len(data),
+        },
+    }
+
+
+def _parse_pdf_pages(pages: str) -> tuple[int, int]:
+    value = str(pages or "").strip()
+    match = re.fullmatch(r"(\d+)(?:\s*-\s*(\d+))?", value)
+    if match is None:
+        raise ValueError(
+            'Invalid pages parameter: "%s". Use formats like "1-5", "3", or "10-20". Pages are 1-indexed.' % value
+        )
+    start_page = int(match.group(1))
+    end_page = int(match.group(2) or start_page)
+    if start_page < 1 or end_page < start_page:
+        raise ValueError(
+            'Invalid pages parameter: "%s". Use formats like "1-5", "3", or "10-20". Pages are 1-indexed.' % value
+        )
+    if end_page - start_page + 1 > PDF_MAX_PAGES_PER_READ:
+        raise ValueError('Page range "%s" exceeds maximum of %d pages per request. Please use a smaller range.' % (value, PDF_MAX_PAGES_PER_READ))
+    return start_page, end_page
+
+
+def _extract_pdf_pages(
+    *,
+    resolved: Path,
+    relative_path: str,
+    original_size: int,
+    start_page: int,
+    end_page: int,
+) -> dict[str, Any]:
+    executable = shutil.which("pdftoppm")
+    if not executable:
+        raise RuntimeError(
+            "PDF page extraction requires poppler-utils: install `pdftoppm` with `brew install poppler` on macOS "
+            "or `apt-get install poppler-utils` on Debian/Ubuntu."
+        )
+    output_dir = Path(tempfile.mkdtemp(prefix="agents-pdf-pages-"))
+    output_prefix = output_dir / "page"
+    command = [
+        executable,
+        "-jpeg",
+        "-f",
+        str(start_page),
+        "-l",
+        str(end_page),
+        str(resolved),
+        str(output_prefix),
+    ]
+    completed = subprocess.run(command, text=True, capture_output=True, check=False)
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "pdftoppm failed").strip()
+        raise RuntimeError("PDF page extraction failed: %s" % detail)
+    image_files = sorted(output_dir.glob("*.jpg"))
+    if not image_files:
+        raise RuntimeError("PDF page extraction failed: no page images were produced")
+    return {
+        "type": "parts",
+        "path": relative_path,
+        "bytes": original_size,
+        "mimeType": "application/pdf",
+        "pages": "%d-%d" % (start_page, end_page) if start_page != end_page else str(start_page),
+        "file": {
+            "filePath": relative_path,
+            "originalSize": original_size,
+            "count": len(image_files),
+            "outputDir": str(output_dir),
         },
     }
 
