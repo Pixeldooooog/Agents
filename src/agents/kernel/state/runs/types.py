@@ -52,6 +52,10 @@ class RunRecord:
     def with_event(self, event: RuntimeEvent) -> "RunRecord":
         return replace(self, events=[*self.events, event], updated_at=time.time())
 
+    def with_metadata(self, metadata: dict[str, str], *, replace_all: bool = False) -> "RunRecord":
+        values = dict(metadata) if replace_all else {**self.metadata, **metadata}
+        return replace(self, metadata={key: str(value) for key, value in values.items()}, updated_at=time.time())
+
     def to_dict(self) -> dict:
         return {
             "run_id": self.run_id,
@@ -100,10 +104,20 @@ class RunStore(Protocol):
     async def set_status(self, run_id: str, status: RunStatus) -> Optional[RunRecord]:
         raise NotImplementedError()
 
+    async def update_metadata(
+        self,
+        run_id: str,
+        metadata: dict[str, str],
+        *,
+        replace_all: bool = False,
+    ) -> Optional[RunRecord]:
+        raise NotImplementedError()
+
     async def list_runs(
         self,
         *,
         limit: int = 50,
+        offset: int = 0,
         tenant_id: str = "",
         user_id: str = "",
         agent_id: str = "",

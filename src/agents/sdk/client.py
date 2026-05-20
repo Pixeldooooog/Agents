@@ -11,13 +11,17 @@ from agents.kernel.assembly import create_agent_session_async
 from agents.kernel.config import runtime_settings
 from agents.kernel.schema import RuntimeEvent
 from agents.kernel.specs import AgentSpec
+from agents.kernel.state.runs import RunRecord
 from agents.platform.persistence import PlatformPersistence, create_ephemeral_persistence
 from agents.platform.sessions import RunService
 from agents.sdk.types import (
     SDKAssistantMessage,
+    SDKGetSessionMessagesOptions,
+    SDKListSessionsOptions,
     SDKMessage,
     SDKOptions,
     SDKResultMessage,
+    SDKSessionInfo,
     SDKStatusMessage,
     SDKSystemMessage,
     SDKToolProgressMessage,
@@ -79,6 +83,13 @@ class AgentSDKClient:
         run = await self.run_service.start(spec)
         run_id = run.run_id
         session_id = options.session_id or run_id
+        await self._record_session_metadata(
+            run_id,
+            session_id=session_id,
+            prompt=prompt,
+            options=options,
+            session=session,
+        )
         final_status = "finished"
         yielded_result = False
         event_count = 0
@@ -153,6 +164,105 @@ class AgentSDKClient:
             raise RuntimeError("SDK query completed without a result message")
         return result
 
+    async def list_sessions(self, options: SDKListSessionsOptions | dict[str, Any] | None = None) -> list[SDKSessionInfo]:
+        """List SDK sessions reconstructed from the configured run store."""
+
+        options = _coerce_list_sessions_options(options)
+        fetch_limit = 200 if options.limit == 0 else max(1, min(200, options.limit + options.offset))
+        records = await self.run_service.list_runs(
+            limit=fetch_limit,
+            tenant_id=options.tenant_id,
+            user_id=options.user_id,
+            agent_id=options.agent_id,
+        )
+        if options.cwd:
+            records = [record for record in records if _record_cwd(record) == options.cwd]
+        infos = _session_infos_from_runs(records)
+        start = options.offset
+        if options.limit == 0:
+            return infos[start:]
+        return infos[start : start + options.limit]
+
+    async def get_session_info(self, session_id: str) -> SDKSessionInfo | None:
+        records = await self._runs_for_session(session_id)
+        if not records:
+            return None
+        return _session_info_from_runs(records)
+
+    async def get_session_messages(
+        self,
+        session_id: str,
+        options: SDKGetSessionMessagesOptions | dict[str, Any] | None = None,
+    ) -> list[SDKMessage]:
+        options = _coerce_get_session_messages_options(options)
+        records = await self._runs_for_session(session_id)
+        messages: list[SDKMessage] = []
+        for record in sorted(records, key=lambda item: item.created_at):
+            resolved_session_id = _session_id_for_run(record)
+            if options.include_system_messages:
+                messages.append(_system_message_from_run(record, session_id=resolved_session_id))
+            duration_ms = _duration_ms_from_record(record)
+            for event in record.events:
+                if event.type == "run_created":
+                    continue
+                message = _project_runtime_event(
+                    event,
+                    session_id=resolved_session_id,
+                    run_id=record.run_id,
+                    duration_ms=duration_ms,
+                    num_turns=1,
+                )
+                if message is not None:
+                    messages.append(message)
+        if options.offset:
+            messages = messages[options.offset :]
+        if options.limit:
+            messages = messages[: options.limit]
+        return messages
+
+    async def rename_session(self, session_id: str, title: str) -> None:
+        title = title.strip()
+        if not title:
+            raise ValueError("session title cannot be empty")
+        await self._update_session_metadata(session_id, {"sdk_title": title})
+
+    async def tag_session(self, session_id: str, tag: str | None) -> None:
+        await self._update_session_metadata(session_id, {"sdk_tag": (tag or "").strip()})
+
+    async def _record_session_metadata(
+        self,
+        run_id: str,
+        *,
+        session_id: str,
+        prompt: str,
+        options: SDKOptions,
+        session: Any,
+    ) -> None:
+        workspace_path = str(getattr(getattr(session, "workspace", None), "path", "") or options.cwd or "")
+        metadata = {
+            "sdk_session_id": session_id,
+            "sdk_first_prompt": _truncate(prompt),
+            "sdk_cwd": workspace_path,
+        }
+        await self.run_service.update_metadata(run_id, metadata)
+
+    async def _runs_for_session(self, session_id: str) -> list[RunRecord]:
+        records_by_id: dict[str, RunRecord] = {}
+        direct = await self.run_service.load_run(session_id)
+        if direct is not None:
+            records_by_id[direct.run_id] = direct
+        for record in await self.run_service.list_runs(limit=200):
+            if record.run_id == session_id or _session_id_for_run(record) == session_id:
+                records_by_id[record.run_id] = record
+        return sorted(records_by_id.values(), key=lambda item: item.created_at)
+
+    async def _update_session_metadata(self, session_id: str, metadata: dict[str, str]) -> None:
+        records = await self._runs_for_session(session_id)
+        if not records:
+            raise KeyError("session not found: %s" % session_id)
+        for record in records:
+            await self.run_service.update_metadata(record.run_id, metadata)
+
 
 async def query(prompt: str, options: SDKOptions | None = None) -> AsyncIterator[SDKMessage]:
     client = AgentSDKClient()
@@ -164,12 +274,53 @@ async def prompt(prompt: str, options: SDKOptions | None = None) -> SDKResultMes
     return await AgentSDKClient().prompt(prompt, options)
 
 
+async def list_sessions(options: SDKListSessionsOptions | dict[str, Any] | None = None) -> list[SDKSessionInfo]:
+    return await AgentSDKClient().list_sessions(options)
+
+
+async def get_session_info(session_id: str) -> SDKSessionInfo | None:
+    return await AgentSDKClient().get_session_info(session_id)
+
+
+async def get_session_messages(
+    session_id: str,
+    options: SDKGetSessionMessagesOptions | dict[str, Any] | None = None,
+) -> list[SDKMessage]:
+    return await AgentSDKClient().get_session_messages(session_id, options)
+
+
+async def rename_session(session_id: str, title: str) -> None:
+    await AgentSDKClient().rename_session(session_id, title)
+
+
+async def tag_session(session_id: str, tag: str | None) -> None:
+    await AgentSDKClient().tag_session(session_id, tag)
+
+
 def _coerce_options(options: SDKOptions | None) -> SDKOptions:
     if options is None:
         return SDKOptions()
     if isinstance(options, SDKOptions):
         return options
     return SDKOptions.model_validate(options)
+
+
+def _coerce_list_sessions_options(options: SDKListSessionsOptions | dict[str, Any] | None) -> SDKListSessionsOptions:
+    if options is None:
+        return SDKListSessionsOptions()
+    if isinstance(options, SDKListSessionsOptions):
+        return options
+    return SDKListSessionsOptions.model_validate(options)
+
+
+def _coerce_get_session_messages_options(
+    options: SDKGetSessionMessagesOptions | dict[str, Any] | None,
+) -> SDKGetSessionMessagesOptions:
+    if options is None:
+        return SDKGetSessionMessagesOptions()
+    if isinstance(options, SDKGetSessionMessagesOptions):
+        return options
+    return SDKGetSessionMessagesOptions.model_validate(options)
 
 
 def _spec_from_options(options: SDKOptions) -> AgentSpec:
@@ -202,6 +353,98 @@ def _structured_output_schema_from_options(options: SDKOptions) -> dict[str, Any
         return None
     schema = output_format.get("schema")
     return dict(schema) if isinstance(schema, dict) else None
+
+
+def _session_infos_from_runs(records: list[RunRecord]) -> list[SDKSessionInfo]:
+    grouped: dict[str, list[RunRecord]] = {}
+    for record in records:
+        grouped.setdefault(_session_id_for_run(record), []).append(record)
+    infos = [_session_info_from_runs(items) for items in grouped.values()]
+    return sorted(infos, key=lambda item: item.last_modified, reverse=True)
+
+
+def _session_info_from_runs(records: list[RunRecord]) -> SDKSessionInfo:
+    ordered = sorted(records, key=lambda item: item.created_at)
+    latest = sorted(records, key=lambda item: item.updated_at, reverse=True)[0]
+    metadata = dict(latest.metadata)
+    custom_title = str(metadata.get("sdk_title") or metadata.get("custom_title") or metadata.get("title") or "")
+    first_prompt = _first_non_empty(record.metadata.get("sdk_first_prompt", "") for record in ordered)
+    summary = custom_title or first_prompt or latest.run_id
+    return SDKSessionInfo(
+        session_id=_session_id_for_run(latest),
+        summary=summary,
+        last_modified=_millis(latest.updated_at),
+        created_at=_millis(ordered[0].created_at),
+        custom_title=custom_title,
+        first_prompt=first_prompt,
+        cwd=_first_non_empty(_record_cwd(record) for record in reversed(ordered)),
+        tag=str(metadata.get("sdk_tag") or metadata.get("tag") or ""),
+        status=latest.status.value,
+        latest_run_id=latest.run_id,
+        run_ids=[record.run_id for record in ordered],
+        metadata={**metadata, "run_count": len(records)},
+    )
+
+
+def _session_id_for_run(record: RunRecord) -> str:
+    return str(record.metadata.get("sdk_session_id") or record.run_id)
+
+
+def _system_message_from_run(record: RunRecord, *, session_id: str) -> SDKSystemMessage:
+    model, protocol, tools = _runtime_fields_from_run(record)
+    return SDKSystemMessage(
+        session_id=session_id,
+        run_id=record.run_id,
+        cwd=_record_cwd(record),
+        model=model,
+        protocol=protocol,
+        tools=tools,
+        metadata=dict(record.metadata),
+    )
+
+
+def _runtime_fields_from_run(record: RunRecord) -> tuple[str, str, list[str]]:
+    spec = record.spec
+    model_spec = spec.get("model") if isinstance(spec.get("model"), dict) else {}
+    tools = spec.get("tools") if isinstance(spec.get("tools"), dict) else {}
+    enabled_tools = tools.get("enabled_tools") if isinstance(tools, dict) else []
+    if not isinstance(enabled_tools, list):
+        enabled_tools = []
+    return (
+        str(model_spec.get("model") or "") if isinstance(model_spec, dict) else "",
+        str(model_spec.get("protocol") or "") if isinstance(model_spec, dict) else "",
+        [str(item) for item in enabled_tools],
+    )
+
+
+def _record_cwd(record: RunRecord) -> str:
+    if record.metadata.get("sdk_cwd"):
+        return str(record.metadata["sdk_cwd"])
+    workspace = record.spec.get("workspace") if isinstance(record.spec.get("workspace"), dict) else {}
+    if isinstance(workspace, dict):
+        return str(workspace.get("path") or workspace.get("root") or "")
+    return ""
+
+
+def _duration_ms_from_record(record: RunRecord) -> int:
+    return int(max(0, record.updated_at - record.created_at) * 1000)
+
+
+def _millis(timestamp: float) -> float:
+    return timestamp * 1000
+
+
+def _truncate(value: str, *, limit: int = 500) -> str:
+    value = value.strip()
+    return value if len(value) <= limit else value[: limit - 3] + "..."
+
+
+def _first_non_empty(values) -> str:
+    for value in values:
+        text = str(value or "")
+        if text:
+            return text
+    return ""
 
 
 def _project_runtime_event(

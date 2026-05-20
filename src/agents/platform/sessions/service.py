@@ -47,15 +47,34 @@ class RunService:
         await self.sandbox_store.mark_released_for_run(run_id)
         await self.trace_recorder.finish_run(run_id, error=error)
 
+    async def load_run(self, run_id: str) -> RunRecord | None:
+        return await self.store.load_run(run_id)
+
+    async def update_metadata(
+        self,
+        run_id: str,
+        metadata: dict[str, str],
+        *,
+        replace_all: bool = False,
+    ) -> RunRecord | None:
+        return await self.store.update_metadata(run_id, metadata, replace_all=replace_all)
+
     async def list_runs(
         self,
         *,
         limit: int = 50,
+        offset: int = 0,
         tenant_id: str = "",
         user_id: str = "",
         agent_id: str = "",
     ) -> list[RunRecord]:
-        return await self.store.list_runs(limit=limit, tenant_id=tenant_id, user_id=user_id, agent_id=agent_id)
+        return await self.store.list_runs(
+            limit=limit,
+            offset=offset,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            agent_id=agent_id,
+        )
 
 
 def run_created_event(run_id: str) -> RuntimeEvent:

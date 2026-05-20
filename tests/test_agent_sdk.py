@@ -10,10 +10,13 @@ from agents.kernel.capabilities.tools.registry import ToolRegistry
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.sdk import (
     AgentSDKClient,
+    SDKListSessionsOptions,
     SDKOptions,
+    SDKSessionInfo,
     sdk_message_json_schema,
     sdk_options_json_schema,
     sdk_result_json_schema,
+    sdk_session_info_json_schema,
     validate_sdk_message,
 )
 from agents.sdk.client import _spec_from_options
@@ -105,6 +108,46 @@ def test_sdk_prompt_returns_final_result():
     assert result.subtype == "success"
 
 
+def test_sdk_session_helpers_list_replay_and_mutate_run_backed_sessions():
+    client = AgentSDKClient(session_factory=_session_factory)
+
+    result = asyncio.run(client.prompt("first meaningful prompt", SDKOptions(session_id="session-1", cwd=".")))
+    sessions = asyncio.run(client.list_sessions())
+    info = asyncio.run(client.get_session_info("session-1"))
+    messages = asyncio.run(client.get_session_messages("session-1"))
+
+    assert result.session_id == "session-1"
+    assert len(sessions) == 1
+    assert isinstance(sessions[0], SDKSessionInfo)
+    assert sessions[0].session_id == "session-1"
+    assert sessions[0].summary == "first meaningful prompt"
+    assert sessions[0].first_prompt == "first meaningful prompt"
+    assert sessions[0].run_ids == [result.run_id]
+    assert info == sessions[0]
+    assert messages[0].type == "system"
+    assert any(isinstance(message, SDKToolProgressMessage) and message.status == "started" for message in messages)
+    assert any(isinstance(message, SDKResultMessage) and message.content == "done" for message in messages)
+
+    asyncio.run(client.rename_session("session-1", "Pinned title"))
+    asyncio.run(client.tag_session("session-1", "review"))
+    renamed = asyncio.run(client.get_session_info("session-1"))
+    paged = asyncio.run(client.list_sessions(SDKListSessionsOptions(limit=1, offset=0)))
+    replay_without_system = asyncio.run(
+        client.get_session_messages("session-1", {"include_system_messages": False, "limit": 2})
+    )
+
+    assert renamed.summary == "Pinned title"
+    assert renamed.custom_title == "Pinned title"
+    assert renamed.tag == "review"
+    assert paged[0].summary == "Pinned title"
+    assert all(message.type != "system" for message in replay_without_system)
+    assert len(replay_without_system) == 2
+    with pytest.raises(ValueError):
+        asyncio.run(client.rename_session("session-1", " "))
+    with pytest.raises(KeyError):
+        asyncio.run(client.tag_session("missing-session", "review"))
+
+
 def test_sdk_output_format_projects_structured_output_schema():
     schema = {
         "type": "object",
@@ -122,11 +165,13 @@ def test_sdk_exports_json_schemas_and_rejects_invalid_messages():
     options_schema = sdk_options_json_schema()
     message_schema = sdk_message_json_schema()
     result_schema = sdk_result_json_schema()
+    session_schema = sdk_session_info_json_schema()
 
     assert options_schema["additionalProperties"] is False
     assert "SDKSystemMessage" in message_schema["$defs"]
     assert "SDKToolProgressMessage" in message_schema["$defs"]
     assert result_schema["properties"]["type"]["const"] == "result"
+    assert session_schema["properties"]["session_id"]["title"] == "Session Id"
 
     valid = validate_sdk_message(
         {

@@ -93,15 +93,23 @@ def test_run_stores_list_runs_with_scope_filters(tmp_path):
         await memory_store.create_run(spec_b, run_id="run-memory-b")
         await file_store.create_run(spec_a, run_id="run-file-a")
         await file_store.create_run(spec_b, run_id="run-file-b")
+        await memory_store.update_metadata("run-memory-a", {"sdk_session_id": "session-a", "sdk_tag": "review"})
+        await file_store.update_metadata("run-file-a", {"sdk_session_id": "session-a", "sdk_tag": "review"})
         memory_filtered = await memory_store.list_runs(tenant_id="tenant-a")
         file_filtered = await file_store.list_runs(user_id="user-a")
         memory_limited = await memory_store.list_runs(limit=1)
         file_limited = await file_store.list_runs(limit=1)
-        return memory_filtered, file_filtered, memory_limited, file_limited
+        memory_offset = await memory_store.list_runs(limit=1, offset=1)
+        file_offset = await file_store.list_runs(limit=1, offset=1)
+        return memory_filtered, file_filtered, memory_limited, file_limited, memory_offset, file_offset
 
-    memory_filtered, file_filtered, memory_limited, file_limited = asyncio.run(execute())
+    memory_filtered, file_filtered, memory_limited, file_limited, memory_offset, file_offset = asyncio.run(execute())
 
     assert [item.run_id for item in memory_filtered] == ["run-memory-a"]
     assert [item.run_id for item in file_filtered] == ["run-file-a"]
+    assert memory_filtered[0].metadata["sdk_tag"] == "review"
+    assert file_filtered[0].metadata["sdk_session_id"] == "session-a"
     assert len(memory_limited) == 1
     assert len(file_limited) == 1
+    assert len(memory_offset) == 1
+    assert len(file_offset) == 1

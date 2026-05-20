@@ -92,10 +92,23 @@ class SQLiteRunStore:
                 return None
         return await self.load_run(run_id)
 
+    async def update_metadata(self, run_id: str, metadata: dict[str, str], *, replace_all: bool = False) -> Optional[RunRecord]:
+        record = await self.load_run(run_id)
+        if record is None:
+            return None
+        updated = record.with_metadata(metadata, replace_all=replace_all)
+        with self.database.connect() as connection:
+            connection.execute(
+                "UPDATE runs SET metadata_json = ?, updated_at = ? WHERE run_id = ?",
+                (_json_dumps(updated.metadata), updated.updated_at, run_id),
+            )
+        return updated
+
     async def list_runs(
         self,
         *,
         limit: int = 50,
+        offset: int = 0,
         tenant_id: str = "",
         user_id: str = "",
         agent_id: str = "",
@@ -114,8 +127,9 @@ class SQLiteRunStore:
         query = "SELECT * FROM runs"
         if clauses:
             query = "%s WHERE %s" % (query, " AND ".join(clauses))
-        query = "%s ORDER BY updated_at DESC LIMIT ?" % query
+        query = "%s ORDER BY updated_at DESC LIMIT ? OFFSET ?" % query
         params.append(max(1, min(limit, 200)))
+        params.append(max(0, offset))
         with self.database.connect() as connection:
             rows = connection.execute(query, tuple(params)).fetchall()
         return [_record_from_sqlite(run, []) for run in rows]

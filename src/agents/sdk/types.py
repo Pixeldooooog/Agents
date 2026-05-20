@@ -25,6 +25,51 @@ class SDKOptions(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class SDKListSessionsOptions(BaseModel):
+    """Options for SDK session listing over the configured run store."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    limit: int = Field(default=50, ge=0, le=200)
+    offset: int = Field(default=0, ge=0)
+    tenant_id: str = ""
+    user_id: str = ""
+    agent_id: str = ""
+    cwd: str = ""
+
+
+class SDKGetSessionMessagesOptions(BaseModel):
+    """Options for replaying projected SDK messages from a stored session."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    limit: int = Field(default=0, ge=0, le=1000)
+    offset: int = Field(default=0, ge=0)
+    include_system_messages: bool = True
+
+
+class SDKSessionInfo(BaseModel):
+    """Session metadata returned by SDK list/get session helpers.
+
+    Timestamps use milliseconds since epoch to match the src-origin SDK contract.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str
+    summary: str = ""
+    last_modified: float = 0.0
+    created_at: float = 0.0
+    custom_title: str = ""
+    first_prompt: str = ""
+    cwd: str = ""
+    tag: str = ""
+    status: str = ""
+    latest_run_id: str = ""
+    run_ids: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class SDKBaseMessage(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -111,6 +156,12 @@ def sdk_result_json_schema() -> dict[str, Any]:
     """Return the JSON schema for final SDK result messages."""
 
     return SDKResultMessage.model_json_schema()
+
+
+def sdk_session_info_json_schema() -> dict[str, Any]:
+    """Return the JSON schema for SDK session metadata."""
+
+    return SDKSessionInfo.model_json_schema()
 
 
 def validate_sdk_message(message: SDKMessage | dict[str, Any]) -> SDKMessage:

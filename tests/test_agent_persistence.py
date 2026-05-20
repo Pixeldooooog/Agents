@@ -48,16 +48,20 @@ def test_sqlite_run_store_lists_scoped_runs(tmp_path):
     async def execute():
         await store.create_run(first, run_id="run-1")
         await store.create_run(second, run_id="run-2")
+        await store.update_metadata("run-1", {"sdk_session_id": "session-1", "sdk_tag": "pinned"})
         await store.set_status("run-1", RunStatus.FINISHED)
         await store.set_status("run-2", RunStatus.ERROR)
         by_tenant = await store.list_runs(tenant_id="tenant-1")
         limited = await store.list_runs(limit=1)
-        return by_tenant, limited
+        offset = await store.list_runs(limit=1, offset=1)
+        return by_tenant, limited, offset
 
-    by_tenant, limited = asyncio.run(execute())
+    by_tenant, limited, offset = asyncio.run(execute())
 
     assert [run.run_id for run in by_tenant] == ["run-1"]
+    assert by_tenant[0].metadata["sdk_tag"] == "pinned"
     assert len(limited) == 1
+    assert len(offset) == 1
 
 
 def test_sqlite_checkpoint_store_persists_pending_tools(tmp_path):

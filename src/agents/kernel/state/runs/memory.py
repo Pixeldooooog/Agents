@@ -35,10 +35,19 @@ class InMemoryRunStore:
         self._runs[run_id] = updated
         return updated
 
+    async def update_metadata(self, run_id: str, metadata: dict[str, str], *, replace_all: bool = False) -> Optional[RunRecord]:
+        record = self._runs.get(run_id)
+        if record is None:
+            return None
+        updated = record.with_metadata(metadata, replace_all=replace_all)
+        self._runs[run_id] = updated
+        return updated
+
     async def list_runs(
         self,
         *,
         limit: int = 50,
+        offset: int = 0,
         tenant_id: str = "",
         user_id: str = "",
         agent_id: str = "",
@@ -51,4 +60,5 @@ class InMemoryRunStore:
         if agent_id:
             records = [record for record in records if record.agent_id == agent_id]
         records.sort(key=lambda item: item.updated_at, reverse=True)
-        return records[: max(1, min(limit, 200))]
+        start = max(0, offset)
+        return records[start : start + max(1, min(limit, 200))]

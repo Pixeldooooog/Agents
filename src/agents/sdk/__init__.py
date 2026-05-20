@@ -1,33 +1,55 @@
 """Public SDK facade for embedding the agent runtime."""
 
-from agents.sdk.client import AgentSDKClient, prompt, query
+from agents.sdk.client import (
+    AgentSDKClient,
+    get_session_info,
+    get_session_messages,
+    list_sessions,
+    prompt,
+    query,
+    rename_session,
+    tag_session,
+)
 from agents.sdk.types import (
     SDKAssistantMessage,
+    SDKGetSessionMessagesOptions,
+    SDKListSessionsOptions,
     SDKMessage,
     SDKOptions,
     SDKResultMessage,
+    SDKSessionInfo,
     SDKStatusMessage,
     SDKSystemMessage,
     SDKToolProgressMessage,
     sdk_message_json_schema,
     sdk_options_json_schema,
     sdk_result_json_schema,
+    sdk_session_info_json_schema,
     validate_sdk_message,
 )
 
 __all__ = [
     "AgentSDKClient",
     "SDKAssistantMessage",
+    "SDKGetSessionMessagesOptions",
+    "SDKListSessionsOptions",
     "SDKMessage",
     "SDKOptions",
     "SDKResultMessage",
+    "SDKSessionInfo",
     "SDKStatusMessage",
     "SDKSystemMessage",
     "SDKToolProgressMessage",
+    "get_session_info",
+    "get_session_messages",
+    "list_sessions",
     "prompt",
     "query",
+    "rename_session",
     "sdk_message_json_schema",
     "sdk_options_json_schema",
     "sdk_result_json_schema",
+    "sdk_session_info_json_schema",
+    "tag_session",
     "validate_sdk_message",
 ]

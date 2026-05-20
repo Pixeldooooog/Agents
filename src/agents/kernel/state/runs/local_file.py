@@ -41,10 +41,19 @@ class LocalFileRunStore:
         self._write(updated)
         return updated
 
+    async def update_metadata(self, run_id: str, metadata: dict[str, str], *, replace_all: bool = False) -> Optional[RunRecord]:
+        record = await self.load_run(run_id)
+        if record is None:
+            return None
+        updated = record.with_metadata(metadata, replace_all=replace_all)
+        self._write(updated)
+        return updated
+
     async def list_runs(
         self,
         *,
         limit: int = 50,
+        offset: int = 0,
         tenant_id: str = "",
         user_id: str = "",
         agent_id: str = "",
@@ -63,7 +72,8 @@ class LocalFileRunStore:
                 continue
             records.append(record)
         records.sort(key=lambda item: item.updated_at, reverse=True)
-        return records[: max(1, min(limit, 200))]
+        start = max(0, offset)
+        return records[start : start + max(1, min(limit, 200))]
 
     def _path(self, run_id: str) -> Path:
         safe = "".join(ch for ch in run_id if ch.isalnum() or ch in ("_", "-", ".")).strip(".")
