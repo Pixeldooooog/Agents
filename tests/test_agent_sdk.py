@@ -27,6 +27,7 @@ from agents.sdk.types import (
     SDKResultMessage,
     SDKSystemMessage,
     SDKToolProgressMessage,
+    SDKUserMessage,
 )
 
 
@@ -128,6 +129,9 @@ def test_sdk_session_helpers_list_replay_and_mutate_run_backed_sessions():
     assert sessions[0].run_ids == [result.run_id]
     assert info == sessions[0]
     assert messages[0].type == "system"
+    assert isinstance(messages[1], SDKUserMessage)
+    assert messages[1].content == "first meaningful prompt"
+    assert messages[1].message["content"][0]["text"] == "first meaningful prompt"
     assert any(isinstance(message, SDKToolProgressMessage) and message.status == "started" for message in messages)
     assert any(isinstance(message, SDKResultMessage) and message.content == "done" for message in messages)
 
@@ -205,6 +209,20 @@ def test_sdk_fork_session_copies_stored_runs_into_new_session():
 
     source_info = asyncio.run(session.info())
     assert source_info.run_ids == [first.run_id, second.run_id]
+    source_messages = asyncio.run(session.messages({"include_system_messages": False}))
+    first_user_message = next(message for message in source_messages if isinstance(message, SDKUserMessage))
+    partial = asyncio.run(
+        client.fork_session(
+            "source-session",
+            SDKForkSessionOptions(title="Partial fork", up_to_message_id=first_user_message.uuid),
+        )
+    )
+    partial_messages = asyncio.run(
+        client.get_session_messages(partial.session_id, {"include_system_messages": False})
+    )
+    assert len(partial.run_ids) == 1
+    assert [message.type for message in partial_messages] == ["user"]
+    assert partial_messages[0].content == "source turn one"
 
 
 def test_sdk_output_format_projects_structured_output_schema():
@@ -228,6 +246,7 @@ def test_sdk_exports_json_schemas_and_rejects_invalid_messages():
 
     assert options_schema["additionalProperties"] is False
     assert "SDKSystemMessage" in message_schema["$defs"]
+    assert "SDKUserMessage" in message_schema["$defs"]
     assert "SDKToolProgressMessage" in message_schema["$defs"]
     assert result_schema["properties"]["type"]["const"] == "result"
     assert session_schema["properties"]["session_id"]["title"] == "Session Id"

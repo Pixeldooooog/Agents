@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
@@ -112,6 +113,19 @@ class SDKAssistantMessage(SDKBaseMessage):
     raw: dict[str, Any] = Field(default_factory=dict)
 
 
+class SDKUserMessage(SDKBaseMessage):
+    type: Literal["user"] = "user"
+    uuid: str = ""
+    message: dict[str, Any] = Field(default_factory=dict)
+    content: str = ""
+    parent_tool_use_id: str | None = None
+    is_synthetic: bool = False
+    tool_use_result: Any = None
+    priority: Literal["now", "next", "later"] | None = None
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    is_replay: bool = True
+
+
 class SDKToolProgressMessage(SDKBaseMessage):
     type: Literal["tool_progress"] = "tool_progress"
     tool_call_id: str = ""
@@ -148,6 +162,7 @@ class SDKResultMessage(SDKBaseMessage):
 
 SDKMessage = Union[
     SDKSystemMessage,
+    SDKUserMessage,
     SDKAssistantMessage,
     SDKToolProgressMessage,
     SDKStatusMessage,

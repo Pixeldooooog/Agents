@@ -4,6 +4,7 @@ import time
 import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from typing import Any
 
 from agents.kernel.assembly import create_agent_session_async
@@ -26,6 +27,7 @@ from agents.sdk.types import (
     SDKStatusMessage,
     SDKSystemMessage,
     SDKToolProgressMessage,
+    SDKUserMessage,
 )
 
 
@@ -106,6 +108,10 @@ class AgentSDKClient:
             prompt=prompt,
             options=options,
             session=session,
+        )
+        await self.run_service.record_event(
+            run_id,
+            _user_message_event(prompt, session_id=session_id, run_id=run_id),
         )
         final_status = "finished"
         yielded_result = False
@@ -512,6 +518,28 @@ def _structured_output_schema_from_options(options: SDKOptions) -> dict[str, Any
     return dict(schema) if isinstance(schema, dict) else None
 
 
+def _user_message_event(prompt: str, *, session_id: str, run_id: str) -> RuntimeEvent:
+    message_id = "msg_%s" % uuid.uuid4().hex
+    message = {
+        "role": "user",
+        "content": [{"type": "text", "text": prompt}],
+    }
+    return RuntimeEvent(
+        type="user_message",
+        name="user",
+        payload={
+            "uuid": message_id,
+            "message_id": message_id,
+            "session_id": session_id,
+            "run_id": run_id,
+            "message": message,
+            "content": prompt,
+            "parent_tool_use_id": None,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
+
 def _session_infos_from_runs(records: list[RunRecord]) -> list[SDKSessionInfo]:
     grouped: dict[str, list[RunRecord]] = {}
     for record in records:
@@ -617,6 +645,24 @@ def _event_matches_message_id(event: RuntimeEvent, message_id: str) -> bool:
     return message_id in candidates
 
 
+def _content_from_user_message(message: dict[str, Any]) -> str:
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                parts.append(str(item.get("text") or ""))
+        return "".join(parts)
+    return ""
+
+
+def _user_message_priority(value: Any) -> str | None:
+    text = str(value or "")
+    return text if text in {"now", "next", "later"} else None
+
+
 def _millis(timestamp: float) -> float:
     return timestamp * 1000
 
@@ -642,6 +688,21 @@ def _project_runtime_event(
     duration_ms: int,
     num_turns: int,
 ) -> SDKMessage | None:
+    if event.type == "user_message":
+        message = dict(event.payload.get("message") or {})
+        return SDKUserMessage(
+            session_id=session_id,
+            run_id=run_id,
+            uuid=str(event.payload.get("uuid") or event.payload.get("message_id") or ""),
+            message=message,
+            content=str(event.payload.get("content") or _content_from_user_message(message)),
+            parent_tool_use_id=event.payload.get("parent_tool_use_id"),
+            is_synthetic=bool(event.payload.get("isSynthetic") or event.payload.get("is_synthetic") or False),
+            tool_use_result=event.payload.get("tool_use_result"),
+            priority=_user_message_priority(event.payload.get("priority")),
+            timestamp=str(event.payload.get("timestamp") or ""),
+            is_replay=bool(event.payload.get("isReplay", event.payload.get("is_replay", True))),
+        )
     if event.type == "model_message":
         return SDKAssistantMessage(
             session_id=session_id,
