@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,12 @@ IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 BINARY_READ_MAX_BYTES = 5 * 1024 * 1024
 NOTEBOOK_READ_MAX_BYTES = 2 * 1024 * 1024
 PDF_MAX_PAGES_PER_READ = 20
+SECONDS_PER_DAY = 86400
+MEMORY_FILE_PREFIXES = (
+    ".agents/memory/",
+    ".agents/memories/",
+    ".agents/session-memory/",
+)
 
 
 READ_FILE_SCHEMA = {
@@ -102,7 +109,9 @@ def read_file(
             limit=limit,
             is_partial_view=False,
         )
-    return _text_read_payload(result.to_dict())
+    payload = _text_read_payload(result.to_dict())
+    _add_memory_freshness(context, payload)
+    return payload
 
 
 def format_read_file_result(result: Any) -> str:
@@ -154,6 +163,9 @@ def format_read_file_result(result: Any) -> str:
             int(payload.get("numLines") or 0),
             total_lines,
         )
+    freshness_note = str(payload.get("memoryFreshnessNote") or "")
+    if freshness_note:
+        output = "%s%s" % (freshness_note, output)
     return output
 
 
@@ -194,6 +206,35 @@ def _text_read_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "totalLines": int(result.get("totalLines") or 0),
     }
     return result
+
+
+def _add_memory_freshness(context: ToolRuntimeContext, payload: dict[str, Any]) -> None:
+    file_payload = payload.get("file") if isinstance(payload.get("file"), dict) else {}
+    relative_path = str(file_payload.get("filePath") or payload.get("path") or "")
+    if not _is_auto_memory_file(relative_path):
+        return
+    try:
+        mtime = context.sandbox.resolve_workspace_path(relative_path).stat().st_mtime
+    except OSError:
+        return
+    age_days = max(0, int((time.time() - float(mtime)) // SECONDS_PER_DAY))
+    if age_days <= 1:
+        return
+    note = (
+        "<system-reminder>This memory is %d days old. "
+        "Memories are point-in-time observations, not live state -- "
+        "claims about code behavior or file:line citations may be outdated. "
+        "Verify against current code before asserting as fact.</system-reminder>\n"
+    ) % age_days
+    payload["memoryFreshness"] = {"ageDays": age_days, "note": note}
+    payload["memoryFreshnessNote"] = note
+
+
+def _is_auto_memory_file(path: str) -> bool:
+    normalized = str(path or "").replace("\\", "/").lstrip("/")
+    if not normalized.endswith(".md"):
+        return False
+    return any(normalized.startswith(prefix) for prefix in MEMORY_FILE_PREFIXES)
 
 
 def _is_image_path(path: str) -> bool:

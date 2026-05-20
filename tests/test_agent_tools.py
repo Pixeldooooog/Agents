@@ -11,10 +11,12 @@
 import asyncio
 import base64
 import json
+import os
 import shutil
 import shlex
 import subprocess
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1583,6 +1585,71 @@ def test_filesystem_read_formats_line_ranges_and_does_not_record_partial_read(tm
     }
     assert write.is_error is True
     assert "File has not been read yet" in write.content
+
+
+def test_filesystem_read_prefixes_stale_memory_freshness_note(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    memory_path = tmp_path / ".agents" / "memory" / "project.md"
+    memory_path.parent.mkdir(parents=True)
+    memory_path.write_text("old repo fact\n", encoding="utf-8")
+    stale_mtime = time.time() - (4 * 86400)
+    os.utime(memory_path, (stale_mtime, stale_mtime))
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    result = asyncio.run(registry.execute("filesystem.read", {"path": ".agents/memory/project.md"}))
+
+    assert result.is_error is False
+    assert result.raw["memoryFreshness"]["ageDays"] >= 3
+    assert result.content.startswith("<system-reminder>This memory is ")
+    assert "Memories are point-in-time observations, not live state" in result.content
+    assert "1\told repo fact" in result.content
+
+
+def test_filesystem_read_does_not_prefix_fresh_memory_or_regular_markdown(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    memory_path = tmp_path / ".agents" / "memory" / "fresh.md"
+    memory_path.parent.mkdir(parents=True)
+    memory_path.write_text("fresh memory\n", encoding="utf-8")
+    (tmp_path / "MEMORY.md").write_text("regular project doc\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    fresh = asyncio.run(registry.execute("filesystem.read", {"path": ".agents/memory/fresh.md"}))
+    regular = asyncio.run(registry.execute("filesystem.read", {"path": "MEMORY.md"}))
+
+    assert fresh.is_error is False
+    assert "memoryFreshness" not in fresh.raw
+    assert fresh.content.startswith("1\tfresh memory")
+    assert regular.is_error is False
+    assert "memoryFreshness" not in regular.raw
+    assert regular.content.startswith("1\tregular project doc")
 
 
 def test_filesystem_read_returns_src_origin_style_image_payload(tmp_path: Path):
