@@ -8,6 +8,7 @@ from agents.kernel.runtime.checkpoints import (
 )
 from agents.kernel.runtime.errors import AgentRuntimeError
 from agents.kernel.runtime.loop import AgentRuntime
+from agents.kernel.runtime.operations import build_runtime_operation_frames
 from agents.kernel.governance.permissions import (
     AllowAllToolPermissionPolicy,
     CallbackToolPermissionPolicy,
@@ -27,6 +28,7 @@ __all__ = [
     "AgentRuntime",
     "AgentRuntimeError",
     "AgentSession",
+    "build_runtime_operation_frames",
     "CallbackToolPermissionPolicy",
     "CheckpointStore",
     "DenyAllToolPermissionPolicy",

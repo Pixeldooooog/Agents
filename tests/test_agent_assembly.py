@@ -203,6 +203,128 @@ def test_create_session_respects_explicit_enabled_tools(tmp_path, monkeypatch):
     assert session.runtime.enabled_tools == ["filesystem.read"]
 
 
+def test_create_session_accepts_src_origin_tool_aliases(tmp_path, monkeypatch):
+    monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
+    settings = FakeSettings()
+    settings.server.ROOT_PATH = tmp_path
+    settings.models.openai.API_KEY = "key"
+    settings.models.openai.MODEL = "model"
+
+    session = create_agent_session(
+        settings,
+        AgentSpec.from_overrides(
+            enabled_tools=[
+                "Read",
+                "Edit",
+                "Bash",
+                "WebSearch",
+                "WebFetch",
+                "ListMcpResourcesTool",
+                "TaskOutput",
+                "TaskStop",
+                "TaskCreate",
+                "TaskUpdate",
+                "CronCreate",
+                "ToolSearch",
+                "EnterPlanMode",
+                "ExitPlanMode",
+                "Agent",
+                "Task",
+                "SendMessage",
+                "TeamCreate",
+                "TeamDelete",
+                "StructuredOutput",
+                "Skill",
+                "Config",
+                "AskUserQuestion",
+                "SendUserMessage",
+                "Brief",
+                "EnterWorktree",
+                "ExitWorktree",
+            ]
+        ),
+    )
+
+    assert session.runtime.enabled_tools == [
+        "Read",
+        "Edit",
+        "Bash",
+        "WebSearch",
+        "WebFetch",
+        "ListMcpResourcesTool",
+        "TaskOutput",
+        "TaskStop",
+        "TaskCreate",
+        "TaskUpdate",
+        "CronCreate",
+        "ToolSearch",
+        "EnterPlanMode",
+        "ExitPlanMode",
+        "Agent",
+        "Task",
+        "SendMessage",
+        "TeamCreate",
+        "TeamDelete",
+        "StructuredOutput",
+        "Skill",
+        "Config",
+        "AskUserQuestion",
+        "SendUserMessage",
+        "Brief",
+        "EnterWorktree",
+        "ExitWorktree",
+    ]
+    specs = {spec.name: spec for spec in session.runtime.tools.specs(session.runtime.enabled_tools)}
+    assert specs["Read"].raw["metadata"]["alias_of"] == "filesystem.read"
+    assert specs["Edit"].raw["metadata"]["alias_of"] == "patch.apply"
+    assert specs["Bash"].raw["metadata"]["alias_of"] == "shell.run"
+    assert specs["WebSearch"].raw["metadata"]["alias_of"] == "web.search"
+    assert specs["WebFetch"].raw["metadata"]["alias_of"] == "web.extract"
+    assert specs["ListMcpResourcesTool"].raw["metadata"]["alias_of"] == "mcp.resources"
+    assert specs["TaskOutput"].raw["metadata"]["alias_of"] == "task.output"
+    assert specs["TaskStop"].raw["metadata"]["alias_of"] == "task.stop"
+    assert specs["TaskCreate"].raw["metadata"]["alias_of"] == "task.create"
+    assert specs["TaskUpdate"].raw["metadata"]["alias_of"] == "task.update"
+    assert specs["CronCreate"].raw["metadata"]["alias_of"] == "schedule.create"
+    assert specs["ToolSearch"].raw["metadata"]["alias_of"] == "tool.search"
+    assert specs["EnterPlanMode"].raw["metadata"]["alias_of"] == "plan.enter"
+    assert specs["ExitPlanMode"].raw["metadata"]["alias_of"] == "plan.exit"
+    assert specs["Agent"].raw["metadata"]["alias_of"] == "agent.run"
+    assert specs["Task"].raw["metadata"]["alias_of"] == "agent.run"
+    assert specs["SendMessage"].raw["metadata"]["alias_of"] == "team.send"
+    assert specs["TeamCreate"].raw["metadata"]["alias_of"] == "team.create"
+    assert specs["TeamDelete"].raw["metadata"]["alias_of"] == "team.delete"
+    assert specs["StructuredOutput"].raw["metadata"]["alias_of"] == "structured.output"
+    assert specs["Skill"].raw["metadata"]["alias_of"] == "skill.invoke"
+    assert specs["Config"].raw["metadata"]["alias_of"] == "config.manage"
+    assert specs["AskUserQuestion"].raw["metadata"]["alias_of"] == "user.ask"
+    assert specs["SendUserMessage"].raw["metadata"]["alias_of"] == "user.message"
+    assert specs["Brief"].raw["metadata"]["alias_of"] == "user.message"
+    assert specs["EnterWorktree"].raw["metadata"]["alias_of"] == "worktree.enter"
+    assert specs["ExitWorktree"].raw["metadata"]["alias_of"] == "worktree.exit"
+
+
+def test_create_session_enables_structured_output_for_json_schema_metadata(tmp_path, monkeypatch):
+    monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
+    settings = FakeSettings()
+    settings.server.ROOT_PATH = tmp_path
+    settings.models.openai.API_KEY = "key"
+    settings.models.openai.MODEL = "model"
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+        "additionalProperties": False,
+    }
+
+    session = create_agent_session(settings, AgentSpec(metadata={"structured_output_schema": schema}))
+
+    assert session.runtime.enabled_tools == ["StructuredOutput"]
+    spec = session.runtime.tools.specs(["StructuredOutput"])[0]
+    assert spec.raw["metadata"]["alias_of"] == "structured.output"
+    assert spec.parameters == schema
+
+
 def test_create_session_rejects_unknown_enabled_tools(tmp_path, monkeypatch):
     monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
     settings = FakeSettings()
@@ -230,6 +352,36 @@ def test_create_session_uses_configured_builtin_tools_by_default(tmp_path, monke
     session = create_agent_session(settings, AgentSpec())
 
     assert session.runtime.enabled_tools == ["filesystem.read", "filesystem.list"]
+
+
+def test_create_session_applies_config_overrides_from_session_state(tmp_path, monkeypatch):
+    monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
+    settings = FakeSettings()
+    settings.server.ROOT_PATH = tmp_path
+    settings.models.openai.API_KEY = "key"
+    settings.models.openai.MODEL = "base-model"
+    store = InMemorySessionStateStore()
+    asyncio.run(
+        store.save(
+            SessionStateRecord(
+                tenant_id="default",
+                user_id="anonymous",
+                agent_id="default",
+                workspace_id="default",
+                metadata={"config.model": json.dumps("override-model")},
+                permission_overridden=True,
+                permission_profile_override="plan",
+                permission_mode_override="ask",
+            )
+        )
+    )
+
+    session = create_agent_session(settings, AgentSpec(), session_state_store=store)
+
+    assert session.runtime.model == "override-model"
+    assert session.tool_context.config_overrides["config.model"] == json.dumps("override-model")
+    assert session.tool_context.permission_profile_override == "plan"
+    assert session.tool_context.agent_spec.tool_permissions.mode == "ask"
 
 
 def test_create_session_can_enable_web_search_tool(tmp_path, monkeypatch):

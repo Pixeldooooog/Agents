@@ -16,15 +16,23 @@ CODING_TOOLS = [
     "filesystem.write",
     "filesystem.delete",
     "filesystem.move",
+    "notebook.edit",
     "patch.apply",
     "search.grep",
+    "search.glob",
     "command.discover",
     "command.render",
     "command.read",
     "command.save",
     "command.delete",
+    "config.manage",
+    "user.ask",
+    "user.message",
+    "worktree.enter",
+    "worktree.exit",
     "tool.search",
     "skill.discover",
+    "skill.invoke",
     "skill.install",
     "skill.uninstall",
     "skill.use",
@@ -111,18 +119,24 @@ CODING_TOOLS = [
     "team.run_member",
     "agent.run",
     "shell.run",
+    "shell.output",
+    "shell.backgrounds",
+    "shell.kill",
+    "sleep.wait",
 ]
-CHAT_TOOLS = ["filesystem.read", "filesystem.list", "search.grep"]
+CHAT_TOOLS = ["filesystem.read", "filesystem.list", "search.grep", "search.glob"]
 BROWSER_TOOLS = [*CODING_TOOLS, "web.search", "web.extract", "browser.open", "browser.download"]
 RISKY_TOOLS = [
     "filesystem.write",
     "filesystem.delete",
     "filesystem.move",
+    "notebook.edit",
     "patch.apply",
     "git.add",
     "git.commit",
     "test.run",
     "shell.run",
+    "shell.kill",
     "browser.open",
     "browser.download",
     "command.save",
@@ -135,7 +149,10 @@ RISKY_TOOLS = [
     "context.compact",
     "context.rewind",
     "session.export",
+    "worktree.enter",
+    "worktree.exit",
     "skill.install",
+    "skill.invoke",
     "skill.uninstall",
     "skill.use",
     "skill.disable",
@@ -226,10 +243,13 @@ def system_prompt(base_prompt: Optional[str], profile: str, active_workspace: Op
     guidance = (
         "You are running inside a local coding terminal. Treat the bound workspace as the project root. "
         "Before answering project-structure questions, inspect the workspace using a short reconnaissance pass: "
-        "list the root, read project marker files such as README.md, pyproject.toml, package.json, makefile, and scan key directories with search.grep when useful. "
+        "list the root, read project marker files such as README.md, pyproject.toml, package.json, makefile, and scan key directories with search.grep/search.glob when useful. "
         "Do not infer architecture from a directory listing alone when readable project files are available. "
         "When asked to implement code, use patch.apply or filesystem.write/delete/move for edits, git.* tools for repository operations, and test.discover/test.run for checks. "
         "Use command.discover/command.render/command.read/command.save/command.delete for prompt-backed workspace commands. "
+        "Use config.manage to inspect or update session-scoped configuration such as model and permissions.defaultMode. "
+        "Use user.ask when you need structured multiple-choice input from the user before proceeding. "
+        "Use user.message when a tool-mediated user-visible message or workspace attachment is required. "
         "Use tool.search when you need to inspect the current tool catalog; use skill.discover/skill.install/skill.uninstall/skill.use/skill.disable and plugin.discover/plugin.install/plugin.uninstall/plugin.enable/plugin.disable to manage local skill or plugin contributions. "
         "Use mcp.servers/mcp.configure/mcp.enable/mcp.disable/mcp.remove/mcp.clear to inspect or manage MCP server configuration, mcp.prompts/mcp.get_prompt for MCP prompt templates, and mcp.resources/mcp.read_resource for non-tool MCP context exposed by configured servers. "
         "Use prompt.templates/prompt.read/prompt.save/prompt.delete to manage reusable local prompt templates. "

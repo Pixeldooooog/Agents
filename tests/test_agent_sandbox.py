@@ -58,6 +58,169 @@ def test_local_sandbox_client_keeps_data_in_workspace(tmp_path):
     assert (workspace.path / "notes" / "todo.txt").read_text(encoding="utf-8") == "ship sandbox tools"
 
 
+def test_local_sandbox_background_command_streams_to_workspace_file(tmp_path):
+    workspace = _workspace(tmp_path)
+    policy = SandboxPolicy.for_workspace(
+        workspace.path,
+        allow_process=True,
+        allowed_commands=(Path(sys.executable).name,),
+    )
+    client = LocalSandboxProvider().acquire(workspace, policy)
+
+    async def execute():
+        script = "import time; print('start', flush=True); time.sleep(0.05); print('done', flush=True)"
+        handle = await client.start_background_command(
+            "shell_test",
+            "%s -c %s" % (shlex.quote(sys.executable), shlex.quote(script)),
+            ".agents/task-output/shell_test.log",
+            timeout_seconds=5.0,
+        )
+        await asyncio.wait_for(handle._task, timeout=2.0)
+        return handle, client.read_text(handle.output_path)
+
+    handle, output = asyncio.run(execute())
+
+    assert handle.status == "completed"
+    assert handle.exit_code == 0
+    assert output.path == ".agents/task-output/shell_test.log"
+    assert output.content == "start\ndone\n"
+
+
+def test_local_sandbox_text_read_rejects_binary_files(tmp_path):
+    workspace = _workspace(tmp_path)
+    (workspace.path / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00binary")
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    client = LocalSandboxProvider().acquire(workspace, policy)
+
+    with pytest.raises(ValueError, match="binary"):
+        client.read_text("image.png")
+
+
+def test_local_sandbox_read_text_supports_line_ranges(tmp_path):
+    workspace = _workspace(tmp_path)
+    (workspace.path / "notes.txt").write_text("one\ntwo\nthree\nfour\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    client = LocalSandboxProvider().acquire(workspace, policy)
+
+    result = client.read_text("notes.txt", offset=2, limit=2)
+
+    assert result.content == "two\nthree\n"
+    assert result.start_line == 2
+    assert result.num_lines == 2
+    assert result.total_lines == 4
+    assert result.is_partial_view is True
+
+
+def test_local_sandbox_grep_skips_binary_files(tmp_path):
+    workspace = _workspace(tmp_path)
+    (workspace.path / "note.txt").write_text("needle\n", encoding="utf-8")
+    (workspace.path / "payload.bin").write_bytes(b"needle\x00binary")
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    client = LocalSandboxProvider().acquire(workspace, policy)
+
+    result = client.grep("needle")
+
+    assert [match.path for match in result.matches] == ["note.txt"]
+
+
+def test_local_sandbox_grep_filters_files_with_glob_patterns(tmp_path):
+    workspace = _workspace(tmp_path)
+    (workspace.path / "src").mkdir()
+    (workspace.path / "src" / "app.py").write_text("needle\n", encoding="utf-8")
+    (workspace.path / "src" / "view.tsx").write_text("needle\n", encoding="utf-8")
+    (workspace.path / "src" / "readme.md").write_text("needle\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    client = LocalSandboxProvider().acquire(workspace, policy)
+
+    brace = client.grep("needle", path="src", glob_pattern="*.{py,tsx}")
+    comma = client.grep("needle", path="src", glob_pattern="*.py,*.md")
+    exclude = client.grep("needle", path="src", glob_pattern="*.{py,tsx} !*.tsx")
+
+    assert sorted(match.path for match in brace.matches) == ["src/app.py", "src/view.tsx"]
+    assert sorted(match.path for match in comma.matches) == ["src/app.py", "src/readme.md"]
+    assert [match.path for match in exclude.matches] == ["src/app.py"]
+
+
+def test_local_sandbox_grep_filters_by_file_type(tmp_path):
+    workspace = _workspace(tmp_path)
+    (workspace.path / "src").mkdir()
+    (workspace.path / "src" / "app.py").write_text("needle\n", encoding="utf-8")
+    (workspace.path / "src" / "view.tsx").write_text("needle\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    client = LocalSandboxProvider().acquire(workspace, policy)
+
+    result = client.grep("needle", path="src", file_type="py")
+
+    assert [match.path for match in result.matches] == ["src/app.py"]
+
+
+def test_local_sandbox_grep_supports_multiline_patterns(tmp_path):
+    workspace = _workspace(tmp_path)
+    (workspace.path / "src").mkdir()
+    (workspace.path / "src" / "app.py").write_text("def run():\n    return 1\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    client = LocalSandboxProvider().acquire(workspace, policy)
+
+    single_line = client.grep(r"def run\(\):\n\s+return", path="src")
+    multiline = client.grep(r"def run\(\):\n\s+return", path="src", multiline=True)
+
+    assert single_line.matches == []
+    assert [(match.line_number, match.line, match.is_match) for match in multiline.matches] == [
+        (1, "def run():", True),
+        (2, "    return 1", False),
+    ]
+
+
+def test_local_sandbox_grep_includes_context_lines(tmp_path):
+    workspace = _workspace(tmp_path)
+    (workspace.path / "note.txt").write_text("before\nneedle\nafter\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    client = LocalSandboxProvider().acquire(workspace, policy)
+
+    result = client.grep("needle", context_before=1, context_after=1)
+
+    assert [(match.line_number, match.line, match.is_match) for match in result.matches] == [
+        (1, "before", False),
+        (2, "needle", True),
+        (3, "after", False),
+    ]
+
+
+def test_local_sandbox_glob_finds_files_and_reports_truncation(tmp_path):
+    workspace = _workspace(tmp_path)
+    (workspace.path / "src").mkdir()
+    (workspace.path / "src" / "a.py").write_text("a\n", encoding="utf-8")
+    (workspace.path / "src" / "b.py").write_text("b\n", encoding="utf-8")
+    (workspace.path / "src" / "note.txt").write_text("note\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    client = LocalSandboxProvider().acquire(workspace, policy)
+
+    result = client.glob("*.py", path="src")
+    limited = client.glob("*.py", path="src", max_results=1)
+
+    assert sorted(result.filenames) == ["src/a.py", "src/b.py"]
+    assert result.to_dict()["numFiles"] == 2
+    assert len(limited.filenames) == 1
+    assert limited.truncated is True
+
+
+def test_local_sandbox_reads_and_greps_utf16le_text_files(tmp_path):
+    workspace = _workspace(tmp_path)
+    (workspace.path / "utf16.txt").write_text("needle\nsecond\n", encoding="utf-16")
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    client = LocalSandboxProvider().acquire(workspace, policy)
+
+    read = client.read_text("utf16.txt")
+    result = client.grep("second")
+
+    assert read.content == "needle\nsecond\n"
+    assert read.encoding == "utf-16le"
+    assert read.line_endings == "lf"
+    assert [(match.path, match.line_number, match.line) for match in result.matches] == [
+        ("utf16.txt", 2, "second")
+    ]
+
+
 def test_builtin_tools_route_through_sandbox_client(tmp_path):
     workspace = _workspace(tmp_path)
     (workspace.path / "note.txt").write_text("alpha\nbeta\n", encoding="utf-8")

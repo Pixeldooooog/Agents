@@ -39,6 +39,13 @@ TEAM_MEMBERS_SCHEMA = {
     },
 }
 
+TEAM_DELETE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "team_id": {"type": "string", "description": "Team id to delete. Defaults to the active or default team."},
+    },
+}
+
 TEAM_SEND_SCHEMA = {
     "type": "object",
     "properties": {
@@ -109,6 +116,20 @@ async def team_members(context: ToolRuntimeContext, team_id: str = "") -> dict[s
     team = await _load_team(context, team_id or "default")
     members = list(team.members.values())
     return {"team": _team_payload(team), "members": members, "count": len(members)}
+
+
+async def team_delete(context: ToolRuntimeContext, team_id: str = "") -> dict[str, Any]:
+    resolved = _active_team_id(context, team_id)
+    team = await _delete_team(context, resolved)
+    if team is None:
+        raise KeyError("team not found: %s" % resolved)
+    return {
+        "success": True,
+        "deleted": True,
+        "team": _team_payload(team),
+        "team_name": team.name,
+        "message": "Deleted team %s" % team.name,
+    }
 
 
 async def team_send(
@@ -277,6 +298,27 @@ async def _save_team(context: ToolRuntimeContext, team: TeamRecord) -> None:
     context.teams[team.team_id] = team.to_dict()
 
 
+async def _delete_team(context: ToolRuntimeContext, team_id: str) -> TeamRecord | None:
+    resolved = safe_team_id(team_id or "default")
+    deleted = None
+    store = getattr(context, "team_store", None)
+    if store is not None:
+        workspace = context.workspace
+        deleted = await store.delete_team(
+            resolved,
+            workspace.tenant_id,
+            user_id=workspace.user_id,
+            agent_id=workspace.agent_id,
+            workspace_id=workspace.workspace_id,
+        )
+    if deleted is None and resolved in context.teams:
+        deleted = _record_from_payload(context.teams[resolved])
+    if deleted is not None:
+        context.teams.pop(deleted.team_id, None)
+        context.team_messages = [message for message in context.team_messages if message.get("team_id") != deleted.team_id]
+    return deleted
+
+
 async def _add_message(context: ToolRuntimeContext, message: TeamMessageRecord) -> None:
     store = getattr(context, "team_store", None)
     if store is not None:
@@ -302,6 +344,14 @@ def _recipients(team: TeamRecord, to: str) -> list[str]:
         return sorted(members)
     agent_id = safe_agent_id(target)
     return [agent_id] if agent_id in members else []
+
+
+def _active_team_id(context: ToolRuntimeContext, team_id: str = "") -> str:
+    if str(team_id or "").strip():
+        return safe_team_id(team_id)
+    if len(context.teams) == 1:
+        return next(iter(context.teams))
+    return "default"
 
 
 def _record_from_payload(payload: dict[str, Any]) -> TeamRecord:

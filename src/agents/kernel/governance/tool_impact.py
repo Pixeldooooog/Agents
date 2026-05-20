@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 import shlex
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse
 
 from agents.kernel.governance.sandbox import classify_tool_risk
+from agents.kernel.governance.tool_rules import normalize_tool_name
 from agents.kernel.schema import ToolCall
 
 
@@ -50,8 +52,8 @@ class ToolImpact:
 
 
 def describe_tool_impact(call: ToolCall) -> ToolImpact:
-    name = call.name
-    arguments = dict(call.arguments or {})
+    name = normalize_tool_name(call.name)
+    arguments = _canonical_arguments(call.name, name, dict(call.arguments or {}))
     risk = classify_tool_risk(name).value
     if name == "filesystem.read":
         return _impact(name, risk, operations=["file_read"], paths=[_string(arguments.get("path"))])
@@ -59,6 +61,8 @@ def describe_tool_impact(call: ToolCall) -> ToolImpact:
         return _impact(name, risk, operations=["file_read"], paths=[_string(arguments.get("path") or ".")])
     if name == "search.grep":
         return _impact(name, risk, operations=["file_read"], paths=[_string(arguments.get("path") or ".")])
+    if name == "search.glob":
+        return _impact(name, risk, operations=["file_read"], paths=[_string(arguments.get("path") or ".")], query=_string(arguments.get("pattern")))
     if name.startswith("command."):
         command_name = _string(arguments.get("name") or arguments.get("query"))
         if name in {"command.save", "command.delete"}:
@@ -112,13 +116,37 @@ def describe_tool_impact(call: ToolCall) -> ToolImpact:
             writes_files=True,
             summary="move %s to %s" % (source, destination) if source and destination else "move file",
         )
+    if name == "notebook.edit":
+        path = _string(arguments.get("notebook_path") or arguments.get("path"))
+        mode = _string(arguments.get("edit_mode") or "replace")
+        cell_id = _string(arguments.get("cell_id"))
+        return _impact(
+            name,
+            risk,
+            operations=["file_write", "notebook_edit"],
+            paths=[path],
+            writes_files=True,
+            diff_preview=_truncate(_string(arguments.get("new_source"))),
+            summary="%s notebook cell %s" % (mode, cell_id) if cell_id else "%s notebook cell" % mode,
+        )
     if name == "patch.apply":
         return _patch_impact(name, risk, arguments)
     if name == "test.discover":
         return _impact(name, risk, operations=["file_read"], paths=[_string(arguments.get("path") or ".")])
+    if name == "sleep.wait":
+        duration = _string(arguments.get("duration_seconds"))
+        return _impact(name, risk, operations=["wait"], query=duration, summary="wait %ss" % duration if duration else "wait")
     if name in {"shell.run", "test.run"}:
         command = _string(arguments.get("command") or ("pytest" if name == "test.run" else ""))
         return _impact(name, risk, operations=["process"], commands=[command], summary=_program_summary(command))
+    if name == "shell.output":
+        task_id = _string(arguments.get("task_id"))
+        return _impact(name, risk, operations=["process_output_read"], query=task_id, summary="read shell output")
+    if name == "shell.backgrounds":
+        return _impact(name, risk, operations=["process_output_read"], summary="list background shell commands")
+    if name == "shell.kill":
+        task_id = _string(arguments.get("task_id"))
+        return _impact(name, risk, operations=["process_control"], query=task_id, summary="stop shell command")
     if name == "git.status":
         return _impact(name, risk, operations=["process"], commands=["git status --short"])
     if name == "git.diff":
@@ -151,6 +179,19 @@ def describe_tool_impact(call: ToolCall) -> ToolImpact:
         return _impact(name, risk, operations=["tool_catalog_read"], query=query, summary="search tools")
     if name.startswith("skill."):
         query = _string(arguments.get("query"))
+        if name == "skill.invoke":
+            skill = _string(arguments.get("skill") or arguments.get("name"))
+            operations = ["skill_invoke"]
+            if _string(arguments.get("mode")).lower() == "fork":
+                operations.append("subagent")
+            return _impact(
+                name,
+                risk,
+                operations=operations,
+                query=skill,
+                diff_preview=_truncate(_string(arguments.get("args"))),
+                summary="invoke skill %s" % skill if skill else "invoke skill",
+            )
         if name in {"skill.install", "skill.uninstall", "skill.use", "skill.disable"}:
             summary = {
                 "skill.install": "install skill",
@@ -213,6 +254,47 @@ def describe_tool_impact(call: ToolCall) -> ToolImpact:
             "mcp.prompts": "list MCP prompts",
         }.get(name, "MCP operation")
         return _impact(name, risk, operations=[operation], query=query, summary=summary)
+    if name.startswith("structured."):
+        return _impact(
+            name,
+            risk,
+            operations=["structured_output"],
+            diff_preview=_truncate(_json_preview(arguments)),
+            summary="return structured output",
+        )
+    if name.startswith("config."):
+        setting = _string(arguments.get("setting"))
+        writes = "value" in arguments
+        return _impact(
+            name,
+            "medium" if writes else "low",
+            operations=["config_write"] if writes else ["config_read"],
+            query=setting,
+            diff_preview=_truncate(_json_preview({"setting": setting, "value": arguments.get("value")})) if writes else "",
+            summary="set config %s" % setting if writes and setting else "read config %s" % setting if setting else "manage config",
+        )
+    if name.startswith("user."):
+        if name == "user.message":
+            attachments = arguments.get("attachments") if isinstance(arguments.get("attachments"), list) else []
+            return _impact(
+                name,
+                risk,
+                operations=["user_message"],
+                paths=[_string(item) for item in attachments if _string(item)],
+                query=_truncate(_string(arguments.get("message")), 500),
+                summary="message user",
+            )
+        questions = arguments.get("questions") if isinstance(arguments.get("questions"), list) else []
+        text = " | ".join(_string(item.get("question")) for item in questions if isinstance(item, dict))
+        return _impact(
+            name,
+            risk,
+            operations=["user_interaction"],
+            query=_truncate(text, 500),
+            summary="ask user question",
+        )
+    if name.startswith("worktree."):
+        return _worktree_impact(name, arguments)
     if name.startswith("memory."):
         return _memory_impact(name, risk, arguments)
     if name.startswith("todo."):
@@ -262,6 +344,127 @@ def describe_tool_impact(call: ToolCall) -> ToolImpact:
     if name.startswith("mcp_"):
         return _impact(name, risk, operations=["mcp_call"], summary="external MCP tool call")
     return _impact(name, risk, operations=["tool_call"])
+
+
+def _canonical_arguments(original_name: str, canonical_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    if original_name == "Read" and canonical_name == "filesystem.read":
+        payload = dict(arguments)
+        if "path" not in payload and "file_path" in payload:
+            payload["path"] = payload.get("file_path")
+        return payload
+    if original_name == "Write" and canonical_name == "filesystem.write":
+        payload = dict(arguments)
+        if "path" not in payload and "file_path" in payload:
+            payload["path"] = payload.get("file_path")
+        return payload
+    if original_name == "Edit" and canonical_name == "patch.apply":
+        return {
+            "edits": [
+                {
+                    "path": _string(arguments.get("file_path")),
+                    "old_text": _string(arguments.get("old_string")),
+                    "new_text": _string(arguments.get("new_string")),
+                    "replace_all": bool(arguments.get("replace_all")),
+                }
+            ]
+        }
+    if original_name == "WebSearch" and canonical_name == "web.search":
+        payload = dict(arguments)
+        if "include_domains" not in payload and "allowed_domains" in payload:
+            payload["include_domains"] = payload.get("allowed_domains")
+        if "exclude_domains" not in payload and "blocked_domains" in payload:
+            payload["exclude_domains"] = payload.get("blocked_domains")
+        return payload
+    if original_name == "WebFetch" and canonical_name == "web.extract":
+        payload = dict(arguments)
+        if "urls" not in payload and "url" in payload:
+            payload["urls"] = [payload.get("url")]
+        if "query" not in payload and "prompt" in payload:
+            payload["query"] = payload.get("prompt")
+        return payload
+    if original_name == "TaskCreate" and canonical_name == "task.create":
+        payload = dict(arguments)
+        if "title" not in payload and "subject" in payload:
+            payload["title"] = payload.get("subject")
+        if "input" not in payload and "description" in payload:
+            payload["input"] = payload.get("description")
+        return payload
+    if original_name == "TaskGet" and canonical_name == "task.get":
+        return {"task_id": arguments.get("taskId", arguments.get("task_id", ""))}
+    if original_name == "TaskUpdate" and canonical_name == "task.update":
+        payload = dict(arguments)
+        if "task_id" not in payload and "taskId" in payload:
+            payload["task_id"] = payload.get("taskId")
+        if "title" not in payload and "subject" in payload:
+            payload["title"] = payload.get("subject")
+        if "input" not in payload and "description" in payload:
+            payload["input"] = payload.get("description")
+        return payload
+    if original_name in {"TaskOutput", "AgentOutputTool"} and canonical_name == "task.output":
+        return {"task_id": arguments.get("task_id", "")}
+    if original_name == "TaskStop" and canonical_name == "task.stop":
+        return {"task_id": arguments.get("task_id", arguments.get("shell_id", ""))}
+    if original_name == "KillShell" and canonical_name == "shell.kill":
+        return {"task_id": arguments.get("task_id", arguments.get("shell_id", ""))}
+    if original_name == "CronCreate" and canonical_name == "schedule.create":
+        return {"title": arguments.get("prompt", ""), "schedule": arguments.get("cron", ""), "input": arguments.get("prompt", "")}
+    if original_name == "CronDelete" and canonical_name == "schedule.delete":
+        return {"schedule_id": arguments.get("id", "")}
+    if original_name in {"Agent", "Task"} and canonical_name == "agent.run":
+        payload = dict(arguments)
+        if "agent_id" not in payload and "name" in payload:
+            payload["agent_id"] = payload.get("name")
+        return payload
+    if original_name == "SendMessage" and canonical_name == "team.send":
+        payload = dict(arguments)
+        if "team_id" not in payload and "team_name" in payload:
+            payload["team_id"] = payload.get("team_name")
+        return payload
+    if original_name == "TeamCreate" and canonical_name == "team.create":
+        return {
+            "team_id": arguments.get("team_name", ""),
+            "name": arguments.get("team_name", ""),
+            "description": arguments.get("description", ""),
+        }
+    if original_name == "Skill" and canonical_name == "skill.invoke":
+        payload = dict(arguments)
+        if "skill" not in payload and "name" in payload:
+            payload["skill"] = payload.get("name")
+        return payload
+    if original_name == "Config" and canonical_name == "config.manage":
+        return dict(arguments)
+    if original_name == "AskUserQuestion" and canonical_name == "user.ask":
+        return dict(arguments)
+    if original_name in {"SendUserMessage", "Brief"} and canonical_name == "user.message":
+        return dict(arguments)
+    if original_name == "EnterWorktree" and canonical_name == "worktree.enter":
+        return dict(arguments)
+    if original_name == "ExitWorktree" and canonical_name == "worktree.exit":
+        return dict(arguments)
+    return arguments
+
+
+def _worktree_impact(name: str, arguments: dict[str, Any]) -> ToolImpact:
+    if name == "worktree.enter":
+        worktree_name = _string(arguments.get("name"))
+        return _impact(
+            name,
+            "medium",
+            operations=["worktree_create", "workspace_switch"],
+            query=worktree_name,
+            writes_files=True,
+            summary="enter worktree %s" % worktree_name if worktree_name else "enter worktree",
+        )
+    action = _string(arguments.get("action"))
+    remove = action == "remove"
+    return _impact(
+        name,
+        "high" if remove else "medium",
+        operations=["worktree_remove", "workspace_switch"] if remove else ["workspace_switch"],
+        query=action,
+        writes_files=remove,
+        summary="remove worktree" if remove else "exit worktree",
+    )
 
 
 def _hook_impact(name: str, risk: str, arguments: dict[str, Any]) -> ToolImpact:
@@ -404,9 +607,10 @@ def _session_context_impact(name: str, risk: str, arguments: dict[str, Any]) -> 
 
 
 def _team_impact(name: str, risk: str, arguments: dict[str, Any]) -> ToolImpact:
-    operations = ["team_state_write", "subagent"] if name == "team.run_member" else ["team_state_write"] if name in {"team.create", "team.send", "team.inbox"} else ["team_read"]
+    operations = ["team_state_write", "subagent"] if name == "team.run_member" else ["team_state_write"] if name in {"team.create", "team.delete", "team.send", "team.inbox"} else ["team_read"]
     summary = {
         "team.create": "create team",
+        "team.delete": "delete team",
         "team.members": "list team members",
         "team.send": "send team message",
         "team.inbox": "read team inbox",
@@ -619,6 +823,13 @@ def _truncate(value: str, limit: int = MAX_PREVIEW_CHARS) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + "\n[truncated]"
+
+
+def _json_preview(value: Any) -> str:
+    try:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        return str(value or "")
 
 
 def _string(value: Any) -> str:

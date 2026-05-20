@@ -412,16 +412,28 @@ def skills_payload(state: Any) -> list[list[str]]:
 def mcp_payload(state: Any) -> list[list[str]]:
     mcp_settings = getattr(getattr(state, "settings", None), "mcp", None)
     command = str(getattr(mcp_settings, "SERVER_COMMAND", "") or "").strip()
-    if not command:
+    url = str(getattr(mcp_settings, "SERVER_URL", "") or "").strip()
+    transport = str(getattr(mcp_settings, "SERVER_TRANSPORT", "") or "stdio")
+    if not command and not url:
         return [["server", "not configured"]]
-    mcp_tools = [name for name in state.active_tools if str(name).startswith("mcp_")]
-    return [
+    mcp_tools = [name for name in state.active_tools if _is_mcp_tool_name(name)]
+    rows = [
         ["server", str(getattr(mcp_settings, "SERVER_NAME", "") or "default")],
-        ["command", command],
+        ["transport", transport],
         ["mode", str(getattr(mcp_settings, "EXECUTION_MODE", "") or "trusted_control_plane")],
         ["sandbox", str(getattr(mcp_settings, "SANDBOX_PROFILE", "") or "-")],
         ["tools", str(len(mcp_tools))],
     ]
+    if command:
+        rows.insert(2, ["command", command])
+    if url:
+        rows.insert(2, ["url", url])
+    headers = getattr(mcp_settings, "SERVER_HEADERS", None)
+    if isinstance(headers, dict) and headers:
+        rows.append(["headers", str(len(headers))])
+    if bool(getattr(mcp_settings, "AUTH_REQUIRED", False)):
+        rows.append(["auth", str(getattr(mcp_settings, "AUTH_STATUS", "") or "required")])
+    return rows
 
 
 def tools_payload(state: Any) -> list[list[str]]:
@@ -510,7 +522,7 @@ def _tool_metadata(spec: ToolSpec | None) -> dict[str, Any]:
 
 
 def _tool_source(name: str, spec: ToolSpec | None) -> str:
-    if name.startswith("mcp_") or name.startswith("mcp."):
+    if _is_mcp_tool_name(name) or name.startswith("mcp."):
         return "mcp"
     if name.startswith("memory."):
         return "memory"
@@ -579,10 +591,15 @@ def _catalog_count(rows: list[list[str]], sentinel: str) -> int:
 def _mcp_summary(state: Any) -> str:
     mcp_settings = getattr(state.settings, "mcp", None)
     command = str(getattr(mcp_settings, "SERVER_COMMAND", "") or "").strip()
-    if not command:
+    url = str(getattr(mcp_settings, "SERVER_URL", "") or "").strip()
+    if not command and not url:
         return "not configured"
-    count = len([name for name in getattr(state, "active_tools", []) if str(name).startswith("mcp_")])
+    count = len([name for name in getattr(state, "active_tools", []) if _is_mcp_tool_name(name)])
     return "%s · %s tools" % (getattr(mcp_settings, "SERVER_NAME", "") or "default", count)
+
+
+def _is_mcp_tool_name(name: Any) -> bool:
+    return str(name).startswith("mcp_")
 
 
 def _plugin_manifest_row(manifest_path: Path, enabled: set[str] | None = None) -> list[str]:

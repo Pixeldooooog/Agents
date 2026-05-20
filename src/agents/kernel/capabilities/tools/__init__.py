@@ -9,30 +9,45 @@
 # =====================================================
 
 from agents.kernel.capabilities.tools.mcp import (
+    MCPAuthenticationRequired,
     MCPClient,
     MCPPromptArgumentDefinition,
     MCPPromptDefinition,
     MCPServerConfig,
+    MCPSSEClient,
     MCPStdioClient,
+    MCPStreamableHTTPClient,
     MCPResourceDefinition,
     MCPToolDefinition,
     MCPToolProvider,
+    build_mcp_tool_name,
+    mcp_info_from_name,
+    normalize_mcp_name,
 )
 from agents.kernel.capabilities.tools.builtin import register_builtin_tools
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.tools.recording import ToolExecutionObserver, ToolExecutionScope
-from agents.kernel.capabilities.tools.registry import RegisteredTool, ToolRegistry
+from agents.kernel.capabilities.tools.registry import RegisteredTool, ToolActivity, ToolDefinition, ToolExecutionError, ToolRegistry
 
 __all__ = [
     "MCPClient",
+    "MCPAuthenticationRequired",
     "MCPPromptArgumentDefinition",
     "MCPPromptDefinition",
     "MCPServerConfig",
+    "MCPSSEClient",
     "MCPStdioClient",
+    "MCPStreamableHTTPClient",
     "MCPResourceDefinition",
     "MCPToolDefinition",
     "MCPToolProvider",
+    "build_mcp_tool_name",
+    "mcp_info_from_name",
+    "normalize_mcp_name",
     "RegisteredTool",
+    "ToolActivity",
+    "ToolDefinition",
+    "ToolExecutionError",
     "ToolRuntimeContext",
     "ToolRegistry",
     "ToolExecutionObserver",

@@ -26,7 +26,7 @@ PERMISSION_RULE_SCHEMA = {
     "type": "object",
     "properties": {
         "behavior": {"type": "string", "enum": ["allow", "deny", "ask"]},
-        "tool": {"type": "string", "description": "Tool name or *."},
+        "tool": {"type": "string", "description": "Tool name, wildcard, or command rule such as Bash(git *) / shell.run(git:*)."},
     },
     "required": ["behavior", "tool"],
 }
@@ -34,7 +34,7 @@ PERMISSION_RULE_SCHEMA = {
 PERMISSION_REMOVE_RULE_SCHEMA = {
     "type": "object",
     "properties": {
-        "tool": {"type": "string", "description": "Tool name or *."},
+        "tool": {"type": "string", "description": "Tool name, wildcard, or command rule such as Bash(git *) / shell.run(git:*)."},
         "behavior": {"type": "string", "enum": ["", "allow", "deny", "ask"], "description": "Optional behavior to remove."},
     },
     "required": ["tool"],

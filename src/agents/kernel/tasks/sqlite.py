@@ -82,6 +82,28 @@ class SQLiteTaskStore:
             )
         return await self.load_task(task_id)
 
+    async def update_task(self, task: TaskRecord) -> Optional[TaskRecord]:
+        updated = task.with_update()
+        with self.database.connect() as connection:
+            result = connection.execute(
+                """
+                UPDATE tasks
+                SET title = ?, input = ?, status = ?, updated_at = ?, metadata_json = ?
+                WHERE task_id = ?
+                """,
+                (
+                    updated.title,
+                    updated.input,
+                    updated.status.value,
+                    updated.updated_at,
+                    json_dumps(updated.metadata),
+                    updated.task_id,
+                ),
+            )
+            if result.rowcount == 0:
+                return None
+        return await self.load_task(task.task_id)
+
     async def add_step(self, step: TaskStepRecord) -> TaskStepRecord:
         with self.database.connect() as connection:
             connection.execute(

@@ -9,14 +9,19 @@
 # =====================================================
 
 import asyncio
+import base64
 import json
+import shutil
+import shlex
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from agents.kernel.context.workspace import WorkspaceContext
-from agents.kernel.governance import SandboxPolicy, describe_tool_impact
+from agents.kernel.governance import SandboxPolicy, build_tool_permission_policy, describe_tool_impact
 from agents.kernel.runtime import AgentResult, AgentRuntime, AgentSession
 from agents.kernel.schema import Message, RuntimeEvent, ToolCall
 from agents.kernel.hooks import InMemoryHookStore
@@ -26,21 +31,37 @@ from agents.kernel.capabilities.memory import InMemoryMemoryStore, MemoryScope
 from agents.kernel.capabilities.skills import SkillLoader, SkillRegistry
 from agents.kernel.capabilities.sandbox.local import LocalSandboxProvider
 from agents.kernel.capabilities.sandbox.types import SandboxCommandResult
+from agents.kernel.capabilities.mcp_loading import load_configured_mcp
 from agents.kernel.capabilities.tools.builtin.browser import browser_open
+from agents.kernel.capabilities.tools.builtin.shell import classify_shell_command, detect_blocked_sleep_pattern, is_silent_shell_command
 from agents.kernel.capabilities.tools.mcp import (
+    MCPAuthenticationRequired,
     MCPPromptArgumentDefinition,
     MCPPromptDefinition,
     MCPResourceDefinition,
     MCPServerConfig,
     MCPToolDefinition,
     MCPToolProvider,
+    build_mcp_tool_name,
+    mcp_info_from_name,
+    normalize_mcp_name,
 )
 from agents.kernel.capabilities.tools import ToolRuntimeContext, register_builtin_tools
-from agents.kernel.capabilities.tools.registry import ToolRegistry
+from agents.kernel.capabilities.tools.registry import ToolDefinition, ToolExecutionError, ToolRegistry
 from agents.kernel.specs import AgentSpec
 from agents.kernel.state import InMemoryAgentProfileStore, InMemoryArtifactStore, LocalArtifactBlobStore
 from agents.kernel.tasks import InMemoryScheduleStore, InMemoryTaskStore, TaskEngine, TaskStatus, TaskStepStatus
 from agents.kernel.teams import InMemoryTeamStore
+
+
+def _run_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=str(cwd),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
 
 
 def test_tool_registry_registers_specs_and_rejects_duplicates():
@@ -64,6 +85,1161 @@ def test_tool_registry_exposes_metadata_in_specs():
     spec = registry.specs(["dangerous"])[0]
 
     assert spec.raw["metadata"]["risk"] == "high"
+
+
+def test_builtin_coding_tools_expose_contract_metadata(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True, allow_process=True, allow_network=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    metadata = {
+        spec.name: spec.raw["metadata"]
+        for spec in registry.specs(
+            [
+                "filesystem.read",
+                "filesystem.write",
+                "notebook.edit",
+                "search.glob",
+                "shell.run",
+                "shell.output",
+                "shell.kill",
+                "sleep.wait",
+                "config.manage",
+                "user.ask",
+                "user.message",
+                "worktree.enter",
+                "worktree.exit",
+            ]
+        )
+    }
+
+    assert metadata["filesystem.read"]["read_only"] is True
+    assert metadata["filesystem.read"]["path_parameters"] == ["path"]
+    assert metadata["filesystem.read"]["activity"] == {
+        "kind": "workspace",
+        "title": "Read file",
+        "target_argument": "path",
+    }
+    assert metadata["filesystem.write"]["writes_state"] is True
+    assert metadata["filesystem.write"]["concurrency_safe"] is False
+    assert metadata["filesystem.write"]["activity"]["kind"] == "edit"
+    assert metadata["notebook.edit"]["writes_state"] is True
+    assert metadata["notebook.edit"]["concurrency_safe"] is False
+    assert metadata["notebook.edit"]["path_parameters"] == ["notebook_path"]
+    assert metadata["notebook.edit"]["src_origin_tool"] == "NotebookEdit"
+    assert metadata["notebook.edit"]["activity"] == {
+        "kind": "edit",
+        "title": "Edit notebook",
+        "target_argument": "notebook_path",
+    }
+    assert metadata["search.glob"]["read_only"] is True
+    assert metadata["search.glob"]["path_parameters"] == ["path"]
+    assert metadata["search.glob"]["activity"] == {
+        "kind": "workspace",
+        "title": "Find files",
+        "target_argument": "pattern",
+    }
+    assert metadata["shell.run"]["concurrency_safe"] is False
+    assert metadata["shell.run"]["cancels_siblings_on_error"] is True
+    assert metadata["shell.run"]["interrupt_behavior"] == "cancel"
+    assert metadata["shell.run"]["activity"] == {
+        "kind": "terminal",
+        "title": "Run shell command",
+        "target_argument": "command",
+    }
+    assert metadata["shell.output"]["read_only"] is True
+    assert metadata["shell.output"]["activity"]["title"] == "Read background shell output"
+    assert metadata["shell.kill"]["writes_state"] is True
+    assert metadata["sleep.wait"]["read_only"] is True
+    assert metadata["sleep.wait"]["interrupt_behavior"] == "cancel"
+    assert metadata["sleep.wait"]["activity"] == {
+        "kind": "wait",
+        "title": "Wait",
+        "target_argument": "duration_seconds",
+    }
+    assert metadata["config.manage"]["writes_state"] is True
+    assert metadata["config.manage"]["activity"] == {
+        "kind": "state",
+        "title": "Manage config",
+        "target_argument": "setting",
+    }
+    assert metadata["user.ask"]["read_only"] is True
+    assert metadata["user.ask"]["requires_user_interaction"] is True
+    assert metadata["user.message"]["read_only"] is True
+    assert metadata["user.message"]["user_visible"] is True
+    assert metadata["worktree.enter"]["writes_state"] is True
+    assert metadata["worktree.enter"]["activity"] == {
+        "kind": "state",
+        "title": "Enter worktree",
+        "target_argument": "name",
+    }
+    assert metadata["worktree.exit"]["writes_state"] is True
+    assert metadata["worktree.exit"]["destructive"] is True
+
+
+def test_tool_registry_describes_call_activity_target_and_paths(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True, allow_process=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    write = registry.describe_call("filesystem.write", {"path": "src/app.py", "content": "print('ok')"})
+    notebook = registry.describe_call("notebook.edit", {"notebook_path": "analysis.ipynb", "cell_id": "cell-0", "new_source": "x = 1"})
+    glob = registry.describe_call("search.glob", {"pattern": "**/*.py", "path": "src"})
+    shell = registry.describe_call("shell.run", {"command": "pytest -q"})
+
+    assert write["activity"]["kind"] == "edit"
+    assert write["target"] == "src/app.py"
+    assert write["paths"] == ["src/app.py"]
+    assert write["metadata"]["writes_state"] is True
+    assert notebook["activity"]["kind"] == "edit"
+    assert notebook["target"] == "analysis.ipynb"
+    assert notebook["paths"] == ["analysis.ipynb"]
+    assert glob["activity"]["kind"] == "workspace"
+    assert glob["target"] == "**/*.py"
+    assert glob["paths"] == ["src"]
+    assert shell["activity"]["kind"] == "terminal"
+    assert shell["target"] == "pytest -q"
+    assert shell["paths"] == []
+
+
+def test_src_origin_alias_tools_execute_against_canonical_implementations(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "notes.txt").write_text("hello\nneedle\n", encoding="utf-8")
+    notebook = {
+        "cells": [{"cell_type": "markdown", "id": "intro", "source": "# Title\n", "metadata": {}}],
+        "metadata": {},
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    }
+    (tmp_path / "analysis.ipynb").write_text(json.dumps(notebook), encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(
+        workspace.path,
+        allow_file_write=True,
+        allow_process=True,
+        allowed_commands=("echo",),
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    alias_specs = {
+        spec.name: spec
+        for spec in registry.specs(
+            [
+                "Read",
+                "Write",
+                "Edit",
+                "Bash",
+                "BashOutputTool",
+                "Glob",
+                "Grep",
+                "TodoWrite",
+                "NotebookEdit",
+                "Sleep",
+                "EnterWorktree",
+                "ExitWorktree",
+            ]
+        )
+    }
+    read = asyncio.run(registry.execute("Read", {"file_path": "notes.txt"}))
+    written = asyncio.run(registry.execute("Write", {"file_path": "draft.txt", "content": "alpha\n"}))
+    edited = asyncio.run(
+        registry.execute("Edit", {"file_path": "draft.txt", "old_string": "alpha\n", "new_string": "beta\n"})
+    )
+    globbed = asyncio.run(registry.execute("Glob", {"pattern": "*.txt", "path": "."}))
+    grepped = asyncio.run(registry.execute("Grep", {"pattern": "needle", "path": ".", "output_mode": "content"}))
+    bashed = asyncio.run(registry.execute("Bash", {"command": "echo ok"}))
+    async def run_background_alias():
+        backgrounded_result = await registry.execute("Bash", {"command": "echo later", "run_in_background": True})
+        output_result = await registry.execute(
+            "BashOutputTool", {"task_id": backgrounded_result.raw["backgroundTaskId"], "block": True}
+        )
+        return backgrounded_result, output_result
+
+    backgrounded, bash_output = asyncio.run(run_background_alias())
+    todos = asyncio.run(
+        registry.execute(
+            "TodoWrite",
+            {"todos": [{"content": "Check aliases", "status": "in_progress", "activeForm": "Checking aliases"}]},
+        )
+    )
+    slept = asyncio.run(registry.execute("Sleep", {"duration_seconds": 0.01, "reason": "alias test"}))
+    asyncio.run(registry.execute("Read", {"file_path": "analysis.ipynb"}))
+    notebook_edit = asyncio.run(
+        registry.execute(
+            "NotebookEdit",
+            {"notebook_path": "analysis.ipynb", "cell_id": "intro", "new_source": "Updated title\n"},
+        )
+    )
+
+    assert alias_specs["Read"].raw["metadata"]["alias_of"] == "filesystem.read"
+    assert alias_specs["Edit"].raw["metadata"]["alias_of"] == "patch.apply"
+    assert alias_specs["Bash"].raw["metadata"]["alias_of"] == "shell.run"
+    assert alias_specs["BashOutputTool"].raw["metadata"]["alias_of"] == "shell.output"
+    assert alias_specs["NotebookEdit"].raw["metadata"]["alias_of"] == "notebook.edit"
+    assert alias_specs["EnterWorktree"].raw["metadata"]["alias_of"] == "worktree.enter"
+    assert alias_specs["ExitWorktree"].raw["metadata"]["alias_of"] == "worktree.exit"
+    assert read.is_error is False
+    assert read.raw["type"] == "text"
+    assert read.raw["file"]["filePath"] == "notes.txt"
+    assert written.is_error is False
+    assert written.raw["path"] == "draft.txt"
+    assert edited.is_error is False
+    assert edited.raw["filePath"] == "draft.txt"
+    assert (tmp_path / "draft.txt").read_text(encoding="utf-8") == "beta\n"
+    assert "draft.txt" in globbed.raw["filenames"]
+    assert grepped.content == "notes.txt:2:needle"
+    assert bashed.raw["stdout"] == "ok\n"
+    assert bash_output.raw["retrieval_status"] == "success"
+    assert bash_output.raw["output"].strip() == "later"
+    assert context.todos[0]["content"] == "Check aliases"
+    assert todos.raw["newTodos"][0]["activeForm"] == "Checking aliases"
+    assert slept.raw["reason"] == "alias test"
+    assert notebook_edit.is_error is False
+    assert notebook_edit.raw["cell_id"] == "intro"
+    assert json.loads((tmp_path / "analysis.ipynb").read_text(encoding="utf-8"))["cells"][0]["source"] == "Updated title\n"
+
+    impact = describe_tool_impact(
+        ToolCall(
+            id="call-edit",
+            name="Edit",
+            arguments={"file_path": "draft.txt", "old_string": "beta\n", "new_string": "gamma\n"},
+        )
+    )
+    assert impact.risk == "medium"
+    assert impact.operations == ["file_patch"]
+    assert impact.paths == ["draft.txt"]
+
+
+def test_config_manage_and_src_origin_alias_update_session_config(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    store = InMemorySessionStateStore()
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+        session_state_store=store,
+        agent_spec=AgentSpec.from_overrides(protocol="openai-chat", model="base-model", permission_profile="auto"),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    theme = asyncio.run(registry.execute("Config", {"setting": "theme"}))
+    verbose = asyncio.run(registry.execute("Config", {"setting": "verbose", "value": "true"}))
+    model = asyncio.run(registry.execute("config.manage", {"setting": "model", "value": "override-model"}))
+    permission = asyncio.run(registry.execute("Config", {"setting": "permissions.defaultMode", "value": "plan"}))
+    invalid = asyncio.run(registry.execute("Config", {"setting": "editorMode", "value": "emacs"}))
+    missing = asyncio.run(registry.execute("Config", {"setting": "missing.setting"}))
+    record = asyncio.run(store.load_for_scope("tenant", user_id="user", agent_id="agent", workspace_id="workspace"))
+
+    assert theme.content == 'theme = "dark"'
+    assert verbose.raw["newValue"] is True
+    assert model.raw["newValue"] == "override-model"
+    assert context.agent_spec.model.model == "override-model"
+    assert permission.raw["newValue"] == "plan"
+    assert context.permission_profile_override == "plan"
+    assert context.permission_mode_override == "ask"
+    assert invalid.is_error is True
+    assert invalid.raw["error"] == 'Invalid value "emacs". Options: normal, vim'
+    assert missing.is_error is True
+    assert missing.raw["error"] == 'Unknown setting: "missing.setting"'
+    assert record.metadata["config.verbose"] == "true"
+    assert record.metadata["config.model"] == json.dumps("override-model")
+    assert record.metadata["config.permissions.defaultMode"] == json.dumps("plan")
+
+    specs = {spec.name: spec.raw["metadata"]["alias_of"] for spec in registry.specs(["Config"])}
+    assert specs == {"Config": "config.manage"}
+
+    read_impact = describe_tool_impact(ToolCall(id="call-config-read", name="Config", arguments={"setting": "model"}))
+    write_impact = describe_tool_impact(
+        ToolCall(id="call-config-write", name="Config", arguments={"setting": "model", "value": "override-model"})
+    )
+    read_decision = asyncio.run(
+        build_tool_permission_policy(AgentSpec()).authorize(ToolCall(id="read", name="Config", arguments={"setting": "model"}))
+    )
+    write_decision = asyncio.run(
+        build_tool_permission_policy(AgentSpec()).authorize(
+            ToolCall(id="write", name="Config", arguments={"setting": "model", "value": "override-model"})
+        )
+    )
+
+    assert read_impact.operations == ["config_read"]
+    assert write_impact.operations == ["config_write"]
+    assert read_decision.allowed is True
+    assert write_decision.requires_approval is True
+
+
+def test_worktree_tools_enter_keep_resume_and_remove_git_worktrees(tmp_path: Path):
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _run_git(repo, "init")
+    _run_git(repo, "config", "user.email", "agent@example.com")
+    _run_git(repo, "config", "user.name", "Agent Test")
+    (repo / "README.md").write_text("hello\n", encoding="utf-8")
+    _run_git(repo, "add", "README.md")
+    _run_git(repo, "commit", "-m", "initial")
+
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=repo,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True, allow_process=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    entered = asyncio.run(registry.execute("EnterWorktree", {"name": "feature/test"}))
+    worktree_path = Path(entered.raw["worktreePath"])
+    kept = asyncio.run(registry.execute("ExitWorktree", {"action": "keep"}))
+    kept_path_exists = worktree_path.exists()
+    resumed = asyncio.run(registry.execute("worktree.enter", {"name": "feature/test"}))
+    clean_removed = asyncio.run(registry.execute("worktree.exit", {"action": "remove"}))
+    dirty_entered = asyncio.run(registry.execute("worktree.enter", {"name": "cleanup"}))
+    dirty_path = Path(dirty_entered.raw["worktreePath"])
+    (dirty_path / "README.md").write_text("dirty\n", encoding="utf-8")
+    blocked = asyncio.run(registry.execute("worktree.exit", {"action": "remove"}))
+    blocked_workspace = context.workspace.path
+    removed = asyncio.run(registry.execute("ExitWorktree", {"action": "remove", "discard_changes": True}))
+    enter_impact = describe_tool_impact(ToolCall(id="enter-wt", name="EnterWorktree", arguments={"name": "cleanup"}))
+    remove_impact = describe_tool_impact(ToolCall(id="exit-wt", name="ExitWorktree", arguments={"action": "remove"}))
+    remove_decision = asyncio.run(
+        build_tool_permission_policy(AgentSpec()).authorize(ToolCall(id="remove", name="ExitWorktree", arguments={"action": "remove"}))
+    )
+
+    assert entered.is_error is False
+    assert entered.raw["worktreeBranch"] == "worktree-feature+test"
+    assert kept.raw["action"] == "keep"
+    assert context.workspace.path == repo.resolve()
+    assert kept_path_exists is True
+    assert resumed.raw["resumed"] is True
+    assert clean_removed.is_error is False
+    assert not worktree_path.exists()
+    assert dirty_entered.is_error is False
+    assert blocked.is_error is True
+    assert "discard_changes=true" in blocked.content
+    assert blocked_workspace == dirty_path.resolve()
+    assert removed.is_error is False
+    assert removed.raw["discardedFiles"] == 1
+    assert not dirty_path.exists()
+    assert context.workspace.path == repo.resolve()
+    assert context.active_worktree_session == {}
+    assert enter_impact.operations == ["worktree_create", "workspace_switch"]
+    assert remove_impact.risk == "high"
+    assert remove_decision.requires_approval is True
+
+
+def test_worktree_enter_runs_src_origin_style_post_creation_setup(tmp_path: Path):
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _run_git(repo, "init")
+    _run_git(repo, "config", "user.email", "agent@example.com")
+    _run_git(repo, "config", "user.name", "Agent Test")
+    (repo / ".gitignore").write_text(".env\nconfig/local.toml\nignored/\ncache/\n", encoding="utf-8")
+    (repo / ".worktreeinclude").write_text("ignored/secret.txt\nignored/nested/\n", encoding="utf-8")
+    (repo / ".husky").mkdir()
+    (repo / ".husky" / "pre-commit").write_text("#!/bin/sh\n", encoding="utf-8")
+    (repo / "README.md").write_text("hello\n", encoding="utf-8")
+    _run_git(repo, "add", ".gitignore", ".worktreeinclude", ".husky/pre-commit", "README.md")
+    _run_git(repo, "commit", "-m", "initial")
+    (repo / ".env").write_text("TOKEN=local\n", encoding="utf-8")
+    (repo / "config").mkdir()
+    (repo / "config" / "local.toml").write_text("[local]\nvalue = true\n", encoding="utf-8")
+    (repo / "ignored" / "nested").mkdir(parents=True)
+    (repo / "ignored" / "secret.txt").write_text("secret\n", encoding="utf-8")
+    (repo / "ignored" / "nested" / "deep.txt").write_text("deep\n", encoding="utf-8")
+    (repo / "cache").mkdir()
+    (repo / "cache" / "artifact.bin").write_text("cache\n", encoding="utf-8")
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=repo,
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=SandboxPolicy.for_workspace(workspace.path, allow_file_write=True, allow_process=True),
+        agent_spec=AgentSpec(metadata={"worktree": {"symlink_directories": ["cache"]}}),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    entered = asyncio.run(registry.execute("worktree.enter", {"name": "post-create"}))
+    worktree_path = Path(entered.raw["worktreePath"])
+    hooks_path = _run_git(worktree_path, "config", "core.hooksPath").stdout.strip()
+    status = _run_git(repo, "status", "--porcelain", "--untracked-files=all").stdout
+    env_content = (worktree_path / ".env").read_text(encoding="utf-8")
+    local_config_content = (worktree_path / "config" / "local.toml").read_text(encoding="utf-8")
+    secret_content = (worktree_path / "ignored" / "secret.txt").read_text(encoding="utf-8")
+    deep_content = (worktree_path / "ignored" / "nested" / "deep.txt").read_text(encoding="utf-8")
+    cache_is_symlink = (worktree_path / "cache").is_symlink()
+    cache_target = (worktree_path / "cache").resolve()
+    removed = asyncio.run(registry.execute("worktree.exit", {"action": "remove", "discard_changes": True}))
+
+    assert entered.is_error is False
+    assert sorted(entered.raw["copiedFiles"]) == ["ignored/nested/deep.txt", "ignored/secret.txt"]
+    assert sorted(entered.raw["copiedLocalFiles"]) == [".env", "config/local.toml"]
+    assert entered.raw["symlinkedDirectories"] == ["cache"]
+    assert entered.raw["hooksPath"] == str((repo / ".husky").resolve())
+    assert hooks_path == str((repo / ".husky").resolve())
+    assert env_content == "TOKEN=local\n"
+    assert local_config_content == "[local]\nvalue = true\n"
+    assert secret_content == "secret\n"
+    assert deep_content == "deep\n"
+    assert cache_is_symlink is True
+    assert cache_target == (repo / "cache").resolve()
+    assert ".agents/worktrees/" in (repo / ".git" / "info" / "exclude").read_text(encoding="utf-8")
+    assert ".agents/worktrees" not in status
+    assert removed.is_error is False
+
+
+def test_worktree_enter_applies_sparse_paths_from_agent_metadata(tmp_path: Path):
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _run_git(repo, "init")
+    _run_git(repo, "config", "user.email", "agent@example.com")
+    _run_git(repo, "config", "user.name", "Agent Test")
+    (repo / "src").mkdir()
+    (repo / "docs").mkdir()
+    (repo / "src" / "app.py").write_text("print('ok')\n", encoding="utf-8")
+    (repo / "docs" / "guide.md").write_text("# Guide\n", encoding="utf-8")
+    _run_git(repo, "add", "src/app.py", "docs/guide.md")
+    _run_git(repo, "commit", "-m", "initial")
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=repo,
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=SandboxPolicy.for_workspace(workspace.path, allow_file_write=True, allow_process=True),
+        agent_spec=AgentSpec(metadata={"worktree": {"sparse_paths": ["src"]}}),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    entered = asyncio.run(registry.execute("EnterWorktree", {"name": "sparse"}))
+    worktree_path = Path(entered.raw["worktreePath"])
+    src_exists = (worktree_path / "src" / "app.py").is_file()
+    docs_exists = (worktree_path / "docs" / "guide.md").exists()
+    removed = asyncio.run(registry.execute("ExitWorktree", {"action": "remove"}))
+
+    assert entered.is_error is False
+    assert entered.raw["usedSparsePaths"] is True
+    assert src_exists is True
+    assert docs_exists is False
+    assert context.active_worktree_session == {}
+    assert removed.is_error is False
+
+
+def test_ask_user_question_tool_and_src_origin_alias(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+    questions = [
+        {
+            "question": "Which auth method should we use?",
+            "header": "Auth",
+            "options": [
+                {"label": "OAuth (Recommended)", "description": "Use OAuth login."},
+                {"label": "JWT", "description": "Use signed tokens."},
+            ],
+        }
+    ]
+
+    answered = asyncio.run(
+        registry.execute(
+            "AskUserQuestion",
+            {
+                "questions": questions,
+                "answers": {"Which auth method should we use?": "OAuth (Recommended)"},
+                "annotations": {"Which auth method should we use?": {"notes": "Matches product direction."}},
+            },
+        )
+    )
+    invalid = asyncio.run(registry.execute("AskUserQuestion", {"questions": [{**questions[0], "options": questions[0]["options"][:1]}]}))
+
+    assert answered.is_error is False
+    assert answered.raw["answers"] == {"Which auth method should we use?": "OAuth (Recommended)"}
+    assert "User answered questions" in answered.content
+    assert invalid.is_error is True
+    assert "must include 2-4 options" in invalid.content
+    assert registry.specs(["AskUserQuestion"])[0].raw["metadata"]["alias_of"] == "user.ask"
+
+    impact = describe_tool_impact(ToolCall(id="call-ask", name="AskUserQuestion", arguments={"questions": questions}))
+    decision = asyncio.run(
+        build_tool_permission_policy(AgentSpec()).authorize(ToolCall(id="ask", name="AskUserQuestion", arguments={"questions": questions}))
+    )
+
+    assert impact.operations == ["user_interaction"]
+    assert impact.query == "Which auth method should we use?"
+    assert decision.requires_approval is True
+    assert decision.metadata["permission"] == "user_interaction"
+
+
+def test_send_user_message_and_brief_aliases_attach_workspace_files(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "report.txt").write_text("done\n", encoding="utf-8")
+    (tmp_path / "pixel.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    sent = asyncio.run(
+        registry.execute(
+            "SendUserMessage",
+            {"message": "Review complete.", "attachments": ["report.txt", "pixel.png"], "status": "normal"},
+        )
+    )
+    brief = asyncio.run(registry.execute("Brief", {"message": "Heads up.", "status": "proactive"}))
+    missing = asyncio.run(registry.execute("SendUserMessage", {"message": "Missing file.", "attachments": ["missing.txt"], "status": "normal"}))
+
+    assert sent.is_error is False
+    assert sent.content == "Message delivered to user. (2 attachments included)"
+    assert sent.raw["message"] == "Review complete."
+    assert sent.raw["status"] == "normal"
+    assert sent.raw["attachments"] == [
+        {"path": "report.txt", "size": 5, "isImage": False},
+        {"path": "pixel.png", "size": 8, "isImage": True},
+    ]
+    assert brief.raw["status"] == "proactive"
+    assert "sentAt" in brief.raw
+    assert missing.is_error is True
+    assert "attachment not found" in missing.content
+
+    aliases = {spec.name: spec.raw["metadata"]["alias_of"] for spec in registry.specs(["SendUserMessage", "Brief"])}
+    assert aliases == {"SendUserMessage": "user.message", "Brief": "user.message"}
+
+    impact = describe_tool_impact(
+        ToolCall(
+            id="call-message",
+            name="SendUserMessage",
+            arguments={"message": "Review complete.", "attachments": ["report.txt"]},
+        )
+    )
+    assert impact.operations == ["user_message"]
+    assert impact.paths == ["report.txt"]
+    assert impact.query == "Review complete."
+
+
+def test_builtin_search_glob_finds_workspace_files(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("print('app')\n", encoding="utf-8")
+    (tmp_path / "src" / "view.tsx").write_text("export {}\n", encoding="utf-8")
+    (tmp_path / "README.md").write_text("readme\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    result = asyncio.run(registry.execute("search.glob", {"pattern": "*.{py,tsx}", "path": "src"}))
+    limited = asyncio.run(registry.execute("search.glob", {"pattern": "*.{py,tsx}", "path": "src", "max_results": 1}))
+    empty = asyncio.run(registry.execute("search.glob", {"pattern": "*.go", "path": "src"}))
+    impact = describe_tool_impact(ToolCall(id="call-glob", name="search.glob", arguments={"pattern": "*.{py,tsx}", "path": "src"}))
+
+    assert result.is_error is False
+    assert sorted(result.raw["filenames"]) == ["src/app.py", "src/view.tsx"]
+    assert sorted(result.content.splitlines()) == ["src/app.py", "src/view.tsx"]
+    assert result.raw["numFiles"] == 2
+    assert "durationMs" in result.raw
+    assert len(limited.raw["filenames"]) == 1
+    assert limited.raw["truncated"] is True
+    assert limited.content.endswith("(Results are truncated. Consider using a more specific path or pattern.)")
+    assert empty.content == "No files found"
+    assert impact.operations == ["file_read"]
+    assert impact.paths == ["src"]
+    assert impact.query == "*.{py,tsx}"
+
+
+def test_builtin_search_grep_formats_model_visible_results(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("alpha\nneedle\n", encoding="utf-8")
+    (tmp_path / "src" / "view.tsx").write_text("needle\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    default = asyncio.run(registry.execute("search.grep", {"pattern": "needle", "path": "src"}))
+    content = asyncio.run(registry.execute("search.grep", {"pattern": "needle", "path": "src", "output_mode": "content"}))
+    count = asyncio.run(registry.execute("search.grep", {"pattern": "needle", "path": "src", "output_mode": "count"}))
+    filtered = asyncio.run(registry.execute("search.grep", {"pattern": "needle", "path": "src", "glob": "*.py"}))
+    typed = asyncio.run(registry.execute("search.grep", {"pattern": "needle", "path": "src", "type": "py"}))
+    limited = asyncio.run(registry.execute("search.grep", {"pattern": "needle", "path": "src", "head_limit": 1}))
+    context = asyncio.run(
+        registry.execute("search.grep", {"pattern": "needle", "path": "src", "output_mode": "content", "context": 1})
+    )
+    multiline = asyncio.run(
+        registry.execute(
+            "search.grep",
+            {"pattern": "alpha\\nneedle", "path": "src", "output_mode": "content", "multiline": True},
+        )
+    )
+    without_lines = asyncio.run(
+        registry.execute(
+            "search.grep",
+            {"pattern": "needle", "path": "src", "glob": "*.py", "output_mode": "content", "-n": False},
+        )
+    )
+    empty = asyncio.run(registry.execute("search.grep", {"pattern": "missing", "path": "src"}))
+
+    assert default.is_error is False
+    assert default.content.splitlines()[0] == "Found 2 files"
+    assert default.content.splitlines()[1:] == ["src/app.py", "src/view.tsx"]
+    assert default.raw["numFiles"] == 2
+    assert default.raw["numMatches"] == 2
+    assert default.raw["matches"][0]["line"] == "needle"
+    assert content.content == "src/app.py:2:needle\nsrc/view.tsx:1:needle"
+    assert content.raw["mode"] == "content"
+    assert count.content.endswith("Found 2 total occurrences across 2 files.")
+    assert "src/app.py:1" in count.content
+    assert filtered.content == "Found 1 file\nsrc/app.py"
+    assert filtered.raw["glob"] == "*.py"
+    assert filtered.raw["filenames"] == ["src/app.py"]
+    assert typed.content == "Found 1 file\nsrc/app.py"
+    assert typed.raw["type"] == "py"
+    assert limited.content == "Found 1 file limit: 1\nsrc/app.py"
+    assert limited.raw["appliedLimit"] == 1
+    assert context.content == "src/app.py-1-alpha\nsrc/app.py:2:needle\nsrc/view.tsx:1:needle"
+    assert context.raw["numLines"] == 3
+    assert context.raw["matches"][0]["is_match"] is False
+    assert multiline.content == "src/app.py:1:alpha\nsrc/app.py-2-needle"
+    assert multiline.raw["multiline"] is True
+    assert without_lines.content == "src/app.py:needle"
+    assert empty.content == "No files found"
+
+
+def test_shell_run_accepts_src_origin_timeout_alias_and_description(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(
+        workspace.path,
+        allow_process=True,
+        allowed_commands=(Path(sys.executable).name,),
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    script = "print('ok')"
+    result = asyncio.run(
+        registry.execute(
+            "shell.run",
+            {
+                "command": "%s -c %s" % (shlex.quote(sys.executable), shlex.quote(script)),
+                "timeout": 5000,
+                "description": "Print ok",
+            },
+        )
+    )
+
+    assert result.is_error is False
+    assert result.raw["stdout"] == "ok\n"
+    assert result.raw["description"] == "Print ok"
+    assert result.raw["background"] is False
+    assert result.raw["interrupted"] is False
+    assert result.raw["isImage"] is False
+    assert result.raw["dangerouslyDisableSandbox"] is False
+    assert result.raw["timeout_seconds"] == 5.0
+    assert result.raw["timeout_ms"] == 5000
+
+
+def test_shell_run_rejects_unsupported_sandbox_override(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(
+        workspace.path,
+        allow_process=True,
+        allowed_commands=("echo",),
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    result = asyncio.run(registry.execute("shell.run", {"command": "echo ok", "dangerouslyDisableSandbox": True}))
+
+    assert result.is_error is True
+    assert "dangerouslyDisableSandbox is not supported" in result.content
+    assert result.raw["dangerouslyDisableSandbox"] is True
+    assert result.raw["returnCodeInterpretation"] == "Sandbox override rejected"
+
+
+def test_shell_run_background_returns_task_and_output_file(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(
+        workspace.path,
+        allow_process=True,
+        allowed_commands=(Path(sys.executable).name,),
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    async def execute():
+        script = "import time; print('start', flush=True); time.sleep(0.05); print('done', flush=True)"
+        started = await registry.execute(
+            "shell.run",
+            {
+                "command": "%s -c %s" % (shlex.quote(sys.executable), shlex.quote(script)),
+                "run_in_background": True,
+                "timeout": 5000,
+                "description": "Run short background script",
+            },
+        )
+        task_id = started.raw["task_id"]
+        not_ready = await registry.execute("shell.output", {"task_id": task_id, "block": False})
+        final = await registry.execute("shell.output", {"task_id": task_id, "block": True, "timeout_seconds": 2.0})
+        listed = await registry.execute("shell.backgrounds", {})
+        return started, not_ready, final, listed
+
+    started, not_ready, final, listed = asyncio.run(execute())
+
+    assert started.is_error is False
+    assert started.raw["background"] is True
+    assert started.raw["backgroundTaskId"] == started.raw["task_id"]
+    assert started.raw["backgroundedByUser"] is False
+    assert started.raw["assistantAutoBackgrounded"] is False
+    assert started.raw["interrupted"] is False
+    assert started.raw["stdout"] == ""
+    assert started.raw["stderr"] == ""
+    assert started.raw["dangerouslyDisableSandbox"] is False
+    assert started.raw["description"] == "Run short background script"
+    assert started.raw["timeout_seconds"] == 5.0
+    assert started.raw["timeout_ms"] == 5000
+    assert started.raw["output_path"].startswith(".agents/task-output/shell_")
+    assert not_ready.is_error is False
+    assert not_ready.raw["retrieval_status"] in {"not_ready", "success"}
+    assert final.is_error is False
+    assert final.raw["retrieval_status"] == "success"
+    assert final.raw["task"]["status"] == "completed"
+    assert "start\ndone\n" in final.raw["output"]
+    assert listed.raw["count"] == 1
+    assert listed.raw["background_commands"][0]["task_id"] == started.raw["task_id"]
+    assert (tmp_path / started.raw["output_path"]).read_text(encoding="utf-8") == "start\ndone\n"
+
+
+def test_shell_kill_stops_background_command(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(
+        workspace.path,
+        allow_process=True,
+        allowed_commands=(Path(sys.executable).name,),
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    async def execute():
+        script = "import time; print('start', flush=True); time.sleep(5)"
+        started = await registry.execute(
+            "shell.run",
+            {
+                "command": "%s -c %s" % (shlex.quote(sys.executable), shlex.quote(script)),
+                "run_in_background": True,
+                "timeout_seconds": 30.0,
+            },
+        )
+        await asyncio.sleep(0.1)
+        killed = await registry.execute("shell.kill", {"task_id": started.raw["task_id"]})
+        output = await registry.execute("shell.output", {"task_id": started.raw["task_id"], "block": False})
+        return started, killed, output
+
+    started, killed, output = asyncio.run(execute())
+
+    assert started.is_error is False
+    assert killed.is_error is False
+    assert killed.raw["killed"] is True
+    assert killed.raw["task"]["status"] == "killed"
+    assert output.raw["task"]["status"] == "killed"
+    assert "start" in output.raw["output"]
+
+
+def test_sleep_wait_is_dedicated_cancelable_wait_tool(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    result = asyncio.run(registry.execute("sleep.wait", {"duration_seconds": 0.01, "reason": "test wait"}))
+    impact = describe_tool_impact(ToolCall(id="call-sleep", name="sleep.wait", arguments={"duration_seconds": 2}))
+
+    assert result.is_error is False
+    assert result.raw["requested_seconds"] == 0.01
+    assert result.raw["slept_seconds"] >= 0
+    assert result.raw["reason"] == "test wait"
+    assert impact.risk == "low"
+    assert impact.operations == ["wait"]
+
+
+def test_shell_run_blocks_long_foreground_sleep_in_favor_of_sleep_wait(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(
+        workspace.path,
+        allow_process=True,
+        allowed_commands=("sleep",),
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    blocked = asyncio.run(registry.execute("shell.run", {"command": "sleep 2"}))
+
+    assert blocked.is_error is True
+    assert "Blocked: standalone sleep 2" in blocked.content
+    assert "sleep.wait" in blocked.content
+    assert detect_blocked_sleep_pattern("sleep 1") is None
+    assert detect_blocked_sleep_pattern("sleep 0.5") is None
+    assert detect_blocked_sleep_pattern("sleep 2 | cat") is None
+    assert detect_blocked_sleep_pattern("sleep 2 && echo done") == "sleep 2 followed by: echo done"
+
+
+def test_shell_run_reports_silent_command_and_failure_semantics(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(
+        workspace.path,
+        allow_process=True,
+        allowed_commands=("mkdir", "false"),
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    silent = asyncio.run(registry.execute("shell.run", {"command": "mkdir created"}))
+    failed = asyncio.run(registry.execute("shell.run", {"command": "false"}))
+
+    assert silent.is_error is False
+    assert silent.raw["exit_code"] == 0
+    assert silent.raw["failed"] is False
+    assert silent.raw["no_output_expected"] is True
+    assert (tmp_path / "created").is_dir()
+    assert failed.is_error is True
+    assert failed.raw["exit_code"] != 0
+    assert failed.raw["failed"] is True
+    assert failed.raw["error"] == "tool_execution_error"
+    assert failed.raw["return_code_interpretation"] == "Command failed with exit code 1"
+    assert "Command failed with exit code 1" in failed.content
+    assert is_silent_shell_command("mkdir a && touch b") is True
+    assert is_silent_shell_command("mkdir a && echo done") is False
+
+
+def test_shell_run_uses_src_origin_exit_code_semantics(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "hay.txt").write_text("alpha\n", encoding="utf-8")
+    (tmp_path / "left.txt").write_text("left\n", encoding="utf-8")
+    (tmp_path / "right.txt").write_text("right\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(
+        workspace.path,
+        allow_process=True,
+        allowed_commands=("grep", "diff", "test"),
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    grep_no_matches = asyncio.run(registry.execute("shell.run", {"command": "grep needle hay.txt"}))
+    diff_files = asyncio.run(registry.execute("shell.run", {"command": "diff left.txt right.txt"}))
+    false_test = asyncio.run(registry.execute("shell.run", {"command": "test -f missing.txt"}))
+
+    assert grep_no_matches.is_error is False
+    assert grep_no_matches.raw["exit_code"] == 1
+    assert grep_no_matches.raw["failed"] is False
+    assert grep_no_matches.raw["return_code_interpretation"] == "No matches found"
+    assert grep_no_matches.raw["returnCodeInterpretation"] == "No matches found"
+    assert grep_no_matches.raw["noOutputExpected"] is False
+    assert grep_no_matches.raw["commandClassification"] == {"isSearch": True, "isRead": False, "isList": False}
+    assert diff_files.is_error is False
+    assert diff_files.raw["exit_code"] == 1
+    assert diff_files.raw["failed"] is False
+    assert diff_files.raw["return_code_interpretation"] == "Files differ"
+    assert diff_files.raw["returnCodeInterpretation"] == "Files differ"
+    assert false_test.is_error is False
+    assert false_test.raw["exit_code"] == 1
+    assert false_test.raw["failed"] is False
+    assert false_test.raw["return_code_interpretation"] == "Condition is false"
+    assert classify_shell_command("cat hay.txt | jq .") == {"isSearch": False, "isRead": True, "isList": False}
+    assert classify_shell_command('ls . && echo "---" && ls ..') == {"isSearch": False, "isRead": False, "isList": True}
+    assert classify_shell_command("echo git status") == {"isSearch": False, "isRead": False, "isList": False}
+    assert classify_shell_command("cat hay.txt | python -c 'print(1)'") == {"isSearch": False, "isRead": False, "isList": False}
+
+
+def test_tool_execution_error_preserves_structured_raw_payload():
+    registry = ToolRegistry()
+    registry.register("structured.fail", "Structured failure", {}, lambda: (_ for _ in ()).throw(ToolExecutionError("bad output", raw={"code": 7})))
+
+    result = asyncio.run(registry.execute("structured.fail", {}))
+
+    assert result.is_error is True
+    assert result.content == "bad output"
+    assert result.raw == {"error": "tool_execution_error", "code": 7}
+
+
+def test_tool_registry_accepts_tool_definitions_with_lifecycle_metadata():
+    registry = ToolRegistry()
+    registry.register_definition(
+        ToolDefinition(
+            name="inspect",
+            description="Inspect state",
+            parameters={"type": "object", "properties": {"path": {"type": "string"}}},
+            handler=lambda path: path,
+            metadata={"risk": "low"},
+            read_only=True,
+            concurrency_safe=True,
+            interrupt_behavior="cancel",
+            max_result_size_chars=200,
+        )
+    )
+
+    spec = registry.specs(["inspect"])[0]
+
+    assert spec.raw["metadata"]["risk"] == "low"
+    assert spec.raw["metadata"]["read_only"] is True
+    assert spec.raw["metadata"]["interrupt_behavior"] == "cancel"
+    assert spec.raw["metadata"]["max_result_size_chars"] == 200
+
+
+def test_tool_registry_validates_json_schema_before_execution():
+    registry = ToolRegistry()
+    calls = []
+    registry.register(
+        "echo",
+        "Echo text",
+        {
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
+            "additionalProperties": False,
+        },
+        lambda text: calls.append(text) or text,
+    )
+
+    missing = asyncio.run(registry.execute("echo", {}))
+    wrong_type = asyncio.run(registry.execute("echo", {"text": 1}))
+    extra = asyncio.run(registry.execute("echo", {"text": "ok", "unused": True}))
+    ok = asyncio.run(registry.execute("echo", {"text": "ok"}))
+
+    assert missing.is_error is True
+    assert "missing required argument: text" in missing.content
+    assert wrong_type.is_error is True
+    assert "text must be string" in wrong_type.content
+    assert extra.is_error is True
+    assert "unexpected argument: unused" in extra.content
+    assert ok.content == "ok"
+    assert calls == ["ok"]
+
+
+def test_tool_registry_can_disable_strict_input_validation():
+    registry = ToolRegistry()
+    registry.register(
+        "loose",
+        "Loose tool",
+        {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
+        lambda **kwargs: kwargs,
+        metadata={"strict_input_schema": False},
+    )
+
+    result = asyncio.run(registry.execute("loose", {"count": 1}))
+
+    assert result.is_error is False
+    assert json.loads(result.content) == {"count": 1}
 
 
 def test_tool_executor_runs_calls_concurrently_and_preserves_order():
@@ -123,6 +1299,797 @@ def test_tool_executor_runs_state_writes_sequentially():
 
     assert [item.content for item in results] == ["first", "second"]
     assert calls == ["first", "second"]
+
+
+def test_tool_executor_runs_non_concurrency_safe_tools_sequentially():
+    registry = ToolRegistry()
+    calls = []
+
+    async def slow_exclusive(text):
+        await asyncio.sleep(0.02)
+        calls.append(text)
+        return text
+
+    async def fast_read(text):
+        calls.append(text)
+        return text
+
+    registry.register(
+        "exclusive",
+        "Exclusive",
+        {},
+        slow_exclusive,
+        metadata={"concurrency_safe": False},
+    )
+    registry.register("read", "Read", {}, fast_read)
+
+    results = asyncio.run(
+        registry.execute_many(
+            [
+                ToolCall(id="call-1", name="exclusive", arguments={"text": "first"}),
+                ToolCall(id="call-2", name="read", arguments={"text": "second"}),
+            ]
+        )
+    )
+
+    assert [item.content for item in results] == ["first", "second"]
+    assert calls == ["first", "second"]
+
+
+def test_tool_executor_cancel_on_error_contract_cancels_sibling_tools():
+    registry = ToolRegistry()
+    cancelled = {"slow": False}
+
+    async def fail_fast():
+        raise RuntimeError("broken")
+
+    async def slow_tool():
+        try:
+            await asyncio.sleep(1)
+            return "too late"
+        except asyncio.CancelledError:
+            cancelled["slow"] = True
+            raise
+
+    registry.register("fail", "Fail", {}, fail_fast, metadata={"cancels_siblings_on_error": True})
+    registry.register("slow", "Slow", {}, slow_tool)
+
+    results = asyncio.run(
+        registry.execute_many(
+            [
+                ToolCall(id="call-1", name="fail"),
+                ToolCall(id="call-2", name="slow"),
+            ]
+        )
+    )
+
+    assert [item.tool_call_id for item in results] == ["call-1", "call-2"]
+    assert results[0].is_error is True
+    assert "broken" in results[0].content
+    assert results[1].is_error is True
+    assert results[1].raw["error"] == "tool_execution_canceled"
+    assert results[1].raw["canceled_by"] == "fail"
+    assert cancelled["slow"] is True
+
+
+def test_tool_executor_default_error_does_not_cancel_sibling_tools():
+    registry = ToolRegistry()
+    calls = []
+
+    async def fail_fast():
+        raise RuntimeError("broken")
+
+    async def slow_tool():
+        await asyncio.sleep(0.02)
+        calls.append("slow")
+        return "done"
+
+    registry.register("fail", "Fail", {}, fail_fast)
+    registry.register("slow", "Slow", {}, slow_tool)
+
+    results = asyncio.run(
+        registry.execute_many(
+            [
+                ToolCall(id="call-1", name="fail"),
+                ToolCall(id="call-2", name="slow"),
+            ]
+        )
+    )
+
+    assert results[0].is_error is True
+    assert results[1].content == "done"
+    assert calls == ["slow"]
+
+
+def test_tool_executor_external_cancel_returns_synthetic_results_for_pending_tools():
+    registry = ToolRegistry()
+    started = None
+    cancelled = {"slow": False}
+
+    async def slow_tool():
+        assert started is not None
+        started.set()
+        try:
+            await asyncio.sleep(1)
+            return "too late"
+        except asyncio.CancelledError:
+            cancelled["slow"] = True
+            raise
+
+    registry.register("slow", "Slow", {}, slow_tool)
+
+    async def run_and_cancel():
+        nonlocal started
+        started = asyncio.Event()
+        task = asyncio.create_task(registry.execute_many([ToolCall(id="call-1", name="slow")]))
+        await started.wait()
+        task.cancel()
+        return await task
+
+    results = asyncio.run(run_and_cancel())
+
+    assert [item.tool_call_id for item in results] == ["call-1"]
+    assert results[0].is_error is True
+    assert results[0].raw["error"] == "tool_execution_canceled"
+    assert results[0].raw["cancel_reason"] == "user_interrupted"
+    assert cancelled["slow"] is True
+
+
+def test_tool_executor_external_cancel_returns_results_for_remaining_sequential_tools():
+    registry = ToolRegistry()
+    started = None
+    calls = []
+
+    async def slow_exclusive():
+        assert started is not None
+        started.set()
+        try:
+            await asyncio.sleep(1)
+            return "too late"
+        except asyncio.CancelledError:
+            calls.append("cancelled")
+            raise
+
+    async def later_tool():
+        calls.append("later")
+        return "later"
+
+    registry.register("exclusive", "Exclusive", {}, slow_exclusive, metadata={"concurrency_safe": False})
+    registry.register("later", "Later", {}, later_tool)
+
+    async def run_and_cancel():
+        nonlocal started
+        started = asyncio.Event()
+        task = asyncio.create_task(
+            registry.execute_many(
+                [
+                    ToolCall(id="call-1", name="exclusive"),
+                    ToolCall(id="call-2", name="later"),
+                ]
+            )
+        )
+        await started.wait()
+        task.cancel()
+        return await task
+
+    results = asyncio.run(run_and_cancel())
+
+    assert [item.tool_call_id for item in results] == ["call-1", "call-2"]
+    assert [item.raw["cancel_reason"] for item in results] == ["user_interrupted", "user_interrupted"]
+    assert calls == ["cancelled"]
+
+
+def test_tool_executor_interrupt_cancel_waits_for_blocking_tools():
+    registry = ToolRegistry()
+    started = None
+
+    async def slow_blocking():
+        assert started is not None
+        started.set()
+        await asyncio.sleep(0.02)
+        return "finished"
+
+    registry.register("slow", "Slow", {}, slow_blocking)
+
+    async def run_and_interrupt():
+        nonlocal started
+        started = asyncio.Event()
+        task = asyncio.create_task(registry.execute_many([ToolCall(id="call-1", name="slow")]))
+        await started.wait()
+        task.cancel("interrupt")
+        return await task
+
+    results = asyncio.run(run_and_interrupt())
+
+    assert [item.tool_call_id for item in results] == ["call-1"]
+    assert results[0].is_error is False
+    assert results[0].content == "finished"
+
+
+def test_tool_executor_interrupt_cancel_cancels_explicit_cancel_tools():
+    registry = ToolRegistry()
+    started = None
+
+    async def slow_cancelable():
+        assert started is not None
+        started.set()
+        await asyncio.sleep(1)
+        return "too late"
+
+    registry.register("slow", "Slow", {}, slow_cancelable, metadata={"interrupt_behavior": "cancel"})
+
+    async def run_and_interrupt():
+        nonlocal started
+        started = asyncio.Event()
+        task = asyncio.create_task(registry.execute_many([ToolCall(id="call-1", name="slow")]))
+        await started.wait()
+        task.cancel("interrupt")
+        return await task
+
+    results = asyncio.run(run_and_interrupt())
+
+    assert results[0].is_error is True
+    assert results[0].raw["cancel_reason"] == "user_interrupted"
+
+
+def test_tool_executor_truncates_result_when_limit_is_configured():
+    registry = ToolRegistry()
+    registry.register("long", "Long", {}, lambda: "abcdef", metadata={"max_result_size_chars": 3})
+
+    result = asyncio.run(registry.execute("long", {}))
+
+    assert result.content == "abc\n[tool result truncated]"
+    assert result.raw["_meta"]["result_truncated"] is True
+
+
+def test_filesystem_read_formats_line_ranges_and_does_not_record_partial_read(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "notes.txt").write_text("one\ntwo\nthree\nfour\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    partial = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt", "offset": 2, "limit": 2}))
+    write = asyncio.run(registry.execute("filesystem.write", {"path": "notes.txt", "content": "new\n"}))
+
+    assert partial.is_error is False
+    assert partial.content.startswith("2\ttwo\n3\tthree")
+    assert "[Read partial file view: startLine=2, numLines=2, totalLines=4]" in partial.content
+    assert partial.raw["type"] == "text"
+    assert partial.raw["content"] == "two\nthree\n"
+    assert partial.raw["startLine"] == 2
+    assert partial.raw["numLines"] == 2
+    assert partial.raw["totalLines"] == 4
+    assert partial.raw["isPartialView"] is True
+    assert partial.raw["file"] == {
+        "filePath": "notes.txt",
+        "content": "two\nthree\n",
+        "numLines": 2,
+        "startLine": 2,
+        "totalLines": 4,
+    }
+    assert write.is_error is True
+    assert "File has not been read yet" in write.content
+
+
+def test_filesystem_read_returns_src_origin_style_image_payload(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    png_bytes = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    )
+    (tmp_path / "pixel.png").write_bytes(png_bytes)
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    result = asyncio.run(registry.execute("filesystem.read", {"path": "pixel.png"}))
+
+    assert result.is_error is False
+    assert result.raw["type"] == "image"
+    assert result.raw["path"] == "pixel.png"
+    assert result.raw["mimeType"] == "image/png"
+    assert result.raw["bytes"] == len(png_bytes)
+    assert result.raw["file"]["filePath"] == "pixel.png"
+    assert result.raw["file"]["type"] == "image/png"
+    assert result.raw["file"]["originalSize"] == len(png_bytes)
+    assert base64.b64decode(result.raw["file"]["base64"]) == png_bytes
+    assert result.content == "Image file read: pixel.png (image/png, %d bytes)" % len(png_bytes)
+
+
+def test_filesystem_read_returns_src_origin_style_pdf_payload(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    pdf_bytes = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n"
+    (tmp_path / "sample.pdf").write_bytes(pdf_bytes)
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    result = asyncio.run(registry.execute("filesystem.read", {"path": "sample.pdf"}))
+    pages = asyncio.run(registry.execute("filesystem.read", {"path": "sample.pdf", "pages": "1"}))
+
+    assert result.is_error is False
+    assert result.raw["type"] == "pdf"
+    assert result.raw["path"] == "sample.pdf"
+    assert result.raw["mimeType"] == "application/pdf"
+    assert result.raw["bytes"] == len(pdf_bytes)
+    assert result.raw["file"]["filePath"] == "sample.pdf"
+    assert result.raw["file"]["originalSize"] == len(pdf_bytes)
+    assert base64.b64decode(result.raw["file"]["base64"]) == pdf_bytes
+    assert result.content == "PDF file read: sample.pdf (%d bytes)" % len(pdf_bytes)
+    assert pages.is_error is True
+    assert "PDF page ranges are not supported yet" in pages.content
+
+
+def test_filesystem_read_returns_src_origin_style_notebook_payload(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    notebook = {
+        "cells": [
+            {"cell_type": "markdown", "source": ["# Title\n"], "metadata": {}},
+            {"cell_type": "code", "source": ["print(1)\n"], "outputs": [], "metadata": {}},
+        ],
+        "metadata": {},
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    }
+    (tmp_path / "analysis.ipynb").write_text(json.dumps(notebook), encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    result = asyncio.run(registry.execute("filesystem.read", {"path": "analysis.ipynb"}))
+    written = asyncio.run(registry.execute("filesystem.write", {"path": "analysis.ipynb", "content": json.dumps({**notebook, "metadata": {"ok": True}})}))
+
+    assert result.is_error is False
+    assert result.raw["type"] == "notebook"
+    assert result.raw["path"] == "analysis.ipynb"
+    assert result.raw["file"]["filePath"] == "analysis.ipynb"
+    assert result.raw["file"]["cells"] == notebook["cells"]
+    assert "Notebook file read: analysis.ipynb (2 cells)" in result.content
+    assert '"cell_type": "markdown"' in result.content
+    assert written.is_error is False
+
+
+def test_notebook_edit_updates_cells_with_read_before_write_safety(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    notebook = {
+        "cells": [
+            {"cell_type": "markdown", "id": "intro", "source": "# Title\n", "metadata": {}},
+            {
+                "cell_type": "code",
+                "id": "calc",
+                "source": "print(1)\n",
+                "outputs": [{"output_type": "stream", "text": "1\n"}],
+                "execution_count": 7,
+                "metadata": {},
+            },
+        ],
+        "metadata": {"language_info": {"name": "python"}},
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    }
+    (tmp_path / "analysis.ipynb").write_text(json.dumps(notebook), encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    unread = asyncio.run(
+        registry.execute(
+            "notebook.edit",
+            {"notebook_path": "analysis.ipynb", "cell_id": "calc", "new_source": "print(2)\n"},
+        )
+    )
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "analysis.ipynb"}))
+    replaced = asyncio.run(
+        registry.execute(
+            "notebook.edit",
+            {"notebook_path": "analysis.ipynb", "cell_id": "calc", "new_source": "print(2)\n"},
+        )
+    )
+    reread = asyncio.run(registry.execute("filesystem.read", {"path": "analysis.ipynb"}))
+    inserted = asyncio.run(
+        registry.execute(
+            "notebook.edit",
+            {
+                "notebook_path": "analysis.ipynb",
+                "cell_id": "intro",
+                "new_source": "Inserted note\n",
+                "cell_type": "markdown",
+                "edit_mode": "insert",
+            },
+        )
+    )
+    inserted_id = inserted.raw["cell_id"]
+    deleted = asyncio.run(
+        registry.execute(
+            "notebook.edit",
+            {"notebook_path": "analysis.ipynb", "cell_id": inserted_id, "new_source": "", "edit_mode": "delete"},
+        )
+    )
+    payload = json.loads((tmp_path / "analysis.ipynb").read_text(encoding="utf-8"))
+
+    assert unread.is_error is True
+    assert "Read it first before writing to it" in unread.content
+    assert read.raw["type"] == "notebook"
+    assert replaced.is_error is False
+    assert replaced.content == "Updated cell calc with print(2)\n"
+    assert replaced.raw["language"] == "python"
+    assert replaced.raw["edit_mode"] == "replace"
+    assert replaced.raw["notebook_path"] == "analysis.ipynb"
+    assert replaced.raw["original_file"] == json.dumps(notebook)
+    assert '"print(2)\\n"' in replaced.raw["updated_file"]
+    assert reread.raw["type"] == "notebook"
+    assert reread.raw["file"]["cells"][1]["source"] == "print(2)\n"
+    assert inserted.is_error is False
+    assert inserted.content == "Inserted cell %s with Inserted note\n" % inserted_id
+    assert inserted.raw["cell_type"] == "markdown"
+    assert deleted.is_error is False
+    assert deleted.content == "Deleted cell %s" % inserted_id
+    assert len(payload["cells"]) == 2
+    assert payload["cells"][1]["source"] == "print(2)\n"
+    assert payload["cells"][1]["execution_count"] is None
+    assert payload["cells"][1]["outputs"] == []
+
+    impact = describe_tool_impact(
+        ToolCall(
+            id="call-notebook",
+            name="notebook.edit",
+            arguments={"notebook_path": "analysis.ipynb", "cell_id": "calc", "new_source": "print(3)\n"},
+        )
+    )
+    assert impact.risk == "medium"
+    assert impact.operations == ["file_write", "notebook_edit"]
+    assert impact.paths == ["analysis.ipynb"]
+    assert impact.writes_files is True
+    assert "print(3)" in impact.diff_preview
+
+
+def test_notebook_edit_rejects_stale_and_invalid_notebook_edits(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    notebook = {
+        "cells": [{"cell_type": "markdown", "id": "intro", "source": "# Title\n", "metadata": {}}],
+        "metadata": {},
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    }
+    (tmp_path / "analysis.ipynb").write_text(json.dumps(notebook), encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    asyncio.run(registry.execute("filesystem.read", {"path": "analysis.ipynb"}))
+    (tmp_path / "analysis.ipynb").write_text(json.dumps({**notebook, "metadata": {"changed": True}}), encoding="utf-8")
+
+    stale = asyncio.run(
+        registry.execute(
+            "notebook.edit",
+            {"notebook_path": "analysis.ipynb", "cell_id": "intro", "new_source": "changed"},
+        )
+    )
+    asyncio.run(registry.execute("filesystem.read", {"path": "analysis.ipynb"}))
+    missing_cell_type = asyncio.run(
+        registry.execute(
+            "notebook.edit",
+            {"notebook_path": "analysis.ipynb", "new_source": "inserted", "edit_mode": "insert"},
+        )
+    )
+    missing_cell = asyncio.run(
+        registry.execute(
+            "notebook.edit",
+            {"notebook_path": "analysis.ipynb", "cell_id": "missing", "new_source": "changed"},
+        )
+    )
+    wrong_file = asyncio.run(
+        registry.execute(
+            "notebook.edit",
+            {"notebook_path": "notes.py", "cell_id": "intro", "new_source": "changed"},
+        )
+    )
+
+    assert stale.is_error is True
+    assert "modified since read" in stale.content
+    assert missing_cell_type.is_error is True
+    assert "Cell type is required" in missing_cell_type.content
+    assert missing_cell.is_error is True
+    assert 'Cell with ID "missing" not found' in missing_cell.content
+    assert wrong_file.is_error is True
+    assert "Jupyter notebook" in wrong_file.content
+
+
+def test_filesystem_read_deduplicates_unchanged_full_reads_without_breaking_write_safety(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "notes.txt").write_text("old\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    first = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+    second = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+    written = asyncio.run(registry.execute("filesystem.write", {"path": "notes.txt", "content": "new\n"}))
+
+    assert first.is_error is False
+    assert first.content == "1\told"
+    assert first.raw["type"] == "text"
+    assert first.raw["file"]["filePath"] == "notes.txt"
+    assert first.raw["file"]["content"] == "old\n"
+    assert first.raw["file"]["numLines"] == 1
+    assert first.raw["file"]["startLine"] == 1
+    assert first.raw["file"]["totalLines"] == 1
+    assert second.is_error is False
+    assert second.raw["type"] == "file_unchanged"
+    assert second.raw["file"] == {"filePath": "notes.txt"}
+    assert second.raw["deduplicated"] is True
+    assert "File unchanged since last read" in second.content
+    assert written.is_error is False
+    assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "new\n"
+
+
+def test_filesystem_read_dedup_is_invalidated_when_file_changes(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "notes.txt").write_text("old\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    first = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+    (tmp_path / "notes.txt").write_text("changed\n", encoding="utf-8")
+    second = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+
+    assert first.is_error is False
+    assert second.is_error is False
+    assert second.raw["content"] == "changed\n"
+    assert second.content == "1\tchanged"
+
+
+def test_filesystem_write_requires_read_before_overwriting_existing_file(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "notes.txt").write_text("old\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    blocked = asyncio.run(registry.execute("filesystem.write", {"path": "notes.txt", "content": "new\n"}))
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+    written = asyncio.run(registry.execute("filesystem.write", {"path": "notes.txt", "content": "new\n"}))
+
+    assert blocked.is_error is True
+    assert "File has not been read yet" in blocked.content
+    assert read.is_error is False
+    assert written.is_error is False
+    assert written.raw["safety"]["required_prior_read"] is True
+    assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "new\n"
+
+
+def test_filesystem_write_rejects_stale_prior_read(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "notes.txt").write_text("old\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+    (tmp_path / "notes.txt").write_text("changed outside\n", encoding="utf-8")
+    stale = asyncio.run(registry.execute("filesystem.write", {"path": "notes.txt", "content": "new\n"}))
+
+    assert read.is_error is False
+    assert stale.is_error is True
+    assert "modified since read" in stale.content
+    assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "changed outside\n"
+
+
+def test_filesystem_write_preserves_crlf_for_existing_file(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "notes.txt").write_bytes(b"old\r\ntext\r\n")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+    written = asyncio.run(registry.execute("filesystem.write", {"path": "notes.txt", "content": "new\ntext\n"}))
+
+    assert read.is_error is False
+    assert written.is_error is False
+    assert written.raw["safety"]["line_endings"] == "crlf"
+    assert (tmp_path / "notes.txt").read_bytes() == b"new\r\ntext\r\n"
+
+
+def test_filesystem_write_preserves_utf16le_for_existing_file(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "notes.txt").write_text("old\n", encoding="utf-16")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+    written = asyncio.run(registry.execute("filesystem.write", {"path": "notes.txt", "content": "new\n"}))
+
+    assert read.is_error is False
+    assert read.raw["encoding"] == "utf-16le"
+    assert written.is_error is False
+    assert written.raw["encoding"] == "utf-16le"
+    assert written.raw["safety"]["encoding"] == "utf-16le"
+    assert (tmp_path / "notes.txt").read_bytes().startswith(b"\xff\xfe")
+    assert (tmp_path / "notes.txt").read_text(encoding="utf-16") == "new\n"
+
+
+def test_text_edit_tools_reject_binary_files(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "payload.bin").write_bytes(b"old\x00binary")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "payload.bin"}))
+    write = asyncio.run(registry.execute("filesystem.write", {"path": "payload.bin", "content": "new"}))
+    patch = asyncio.run(
+        registry.execute(
+            "patch.apply",
+            {"edits": [{"path": "payload.bin", "old_text": "old", "new_text": "new"}]},
+        )
+    )
+
+    assert read.is_error is True
+    assert write.is_error is True
+    assert patch.is_error is True
+    assert "binary" in read.content
+    assert "binary" in write.content
+    assert "binary" in patch.content
+    assert (tmp_path / "payload.bin").read_bytes() == b"old\x00binary"
 
 
 def test_tool_executor_converts_failures_to_error_results():
@@ -185,7 +2152,7 @@ class FakeMCPClient:
         }
 
 
-def test_mcp_provider_loads_tools_with_server_prefix():
+def test_mcp_provider_loads_tools_with_src_origin_dynamic_name_and_legacy_alias():
     registry = ToolRegistry()
     client = FakeMCPClient()
     provider = MCPToolProvider(
@@ -194,12 +2161,108 @@ def test_mcp_provider_loads_tools_with_server_prefix():
     )
 
     asyncio.run(provider.load_tools(registry))
-    result = asyncio.run(registry.execute("mcp_docs_search", {"query": "agents"}))
+    result = asyncio.run(registry.execute("mcp__docs__search", {"query": "agents"}))
+    legacy_result = asyncio.run(registry.execute("mcp_docs_search", {"query": "legacy"}))
 
-    assert registry.specs(["mcp_docs_search"])[0].name == "mcp_docs_search"
-    assert registry.specs(["mcp_docs_search"])[0].raw["metadata"]["execution_mode"] == "trusted_control_plane"
+    canonical_spec = registry.specs(["mcp__docs__search"])[0]
+    legacy_spec = registry.specs(["mcp_docs_search"])[0]
+    assert canonical_spec.name == "mcp__docs__search"
+    assert canonical_spec.raw["metadata"]["execution_mode"] == "trusted_control_plane"
+    assert canonical_spec.raw["metadata"]["mcp_info"] == {
+        "server": "docs",
+        "remote_name": "search",
+        "normalized_server": "docs",
+        "normalized_tool": "search",
+    }
+    assert legacy_spec.raw["metadata"]["alias_of"] == "mcp__docs__search"
+    assert legacy_spec.raw["metadata"]["legacy_name"] is True
     assert json.loads(result.content)["answer"] == "agents"
-    assert client.called == [("search", {"query": "agents"})]
+    assert json.loads(legacy_result.content)["answer"] == "legacy"
+    assert client.called == [("search", {"query": "agents"}), ("search", {"query": "legacy"})]
+
+
+def test_mcp_provider_matches_src_origin_name_normalization():
+    assert normalize_mcp_name("search docs") == "search_docs"
+    assert normalize_mcp_name("claude.ai Docs Server") == "claude_ai_Docs_Server"
+    assert build_mcp_tool_name("claude.ai Docs Server", "search docs") == "mcp__claude_ai_Docs_Server__search_docs"
+    assert mcp_info_from_name("mcp__claude_ai_Docs_Server__search_docs") == {
+        "server": "claude_ai_Docs_Server",
+        "tool": "search_docs",
+    }
+
+
+def test_mcp_provider_registers_auth_pseudo_tool_for_auth_required_server():
+    registry = ToolRegistry()
+    client = FakeMCPClient()
+    provider = MCPToolProvider(
+        client=client,
+        server=MCPServerConfig(
+            name="docs",
+            transport="http",
+            url="https://mcp.example.test",
+            auth_required=True,
+            auth_url="https://mcp.example.test/oauth",
+            auth_status="required",
+        ),
+    )
+
+    asyncio.run(provider.load_tools(registry))
+    result = asyncio.run(registry.execute("mcp__docs__authenticate", {}))
+    payload = json.loads(result.content)
+    spec = registry.specs(["mcp__docs__authenticate"])[0]
+
+    assert "mcp__docs__authenticate" in registry.names()
+    assert "mcp__docs__search" not in registry.names()
+    assert payload["status"] == "auth_url"
+    assert payload["authUrl"] == "https://mcp.example.test/oauth"
+    assert payload["server"] == "docs"
+    assert spec.raw["metadata"]["auth_tool"] is True
+    assert spec.raw["metadata"]["requires_auth"] is True
+    assert spec.raw["metadata"]["mcp_info"]["remote_name"] == "authenticate"
+    assert client.called == []
+
+
+def test_mcp_provider_auth_pseudo_tool_reports_unsupported_transport():
+    registry = ToolRegistry()
+    provider = MCPToolProvider(
+        client=FakeMCPClient(),
+        server=MCPServerConfig(name="docs", transport="stdio", auth_required=True),
+    )
+
+    asyncio.run(provider.load_tools(registry))
+    result = asyncio.run(registry.execute("mcp__docs__authenticate", {}))
+    payload = json.loads(result.content)
+
+    assert payload["status"] == "unsupported"
+    assert payload["transport"] == "stdio"
+    assert "does not support OAuth" in payload["message"]
+
+
+class AuthErrorMCPClient(FakeMCPClient):
+    async def list_tools(self):
+        raise MCPAuthenticationRequired(
+            "needs OAuth",
+            auth_url="https://mcp.example.test/oauth",
+            transport="sse",
+            url="https://mcp.example.test/sse",
+        )
+
+
+def test_mcp_provider_converts_auth_error_to_auth_pseudo_tool():
+    registry = ToolRegistry()
+    provider = MCPToolProvider(
+        client=AuthErrorMCPClient(),
+        server=MCPServerConfig(name="docs", transport="sse", url="https://mcp.example.test/sse"),
+    )
+
+    asyncio.run(provider.load_tools(registry))
+    result = asyncio.run(registry.execute("mcp__docs__authenticate", {}))
+    payload = json.loads(result.content)
+
+    assert registry.names() == ["mcp__docs__authenticate"]
+    assert payload["status"] == "auth_url"
+    assert payload["auth_url"] == "https://mcp.example.test/oauth"
+    assert "needs OAuth" in payload["message"]
 
 
 def test_builtin_mcp_resource_tools_list_and_read_resources(tmp_path: Path):
@@ -308,6 +2371,164 @@ def test_builtin_mcp_management_tools_use_shared_config_store(tmp_path: Path):
     assert removed.raw["removed"] == "docs"
     assert cleared.raw["cleared"] is True
     assert after_clear.raw["configured"]["enabled"] is False
+
+
+def test_builtin_mcp_management_persists_auth_transport_fields(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    store = InMemoryMCPConfigStore()
+
+    def make_registry():
+        context = ToolRuntimeContext(
+            workspace=workspace,
+            sandbox=policy,
+            sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+            settings=SimpleNamespace(mcp=SimpleNamespace(SERVER_NAME="", SERVER_COMMAND="")),
+            mcp_config_store=store,
+        )
+        registry = ToolRegistry()
+        register_builtin_tools(registry, context)
+        return registry
+
+    first = make_registry()
+    second = make_registry()
+
+    asyncio.run(
+        first.execute(
+            "mcp.configure",
+            {
+                "name": "docs",
+                "transport": "http",
+                "url": "https://mcp.example.test",
+                "headers": {"Authorization": "Bearer token"},
+                "auth_required": True,
+                "auth_url": "https://mcp.example.test/oauth",
+                "auth_status": "required",
+                "auth_message": "needs OAuth",
+            },
+        )
+    )
+    listed = asyncio.run(second.execute("mcp.servers", {}))
+
+    assert listed.raw["configured"]["name"] == "docs"
+    assert listed.raw["configured"]["transport"] == "http"
+    assert listed.raw["configured"]["url"] == "https://mcp.example.test"
+    assert listed.raw["configured"]["headers"] == {"Authorization": "Bearer token"}
+    assert listed.raw["configured"]["auth_required"] is True
+    assert listed.raw["configured"]["auth_url"] == "https://mcp.example.test/oauth"
+    assert listed.raw["servers"][0]["headers"] == {"Authorization": "Bearer token"}
+    assert listed.raw["servers"][0]["auth_status"] == "required"
+    assert listed.raw["servers"][0]["auth_message"] == "needs OAuth"
+
+
+def test_load_configured_mcp_registers_auth_tool_for_auth_required_http_settings():
+    registry = ToolRegistry()
+    settings = SimpleNamespace(
+        mcp=SimpleNamespace(
+            SERVER_NAME="docs",
+            SERVER_COMMAND="",
+            SERVER_TRANSPORT="http",
+            SERVER_URL="https://mcp.example.test",
+            CLIENT_TIMEOUT=30.0,
+            EXECUTION_MODE="trusted_control_plane",
+            SANDBOX_PROFILE="",
+            AUTH_REQUIRED=True,
+            AUTH_URL="https://mcp.example.test/oauth",
+            AUTH_STATUS="required",
+            AUTH_MESSAGE="needs OAuth",
+        )
+    )
+
+    providers = asyncio.run(load_configured_mcp(settings, registry))
+    result = asyncio.run(registry.execute("mcp__docs__authenticate", {}))
+    payload = json.loads(result.content)
+
+    assert len(providers) == 1
+    assert registry.names() == ["mcp__docs__authenticate"]
+    assert providers[0].server.transport == "http"
+    assert providers[0].server.auth_required is True
+    assert payload["status"] == "auth_url"
+    assert payload["authUrl"] == "https://mcp.example.test/oauth"
+
+
+def test_load_configured_mcp_uses_streamable_http_transport(monkeypatch):
+    created = []
+
+    class FakeHTTPMCPClient(FakeMCPClient):
+        def __init__(self, server):
+            super().__init__()
+            self.server = server
+            created.append(self)
+
+    monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.MCPStreamableHTTPClient", FakeHTTPMCPClient)
+    registry = ToolRegistry()
+    settings = SimpleNamespace(
+        mcp=SimpleNamespace(
+            SERVER_NAME="docs",
+            SERVER_COMMAND="",
+            SERVER_TRANSPORT="http",
+            SERVER_URL="https://mcp.example.test/mcp",
+            SERVER_HEADERS={"Authorization": "Bearer token"},
+            CLIENT_TIMEOUT=30.0,
+            SSE_READ_TIMEOUT=120.0,
+            EXECUTION_MODE="trusted_control_plane",
+            SANDBOX_PROFILE="",
+            AUTH_REQUIRED=False,
+        )
+    )
+
+    providers = asyncio.run(load_configured_mcp(settings, registry))
+    result = asyncio.run(registry.execute("mcp__docs__search", {"query": "agents"}))
+
+    assert len(providers) == 1
+    assert providers[0].server.transport == "http"
+    assert providers[0].server.url == "https://mcp.example.test/mcp"
+    assert providers[0].server.headers == {"Authorization": "Bearer token"}
+    assert providers[0].server.sse_read_timeout_seconds == 120.0
+    assert json.loads(result.content)["answer"] == "agents"
+    assert created[0].called == [("search", {"query": "agents"})]
+
+
+def test_load_configured_mcp_uses_sse_transport(monkeypatch):
+    created = []
+
+    class FakeSSEMCPClient(FakeMCPClient):
+        def __init__(self, server):
+            super().__init__()
+            self.server = server
+            created.append(self)
+
+    monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.MCPSSEClient", FakeSSEMCPClient)
+    registry = ToolRegistry()
+    settings = SimpleNamespace(
+        mcp=SimpleNamespace(
+            SERVER_NAME="events",
+            SERVER_COMMAND="",
+            SERVER_TRANSPORT="sse",
+            SERVER_URL="https://mcp.example.test/sse",
+            SERVER_HEADERS_JSON='{"X-Test":"yes"}',
+            CLIENT_TIMEOUT=30.0,
+            EXECUTION_MODE="trusted_control_plane",
+            SANDBOX_PROFILE="",
+            AUTH_REQUIRED=False,
+        )
+    )
+
+    providers = asyncio.run(load_configured_mcp(settings, registry))
+    result = asyncio.run(registry.execute("mcp__events__search", {"query": "agents"}))
+
+    assert len(providers) == 1
+    assert providers[0].server.transport == "sse"
+    assert providers[0].server.headers == {"X-Test": "yes"}
+    assert json.loads(result.content)["answer"] == "agents"
+    assert created[0].called == [("search", {"query": "agents"})]
 
 
 def test_builtin_mcp_prompt_tools_list_and_get_prompt(tmp_path: Path):
@@ -446,6 +2667,121 @@ def test_builtin_task_tools_manage_tracked_tasks(tmp_path: Path):
     assert "step output" in output.raw["output"]
     assert stopped.raw["task"]["status"] == "canceled"
     assert asyncio.run(store.load_task(task_id)).status == TaskStatus.CANCELED
+
+
+def test_src_origin_task_schedule_toolsearch_and_plan_aliases(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    task_store = InMemoryTaskStore()
+    schedule_store = InMemoryScheduleStore()
+    spec = AgentSpec.from_overrides(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        workspace_path=str(tmp_path),
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+        task_store=task_store,
+        schedule_store=schedule_store,
+        agent_spec=spec,
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    created = asyncio.run(
+        registry.execute(
+            "TaskCreate",
+            {
+                "subject": "Build aliases",
+                "description": "Add src-origin task aliases",
+                "activeForm": "Building aliases",
+                "metadata": {"kind": "parity"},
+            },
+        )
+    )
+    task_id = created.raw["task"]["task_id"]
+    short_id = created.raw["task"]["short_id"]
+    updated = asyncio.run(
+        registry.execute(
+            "TaskUpdate",
+            {
+                "taskId": short_id,
+                "subject": "Build more aliases",
+                "description": "Cover task update parity",
+                "status": "running",
+                "owner": "agent",
+                "metadata": {"kind": "parity-v2"},
+            },
+        )
+    )
+    listed = asyncio.run(registry.execute("TaskList", {}))
+    loaded = asyncio.run(registry.execute("TaskGet", {"taskId": short_id}))
+    searched = asyncio.run(registry.execute("ToolSearch", {"query": "TaskCreate", "max_results": 3, "include_all": True}))
+
+    assert created.is_error is False
+    assert listed.raw["tasks"][0]["task_id"] == task_id
+    assert updated.raw["task"]["title"] == "Build more aliases"
+    assert updated.raw["task"]["input"] == "Cover task update parity"
+    assert updated.raw["task"]["status"] == "running"
+    assert updated.raw["task"]["metadata"]["owner"] == "agent"
+    assert loaded.raw["task"]["metadata"]["kind"] == "parity-v2"
+    assert any(match["name"] == "TaskCreate" for match in searched.raw["matches"])
+
+    cron = asyncio.run(
+        registry.execute(
+            "CronCreate",
+            {"cron": "0 9 * * *", "prompt": "Check repository health", "recurring": True, "durable": False},
+        )
+    )
+    cron_id = cron.raw["schedule"]["short_id"]
+    cron_list = asyncio.run(registry.execute("CronList", {}))
+    cron_delete = asyncio.run(registry.execute("CronDelete", {"id": cron_id}))
+
+    assert cron.raw["schedule"]["schedule"] == "0 9 * * *"
+    assert cron.raw["schedule"]["input"] == "Check repository health"
+    assert cron.raw["schedule"]["metadata"]["recurring"] == "true"
+    assert cron_list.raw["schedules"][0]["short_id"] == cron_id
+    assert cron_delete.raw["deleted"] is True
+
+    entered = asyncio.run(registry.execute("EnterPlanMode", {}))
+    exited = asyncio.run(registry.execute("ExitPlanMode", {"plan": "1. Add aliases\n2. Run tests"}))
+    assert entered.raw["mode"] == "plan"
+    assert exited.raw["mode"] == "default"
+    assert context.plan_text == "1. Add aliases\n2. Run tests"
+
+    specs = {
+        spec.name: spec.raw["metadata"]["alias_of"]
+        for spec in registry.specs(["TaskCreate", "TaskUpdate", "CronCreate", "ToolSearch", "EnterPlanMode", "ExitPlanMode"])
+    }
+    assert specs == {
+        "TaskCreate": "task.create",
+        "TaskUpdate": "task.update",
+        "CronCreate": "schedule.create",
+        "ToolSearch": "tool.search",
+        "EnterPlanMode": "plan.enter",
+        "ExitPlanMode": "plan.exit",
+    }
+
+    impact = describe_tool_impact(
+        ToolCall(
+            id="call-task-update",
+            name="TaskUpdate",
+            arguments={"taskId": short_id, "subject": "Done", "status": "completed"},
+        )
+    )
+    assert impact.tool_name == "task.update"
+    assert impact.summary == "set task %s to completed" % short_id
 
 
 def test_builtin_task_run_executes_tracked_task_with_child_session(tmp_path: Path):
@@ -1293,6 +3629,129 @@ def test_builtin_permission_tools_report_status_and_explain_decisions(tmp_path: 
     assert rule_impact.operations == ["permission_write"]
 
 
+def test_builtin_permission_rules_match_bash_command_patterns(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    spec = AgentSpec.from_overrides(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        workspace_path=str(tmp_path),
+        enabled_tools=["shell.run"],
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+        agent_spec=spec,
+    )
+    context.enabled_tools = ["shell.run"]
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    added = asyncio.run(registry.execute("permission.add_rule", {"behavior": "deny", "tool": "Bash(git *)"}))
+    env_git = asyncio.run(
+        registry.execute("permission.explain", {"tool": "shell.run", "arguments": {"command": "FOO=bar git status"}})
+    )
+    compound_git = asyncio.run(
+        registry.execute("permission.explain", {"tool": "shell.run", "arguments": {"command": "npm test && git status"}})
+    )
+    npm = asyncio.run(registry.execute("permission.explain", {"tool": "shell.run", "arguments": {"command": "npm test"}}))
+    echo = asyncio.run(registry.execute("permission.explain", {"tool": "shell.run", "arguments": {"command": "echo git status"}}))
+    asyncio.run(registry.execute("permission.add_rule", {"behavior": "ask", "tool": "Bash(npm:*)"}))
+    npm_ask = asyncio.run(registry.execute("permission.explain", {"tool": "shell.run", "arguments": {"command": "npm test"}}))
+
+    assert added.raw["status"]["denied_tools"] == ["Bash(git *)"]
+    assert env_git.raw["decision"]["allowed"] is False
+    assert env_git.raw["decision"]["metadata"]["matched_rule"] == "Bash(git *)"
+    assert compound_git.raw["decision"]["allowed"] is False
+    assert npm.raw["decision"]["allowed"] is True
+    assert echo.raw["decision"]["allowed"] is True
+    assert npm_ask.raw["decision"]["requires_approval"] is True
+    assert npm_ask.raw["decision"]["metadata"]["matched_rule"] == "Bash(npm:*)"
+
+
+def test_builtin_permission_rules_match_legacy_path_and_pattern_rules(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    spec = AgentSpec.from_overrides(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        workspace_path=str(tmp_path),
+        enabled_tools=["filesystem.read", "filesystem.write", "notebook.edit", "search.grep", "search.glob"],
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+        agent_spec=spec,
+    )
+    context.enabled_tools = ["filesystem.read", "filesystem.write", "notebook.edit", "search.grep", "search.glob"]
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    asyncio.run(registry.execute("permission.add_rule", {"behavior": "allow", "tool": "Read(src/**)"}))
+    asyncio.run(registry.execute("permission.add_rule", {"behavior": "allow", "tool": "filesystem.write"}))
+    asyncio.run(registry.execute("permission.add_rule", {"behavior": "allow", "tool": "search.grep"}))
+    asyncio.run(registry.execute("permission.add_rule", {"behavior": "allow", "tool": "Glob(*.py)"}))
+    asyncio.run(registry.execute("permission.add_rule", {"behavior": "deny", "tool": "Write(secrets/**)"}))
+    asyncio.run(registry.execute("permission.add_rule", {"behavior": "deny", "tool": "NotebookEdit(secrets/**)"}))
+    asyncio.run(registry.execute("permission.add_rule", {"behavior": "ask", "tool": "Grep(TODO*)"}))
+
+    read_allowed = asyncio.run(registry.execute("permission.explain", {"tool": "filesystem.read", "arguments": {"path": "src/app.py"}}))
+    read_denied = asyncio.run(registry.execute("permission.explain", {"tool": "filesystem.read", "arguments": {"path": "docs/app.py"}}))
+    write_denied = asyncio.run(
+        registry.execute("permission.explain", {"tool": "filesystem.write", "arguments": {"path": "secrets/token.txt", "content": "x"}})
+    )
+    grep_ask = asyncio.run(
+        registry.execute("permission.explain", {"tool": "search.grep", "arguments": {"pattern": "TODO fix", "path": "src"}})
+    )
+    grep_allowed = asyncio.run(
+        registry.execute("permission.explain", {"tool": "search.grep", "arguments": {"pattern": "FIXME", "path": "src"}})
+    )
+    glob_allowed = asyncio.run(
+        registry.execute("permission.explain", {"tool": "search.glob", "arguments": {"pattern": "*.py", "path": "src"}})
+    )
+    notebook_denied = asyncio.run(
+        registry.execute(
+            "permission.explain",
+            {"tool": "notebook.edit", "arguments": {"notebook_path": "secrets/analysis.ipynb", "cell_id": "cell-0", "new_source": "x"}},
+        )
+    )
+
+    assert read_allowed.raw["decision"]["allowed"] is True
+    assert read_allowed.raw["decision"]["metadata"]["matched_rule"] == "Read(src/**)"
+    assert read_denied.raw["decision"]["allowed"] is False
+    assert read_denied.raw["decision"]["metadata"]["rule"] == "allowlist"
+    assert write_denied.raw["decision"]["allowed"] is False
+    assert write_denied.raw["decision"]["metadata"]["matched_rule"] == "Write(secrets/**)"
+    assert grep_ask.raw["decision"]["requires_approval"] is True
+    assert grep_ask.raw["decision"]["metadata"]["matched_rule"] == "Grep(TODO*)"
+    assert grep_allowed.raw["decision"]["allowed"] is True
+    assert grep_allowed.raw["decision"]["metadata"]["matched_rule"] == "search.grep"
+    assert glob_allowed.raw["decision"]["allowed"] is True
+    assert glob_allowed.raw["decision"]["metadata"]["matched_rule"] == "Glob(*.py)"
+    assert notebook_denied.raw["decision"]["allowed"] is False
+    assert notebook_denied.raw["decision"]["metadata"]["matched_rule"] == "NotebookEdit(secrets/**)"
+
+
 def test_builtin_hook_tools_manage_session_hooks(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="tenant",
@@ -1583,6 +4042,244 @@ def test_builtin_team_tools_manage_session_local_members_and_messages(tmp_path: 
     assert "Check the repo" in impact.diff_preview
 
 
+def test_src_origin_agent_team_and_send_message_aliases(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="lead",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    team_store = InMemoryTeamStore()
+    created_children = []
+
+    class ChildSession:
+        async def send(self, prompt, run_id=None, task_id=None):
+            return AgentResult(
+                content="agent result: %s" % prompt,
+                messages=[Message.from_text("assistant", "agent result")],
+            )
+
+    async def create_child(spec, task_id=""):
+        created_children.append(spec)
+        return ChildSession()
+
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+        team_store=team_store,
+        agent_spec=AgentSpec.from_overrides(
+            tenant_id="tenant",
+            user_id="user",
+            agent_id="lead",
+            workspace_id="workspace",
+            workspace_path=str(tmp_path),
+        ),
+        agent_session_factory=create_child,
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    team = asyncio.run(registry.execute("TeamCreate", {"team_name": "feature", "description": "Ship feature", "agent_type": "planner"}))
+    sent = asyncio.run(registry.execute("SendMessage", {"to": "team-lead", "summary": "Repo check", "message": "Check the repo."}))
+    inbox = asyncio.run(registry.execute("team.inbox", {"team_id": "feature", "agent_id": "team-lead"}))
+    agent = asyncio.run(registry.execute("Agent", {"description": "Inspect repo", "prompt": "read files", "name": "researcher"}))
+    deleted = asyncio.run(registry.execute("TeamDelete", {}))
+    after_delete = asyncio.run(registry.execute("team.members", {"team_id": "feature"}))
+
+    assert team.raw["team_name"] == "feature"
+    assert team.raw["lead_agent_id"] == "team-lead"
+    assert sent.raw["sent"][0]["to"] == "team-lead"
+    assert inbox.raw["messages"][0]["message"] == "Check the repo."
+    assert agent.raw["content"] == "agent result: read files"
+    assert created_children[0].agent_id == "researcher"
+    assert deleted.raw["deleted"] is True
+    assert after_delete.is_error is True
+
+    specs = {
+        spec.name: spec.raw["metadata"]["alias_of"]
+        for spec in registry.specs(["Agent", "Task", "SendMessage", "TeamCreate", "TeamDelete"])
+    }
+    assert specs == {
+        "Agent": "agent.run",
+        "Task": "agent.run",
+        "SendMessage": "team.send",
+        "TeamCreate": "team.create",
+        "TeamDelete": "team.delete",
+    }
+
+    impact = describe_tool_impact(
+        ToolCall(id="call-send", name="SendMessage", arguments={"to": "team-lead", "message": "Check the repo.", "team_name": "feature"})
+    )
+    assert impact.tool_name == "team.send"
+    assert impact.operations == ["team_state_write"]
+    assert impact.query == "feature"
+
+
+def test_structured_output_tool_and_src_origin_alias(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=SandboxPolicy.for_workspace(workspace.path),
+        agent_spec=AgentSpec(metadata={
+            "structured_output_schema": {
+                "type": "object",
+                "properties": {"answer": {"type": "string"}, "score": {"type": "number"}},
+                "required": ["answer"],
+                "additionalProperties": False,
+            }
+        }),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    missing = asyncio.run(registry.execute("StructuredOutput", {"score": 0.9}))
+    structured = asyncio.run(registry.execute("StructuredOutput", {"answer": "ok", "score": 0.9}))
+    canonical = asyncio.run(registry.execute("structured.output", {"answer": "ok"}))
+
+    assert missing.is_error is True
+    assert "missing required argument: answer" in missing.content
+    assert structured.content == "Structured output provided successfully"
+    assert structured.raw["structured_output"] == {"answer": "ok", "score": 0.9}
+    assert canonical.raw["structured_output"] == {"answer": "ok"}
+
+    specs = {spec.name: spec for spec in registry.specs(["structured.output", "StructuredOutput"])}
+    assert specs["StructuredOutput"].raw["metadata"]["alias_of"] == "structured.output"
+    assert specs["StructuredOutput"].parameters["required"] == ["answer"]
+    assert specs["structured.output"].raw["metadata"]["structured_output"] is True
+
+    impact = describe_tool_impact(ToolCall(id="call-structured", name="StructuredOutput", arguments={"answer": "ok"}))
+    assert impact.tool_name == "structured.output"
+    assert impact.risk == "low"
+    assert impact.operations == ["structured_output"]
+    assert '"answer": "ok"' in impact.diff_preview
+
+
+def test_src_origin_skill_alias_invokes_inline_skill(tmp_path: Path):
+    skill_dir = tmp_path / "skills" / "focus"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "prompt.md").write_text("Focus on {arguments}.", encoding="utf-8")
+    (skill_dir / "skill.json").write_text(
+        json.dumps(
+            {
+                "name": "focus",
+                "description": "Focus skill",
+                "prompt_fragments": ["prompt.md"],
+                "tools": ["filesystem.read"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=SandboxPolicy.for_workspace(workspace.path),
+        enabled_tools=["Skill", "skill.invoke", "filesystem.read"],
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    invoked = asyncio.run(registry.execute("Skill", {"skill": "/focus", "args": "agent core"}))
+
+    assert invoked.is_error is False
+    assert invoked.raw["success"] is True
+    assert invoked.raw["commandName"] == "focus"
+    assert invoked.raw["allowedTools"] == ["filesystem.read"]
+    assert invoked.raw["status"] == "inline"
+    assert invoked.raw["prompt"] == "Focus on agent core.\n\nArguments:\nagent core"
+    assert "Continue using these instructions" in invoked.content
+
+    specs = {spec.name: spec.raw["metadata"]["alias_of"] for spec in registry.specs(["Skill"])}
+    assert specs == {"Skill": "skill.invoke"}
+
+    impact = describe_tool_impact(ToolCall(id="call-skill", name="Skill", arguments={"skill": "focus", "args": "agent core"}))
+    assert impact.tool_name == "skill.invoke"
+    assert impact.risk == "high"
+    assert impact.operations == ["skill_invoke"]
+    assert impact.query == "focus"
+
+
+def test_skill_invoke_forked_skill_uses_child_session_boundary(tmp_path: Path):
+    skill_dir = tmp_path / "skills" / "research"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "prompt.md").write_text("Research {arguments}.", encoding="utf-8")
+    (skill_dir / "skill.json").write_text(
+        json.dumps(
+            {
+                "name": "research",
+                "description": "Research skill",
+                "prompt_fragments": ["prompt.md"],
+                "tools": ["filesystem.read"],
+                "metadata": {"context": "fork"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="lead",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    created_children = []
+
+    class ChildSession:
+        async def send(self, prompt, run_id=None, task_id=None):
+            return AgentResult(
+                content="skill result: %s" % prompt,
+                messages=[Message.from_text("assistant", "skill result")],
+            )
+
+    async def create_child(spec, task_id=""):
+        created_children.append(spec)
+        return ChildSession()
+
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=SandboxPolicy.for_workspace(workspace.path),
+        agent_spec=AgentSpec.from_overrides(
+            tenant_id="tenant",
+            user_id="user",
+            agent_id="lead",
+            workspace_id="workspace",
+            workspace_path=str(tmp_path),
+            enabled_tools=["filesystem.read"],
+        ),
+        agent_session_factory=create_child,
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    invoked = asyncio.run(registry.execute("skill.invoke", {"skill": "research", "args": "repo"}))
+
+    assert invoked.raw["success"] is True
+    assert invoked.raw["status"] == "forked"
+    assert invoked.raw["commandName"] == "research"
+    assert invoked.raw["result"] == "skill result: Research repo.\n\nArguments:\nrepo"
+    assert created_children[0].agent_id.startswith("skill_research_")
+    assert created_children[0].metadata["skill"] == "research"
+    assert created_children[0].enabled_tools == ["filesystem.read"]
+
+
 def test_builtin_team_tools_use_shared_team_store(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="tenant",
@@ -1790,6 +4487,13 @@ def test_patch_apply_edits_and_creates_workspace_files(tmp_path: Path):
     registry = ToolRegistry()
     register_builtin_tools(registry, context)
 
+    unread = asyncio.run(
+        registry.execute(
+            "patch.apply",
+            {"edits": [{"path": "notes.txt", "old_text": "old", "new_text": "new"}]},
+        )
+    )
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
     result = asyncio.run(
         registry.execute(
             "patch.apply",
@@ -1800,12 +4504,220 @@ def test_patch_apply_edits_and_creates_workspace_files(tmp_path: Path):
         )
     )
 
+    assert unread.is_error is True
+    assert "File has not been read yet" in unread.content
+    assert read.is_error is False
     payload = result.raw
     assert result.is_error is False
     assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "hello new world\n"
     assert (tmp_path / "created.txt").read_text(encoding="utf-8") == "created\n"
     assert [item["path"] for item in payload["files"]] == ["notes.txt", "created.txt"]
+    assert payload["editSummary"] == [
+        {
+            "filePath": "notes.txt",
+            "oldString": "old",
+            "newString": "new",
+            "replaceAll": False,
+            "occurrences": 1,
+        }
+    ]
     assert "--- a/notes.txt" in payload["diff"]
+
+
+def test_patch_apply_exposes_file_edit_style_single_edit_metadata(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "notes.txt").write_text("hello old world\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+    result = asyncio.run(
+        registry.execute(
+            "patch.apply",
+            {"edits": [{"path": "notes.txt", "old_text": "old", "new_text": "new"}]},
+        )
+    )
+
+    assert read.is_error is False
+    assert result.is_error is False
+    assert result.raw["filePath"] == "notes.txt"
+    assert result.raw["oldString"] == "old"
+    assert result.raw["newString"] == "new"
+    assert result.raw["replaceAll"] is False
+    assert result.raw["originalFile"] == "hello old world\n"
+    assert result.raw["structuredPatch"][0]["oldStart"] == 1
+    assert result.raw["structuredPatch"][0]["newStart"] == 1
+    assert result.raw["structuredPatch"][0]["lines"] == [
+        "-hello old world",
+        "+hello new world",
+    ]
+    assert result.raw["structuredPatches"][0]["filePath"] == "notes.txt"
+    assert result.raw["structuredPatches"][0]["hunks"] == result.raw["structuredPatch"]
+
+
+def test_patch_apply_rejects_noop_and_ambiguous_edits(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "notes.txt").write_text("old old\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+    noop = asyncio.run(
+        registry.execute(
+            "patch.apply",
+            {"edits": [{"path": "notes.txt", "old_text": "old", "new_text": "old"}]},
+        )
+    )
+    ambiguous = asyncio.run(
+        registry.execute(
+            "patch.apply",
+            {"edits": [{"path": "notes.txt", "old_text": "old", "new_text": "new"}]},
+        )
+    )
+    all_matches = asyncio.run(
+        registry.execute(
+            "patch.apply",
+            {"edits": [{"path": "notes.txt", "old_text": "old", "new_text": "new", "replace_all": True}]},
+        )
+    )
+
+    assert read.is_error is False
+    assert noop.is_error is True
+    assert "old_text and new_text are exactly the same" in noop.content
+    assert ambiguous.is_error is True
+    assert "Found 2 matches" in ambiguous.content
+    assert "replace_all is false" in ambiguous.content
+    assert all_matches.is_error is False
+    assert all_matches.raw["editSummary"][0]["replaceAll"] is True
+    assert all_matches.raw["editSummary"][0]["occurrences"] == 2
+    assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "new new\n"
+
+
+def test_patch_apply_matches_and_preserves_curly_quote_style(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "notes.txt").write_text("title = \u201cOld name\u201d\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+    result = asyncio.run(
+        registry.execute(
+            "patch.apply",
+            {"edits": [{"path": "notes.txt", "old_text": '"Old name"', "new_text": '"New name"'}]},
+        )
+    )
+
+    assert read.is_error is False
+    assert result.is_error is False
+    assert result.raw["oldString"] == "\u201cOld name\u201d"
+    assert result.raw["newString"] == '"New name"'
+    assert result.raw["editSummary"][0]["oldString"] == "\u201cOld name\u201d"
+    assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "title = \u201cNew name\u201d\n"
+
+
+def test_patch_apply_empty_replacement_removes_trailing_newline_like_file_edit(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "notes.txt").write_text("keep\nremove me\nnext\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+    result = asyncio.run(
+        registry.execute(
+            "patch.apply",
+            {"edits": [{"path": "notes.txt", "old_text": "remove me", "new_text": ""}]},
+        )
+    )
+
+    assert read.is_error is False
+    assert result.is_error is False
+    assert result.raw["editSummary"][0]["occurrences"] == 1
+    assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "keep\nnext\n"
+
+
+def test_patch_apply_preserves_utf16le_for_existing_file(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "notes.txt").write_text("hello old world\n", encoding="utf-16")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+    result = asyncio.run(
+        registry.execute(
+            "patch.apply",
+            {"edits": [{"path": "notes.txt", "old_text": "old", "new_text": "new"}]},
+        )
+    )
+
+    assert read.is_error is False
+    assert result.is_error is False
+    assert (tmp_path / "notes.txt").read_bytes().startswith(b"\xff\xfe")
+    assert (tmp_path / "notes.txt").read_text(encoding="utf-16") == "hello new world\n"
 
 
 def test_filesystem_move_and_delete_are_native_workspace_tools(tmp_path: Path):

@@ -28,6 +28,7 @@ from agents.kernel.capabilities.tools.registry import ToolRegistry
 class ToolExecutionOutcome:
     events: List[RuntimeEvent]
     approval_required: bool = False
+    canceled: bool = False
 
 
 class AgentRuntime:
@@ -82,13 +83,14 @@ class AgentRuntime:
         approvals: Mapping[str, bool] | None = None,
         approval_scopes: Mapping[str, str] | None = None,
         approval_grants: Mapping[str, bool] | None = None,
+        tool_inputs: Mapping[str, Mapping[str, object]] | None = None,
         task_id: str | None = None,
     ) -> AgentResult:
         checkpoint = await self.checkpoints.load(run_id)
         if checkpoint is None:
             raise AgentRuntimeError("checkpoint not found: %s" % run_id)
         state = checkpoint.to_state()
-        apply_approval_updates(state, approvals, approval_scopes, approval_grants)
+        apply_approval_updates(state, approvals, approval_scopes, approval_grants, tool_inputs)
         return await self._run_state(state, run_id=run_id, task_id=task_id)
 
     async def _run_state(
@@ -102,6 +104,8 @@ class AgentRuntime:
                 outcome = await self._execute_pending_tools(state, run_id, task_id)
                 if outcome.approval_required:
                     return self._approval_result(state)
+                if outcome.canceled:
+                    return self._canceled_result(state)
                 state.iteration += 1
 
             while self._can_continue_tool_loop(state):
@@ -112,6 +116,8 @@ class AgentRuntime:
                 outcome = await self._execute_pending_tools(state, run_id, task_id)
                 if outcome.approval_required:
                     return self._approval_result(state)
+                if outcome.canceled:
+                    return self._canceled_result(state)
                 state.iteration += 1
         except ModelClientError as exc:
             recovery = await self.hooks.on_error(exc, state.messages)
@@ -154,6 +160,7 @@ class AgentRuntime:
         approvals: Mapping[str, bool] | None = None,
         approval_scopes: Mapping[str, str] | None = None,
         approval_grants: Mapping[str, bool] | None = None,
+        tool_inputs: Mapping[str, Mapping[str, object]] | None = None,
         task_id: str | None = None,
     ) -> AsyncIterable[RuntimeEvent]:
         checkpoint = await self.checkpoints.load(run_id)
@@ -163,7 +170,7 @@ class AgentRuntime:
             yield done_event(message, [], 0, error=message, status="error")
             return
         state = checkpoint.to_state()
-        apply_approval_updates(state, approvals, approval_scopes, approval_grants)
+        apply_approval_updates(state, approvals, approval_scopes, approval_grants, tool_inputs)
         async for event in self._stream_state(state, run_id=run_id, task_id=task_id):
             yield event
 
@@ -184,6 +191,10 @@ class AgentRuntime:
                 if outcome.approval_required:
                     terminal_status = "awaiting_approval"
                     terminal_content = "tool approval required"
+                    return
+                if outcome.canceled:
+                    terminal_status = "canceled"
+                    terminal_content = "run canceled"
                     return
                 state.iteration += 1
 
@@ -207,6 +218,10 @@ class AgentRuntime:
                 if outcome.approval_required:
                     terminal_status = "awaiting_approval"
                     terminal_content = "tool approval required"
+                    return
+                if outcome.canceled:
+                    terminal_status = "canceled"
+                    terminal_content = "run canceled"
                     return
                 state.iteration += 1
             error_msg = "tool-call loop exceeded max iterations"
@@ -262,13 +277,21 @@ class AgentRuntime:
             return ToolExecutionOutcome([])
         emitted: List[RuntimeEvent] = []
         authorizations = await self.tool_orchestrator.authorize(state.pending_tool_calls)
-        approval_events = pending_approval_events(state, authorizations)
+        approval_events = pending_approval_events(
+            state,
+            authorizations,
+            contract_provider=self.tool_orchestrator.describe_call,
+        )
         if approval_events:
             state.events.extend(approval_events)
             await self._save_checkpoint(run_id, "approval_required", state)
             return ToolExecutionOutcome(approval_events, approval_required=True)
 
-        approval_resolution = resolve_authorization_decisions(state, authorizations)
+        approval_resolution = resolve_authorization_decisions(
+            state,
+            authorizations,
+            contract_provider=self.tool_orchestrator.describe_call,
+        )
         state.events.extend(approval_resolution.events)
         emitted.extend(approval_resolution.events)
         decisions = approval_resolution.decisions
@@ -276,7 +299,7 @@ class AgentRuntime:
         prepared = await self.tool_orchestrator.prepare_with_decisions(state.pending_tool_calls, decisions)
 
         for call in prepared.executable_calls:
-            event = tool_start_event(call)
+            event = tool_start_event(call, contract=self.tool_orchestrator.describe_call(call))
             state.events.append(event)
             emitted.append(event)
         batch = await self.tool_orchestrator.execute_prepared(
@@ -292,8 +315,8 @@ class AgentRuntime:
             state.tool_approvals.pop(approval_id, None)
             state.tool_approval_scopes.pop(approval_id, None)
         state.pending_tool_calls = []
-        await self._save_checkpoint(run_id, "tool_results", state)
-        return ToolExecutionOutcome(emitted)
+        await self._save_checkpoint(run_id, "canceled" if batch.canceled else "tool_results", state)
+        return ToolExecutionOutcome(emitted, canceled=batch.canceled)
 
     async def _record_error(
         self,
@@ -319,4 +342,13 @@ class AgentRuntime:
             state.tool_results,
             state.events,
             status="awaiting_approval",
+        )
+
+    def _canceled_result(self, state: RuntimeState) -> AgentResult:
+        return AgentResult(
+            "run canceled",
+            state.messages,
+            state.tool_results,
+            state.events,
+            status="canceled",
         )

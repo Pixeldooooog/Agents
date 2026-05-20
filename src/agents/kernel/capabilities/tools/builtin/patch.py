@@ -5,6 +5,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
+from agents.kernel.capabilities.tools.builtin.file_safety import (
+    ensure_existing_file_current,
+    preserve_existing_line_endings,
+    read_current_file,
+    record_file_read,
+)
 
 
 PATCH_APPLY_SCHEMA = {
@@ -46,7 +52,18 @@ class _PlannedFile:
     before: str
     after: str
     action: str
+    encoding: str = "utf-8"
     edit_count: int = 0
+
+
+@dataclass
+class _PlannedEdit:
+    path: str
+    old_text: str
+    new_text: str
+    replace_all: bool
+    occurrences: int
+    original_file: str
 
 
 def apply_patch(
@@ -60,57 +77,122 @@ def apply_patch(
     if not edit_list and not create_list:
         raise ValueError("patch.apply requires at least one edit or create operation")
 
-    planned = _plan_patch(context, edit_list, create_list)
+    planned, planned_edits = _plan_patch(context, edit_list, create_list)
     diff = _combined_diff(planned)
     if not dry_run:
         for item in planned:
-            context.sandbox_client.write_text(item.path, item.after)
+            output = preserve_existing_line_endings(item.before, item.after)
+            result = context.sandbox_client.write_text(item.path, output, encoding=item.encoding)
+            record_file_read(context, result.path, output, encoding=result.encoding)
 
     files = [
         {
             "path": item.path,
             "action": item.action,
             "edits": item.edit_count,
-            "bytes": len(item.after.encode("utf-8")),
+            "bytes": _encoded_length(item.after, item.encoding),
         }
         for item in planned
     ]
-    return {
+    payload = {
         "dry_run": bool(dry_run),
         "changed": not bool(dry_run),
         "files": files,
+        "structuredPatches": [
+            {
+                "filePath": item.path,
+                "hunks": _structured_patch(item.before, item.after),
+            }
+            for item in planned
+        ],
+        "editSummary": [
+            {
+                "filePath": item.path,
+                "oldString": item.old_text,
+                "newString": item.new_text,
+                "replaceAll": item.replace_all,
+                "occurrences": item.occurrences,
+            }
+            for item in planned_edits
+        ],
         "diff": _truncate(diff),
         "truncated": len(diff) > 20000,
     }
+    if len(planned_edits) == 1 and not create_list:
+        edit = planned_edits[0]
+        payload.update(
+            {
+                "filePath": edit.path,
+                "oldString": edit.old_text,
+                "newString": edit.new_text,
+                "replaceAll": edit.replace_all,
+                "originalFile": edit.original_file,
+                "structuredPatch": _structured_patch(edit.original_file, planned[0].after),
+            }
+        )
+    return payload
 
 
 def _plan_patch(
     context: ToolRuntimeContext,
     edits: list[dict[str, Any]],
     creates: list[dict[str, Any]],
-) -> list[_PlannedFile]:
+) -> tuple[list[_PlannedFile], list[_PlannedEdit]]:
     content_by_path: dict[str, str] = {}
+    encoding_by_path: dict[str, str] = {}
     actions_by_path: dict[str, str] = {}
     edits_by_path: dict[str, int] = {}
+    verified_paths: set[str] = set()
+    planned_edits: list[_PlannedEdit] = []
 
     for operation in edits:
         path = _required_string(operation, "path")
         old_text = _required_string(operation, "old_text")
         new_text = str(operation.get("new_text") or "")
+        replace_all = bool(operation.get("replace_all"))
         if not old_text:
             raise ValueError("old_text cannot be empty for %s" % path)
+        if old_text == new_text:
+            raise ValueError("No changes to make: old_text and new_text are exactly the same for %s" % path)
         before = content_by_path.get(path)
         if before is None:
-            before = context.sandbox_client.read_text(path, max_bytes=200000).content
-        occurrences = before.count(old_text)
+            current_read = read_current_file(context, path)
+            relative_path = current_read.path
+            before = current_read.content
+            encoding_by_path[relative_path] = current_read.encoding
+            ensure_existing_file_current(context, relative_path, before)
+            verified_paths.add(relative_path)
+            path = relative_path
+        actual_old_text = _find_actual_text(before, old_text)
+        if actual_old_text is None:
+            raise ValueError("String to replace not found in file.\nPath: %s\nString: %s" % (path, old_text))
+        actual_new_text = _preserve_quote_style(old_text, actual_old_text, new_text)
+        occurrences = before.count(actual_old_text)
         if occurrences == 0:
-            raise ValueError("old_text was not found in %s" % path)
-        if occurrences > 1 and not bool(operation.get("replace_all")):
-            raise ValueError("old_text matched %d times in %s; set replace_all to true or use a more specific edit" % (occurrences, path))
-        count = occurrences if bool(operation.get("replace_all")) else 1
-        content_by_path[path] = before.replace(old_text, new_text, count)
+            raise ValueError("String to replace not found in file.\nPath: %s\nString: %s" % (path, old_text))
+        if occurrences > 1 and not replace_all:
+            raise ValueError(
+                "Found %d matches of the string to replace, but replace_all is false. "
+                "To replace all occurrences, set replace_all to true. To replace only one occurrence, "
+                "provide more context to uniquely identify the instance.\nPath: %s\nString: %s"
+                % (occurrences, path, old_text)
+            )
+        edit_old_text, edit_new_text = _edit_target_and_replacement(before, actual_old_text, actual_new_text)
+        replacement_count = before.count(edit_old_text)
+        count = replacement_count if replace_all else 1
+        content_by_path[path] = before.replace(edit_old_text, edit_new_text, count)
         actions_by_path.setdefault(path, "edit")
         edits_by_path[path] = edits_by_path.get(path, 0) + count
+        planned_edits.append(
+            _PlannedEdit(
+                path=path,
+                old_text=actual_old_text,
+                new_text=new_text,
+                replace_all=replace_all,
+                occurrences=count,
+                original_file=before,
+            )
+        )
 
     for operation in creates:
         path = _required_string(operation, "path")
@@ -119,12 +201,20 @@ def _plan_patch(
         before = ""
         action = "create"
         try:
-            before = context.sandbox_client.read_text(path, max_bytes=200000).content
+            current_read = read_current_file(context, path)
+            relative_path = current_read.path
+            before = current_read.content
             if not overwrite and path not in content_by_path:
                 raise ValueError("file already exists: %s" % path)
+            if relative_path not in verified_paths:
+                ensure_existing_file_current(context, relative_path, before)
+                verified_paths.add(relative_path)
+            path = relative_path
+            encoding_by_path[path] = current_read.encoding
             action = "overwrite"
         except FileNotFoundError:
             before = ""
+            encoding_by_path[path] = "utf-8"
         content_by_path[path] = content
         actions_by_path[path] = action
         edits_by_path[path] = edits_by_path.get(path, 0) + 1
@@ -132,8 +222,11 @@ def _plan_patch(
     planned: list[_PlannedFile] = []
     for path, after in content_by_path.items():
         before = ""
+        encoding = encoding_by_path.get(path, "utf-8")
         try:
-            before = context.sandbox_client.read_text(path, max_bytes=200000).content
+            current_read = read_current_file(context, path)
+            before = current_read.content
+            encoding = current_read.encoding
         except FileNotFoundError:
             before = ""
         if before == after:
@@ -144,12 +237,13 @@ def _plan_patch(
                 before=before,
                 after=after,
                 action=actions_by_path.get(path, "edit"),
+                encoding=encoding,
                 edit_count=edits_by_path.get(path, 0),
             )
         )
     if not planned:
         raise ValueError("patch.apply produced no changes")
-    return planned
+    return planned, planned_edits
 
 
 def _combined_diff(files: list[_PlannedFile]) -> str:
@@ -167,6 +261,41 @@ def _combined_diff(files: list[_PlannedFile]) -> str:
     return "\n".join(chunks)
 
 
+def _structured_patch(before: str, after: str) -> list[dict[str, Any]]:
+    before_lines = before.splitlines()
+    after_lines = after.splitlines()
+    matcher = difflib.SequenceMatcher(a=before_lines, b=after_lines, autojunk=False)
+    hunks: list[dict[str, Any]] = []
+    for group in matcher.get_grouped_opcodes(n=3):
+        if not group:
+            continue
+        old_start = group[0][1] + 1
+        new_start = group[0][3] + 1
+        old_lines = group[-1][2] - group[0][1]
+        new_lines = group[-1][4] - group[0][3]
+        lines: list[str] = []
+        for tag, old_a, old_b, new_a, new_b in group:
+            if tag == "equal":
+                lines.extend(" " + line for line in before_lines[old_a:old_b])
+            elif tag == "delete":
+                lines.extend("-" + line for line in before_lines[old_a:old_b])
+            elif tag == "insert":
+                lines.extend("+" + line for line in after_lines[new_a:new_b])
+            elif tag == "replace":
+                lines.extend("-" + line for line in before_lines[old_a:old_b])
+                lines.extend("+" + line for line in after_lines[new_a:new_b])
+        hunks.append(
+            {
+                "oldStart": old_start,
+                "oldLines": old_lines,
+                "newStart": new_start,
+                "newLines": new_lines,
+                "lines": lines,
+            }
+        )
+    return hunks
+
+
 def _required_string(payload: dict[str, Any], key: str) -> str:
     value = str(payload.get(key) or "")
     if not value:
@@ -174,7 +303,97 @@ def _required_string(payload: dict[str, Any], key: str) -> str:
     return value
 
 
+LEFT_SINGLE_CURLY_QUOTE = "\u2018"
+RIGHT_SINGLE_CURLY_QUOTE = "\u2019"
+LEFT_DOUBLE_CURLY_QUOTE = "\u201c"
+RIGHT_DOUBLE_CURLY_QUOTE = "\u201d"
+
+
+def _normalize_quotes(text: str) -> str:
+    return (
+        str(text)
+        .replace(LEFT_SINGLE_CURLY_QUOTE, "'")
+        .replace(RIGHT_SINGLE_CURLY_QUOTE, "'")
+        .replace(LEFT_DOUBLE_CURLY_QUOTE, '"')
+        .replace(RIGHT_DOUBLE_CURLY_QUOTE, '"')
+    )
+
+
+def _find_actual_text(content: str, needle: str) -> str | None:
+    if needle in content:
+        return needle
+    normalized_needle = _normalize_quotes(needle)
+    normalized_content = _normalize_quotes(content)
+    index = normalized_content.find(normalized_needle)
+    if index < 0:
+        return None
+    return content[index : index + len(needle)]
+
+
+def _preserve_quote_style(old_text: str, actual_old_text: str, new_text: str) -> str:
+    if old_text == actual_old_text:
+        return new_text
+    output = str(new_text)
+    if LEFT_DOUBLE_CURLY_QUOTE in actual_old_text or RIGHT_DOUBLE_CURLY_QUOTE in actual_old_text:
+        output = _apply_curly_double_quotes(output)
+    if LEFT_SINGLE_CURLY_QUOTE in actual_old_text or RIGHT_SINGLE_CURLY_QUOTE in actual_old_text:
+        output = _apply_curly_single_quotes(output)
+    return output
+
+
+def _edit_target_and_replacement(content: str, old_text: str, new_text: str) -> tuple[str, str]:
+    if new_text or old_text.endswith("\n") or old_text.endswith("\r\n"):
+        return old_text, new_text
+    if old_text + "\r\n" in content:
+        return old_text + "\r\n", new_text
+    if old_text + "\n" in content:
+        return old_text + "\n", new_text
+    return old_text, new_text
+
+
+def _apply_curly_double_quotes(text: str) -> str:
+    chars = list(str(text))
+    result: list[str] = []
+    for index, char in enumerate(chars):
+        if char == '"':
+            result.append(LEFT_DOUBLE_CURLY_QUOTE if _is_opening_quote_context(chars, index) else RIGHT_DOUBLE_CURLY_QUOTE)
+        else:
+            result.append(char)
+    return "".join(result)
+
+
+def _apply_curly_single_quotes(text: str) -> str:
+    chars = list(str(text))
+    result: list[str] = []
+    for index, char in enumerate(chars):
+        if char != "'":
+            result.append(char)
+            continue
+        previous = chars[index - 1] if index > 0 else ""
+        next_char = chars[index + 1] if index < len(chars) - 1 else ""
+        if previous.isalpha() and next_char.isalpha():
+            result.append(RIGHT_SINGLE_CURLY_QUOTE)
+        else:
+            result.append(LEFT_SINGLE_CURLY_QUOTE if _is_opening_quote_context(chars, index) else RIGHT_SINGLE_CURLY_QUOTE)
+    return "".join(result)
+
+
+def _is_opening_quote_context(chars: list[str], index: int) -> bool:
+    if index == 0:
+        return True
+    return chars[index - 1] in {" ", "\t", "\n", "\r", "(", "[", "{", "\u2014", "\u2013"}
+
+
 def _truncate(text: str, limit: int = 20000) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + "\n[truncated]"
+
+
+def _encoded_length(content: str, encoding: str) -> int:
+    normalized = str(encoding or "utf-8").lower().replace("_", "-")
+    if normalized in {"utf-16", "utf-16le", "utf-16-le"}:
+        return len(str(content).encode("utf-16"))
+    if normalized in {"utf-8-sig", "utf8-sig"}:
+        return len(str(content).encode("utf-8-sig"))
+    return len(str(content).encode("utf-8"))

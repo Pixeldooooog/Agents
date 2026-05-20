@@ -49,13 +49,6 @@ async def create_agent_session_async(
     subagent_depth: int = 0,
 ) -> AgentSession:
     resolved_spec = spec.with_workspace_defaults()
-    config = resolve_model_client_config(
-        settings,
-        protocol=resolved_spec.model.protocol,
-        model=resolved_spec.model.model,
-        base_url=resolved_spec.model.base_url,
-        api_key=resolved_spec.model.api_key,
-    )
     registry = ToolRegistry(max_concurrent=settings.agent.MAX_CONCURRENT_TOOLS, tool_timeout=settings.agent.TOOL_TIMEOUT)
     skill_registry = load_configured_skills(settings, skill_names=resolved_spec.skills)
     workspace = resolve_workspace(
@@ -113,19 +106,21 @@ async def create_agent_session_async(
     await _hydrate_session_state(tool_context)
     skill_registry = _skill_registry_with_session_state(settings, skill_registry, tool_context)
     tool_context.skill_registry = skill_registry
+    effective_spec = _effective_spec_from_session_state(resolved_spec, tool_context)
+    tool_context.agent_spec = effective_spec
     active_tools = _merge_unique(
-        _resolve_active_tools(settings, skill_registry, resolved_spec.enabled_tools, builtin_tools),
+        _resolve_active_tools(settings, skill_registry, effective_spec.enabled_tools, builtin_tools),
         _managed_extension_tools(tool_context),
         _plugin_enabled_tools(settings, tool_context),
     )
+    if _has_structured_output_schema(effective_spec):
+        active_tools = _merge_unique(active_tools, ["StructuredOutput"])
     _validate_active_tools(active_tools, registry)
     tool_context.enabled_tools = list(active_tools)
     await _hydrate_schedules(tool_context)
     await _hydrate_teams(tool_context)
     await _hydrate_hooks(tool_context)
     memory_fragments = await _memory_fragments(settings, memory_store, workspace)
-    effective_spec = _effective_spec_from_session_state(resolved_spec, tool_context)
-    tool_context.agent_spec = effective_spec
     system_prompt = settings.agent.SYSTEM_PROMPT if effective_spec.system_prompt is None else effective_spec.system_prompt
     if tool_context.system_prompt_overridden:
         system_prompt = tool_context.system_prompt_override
@@ -140,6 +135,13 @@ async def create_agent_session_async(
     compiled_context = ContextBuilder().compile(context_pack, budget_tokens=settings.agent.MAX_CONTEXT_TOKENS)
     active_hooks = _session_hooks(hooks if hooks is not None else hooks_from_settings(settings), tool_context)
     permission_policy = build_tool_permission_policy(effective_spec)
+    config = resolve_model_client_config(
+        settings,
+        protocol=effective_spec.model.protocol,
+        model=effective_spec.model.model,
+        base_url=effective_spec.model.base_url,
+        api_key=effective_spec.model.api_key,
+    )
     runtime = AgentRuntime(
         model_client=ModelClient(config),
         tools=registry,
@@ -226,6 +228,11 @@ def _validate_active_tools(active_tools: list[str], registry: ToolRegistry) -> N
     unknown = sorted({name for name in active_tools if name not in registered})
     if unknown:
         raise AgentConfigError("unknown enabled tool(s): %s" % ", ".join(unknown))
+
+
+def _has_structured_output_schema(spec: AgentSpec) -> bool:
+    metadata = getattr(spec, "metadata", {}) or {}
+    return isinstance(metadata.get("structured_output_schema"), dict)
 
 
 def _skill_registry_with_session_state(settings: Any, skill_registry: SkillRegistry, tool_context: ToolRuntimeContext) -> SkillRegistry:
@@ -366,21 +373,44 @@ def _is_relative_to(path: Path, root: Path) -> bool:
 
 
 def _effective_spec_from_session_state(resolved_spec: AgentSpec, tool_context: ToolRuntimeContext) -> AgentSpec:
+    spec = _effective_spec_from_config_overrides(resolved_spec, tool_context)
     if not tool_context.permission_overridden:
-        return resolved_spec
-    mode = tool_context.permission_mode_override or resolved_spec.tool_permissions.mode or "auto"
+        return spec
+    mode = tool_context.permission_mode_override or spec.tool_permissions.mode or "auto"
     profile = tool_context.permission_profile_override or mode
     return replace(
-        resolved_spec,
+        spec,
         permission_profile=profile,
         tool_permissions=replace(
-            resolved_spec.tool_permissions,
+            spec.tool_permissions,
             mode=mode,
             allowed_tools=list(tool_context.permission_allowed_tools_override) if tool_context.permission_restrict_allowed_tools else None,
             denied_tools=list(tool_context.permission_denied_tools_override),
             approval_required_tools=list(tool_context.approval_required_tools_override),
         ),
     )
+
+
+def _effective_spec_from_config_overrides(resolved_spec: AgentSpec, tool_context: ToolRuntimeContext) -> AgentSpec:
+    overrides = getattr(tool_context, "config_overrides", {}) or {}
+    model_value = _config_override_value(overrides, "model")
+    if model_value is None:
+        return resolved_spec
+    model = str(model_value or "").strip()
+    return replace(
+        resolved_spec,
+        model=replace(resolved_spec.model, model=model or None),
+    )
+
+
+def _config_override_value(overrides: dict[str, str], setting: str) -> Any | None:
+    raw = overrides.get("config.%s" % setting)
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        return raw
 
 
 async def _memory_fragments(settings: Any, memory_store: Optional[MemoryStore], workspace) -> list:
@@ -461,8 +491,16 @@ async def _hydrate_mcp_config(tool_context: ToolRuntimeContext) -> None:
         return
     mcp.SERVER_NAME = active.name
     mcp.SERVER_COMMAND = active.command
+    mcp.SERVER_TRANSPORT = active.transport
+    mcp.SERVER_URL = active.url
+    mcp.SERVER_HEADERS = dict(active.headers)
+    mcp.SERVER_HEADERS_JSON = json.dumps(active.headers, ensure_ascii=False, sort_keys=True) if active.headers else ""
     mcp.EXECUTION_MODE = active.execution_mode
     mcp.SANDBOX_PROFILE = active.sandbox_profile
+    mcp.AUTH_REQUIRED = active.auth_required
+    mcp.AUTH_URL = active.auth_url
+    mcp.AUTH_STATUS = active.auth_status
+    mcp.AUTH_MESSAGE = active.auth_message
 
 
 async def _hydrate_session_state(tool_context: ToolRuntimeContext) -> None:
@@ -495,6 +533,7 @@ async def _hydrate_session_state(tool_context: ToolRuntimeContext) -> None:
     tool_context.enabled_plugins = set(record.enabled_plugins)
     tool_context.skill_tools = {name: list(tools) for name, tools in record.skill_tools.items()}
     tool_context.plugin_tools = {name: list(tools) for name, tools in record.plugin_tools.items()}
+    tool_context.config_overrides = dict(record.metadata)
 
 
 def _csv_setting(raw: str) -> list[str]:

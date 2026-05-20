@@ -45,13 +45,20 @@ TASK_UPDATE_SCHEMA = {
     "type": "object",
     "properties": {
         "task_id": {"type": "string", "description": "Task id or unambiguous short id."},
+        "title": {"type": "string", "description": "Updated task title."},
+        "input": {"type": "string", "description": "Updated task prompt or work item."},
         "status": {
             "type": "string",
             "enum": TASK_STATUS_VALUES,
             "description": "New task status.",
         },
+        "metadata": {
+            "type": "object",
+            "description": "Metadata keys to merge. Null values delete keys.",
+            "additionalProperties": True,
+        },
     },
-    "required": ["task_id", "status"],
+    "required": ["task_id"],
 }
 
 TASK_STOP_SCHEMA = {
@@ -151,10 +158,30 @@ async def task_get(context: ToolRuntimeContext, task_id: str) -> dict[str, Any]:
     return {"task": _task_payload(task), "steps": [_step_payload(step) for step in steps]}
 
 
-async def task_update(context: ToolRuntimeContext, task_id: str, status: str) -> dict[str, Any]:
+async def task_update(
+    context: ToolRuntimeContext,
+    task_id: str,
+    status: str = "",
+    title: str = "",
+    input: str = "",
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     store = _task_store(context)
     task = await _resolve_task(context, task_id)
-    updated = await store.set_task_status(task.task_id, _task_status(status))
+    merged_metadata = dict(task.metadata)
+    for key, value in dict(metadata or {}).items():
+        normalized_key = str(key)
+        if value is None:
+            merged_metadata.pop(normalized_key, None)
+        else:
+            merged_metadata[normalized_key] = str(value)
+    updated_task = task.with_update(
+        title=str(title) if str(title or "") else None,
+        input=str(input) if str(input or "") else None,
+        status=_task_status(status) if str(status or "").strip() else None,
+        metadata=merged_metadata,
+    )
+    updated = await store.update_task(updated_task)
     if updated is None:
         raise KeyError("task not found: %s" % task_id)
     return {"task": _task_payload(updated)}

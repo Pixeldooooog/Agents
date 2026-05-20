@@ -77,6 +77,23 @@ class TaskRecord:
     def with_status(self, status: TaskStatus) -> "TaskRecord":
         return replace(self, status=status, updated_at=time.time())
 
+    def with_update(
+        self,
+        *,
+        title: str | None = None,
+        input: str | None = None,
+        status: TaskStatus | None = None,
+        metadata: dict[str, str] | None = None,
+    ) -> "TaskRecord":
+        return replace(
+            self,
+            title=self.title if title is None else title,
+            input=self.input if input is None else input,
+            status=self.status if status is None else status,
+            metadata=dict(self.metadata if metadata is None else metadata),
+            updated_at=time.time(),
+        )
+
     def to_agent_spec(self) -> AgentSpec:
         return AgentSpec.from_dict(self.spec)
 
@@ -218,6 +235,9 @@ class TaskStore(Protocol):
         raise NotImplementedError()
 
     async def set_task_status(self, task_id: str, status: TaskStatus) -> Optional[TaskRecord]:
+        raise NotImplementedError()
+
+    async def update_task(self, task: TaskRecord) -> Optional[TaskRecord]:
         raise NotImplementedError()
 
     async def add_step(self, step: TaskStepRecord) -> TaskStepRecord:

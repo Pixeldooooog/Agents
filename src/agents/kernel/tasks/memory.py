@@ -53,6 +53,13 @@ class InMemoryTaskStore:
         self._tasks[task_id] = updated
         return updated
 
+    async def update_task(self, task: TaskRecord) -> Optional[TaskRecord]:
+        if task.task_id not in self._tasks:
+            return None
+        updated = task.with_update()
+        self._tasks[task.task_id] = updated
+        return updated
+
     async def add_step(self, step: TaskStepRecord) -> TaskStepRecord:
         self._steps[step.step_id] = step
         return step

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from agents.kernel.schema import Message, ModelResponse, RuntimeEvent, ToolCall, ToolResult
 from agents.kernel.governance.permissions import ToolPermissionDecision
 from agents.kernel.governance.tool_impact import describe_tool_impact
@@ -16,26 +18,38 @@ def model_message_event(response: ModelResponse) -> RuntimeEvent:
     )
 
 
-def tool_start_event(call: ToolCall) -> RuntimeEvent:
+def tool_start_event(call: ToolCall, contract: dict[str, Any] | None = None) -> RuntimeEvent:
     payload = call.to_dict()
     payload["impact"] = describe_tool_impact(call).to_dict()
+    if contract:
+        payload["contract"] = dict(contract)
     return RuntimeEvent(type="tool_start", name=call.name, payload=payload)
 
 
-def tool_result_event(result: ToolResult) -> RuntimeEvent:
-    return RuntimeEvent(type="tool_result", name=result.name, payload=result.to_dict())
+def tool_result_event(result: ToolResult, contract: dict[str, Any] | None = None) -> RuntimeEvent:
+    payload = result.to_dict()
+    if contract:
+        payload["contract"] = dict(contract)
+    return RuntimeEvent(type="tool_result", name=result.name, payload=payload)
 
 
-def tool_approval_required_event(call: ToolCall, decision: ToolPermissionDecision) -> RuntimeEvent:
+def tool_approval_required_event(
+    call: ToolCall,
+    decision: ToolPermissionDecision,
+    contract: dict[str, Any] | None = None,
+) -> RuntimeEvent:
+    payload = {
+        "approval_id": tool_approval_id(call),
+        "tool_call": call.to_dict(),
+        "permission": decision.to_dict(),
+        "impact": describe_tool_impact(call).to_dict(),
+    }
+    if contract:
+        payload["contract"] = dict(contract)
     return RuntimeEvent(
         type="tool_approval_required",
         name=call.name,
-        payload={
-            "approval_id": tool_approval_id(call),
-            "tool_call": call.to_dict(),
-            "permission": decision.to_dict(),
-            "impact": describe_tool_impact(call).to_dict(),
-        },
+        payload=payload,
     )
 
 
@@ -45,6 +59,7 @@ def tool_approval_decision_event(
     reason: str = "",
     scope: str = "allow_once",
     grant_key: str = "",
+    contract: dict[str, Any] | None = None,
 ) -> RuntimeEvent:
     payload = {
         "approval_id": tool_approval_id(call),
@@ -53,6 +68,8 @@ def tool_approval_decision_event(
         "scope": scope,
         "impact": describe_tool_impact(call).to_dict(),
     }
+    if contract:
+        payload["contract"] = dict(contract)
     if reason:
         payload["reason"] = reason
     if grant_key:

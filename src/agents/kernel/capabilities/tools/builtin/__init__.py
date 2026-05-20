@@ -25,6 +25,7 @@ from agents.kernel.capabilities.tools.builtin.commands import (
     command_render,
     command_save,
 )
+from agents.kernel.capabilities.tools.builtin.config import CONFIG_MANAGE_SCHEMA, config_manage, format_config_result
 from agents.kernel.capabilities.tools.builtin.filesystem import (
     DELETE_PATH_SCHEMA,
     LIST_DIR_SCHEMA,
@@ -83,6 +84,7 @@ from agents.kernel.capabilities.tools.builtin.memory import (
     memory_forget,
     memory_list,
 )
+from agents.kernel.capabilities.tools.builtin.notebook import NOTEBOOK_EDIT_SCHEMA, notebook_edit
 from agents.kernel.capabilities.tools.builtin.mcp_resources import (
     MCP_READ_RESOURCE_SCHEMA,
     MCP_RESOURCES_SCHEMA,
@@ -153,7 +155,7 @@ from agents.kernel.capabilities.tools.builtin.prompts import (
     prompt_save,
     prompt_templates,
 )
-from agents.kernel.capabilities.tools.builtin.search import GREP_SCHEMA, grep
+from agents.kernel.capabilities.tools.builtin.search import GLOB_SCHEMA, GREP_SCHEMA, glob, grep
 from agents.kernel.capabilities.tools.builtin.schedules import (
     SCHEDULE_CREATE_SCHEMA,
     SCHEDULE_DELETE_SCHEMA,
@@ -180,7 +182,27 @@ from agents.kernel.capabilities.tools.builtin.session_context import (
     session_summary,
     session_status,
 )
-from agents.kernel.capabilities.tools.builtin.shell import RUN_COMMAND_SCHEMA, run_command
+from agents.kernel.capabilities.tools.builtin.sleep import SLEEP_WAIT_SCHEMA, sleep_wait
+from agents.kernel.capabilities.tools.builtin.shell import (
+    RUN_COMMAND_SCHEMA,
+    SHELL_BACKGROUNDS_SCHEMA,
+    SHELL_KILL_SCHEMA,
+    SHELL_OUTPUT_SCHEMA,
+    run_command,
+    shell_backgrounds,
+    shell_kill,
+    shell_output,
+)
+from agents.kernel.capabilities.tools.builtin.skill_invocation import (
+    SKILL_INVOKE_SCHEMA,
+    format_skill_invoke_result,
+    skill_invoke,
+)
+from agents.kernel.capabilities.tools.builtin.structured import (
+    STRUCTURED_OUTPUT_SCHEMA,
+    format_structured_output_result,
+    structured_output,
+)
 from agents.kernel.capabilities.tools.builtin.tasks import (
     TASK_BACKGROUND_SCHEMA,
     TASK_BACKGROUNDS_SCHEMA,
@@ -203,17 +225,27 @@ from agents.kernel.capabilities.tools.builtin.tasks import (
 )
 from agents.kernel.capabilities.tools.builtin.teams import (
     TEAM_CREATE_SCHEMA,
+    TEAM_DELETE_SCHEMA,
     TEAM_INBOX_SCHEMA,
     TEAM_MEMBERS_SCHEMA,
     TEAM_RUN_MEMBER_SCHEMA,
     TEAM_SEND_SCHEMA,
     team_create,
+    team_delete,
     team_inbox,
     team_members,
     team_run_member,
     team_send,
 )
 from agents.kernel.capabilities.tools.builtin.tests import TEST_DISCOVER_SCHEMA, TEST_RUN_SCHEMA, discover_tests, run_tests
+from agents.kernel.capabilities.tools.builtin.user_interaction import (
+    ASK_USER_QUESTION_SCHEMA,
+    USER_MESSAGE_SCHEMA,
+    ask_user_question,
+    format_ask_user_question_result,
+    format_user_message_result,
+    send_user_message,
+)
 from agents.kernel.capabilities.tools.builtin.web import (
     WEB_EXTRACT_SCHEMA,
     WEB_MAP_SCHEMA,
@@ -221,6 +253,13 @@ from agents.kernel.capabilities.tools.builtin.web import (
     web_extract,
     web_map,
     web_search,
+)
+from agents.kernel.capabilities.tools.builtin.worktree import (
+    WORKTREE_ENTER_SCHEMA,
+    WORKTREE_EXIT_SCHEMA,
+    enter_worktree,
+    exit_worktree,
+    format_worktree_result,
 )
 from agents.kernel.capabilities.tools.builtin.workflows import (
     WORKFLOW_DELETE_SCHEMA,
@@ -246,6 +285,7 @@ __all__ = [
     "AGENT_PROFILES_SCHEMA",
     "AGENT_RUN_SCHEMA",
     "AGENT_SAVE_PROFILE_SCHEMA",
+    "ASK_USER_QUESTION_SCHEMA",
     "CONTEXT_COMPACT_SCHEMA",
     "CONTEXT_MESSAGES_SCHEMA",
     "CONTEXT_REWIND_SCHEMA",
@@ -255,6 +295,7 @@ __all__ = [
     "COMMAND_READ_SCHEMA",
     "COMMAND_RENDER_SCHEMA",
     "COMMAND_SAVE_SCHEMA",
+    "CONFIG_MANAGE_SCHEMA",
     "EXTENSION_NAME_SCHEMA",
     "GIT_ADD_SCHEMA",
     "GIT_COMMIT_SCHEMA",
@@ -266,6 +307,7 @@ __all__ = [
     "MEMORY_EDIT_SCHEMA",
     "MEMORY_FORGET_SCHEMA",
     "MEMORY_LIST_SCHEMA",
+    "NOTEBOOK_EDIT_SCHEMA",
     "MCP_READ_RESOURCE_SCHEMA",
     "MCP_RESOURCES_SCHEMA",
     "MCP_CLEAR_SCHEMA",
@@ -288,6 +330,7 @@ __all__ = [
     "GIT_LOG_SCHEMA",
     "GIT_SHOW_SCHEMA",
     "GIT_STATUS_SCHEMA",
+    "GLOB_SCHEMA",
     "GREP_SCHEMA",
     "HOOK_ADD_SCHEMA",
     "HOOK_DELETE_SCHEMA",
@@ -310,9 +353,15 @@ __all__ = [
     "SCHEDULE_LIST_SCHEMA",
     "SCHEDULE_RUN_SCHEMA",
     "SESSION_STATUS_SCHEMA",
+    "SHELL_BACKGROUNDS_SCHEMA",
+    "SHELL_KILL_SCHEMA",
+    "SHELL_OUTPUT_SCHEMA",
+    "SLEEP_WAIT_SCHEMA",
+    "STRUCTURED_OUTPUT_SCHEMA",
     "SESSION_SUMMARY_SCHEMA",
     "SESSION_EXPORT_SCHEMA",
     "SKILL_INSTALL_SCHEMA",
+    "SKILL_INVOKE_SCHEMA",
     "SKILL_UNINSTALL_SCHEMA",
     "SKILL_DISCOVER_SCHEMA",
     "TASK_BACKGROUND_SCHEMA",
@@ -325,6 +374,7 @@ __all__ = [
     "TASK_STOP_SCHEMA",
     "TASK_UPDATE_SCHEMA",
     "TEAM_CREATE_SCHEMA",
+    "TEAM_DELETE_SCHEMA",
     "TEAM_INBOX_SCHEMA",
     "TEAM_MEMBERS_SCHEMA",
     "TEAM_RUN_MEMBER_SCHEMA",
@@ -332,6 +382,7 @@ __all__ = [
     "TODO_READ_SCHEMA",
     "TODO_WRITE_SCHEMA",
     "TOOL_SEARCH_SCHEMA",
+    "USER_MESSAGE_SCHEMA",
     "TEST_DISCOVER_SCHEMA",
     "TEST_RUN_SCHEMA",
     "WORKFLOW_DELETE_SCHEMA",
@@ -341,10 +392,13 @@ __all__ = [
     "WORKFLOW_SAVE_SCHEMA",
     "WORKFLOW_TEMPLATES_SCHEMA",
     "WORKFLOW_VALIDATE_SCHEMA",
+    "WORKTREE_ENTER_SCHEMA",
+    "WORKTREE_EXIT_SCHEMA",
     "WRITE_FILE_SCHEMA",
     "agent_profiles",
     "agent_run",
     "agent_save_profile",
+    "ask_user_question",
     "apply_patch",
     "browser_download",
     "browser_open",
@@ -353,6 +407,7 @@ __all__ = [
     "command_read",
     "command_render",
     "command_save",
+    "config_manage",
     "context_compact",
     "context_messages",
     "context_rewind",
@@ -362,9 +417,14 @@ __all__ = [
     "git_add",
     "git_commit",
     "git_diff",
+    "format_config_result",
+    "format_ask_user_question_result",
+    "format_user_message_result",
+    "format_worktree_result",
     "git_log",
     "git_show",
     "git_status",
+    "glob",
     "grep",
     "hook_add",
     "hook_delete",
@@ -375,6 +435,7 @@ __all__ = [
     "memory_edit",
     "memory_forget",
     "memory_list",
+    "notebook_edit",
     "mcp_read_resource",
     "mcp_resources",
     "mcp_clear",
@@ -416,11 +477,18 @@ __all__ = [
     "session_status",
     "session_export",
     "session_summary",
+    "send_user_message",
     "skill_discover",
     "skill_disable",
+    "skill_invoke",
     "skill_install",
     "skill_uninstall",
     "skill_use",
+    "shell_backgrounds",
+    "shell_kill",
+    "shell_output",
+    "sleep_wait",
+    "structured_output",
     "task_background",
     "task_backgrounds",
     "task_create",
@@ -431,6 +499,7 @@ __all__ = [
     "task_stop",
     "task_update",
     "team_create",
+    "team_delete",
     "team_inbox",
     "team_members",
     "team_run_member",
@@ -442,6 +511,8 @@ __all__ = [
     "web_extract",
     "web_map",
     "web_search",
+    "enter_worktree",
+    "exit_worktree",
     "workflow_delete",
     "workflow_read",
     "workflow_run",

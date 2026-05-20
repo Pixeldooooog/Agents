@@ -91,6 +91,7 @@ class AgentSession:
         approvals: Mapping[str, bool] | None = None,
         approval_scopes: Mapping[str, str] | None = None,
         approval_grants: Mapping[str, bool] | None = None,
+        tool_inputs: Mapping[str, Mapping[str, object]] | None = None,
         task_id: str | None = None,
     ) -> AgentResult:
         result = await self.runtime.resume(
@@ -98,6 +99,7 @@ class AgentSession:
             approvals=approvals,
             approval_scopes=approval_scopes,
             approval_grants=approval_grants,
+            tool_inputs=tool_inputs,
             task_id=task_id,
         )
         self.messages = list(result.messages)
@@ -109,6 +111,7 @@ class AgentSession:
         approvals: Mapping[str, bool] | None = None,
         approval_scopes: Mapping[str, str] | None = None,
         approval_grants: Mapping[str, bool] | None = None,
+        tool_inputs: Mapping[str, Mapping[str, object]] | None = None,
         task_id: str | None = None,
     ) -> AsyncIterable[RuntimeEvent]:
         async for event in self.runtime.resume_stream(
@@ -116,6 +119,7 @@ class AgentSession:
             approvals=approvals,
             approval_scopes=approval_scopes,
             approval_grants=approval_grants,
+            tool_inputs=tool_inputs,
             task_id=task_id,
         ):
             yield event

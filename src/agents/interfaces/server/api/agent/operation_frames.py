@@ -4,17 +4,20 @@ import json
 from typing import Any
 
 from agents.kernel.capabilities.sandbox.records import SandboxEventRecord, SandboxWorkspaceSnapshotRecord
+from agents.kernel.runtime.operations import build_runtime_operation_frames
+from agents.kernel.schema import RuntimeEvent
 
 
 def build_operation_frames(
     *,
     run_id: str,
+    runtime_events: list[RuntimeEvent] | None = None,
     sandbox_events: list[SandboxEventRecord],
     sandbox_snapshots: list[SandboxWorkspaceSnapshotRecord],
     artifacts: list[Any] | None = None,
 ) -> list[dict[str, Any]]:
     snapshots_by_lease = _snapshots_by_lease(sandbox_snapshots)
-    frames: list[dict[str, Any]] = []
+    frames: list[dict[str, Any]] = build_runtime_operation_frames(run_id, list(runtime_events or []))
     sequence = 0
     for event in sandbox_events:
         if event.event_type == "tool_started":

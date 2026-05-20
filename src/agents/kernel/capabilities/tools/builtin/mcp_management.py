@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
@@ -17,11 +18,17 @@ MCP_CONFIGURE_SCHEMA = {
     "type": "object",
     "properties": {
         "name": {"type": "string", "description": "MCP server name."},
-        "command": {"type": "string", "description": "Local MCP server command line."},
+        "command": {"type": "string", "description": "Local MCP stdio server command line."},
+        "transport": {"type": "string", "enum": ["stdio", "sse", "http", "claudeai-proxy"], "description": "MCP transport type."},
+        "url": {"type": "string", "description": "Remote MCP server URL for HTTP/SSE transports."},
+        "headers": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Optional headers for HTTP/SSE MCP transports."},
         "execution_mode": {"type": "string", "description": "MCP execution mode, defaults to trusted_control_plane."},
         "sandbox_profile": {"type": "string", "description": "Optional sandbox profile for future sandboxed MCP execution."},
+        "auth_required": {"type": "boolean", "description": "Whether the server is installed but currently needs authentication."},
+        "auth_url": {"type": "string", "description": "Authorization URL surfaced by an OAuth-capable transport."},
+        "auth_status": {"type": "string", "description": "Optional authentication status label."},
+        "auth_message": {"type": "string", "description": "Optional authentication status or error message."},
     },
-    "required": ["command"],
 }
 
 MCP_CLEAR_SCHEMA = {
@@ -48,9 +55,16 @@ async def mcp_servers(context: ToolRuntimeContext) -> dict[str, Any]:
         "configured": {
             "name": configured_name,
             "command": configured_command,
+            "transport": str(getattr(settings, "SERVER_TRANSPORT", "") or "stdio"),
+            "url": str(getattr(settings, "SERVER_URL", "") or ""),
+            "headers": _headers(settings),
             "execution_mode": str(getattr(settings, "EXECUTION_MODE", "") or ""),
             "sandbox_profile": str(getattr(settings, "SANDBOX_PROFILE", "") or ""),
-            "enabled": bool(configured_command),
+            "auth_required": bool(getattr(settings, "AUTH_REQUIRED", False)),
+            "auth_url": str(getattr(settings, "AUTH_URL", "") or ""),
+            "auth_status": str(getattr(settings, "AUTH_STATUS", "") or ""),
+            "auth_message": str(getattr(settings, "AUTH_MESSAGE", "") or ""),
+            "enabled": bool(configured_command or str(getattr(settings, "SERVER_URL", "") or "").strip()),
         },
         "servers": [record.to_dict() for record in records],
         "providers": [_provider_payload(provider) for provider in providers],
@@ -60,20 +74,39 @@ async def mcp_servers(context: ToolRuntimeContext) -> dict[str, Any]:
 
 async def mcp_configure(
     context: ToolRuntimeContext,
-    command: str,
+    command: str = "",
     name: str = "default",
+    transport: str = "",
+    url: str = "",
+    headers: dict[str, Any] | None = None,
     execution_mode: str = "",
     sandbox_profile: str = "",
+    auth_required: bool = False,
+    auth_url: str = "",
+    auth_status: str = "",
+    auth_message: str = "",
 ) -> dict[str, Any]:
     command_text = str(command or "").strip()
-    if not command_text:
-        raise ValueError("command is required")
     settings = _mcp_settings(context)
+    transport_value = _transport(transport or getattr(settings, "SERVER_TRANSPORT", "") or "stdio")
+    url_text = str(url or "").strip()
+    if transport_value == "stdio" and not command_text:
+        raise ValueError("command is required for stdio MCP servers")
+    if transport_value != "stdio" and not url_text:
+        raise ValueError("url is required for %s MCP servers" % transport_value)
     settings.SERVER_NAME = str(name or "default").strip() or "default"
     settings.SERVER_COMMAND = command_text
+    settings.SERVER_TRANSPORT = transport_value
+    settings.SERVER_URL = url_text
+    settings.SERVER_HEADERS = _coerce_headers(headers)
+    settings.SERVER_HEADERS_JSON = json.dumps(settings.SERVER_HEADERS, ensure_ascii=False, sort_keys=True)
     settings.EXECUTION_MODE = str(execution_mode or getattr(settings, "EXECUTION_MODE", "") or "trusted_control_plane")
     if sandbox_profile:
         settings.SANDBOX_PROFILE = str(sandbox_profile)
+    settings.AUTH_REQUIRED = bool(auth_required)
+    settings.AUTH_URL = str(auth_url or "")
+    settings.AUTH_STATUS = str(auth_status or "")
+    settings.AUTH_MESSAGE = str(auth_message or "")
     await _save_mcp_config(context)
     await _disable_other_mcp_configs(context, settings.SERVER_NAME)
     return await mcp_servers(context)
@@ -85,6 +118,13 @@ async def mcp_clear(context: ToolRuntimeContext) -> dict[str, Any]:
     previous_name = str(getattr(settings, "SERVER_NAME", "") or "default")
     settings.SERVER_NAME = ""
     settings.SERVER_COMMAND = ""
+    settings.SERVER_URL = ""
+    settings.SERVER_HEADERS = {}
+    settings.SERVER_HEADERS_JSON = ""
+    settings.AUTH_REQUIRED = False
+    settings.AUTH_URL = ""
+    settings.AUTH_STATUS = ""
+    settings.AUTH_MESSAGE = ""
     context.mcp_providers = []
     await _delete_mcp_config(context, previous_name)
     return {"cleared": True, "removed_providers": removed, "configured": (await mcp_servers(context))["configured"]}
@@ -101,8 +141,16 @@ async def mcp_enable(context: ToolRuntimeContext, name: str = "") -> dict[str, A
     settings = _mcp_settings(context)
     settings.SERVER_NAME = enabled.name
     settings.SERVER_COMMAND = enabled.command
+    settings.SERVER_TRANSPORT = enabled.transport
+    settings.SERVER_URL = enabled.url
+    settings.SERVER_HEADERS = dict(enabled.headers)
+    settings.SERVER_HEADERS_JSON = json.dumps(settings.SERVER_HEADERS, ensure_ascii=False, sort_keys=True) if settings.SERVER_HEADERS else ""
     settings.EXECUTION_MODE = enabled.execution_mode
     settings.SANDBOX_PROFILE = enabled.sandbox_profile
+    settings.AUTH_REQUIRED = enabled.auth_required
+    settings.AUTH_URL = enabled.auth_url
+    settings.AUTH_STATUS = enabled.auth_status
+    settings.AUTH_MESSAGE = enabled.auth_message
     return {"enabled": enabled.name, "configured": (await mcp_servers(context))["configured"]}
 
 
@@ -115,6 +163,13 @@ async def mcp_disable(context: ToolRuntimeContext, name: str = "") -> dict[str, 
     if not target or str(getattr(settings, "SERVER_NAME", "") or "default") == target:
         settings.SERVER_NAME = ""
         settings.SERVER_COMMAND = ""
+        settings.SERVER_URL = ""
+        settings.SERVER_HEADERS = {}
+        settings.SERVER_HEADERS_JSON = ""
+        settings.AUTH_REQUIRED = False
+        settings.AUTH_URL = ""
+        settings.AUTH_STATUS = ""
+        settings.AUTH_MESSAGE = ""
         context.mcp_providers = [
             provider for provider in list(getattr(context, "mcp_providers", []) or []) if _provider_name(provider) != target
         ]
@@ -128,6 +183,13 @@ async def mcp_remove(context: ToolRuntimeContext, name: str = "") -> dict[str, A
     if str(getattr(settings, "SERVER_NAME", "") or "default") == target:
         settings.SERVER_NAME = ""
         settings.SERVER_COMMAND = ""
+        settings.SERVER_URL = ""
+        settings.SERVER_HEADERS = {}
+        settings.SERVER_HEADERS_JSON = ""
+        settings.AUTH_REQUIRED = False
+        settings.AUTH_URL = ""
+        settings.AUTH_STATUS = ""
+        settings.AUTH_MESSAGE = ""
         context.mcp_providers = [
             provider for provider in list(getattr(context, "mcp_providers", []) or []) if _provider_name(provider) != target
         ]
@@ -141,8 +203,37 @@ def _mcp_settings(context: ToolRuntimeContext) -> Any:
         context.settings = settings
     mcp = getattr(settings, "mcp", None)
     if mcp is None:
-        mcp = SimpleNamespace(SERVER_NAME="", SERVER_COMMAND="", EXECUTION_MODE="", SANDBOX_PROFILE="")
+        mcp = SimpleNamespace(
+            SERVER_NAME="",
+            SERVER_COMMAND="",
+            SERVER_TRANSPORT="stdio",
+            SERVER_URL="",
+            SERVER_HEADERS={},
+            SERVER_HEADERS_JSON="",
+            EXECUTION_MODE="",
+            SANDBOX_PROFILE="",
+            AUTH_REQUIRED=False,
+            AUTH_URL="",
+            AUTH_STATUS="",
+            AUTH_MESSAGE="",
+        )
         settings.mcp = mcp
+    for name, value in {
+        "SERVER_NAME": "",
+        "SERVER_COMMAND": "",
+        "SERVER_TRANSPORT": "stdio",
+        "SERVER_URL": "",
+        "SERVER_HEADERS": {},
+        "SERVER_HEADERS_JSON": "",
+        "EXECUTION_MODE": "",
+        "SANDBOX_PROFILE": "",
+        "AUTH_REQUIRED": False,
+        "AUTH_URL": "",
+        "AUTH_STATUS": "",
+        "AUTH_MESSAGE": "",
+    }.items():
+        if not hasattr(mcp, name):
+            setattr(mcp, name, value)
     return mcp
 
 
@@ -150,13 +241,46 @@ def _provider_payload(provider: Any) -> dict[str, str]:
     server = getattr(provider, "server", None)
     return {
         "name": str(getattr(server, "name", "") or ""),
+        "transport": str(getattr(server, "transport", "") or "stdio"),
+        "url": str(getattr(server, "url", "") or ""),
+        "headers": str(len(getattr(server, "headers", {}) or {})),
         "execution_mode": str(getattr(server, "execution_mode", "") or ""),
+        "auth_required": str(bool(getattr(server, "auth_required", False))).lower(),
         "tools": str(len(getattr(provider, "tools", []) or [])),
     }
 
 
 def _provider_name(provider: Any) -> str:
     return str(getattr(getattr(provider, "server", None), "name", "") or "")
+
+
+def _transport(value: str) -> str:
+    transport = str(value or "stdio").strip() or "stdio"
+    if transport not in {"stdio", "sse", "http", "claudeai-proxy"}:
+        raise ValueError("unsupported MCP transport: %s" % transport)
+    return transport
+
+
+def _headers(settings: Any) -> dict[str, str]:
+    raw = getattr(settings, "SERVER_HEADERS", None)
+    if isinstance(raw, dict):
+        return _coerce_headers(raw)
+    raw_json = str(getattr(settings, "SERVER_HEADERS_JSON", "") or "").strip()
+    if not raw_json:
+        return {}
+    try:
+        parsed = json.loads(raw_json)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return _coerce_headers(parsed)
+
+
+def _coerce_headers(headers: dict[str, Any] | None) -> dict[str, str]:
+    if not isinstance(headers, dict):
+        return {}
+    return {str(key): str(value) for key, value in headers.items()}
 
 
 async def _save_mcp_config(context: ToolRuntimeContext) -> None:
@@ -169,8 +293,15 @@ async def _save_mcp_config(context: ToolRuntimeContext) -> None:
         server_record_for_scope(
             name=str(getattr(settings, "SERVER_NAME", "") or "default"),
             command=str(getattr(settings, "SERVER_COMMAND", "") or ""),
+            transport=str(getattr(settings, "SERVER_TRANSPORT", "") or "stdio"),
+            url=str(getattr(settings, "SERVER_URL", "") or ""),
+            headers=_headers(settings),
             execution_mode=str(getattr(settings, "EXECUTION_MODE", "") or "trusted_control_plane"),
             sandbox_profile=str(getattr(settings, "SANDBOX_PROFILE", "") or ""),
+            auth_required=bool(getattr(settings, "AUTH_REQUIRED", False)),
+            auth_url=str(getattr(settings, "AUTH_URL", "") or ""),
+            auth_status=str(getattr(settings, "AUTH_STATUS", "") or ""),
+            auth_message=str(getattr(settings, "AUTH_MESSAGE", "") or ""),
             workspace=context.workspace,
             enabled=True,
         ),
@@ -201,8 +332,16 @@ async def _hydrate_mcp_config(context: ToolRuntimeContext) -> None:
     settings = _mcp_settings(context)
     settings.SERVER_NAME = active.name
     settings.SERVER_COMMAND = active.command
+    settings.SERVER_TRANSPORT = active.transport
+    settings.SERVER_URL = active.url
+    settings.SERVER_HEADERS = dict(active.headers)
+    settings.SERVER_HEADERS_JSON = json.dumps(settings.SERVER_HEADERS, ensure_ascii=False, sort_keys=True) if settings.SERVER_HEADERS else ""
     settings.EXECUTION_MODE = active.execution_mode
     settings.SANDBOX_PROFILE = active.sandbox_profile
+    settings.AUTH_REQUIRED = active.auth_required
+    settings.AUTH_URL = active.auth_url
+    settings.AUTH_STATUS = active.auth_status
+    settings.AUTH_MESSAGE = active.auth_message
 
 
 async def _mcp_records(context: ToolRuntimeContext) -> list[Any]:

@@ -144,9 +144,17 @@ class MCPConfig(BaseSettings):
 
     SERVER_NAME: str = config_value("mcp", "SERVER_NAME", "")
     SERVER_COMMAND: str = config_value("mcp", "SERVER_COMMAND", "")
+    SERVER_TRANSPORT: str = config_value("mcp", "SERVER_TRANSPORT", "stdio")
+    SERVER_URL: str = config_value("mcp", "SERVER_URL", "")
+    SERVER_HEADERS_JSON: str = config_value("mcp", "SERVER_HEADERS_JSON", "")
     CLIENT_TIMEOUT: float = config_value("mcp", "CLIENT_TIMEOUT", 30.0)
+    SSE_READ_TIMEOUT: float = config_value("mcp", "SSE_READ_TIMEOUT", 300.0)
     EXECUTION_MODE: str = config_value("mcp", "EXECUTION_MODE", "trusted_control_plane")
     SANDBOX_PROFILE: str = config_value("mcp", "SANDBOX_PROFILE", "")
+    AUTH_REQUIRED: bool = config_value("mcp", "AUTH_REQUIRED", False)
+    AUTH_URL: str = config_value("mcp", "AUTH_URL", "")
+    AUTH_STATUS: str = config_value("mcp", "AUTH_STATUS", "")
+    AUTH_MESSAGE: str = config_value("mcp", "AUTH_MESSAGE", "")
 
 
 class WebSearchConfig(BaseSettings):

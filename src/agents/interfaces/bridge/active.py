@@ -34,7 +34,7 @@ def active_task_running(state: Any) -> bool:
     return state.active_task is not None and not state.active_task.done()
 
 
-async def cancel_active_run(state: Any, write: BridgeWriter, quiet: bool = False) -> None:
+async def cancel_active_run(state: Any, write: BridgeWriter, quiet: bool = False, reason: str = "") -> None:
     task = state.active_task
     if task is None or task.done():
         state.active_task = None
@@ -42,5 +42,8 @@ async def cancel_active_run(state: Any, write: BridgeWriter, quiet: bool = False
         if not quiet:
             write({"type": "notice", "message": "nothing to cancel"})
         return
-    task.cancel()
+    if reason:
+        task.cancel(reason)
+    else:
+        task.cancel()
     await task

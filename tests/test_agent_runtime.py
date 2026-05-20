@@ -48,7 +48,13 @@ def test_agent_runtime_runs_model_tool_model_loop():
         ]
     )
     tools = ToolRegistry()
-    tools.register("echo", "Echo", {}, lambda text: text)
+    tools.register(
+        "echo",
+        "Echo",
+        {},
+        lambda text: text,
+        metadata={"activity": {"kind": "terminal", "title": "Echo", "target_argument": "text"}},
+    )
     runtime = AgentRuntime(model_client=llm, tools=tools, protocol="scripted", model="scripted")
 
     result = asyncio.run(runtime.run([Message.from_text("user", "say hi")]))
@@ -56,6 +62,12 @@ def test_agent_runtime_runs_model_tool_model_loop():
     assert result.content == "final answer"
     assert result.tool_results[0].content == "hi"
     assert [message.role for message in result.messages] == ["user", "assistant", "tool", "assistant"]
+    tool_events = [event for event in result.events if event.type in ("tool_start", "tool_result")]
+    assert [event.type for event in tool_events] == ["tool_start", "tool_result"]
+    assert tool_events[0].payload["contract"]["activity"]["kind"] == "terminal"
+    assert tool_events[0].payload["contract"]["target"] == "hi"
+    assert tool_events[1].payload["contract"]["activity"]["kind"] == "terminal"
+    assert tool_events[1].payload["contract"]["target"] == "hi"
 
 
 def test_agent_runtime_executes_model_requested_task_tool(tmp_path):
@@ -381,7 +393,13 @@ def test_agent_runtime_pauses_when_tool_requires_approval():
     store = InMemoryCheckpointStore()
     tools = ToolRegistry()
     ran = {"value": False}
-    tools.register("dangerous", "Dangerous", {}, lambda: ran.update(value=True))
+    tools.register(
+        "dangerous",
+        "Dangerous",
+        {},
+        lambda: ran.update(value=True),
+        metadata={"activity": {"kind": "terminal", "title": "Dangerous action"}},
+    )
     runtime = AgentRuntime(
         model_client=llm,
         tools=tools,
@@ -407,6 +425,8 @@ def test_agent_runtime_pauses_when_tool_requires_approval():
     approval_event = next(event for event in result.events if event.type == "tool_approval_required")
     assert approval_event.payload["impact"]["tool_name"] == "dangerous"
     assert approval_event.payload["impact"]["risk"] == "medium"
+    assert approval_event.payload["contract"]["activity"]["kind"] == "terminal"
+    assert approval_event.payload["contract"]["activity"]["title"] == "Dangerous action"
 
 
 def test_agent_runtime_resumes_after_tool_approval():
@@ -419,7 +439,13 @@ def test_agent_runtime_resumes_after_tool_approval():
     )
     store = InMemoryCheckpointStore()
     tools = ToolRegistry()
-    tools.register("echo", "Echo", {}, lambda text: text)
+    tools.register(
+        "echo",
+        "Echo",
+        {},
+        lambda text: text,
+        metadata={"activity": {"kind": "terminal", "title": "Echo", "target_argument": "text"}},
+    )
     runtime = AgentRuntime(
         model_client=llm,
         tools=tools,
@@ -447,6 +473,73 @@ def test_agent_runtime_resumes_after_tool_approval():
     decision = next(event for event in resumed.events if event.type == "tool_approval_decision")
     assert decision.payload["impact"]["tool_name"] == "echo"
     assert decision.payload["scope"] == "allow_once"
+    assert decision.payload["contract"]["target"] == "hi"
+
+
+def test_agent_runtime_resumes_user_question_with_updated_tool_input(tmp_path):
+    questions = [
+        {
+            "question": "Which auth method should we use?",
+            "header": "Auth",
+            "options": [
+                {"label": "OAuth (Recommended)", "description": "Use OAuth login."},
+                {"label": "JWT", "description": "Use signed tokens."},
+            ],
+        }
+    ]
+    call = ToolCall(id="call-question", name="AskUserQuestion", arguments={"questions": questions})
+    llm = ScriptedModelClient(
+        [
+            ModelResponse(message=Message.from_text("assistant", "", tool_calls=[call])),
+            ModelResponse(message=Message.from_text("assistant", "using OAuth")),
+        ]
+    )
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    tools = ToolRegistry()
+    register_builtin_tools(tools, context)
+    store = InMemoryCheckpointStore()
+    runtime = AgentRuntime(
+        model_client=llm,
+        tools=tools,
+        protocol="scripted",
+        model="scripted",
+        permission_policy=StaticToolPermissionPolicy(),
+        checkpoint_store=store,
+    )
+
+    async def execute():
+        paused = await runtime.run([Message.from_text("user", "choose auth")], run_id="run-question")
+        checkpoint = await store.load("run-question")
+        resumed = await runtime.resume(
+            "run-question",
+            approvals={"call-question": True},
+            tool_inputs={"call-question": {"answers": {"Which auth method should we use?": "OAuth (Recommended)"}}},
+        )
+        return paused, checkpoint, resumed
+
+    paused, checkpoint, resumed = asyncio.run(execute())
+
+    assert paused.status == "awaiting_approval"
+    assert checkpoint.pending_tool_calls[0].arguments == {"questions": questions}
+    approval = next(event for event in paused.events if event.type == "tool_approval_required")
+    assert approval.payload["permission"]["metadata"]["permission"] == "user_interaction"
+    assert approval.payload["impact"]["operations"] == ["user_interaction"]
+    assert resumed.status == "finished"
+    assert resumed.tool_results[0].raw["answers"] == {"Which auth method should we use?": "OAuth (Recommended)"}
+    assert resumed.tool_results[0].content == "User answered questions:\n- Which auth method should we use? -> OAuth (Recommended)"
 
 
 def test_agent_runtime_resumes_after_user_denies_tool_approval():
@@ -813,6 +906,205 @@ def test_agent_runtime_stream_continues_after_tool_error_result():
     assert tool_result.payload["is_error"] is True
     assert tool_result.payload["content"] == "tool exploded"
     assert events[-1].payload["content"] == "handled tool failure"
+
+
+def test_agent_runtime_returns_synthetic_result_for_cancelled_sibling_tool():
+    calls = [
+        ToolCall(id="call-1", name="fail"),
+        ToolCall(id="call-2", name="slow"),
+    ]
+    llm = ScriptedModelClient(
+        [
+            ModelResponse(message=Message.from_text("assistant", "", tool_calls=calls)),
+            ModelResponse(message=Message.from_text("assistant", "handled cancel")),
+        ]
+    )
+    tools = ToolRegistry()
+
+    async def fail_fast():
+        raise RuntimeError("tool exploded")
+
+    async def slow_tool():
+        await asyncio.sleep(1)
+        return "too late"
+
+    tools.register("fail", "Fail", {}, fail_fast, metadata={"cancels_siblings_on_error": True})
+    tools.register("slow", "Slow", {}, slow_tool)
+    runtime = AgentRuntime(model_client=llm, tools=tools, protocol="scripted", model="scripted")
+
+    result = asyncio.run(runtime.run([Message.from_text("user", "run tools")]))
+
+    assert result.content == "handled cancel"
+    assert [item.tool_call_id for item in result.tool_results] == ["call-1", "call-2"]
+    assert result.tool_results[0].is_error is True
+    assert result.tool_results[1].is_error is True
+    assert result.tool_results[1].raw["error"] == "tool_execution_canceled"
+    assert [message.tool_call_id for message in result.messages if message.role == "tool"] == ["call-1", "call-2"]
+
+
+def test_agent_runtime_returns_canceled_result_when_tool_execution_is_interrupted():
+    call = ToolCall(id="call-1", name="slow")
+    llm = ScriptedModelClient(
+        [
+            ModelResponse(message=Message.from_text("assistant", "", tool_calls=[call])),
+            ModelResponse(message=Message.from_text("assistant", "should not continue")),
+        ]
+    )
+    store = InMemoryCheckpointStore()
+    tools = ToolRegistry()
+    started = None
+
+    async def slow_tool():
+        assert started is not None
+        started.set()
+        await asyncio.sleep(1)
+        return "too late"
+
+    tools.register(
+        "slow",
+        "Slow",
+        {},
+        slow_tool,
+        metadata={"activity": {"kind": "terminal", "title": "Slow tool"}},
+    )
+    runtime = AgentRuntime(
+        model_client=llm,
+        tools=tools,
+        protocol="scripted",
+        model="scripted",
+        checkpoint_store=store,
+    )
+
+    async def run_and_cancel():
+        nonlocal started
+        started = asyncio.Event()
+        task = asyncio.create_task(runtime.run([Message.from_text("user", "run slow")], run_id="run-1"))
+        await started.wait()
+        task.cancel()
+        return await task
+
+    result = asyncio.run(run_and_cancel())
+    checkpoint = asyncio.run(store.load("run-1"))
+
+    assert result.status == "canceled"
+    assert result.content == "run canceled"
+    assert [item.tool_call_id for item in result.tool_results] == ["call-1"]
+    assert result.tool_results[0].raw["error"] == "tool_execution_canceled"
+    assert result.tool_results[0].raw["cancel_reason"] == "user_interrupted"
+    assert [event.type for event in result.events] == ["model_message", "tool_start", "tool_result"]
+    assert result.events[-1].payload["contract"]["activity"]["kind"] == "terminal"
+    assert checkpoint.step == "canceled"
+
+
+def test_agent_runtime_stream_returns_canceled_done_when_tool_execution_is_interrupted():
+    call = ToolCall(id="call-1", name="slow")
+    llm = ScriptedModelClient(
+        [[ModelStreamEvent(type="message", response=ModelResponse(message=Message.from_text("assistant", "", tool_calls=[call])))]]
+    )
+    tools = ToolRegistry()
+    started = None
+
+    async def slow_tool():
+        assert started is not None
+        started.set()
+        await asyncio.sleep(1)
+        return "too late"
+
+    tools.register("slow", "Slow", {}, slow_tool)
+    runtime = AgentRuntime(model_client=llm, tools=tools, protocol="scripted", model="scripted")
+
+    async def collect_and_cancel():
+        nonlocal started
+        started = asyncio.Event()
+        events = []
+
+        async def collect():
+            async for event in runtime.stream([Message.from_text("user", "run slow")]):
+                events.append(event)
+
+        task = asyncio.create_task(collect())
+        await started.wait()
+        task.cancel()
+        await task
+        return events
+
+    events = asyncio.run(collect_and_cancel())
+
+    assert [event.type for event in events] == ["tool_start", "tool_result", "done"]
+    assert events[1].payload["raw"]["cancel_reason"] == "user_interrupted"
+    assert events[-1].payload["status"] == "canceled"
+    assert events[-1].payload["content"] == "run canceled"
+
+
+def test_agent_runtime_interrupt_cancel_waits_for_blocking_tool_and_continues():
+    call = ToolCall(id="call-1", name="slow")
+    llm = ScriptedModelClient(
+        [
+            ModelResponse(message=Message.from_text("assistant", "", tool_calls=[call])),
+            ModelResponse(message=Message.from_text("assistant", "continued")),
+        ]
+    )
+    tools = ToolRegistry()
+    started = None
+
+    async def slow_tool():
+        assert started is not None
+        started.set()
+        await asyncio.sleep(0.02)
+        return "finished"
+
+    tools.register("slow", "Slow", {}, slow_tool)
+    runtime = AgentRuntime(model_client=llm, tools=tools, protocol="scripted", model="scripted")
+
+    async def run_and_interrupt():
+        nonlocal started
+        started = asyncio.Event()
+        task = asyncio.create_task(runtime.run([Message.from_text("user", "run slow")]))
+        await started.wait()
+        task.cancel("interrupt")
+        return await task
+
+    result = asyncio.run(run_and_interrupt())
+
+    assert result.status == "finished"
+    assert result.content == "continued"
+    assert result.tool_results[0].content == "finished"
+    assert result.tool_results[0].is_error is False
+
+
+def test_agent_runtime_interrupt_cancel_cancels_explicit_cancel_tool():
+    call = ToolCall(id="call-1", name="slow")
+    llm = ScriptedModelClient(
+        [
+            ModelResponse(message=Message.from_text("assistant", "", tool_calls=[call])),
+            ModelResponse(message=Message.from_text("assistant", "should not continue")),
+        ]
+    )
+    tools = ToolRegistry()
+    started = None
+
+    async def slow_tool():
+        assert started is not None
+        started.set()
+        await asyncio.sleep(1)
+        return "too late"
+
+    tools.register("slow", "Slow", {}, slow_tool, metadata={"interrupt_behavior": "cancel"})
+    runtime = AgentRuntime(model_client=llm, tools=tools, protocol="scripted", model="scripted")
+
+    async def run_and_interrupt():
+        nonlocal started
+        started = asyncio.Event()
+        task = asyncio.create_task(runtime.run([Message.from_text("user", "run slow")]))
+        await started.wait()
+        task.cancel("interrupt")
+        return await task
+
+    result = asyncio.run(run_and_interrupt())
+
+    assert result.status == "canceled"
+    assert result.content == "run canceled"
+    assert result.tool_results[0].raw["cancel_reason"] == "user_interrupted"
 
 
 def test_agent_runtime_stream_does_not_emit_tool_start_for_hook_denied_tool():

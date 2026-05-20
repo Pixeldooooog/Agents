@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from typing import Iterable, List
 from typing import Mapping
 
@@ -23,6 +24,7 @@ def apply_approval_updates(
     approvals: Mapping[str, bool] | None = None,
     approval_scopes: Mapping[str, str] | None = None,
     approval_grants: Mapping[str, bool] | None = None,
+    tool_inputs: Mapping[str, Mapping[str, object]] | None = None,
 ) -> None:
     if approvals:
         state.tool_approvals.update({str(key): bool(value) for key, value in approvals.items()})
@@ -30,6 +32,8 @@ def apply_approval_updates(
         state.tool_approval_scopes.update({str(key): str(value) for key, value in approval_scopes.items()})
     if approval_grants:
         state.tool_approval_grants.update({str(key): bool(value) for key, value in approval_grants.items()})
+    if tool_inputs:
+        state.pending_tool_calls = _apply_tool_inputs(state.pending_tool_calls, tool_inputs)
     derive_run_grants_from_scopes(state)
 
 
@@ -42,7 +46,31 @@ def derive_run_grants_from_scopes(state: RuntimeState) -> None:
             state.tool_approval_grants[approval_grant_key(call)] = True
 
 
-def pending_approval_events(state: RuntimeState, authorizations: Iterable) -> List[RuntimeEvent]:
+def _apply_tool_inputs(calls, tool_inputs: Mapping[str, Mapping[str, object]]) -> list:
+    updates = {str(key): dict(value) for key, value in tool_inputs.items() if isinstance(value, Mapping)}
+    if not updates:
+        return list(calls)
+    result = []
+    for call in calls:
+        approval_id = tool_approval_id(call)
+        update = updates.get(approval_id)
+        if update is None:
+            result.append(call)
+            continue
+        arguments = dict(call.arguments or {})
+        arguments.update(update)
+        result.append(replace(call, arguments=arguments))
+    return result
+
+
+ToolContractProvider = Callable[[object], dict]
+
+
+def pending_approval_events(
+    state: RuntimeState,
+    authorizations: Iterable,
+    contract_provider: ToolContractProvider | None = None,
+) -> List[RuntimeEvent]:
     events: List[RuntimeEvent] = []
     for item in authorizations:
         approval_id = tool_approval_id(item.call)
@@ -51,11 +79,15 @@ def pending_approval_events(state: RuntimeState, authorizations: Iterable) -> Li
         if item.decision.requires_approval and approval_grant_key(item.call) in state.tool_approval_grants:
             continue
         if item.decision.requires_approval:
-            events.append(tool_approval_required_event(item.call, item.decision))
+            events.append(tool_approval_required_event(item.call, item.decision, contract=_contract(contract_provider, item.call)))
     return events
 
 
-def resolve_authorization_decisions(state: RuntimeState, authorizations: Iterable) -> ApprovalDecisionResolution:
+def resolve_authorization_decisions(
+    state: RuntimeState,
+    authorizations: Iterable,
+    contract_provider: ToolContractProvider | None = None,
+) -> ApprovalDecisionResolution:
     decisions: List[ToolPermissionDecision] = []
     events: List[RuntimeEvent] = []
     decided_call_ids: set[str] = set()
@@ -74,6 +106,7 @@ def resolve_authorization_decisions(state: RuntimeState, authorizations: Iterabl
                     approved,
                     scope=scope,
                     grant_key=grant_key if scope == APPROVAL_ALLOW_FOR_RUN else "",
+                    contract=_contract(contract_provider, item.call),
                 )
             )
             decisions.append(
@@ -93,6 +126,7 @@ def resolve_authorization_decisions(state: RuntimeState, authorizations: Iterabl
                     reason="run approval grant",
                     scope=APPROVAL_ALLOW_FOR_RUN,
                     grant_key=grant_key,
+                    contract=_contract(contract_provider, item.call),
                 )
             )
             decisions.append(
@@ -105,3 +139,9 @@ def resolve_authorization_decisions(state: RuntimeState, authorizations: Iterabl
             continue
         decisions.append(item.decision)
     return ApprovalDecisionResolution(decisions=decisions, events=events, decided_call_ids=decided_call_ids)
+
+
+def _contract(contract_provider: ToolContractProvider | None, call: object) -> dict:
+    if contract_provider is None:
+        return {}
+    return dict(contract_provider(call) or {})

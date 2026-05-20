@@ -73,6 +73,42 @@ class FakeApprovalSession:
         )
 
 
+class FakeToolSession:
+    async def send(self, text, run_id=None, task_id=None):
+        contract = {
+            "activity": {"kind": "edit", "title": "Write file", "target_argument": "path"},
+            "target": "notes.md",
+            "paths": ["notes.md"],
+            "metadata": {"writes_state": True},
+        }
+        return AgentResult(
+            content="wrote file",
+            messages=[Message.from_text("assistant", "wrote file")],
+            events=[
+                RuntimeEvent(
+                    type="tool_start",
+                    name="filesystem.write",
+                    payload={
+                        "id": "call-1",
+                        "name": "filesystem.write",
+                        "arguments": {"path": "notes.md", "content": "hello"},
+                        "contract": contract,
+                    },
+                ),
+                RuntimeEvent(
+                    type="tool_result",
+                    name="filesystem.write",
+                    payload={
+                        "tool_call_id": "call-1",
+                        "content": '{"path":"notes.md"}',
+                        "raw": {"path": "notes.md", "bytes": 5},
+                        "contract": contract,
+                    },
+                ),
+            ],
+        )
+
+
 def test_agent_chat_api_returns_final_answer(monkeypatch):
     async def create_session(**kwargs):
         return FakeSession()
@@ -203,6 +239,26 @@ def test_agent_run_trace_api_returns_spans(monkeypatch):
     assert data["sandbox_events"] == []
     assert data["sandbox_snapshots"] == []
     assert data["operation_frames"] == []
+
+
+def test_agent_run_trace_api_projects_runtime_operation_frames(monkeypatch):
+    async def create_session(**kwargs):
+        return FakeToolSession()
+
+    monkeypatch.setattr(agent_routes, "create_agent_session", create_session)
+    client = TestClient(create_app())
+
+    chat_response = client.post("/api/v1/agent/chat", json={"message": "write notes"})
+    run_id = chat_response.json()["data"]["run_id"]
+    trace_response = client.get(f"/api/v1/agent/runs/{run_id}/trace")
+
+    assert trace_response.status_code == 200
+    frames = trace_response.json()["data"]["operation_frames"]
+    assert [frame["source"] for frame in frames] == ["runtime_contract", "runtime_contract"]
+    assert [frame["phase"] for frame in frames] == ["opening", "done"]
+    assert frames[0]["scene"] == "edit"
+    assert frames[0]["target"] == "notes.md"
+    assert frames[1]["resultPreview"] == {"path": "notes.md", "bytes": 5}
 
 
 def test_agent_run_api_returns_404_for_unknown_run():

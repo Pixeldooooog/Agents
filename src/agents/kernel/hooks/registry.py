@@ -6,6 +6,7 @@ from typing import Any
 from uuid import uuid4
 
 from agents.kernel.hooks.base import AgentHooks, ToolHookDenied
+from agents.kernel.governance.tool_rules import tool_rule_matches_call
 from agents.kernel.schema import Message, ModelResponse, ToolCall, ToolResult
 
 
@@ -186,11 +187,7 @@ def _append_once_after_system(messages: list[Message], role: str, text: str) -> 
 
 def _hook_matches_tool(record: HookRecord, call: ToolCall) -> bool:
     pattern = str(record.metadata.get("tool") or record.metadata.get("tool_name") or "*").strip()
-    if not pattern or pattern == "*":
-        return True
-    if pattern.endswith("*"):
-        return call.name.startswith(pattern[:-1])
-    return call.name == pattern
+    return tool_rule_matches_call(pattern or "*", call, shell_parse_error_matches=True)
 
 
 def _event(value: str) -> str:

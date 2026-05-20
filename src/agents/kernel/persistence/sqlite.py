@@ -5,6 +5,7 @@ from pathlib import Path
 
 from agents.kernel.persistence.schema import (
     APPROVAL_AUDIT_COLUMNS,
+    MCP_SERVER_COLUMNS,
     RUNTIME_CHECKPOINT_COLUMNS,
     SANDBOX_EVENT_COLUMNS,
     SANDBOX_LEASE_COLUMNS,
@@ -33,6 +34,7 @@ class SQLiteDatabase:
             _ensure_columns(connection, "approval_audit", APPROVAL_AUDIT_COLUMNS)
             _ensure_columns(connection, "sandbox_leases", SANDBOX_LEASE_COLUMNS)
             _ensure_columns(connection, "sandbox_events", SANDBOX_EVENT_COLUMNS)
+            _ensure_columns(connection, "mcp_servers", MCP_SERVER_COLUMNS)
             _ensure_columns(connection, "session_states", SESSION_STATE_COLUMNS)
 
 

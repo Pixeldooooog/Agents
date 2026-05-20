@@ -161,6 +161,16 @@ class TeamStore(Protocol):
     ) -> List[TeamRecord]:
         raise NotImplementedError()
 
+    async def delete_team(
+        self,
+        team_id: str,
+        tenant_id: str,
+        user_id: str = "",
+        agent_id: str = "",
+        workspace_id: str = "",
+    ) -> Optional[TeamRecord]:
+        raise NotImplementedError()
+
     async def add_message(self, message: TeamMessageRecord) -> None:
         raise NotImplementedError()
 
@@ -215,6 +225,32 @@ class InMemoryTeamStore:
             key=lambda team: (team.updated_at, team.team_id),
             reverse=True,
         )
+
+    async def delete_team(
+        self,
+        team_id: str,
+        tenant_id: str,
+        user_id: str = "",
+        agent_id: str = "",
+        workspace_id: str = "",
+    ) -> Optional[TeamRecord]:
+        resolved = safe_team_id(team_id)
+        target_key = None
+        target_team = None
+        for key, team in self._teams.items():
+            if team.team_id == resolved and _team_matches(team, tenant_id, user_id, agent_id, workspace_id):
+                target_key = key
+                target_team = team
+                break
+        if target_key is None or target_team is None:
+            return None
+        del self._teams[target_key]
+        self._messages = {
+            message_id: message
+            for message_id, message in self._messages.items()
+            if not _message_matches(message, tenant_id, user_id, agent_id, workspace_id, resolved, "", False)
+        }
+        return target_team
 
     async def add_message(self, message: TeamMessageRecord) -> None:
         self._messages[message.message_id] = message
@@ -326,6 +362,48 @@ class SQLiteTeamStore:
                 (tenant_id, user_id, agent_id, workspace_id),
             ).fetchall()
         return [_team_from_row(row) for row in rows]
+
+    async def delete_team(
+        self,
+        team_id: str,
+        tenant_id: str,
+        user_id: str = "",
+        agent_id: str = "",
+        workspace_id: str = "",
+    ) -> Optional[TeamRecord]:
+        record = await self.load_team(
+            team_id,
+            tenant_id,
+            user_id=user_id,
+            agent_id=agent_id,
+            workspace_id=workspace_id,
+        )
+        if record is None:
+            return None
+        with self.database.connect() as connection:
+            connection.execute(
+                """
+                DELETE FROM teams
+                WHERE team_id = ?
+                  AND tenant_id = ?
+                  AND user_id = ?
+                  AND agent_id = ?
+                  AND workspace_id = ?
+                """,
+                (record.team_id, record.tenant_id, record.user_id, record.agent_id, record.workspace_id),
+            )
+            connection.execute(
+                """
+                DELETE FROM team_messages
+                WHERE team_id = ?
+                  AND tenant_id = ?
+                  AND user_id = ?
+                  AND agent_id = ?
+                  AND workspace_id = ?
+                """,
+                (record.team_id, record.tenant_id, record.user_id, record.agent_id, record.workspace_id),
+            )
+        return record
 
     async def add_message(self, message: TeamMessageRecord) -> None:
         with self.database.connect() as connection:

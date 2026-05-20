@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+from typing import Any
+
 from agents.kernel.capabilities.tools.builtin.agents import AGENT_RUN_SCHEMA, agent_run
 from agents.kernel.capabilities.tools.builtin.agent_profiles import (
     AGENT_PROFILES_SCHEMA,
@@ -20,6 +23,12 @@ from agents.kernel.capabilities.tools.builtin.commands import (
     command_render,
     command_save,
 )
+from agents.kernel.capabilities.tools.builtin.config import (
+    CONFIG_MANAGE_SCHEMA,
+    CONFIG_VALUE_UNSET,
+    config_manage,
+    format_config_result,
+)
 from agents.kernel.capabilities.tools.builtin.filesystem import (
     DELETE_PATH_SCHEMA,
     LIST_DIR_SCHEMA,
@@ -27,6 +36,7 @@ from agents.kernel.capabilities.tools.builtin.filesystem import (
     READ_FILE_SCHEMA,
     WRITE_FILE_SCHEMA,
     delete_path,
+    format_read_file_result,
     list_dir,
     move_path,
     read_file,
@@ -77,6 +87,11 @@ from agents.kernel.capabilities.tools.builtin.memory import (
     memory_edit,
     memory_forget,
     memory_list,
+)
+from agents.kernel.capabilities.tools.builtin.notebook import (
+    NOTEBOOK_EDIT_SCHEMA,
+    format_notebook_edit_result,
+    notebook_edit,
 )
 from agents.kernel.capabilities.tools.builtin.mcp_resources import (
     MCP_READ_RESOURCE_SCHEMA,
@@ -147,7 +162,7 @@ from agents.kernel.capabilities.tools.builtin.prompts import (
     prompt_save,
     prompt_templates,
 )
-from agents.kernel.capabilities.tools.builtin.search import GREP_SCHEMA, grep
+from agents.kernel.capabilities.tools.builtin.search import GLOB_SCHEMA, GREP_SCHEMA, format_glob_result, format_grep_result, glob, grep
 from agents.kernel.capabilities.tools.builtin.schedules import (
     SCHEDULE_CREATE_SCHEMA,
     SCHEDULE_DELETE_SCHEMA,
@@ -174,7 +189,27 @@ from agents.kernel.capabilities.tools.builtin.session_context import (
     session_summary,
     session_status,
 )
-from agents.kernel.capabilities.tools.builtin.shell import RUN_COMMAND_SCHEMA, run_command
+from agents.kernel.capabilities.tools.builtin.sleep import SLEEP_WAIT_SCHEMA, sleep_wait
+from agents.kernel.capabilities.tools.builtin.shell import (
+    RUN_COMMAND_SCHEMA,
+    SHELL_BACKGROUNDS_SCHEMA,
+    SHELL_KILL_SCHEMA,
+    SHELL_OUTPUT_SCHEMA,
+    run_command,
+    shell_backgrounds,
+    shell_kill,
+    shell_output,
+)
+from agents.kernel.capabilities.tools.builtin.skill_invocation import (
+    SKILL_INVOKE_SCHEMA,
+    format_skill_invoke_result,
+    skill_invoke,
+)
+from agents.kernel.capabilities.tools.builtin.structured import (
+    format_structured_output_result,
+    structured_output,
+    structured_output_schema_from_metadata,
+)
 from agents.kernel.capabilities.tools.builtin.tasks import (
     TASK_CREATE_SCHEMA,
     TASK_BACKGROUND_SCHEMA,
@@ -197,17 +232,27 @@ from agents.kernel.capabilities.tools.builtin.tasks import (
 )
 from agents.kernel.capabilities.tools.builtin.teams import (
     TEAM_CREATE_SCHEMA,
+    TEAM_DELETE_SCHEMA,
     TEAM_INBOX_SCHEMA,
     TEAM_MEMBERS_SCHEMA,
     TEAM_RUN_MEMBER_SCHEMA,
     TEAM_SEND_SCHEMA,
     team_create,
+    team_delete,
     team_inbox,
     team_members,
     team_run_member,
     team_send,
 )
 from agents.kernel.capabilities.tools.builtin.tests import TEST_DISCOVER_SCHEMA, TEST_RUN_SCHEMA, discover_tests, run_tests
+from agents.kernel.capabilities.tools.builtin.user_interaction import (
+    ASK_USER_QUESTION_SCHEMA,
+    USER_MESSAGE_SCHEMA,
+    ask_user_question,
+    format_ask_user_question_result,
+    format_user_message_result,
+    send_user_message,
+)
 from agents.kernel.capabilities.tools.builtin.web import (
     WEB_EXTRACT_SCHEMA,
     WEB_MAP_SCHEMA,
@@ -215,6 +260,13 @@ from agents.kernel.capabilities.tools.builtin.web import (
     web_extract,
     web_map,
     web_search,
+)
+from agents.kernel.capabilities.tools.builtin.worktree import (
+    WORKTREE_ENTER_SCHEMA,
+    WORKTREE_EXIT_SCHEMA,
+    enter_worktree,
+    exit_worktree,
+    format_worktree_result,
 )
 from agents.kernel.capabilities.tools.builtin.workflows import (
     WORKFLOW_DELETE_SCHEMA,
@@ -233,7 +285,7 @@ from agents.kernel.capabilities.tools.builtin.workflows import (
     workflow_validate,
 )
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
-from agents.kernel.capabilities.tools.registry import ToolRegistry
+from agents.kernel.capabilities.tools.registry import ToolActivity, ToolDefinition, ToolRegistry
 from agents.kernel.capabilities.web import NullWebSearchProvider, WebSearchProvider
 
 
@@ -243,8 +295,57 @@ BUILTIN_TOOL_NAMES = [
     "filesystem.write",
     "filesystem.delete",
     "filesystem.move",
+    "notebook.edit",
     "patch.apply",
     "search.grep",
+    "search.glob",
+    "structured.output",
+    "config.manage",
+    "user.ask",
+    "user.message",
+    "worktree.enter",
+    "worktree.exit",
+    "Read",
+    "Write",
+    "Edit",
+    "Bash",
+    "Glob",
+    "Grep",
+    "TodoWrite",
+    "NotebookEdit",
+    "Sleep",
+    "WebSearch",
+    "WebFetch",
+    "ListMcpResourcesTool",
+    "ReadMcpResourceTool",
+    "TaskOutput",
+    "AgentOutputTool",
+    "BashOutputTool",
+    "TaskStop",
+    "KillShell",
+    "TaskCreate",
+    "TaskList",
+    "TaskGet",
+    "TaskUpdate",
+    "CronCreate",
+    "CronList",
+    "CronDelete",
+    "ToolSearch",
+    "EnterPlanMode",
+    "ExitPlanMode",
+    "Agent",
+    "Task",
+    "SendMessage",
+    "TeamCreate",
+    "TeamDelete",
+    "StructuredOutput",
+    "Skill",
+    "Config",
+    "AskUserQuestion",
+    "SendUserMessage",
+    "Brief",
+    "EnterWorktree",
+    "ExitWorktree",
     "command.discover",
     "command.render",
     "command.read",
@@ -252,6 +353,7 @@ BUILTIN_TOOL_NAMES = [
     "command.delete",
     "tool.search",
     "skill.discover",
+    "skill.invoke",
     "skill.install",
     "skill.uninstall",
     "skill.use",
@@ -333,11 +435,16 @@ BUILTIN_TOOL_NAMES = [
     "schedule.delete",
     "schedule.run",
     "shell.run",
+    "shell.output",
+    "shell.backgrounds",
+    "shell.kill",
+    "sleep.wait",
     "browser.open",
     "browser.download",
     "agent.profiles",
     "agent.save_profile",
     "team.create",
+    "team.delete",
     "team.members",
     "team.send",
     "team.inbox",
@@ -353,7 +460,14 @@ def register_builtin_tools(
 ) -> list[str]:
     active_web_provider = web_provider or NullWebSearchProvider()
     _register_filesystem(registry, context)
+    _register_notebooks(registry, context)
     _register_patch_and_search(registry, context)
+    _register_structured_output(registry, context)
+    _register_skill_invocation(registry, context)
+    _register_config(registry, context)
+    _register_user_interaction(registry, context)
+    _register_worktrees(registry, context)
+    _register_src_origin_aliases(registry, context, active_web_provider)
     _register_commands(registry, context)
     _register_meta(registry, context)
     _register_plugins(registry, context)
@@ -374,6 +488,7 @@ def register_builtin_tools(
     _register_tasks(registry, context)
     _register_schedules(registry, context)
     _register_shell(registry, context)
+    _register_sleep(registry, context)
     _register_browser(registry, context)
     _register_agent_profiles(registry, context)
     _register_teams(registry, context)
@@ -381,71 +496,1461 @@ def register_builtin_tools(
     return list(BUILTIN_TOOL_NAMES)
 
 
+def _register_builtin_tool(
+    registry: ToolRegistry,
+    *,
+    name: str,
+    description: str,
+    parameters: dict,
+    handler,
+    metadata: dict | None = None,
+    read_only: bool = False,
+    destructive: bool = False,
+    writes_state: bool = False,
+    concurrency_safe: bool = True,
+    interrupt_behavior: str = "block",
+    cancels_siblings_on_error: bool = False,
+    max_result_size_chars: int | None = None,
+    path_parameters: tuple[str, ...] = (),
+    activity_kind: str = "generic",
+    activity_title: str = "",
+    activity_target_argument: str = "",
+    activity_summary: str = "",
+    result_formatter=None,
+) -> None:
+    registry.register_definition(
+        ToolDefinition(
+            name=name,
+            description=description,
+            parameters=parameters,
+            handler=handler,
+            metadata=dict(metadata or {}),
+            read_only=read_only,
+            destructive=destructive,
+            writes_state=writes_state,
+            concurrency_safe=concurrency_safe,
+            interrupt_behavior=interrupt_behavior,
+            cancels_siblings_on_error=cancels_siblings_on_error,
+            max_result_size_chars=max_result_size_chars,
+            path_parameters=path_parameters,
+            activity=ToolActivity(
+                kind=activity_kind,
+                title=activity_title,
+                target_argument=activity_target_argument,
+                summary=activity_summary,
+            ),
+            result_formatter=result_formatter,
+        )
+    )
+
+
 def _register_filesystem(registry: ToolRegistry, context: ToolRuntimeContext) -> None:
-    registry.register(
-        "filesystem.read",
-        "Read a UTF-8 text file from the current workspace.",
-        READ_FILE_SCHEMA,
-        lambda path, max_bytes=20000: read_file(context, path, max_bytes=max_bytes),
+    _register_builtin_tool(
+        registry,
+        name="filesystem.read",
+        description="Read a text file from the current workspace, optionally by line offset and limit.",
+        parameters=READ_FILE_SCHEMA,
+        handler=lambda path, max_bytes=20000, offset=1, limit=None, pages=None: read_file(
+            context,
+            path,
+            max_bytes=max_bytes,
+            offset=offset,
+            limit=limit,
+            pages=pages,
+        ),
+        read_only=True,
+        path_parameters=("path",),
+        activity_kind="workspace",
+        activity_title="Read file",
+        activity_target_argument="path",
+        result_formatter=format_read_file_result,
     )
-    registry.register(
-        "filesystem.list",
-        "List files and directories inside the current workspace.",
-        LIST_DIR_SCHEMA,
-        lambda path=".": list_dir(context, path=path),
+    _register_builtin_tool(
+        registry,
+        name="filesystem.list",
+        description="List files and directories inside the current workspace.",
+        parameters=LIST_DIR_SCHEMA,
+        handler=lambda path=".": list_dir(context, path=path),
+        read_only=True,
+        path_parameters=("path",),
+        activity_kind="workspace",
+        activity_title="List directory",
+        activity_target_argument="path",
     )
-    registry.register(
-        "filesystem.write",
-        "Write a UTF-8 text file inside the current workspace when the sandbox allows writes.",
-        WRITE_FILE_SCHEMA,
-        lambda path, content: write_file(context, path, content),
+    _register_builtin_tool(
+        registry,
+        name="filesystem.write",
+        description="Write a UTF-8 text file inside the current workspace when the sandbox allows writes.",
+        parameters=WRITE_FILE_SCHEMA,
+        handler=lambda path, content: write_file(context, path, content),
         metadata={"risk": "medium", "writes_files": True},
+        writes_state=True,
+        concurrency_safe=False,
+        path_parameters=("path",),
+        activity_kind="edit",
+        activity_title="Write file",
+        activity_target_argument="path",
     )
-    registry.register(
-        "filesystem.delete",
-        "Delete a file or directory inside the current workspace.",
-        DELETE_PATH_SCHEMA,
-        lambda path, recursive=False: delete_path(context, path, recursive=recursive),
+    _register_builtin_tool(
+        registry,
+        name="filesystem.delete",
+        description="Delete a file or directory inside the current workspace.",
+        parameters=DELETE_PATH_SCHEMA,
+        handler=lambda path, recursive=False: delete_path(context, path, recursive=recursive),
         metadata={"risk": "medium", "writes_files": True},
+        destructive=True,
+        writes_state=True,
+        concurrency_safe=False,
+        path_parameters=("path",),
+        activity_kind="edit",
+        activity_title="Delete path",
+        activity_target_argument="path",
     )
-    registry.register(
-        "filesystem.move",
-        "Move or rename a file or directory inside the current workspace.",
-        MOVE_PATH_SCHEMA,
-        lambda source_path, destination_path, overwrite=False: move_path(
+    _register_builtin_tool(
+        registry,
+        name="filesystem.move",
+        description="Move or rename a file or directory inside the current workspace.",
+        parameters=MOVE_PATH_SCHEMA,
+        handler=lambda source_path, destination_path, overwrite=False: move_path(
             context,
             source_path=source_path,
             destination_path=destination_path,
             overwrite=overwrite,
         ),
         metadata={"risk": "medium", "writes_files": True},
+        writes_state=True,
+        concurrency_safe=False,
+        path_parameters=("source_path", "destination_path"),
+        activity_kind="edit",
+        activity_title="Move path",
+        activity_target_argument="source_path",
+    )
+
+
+def _register_notebooks(registry: ToolRegistry, context: ToolRuntimeContext) -> None:
+    _register_builtin_tool(
+        registry,
+        name="notebook.edit",
+        description="Edit a specific cell in a Jupyter notebook with read-before-write stale-file safety.",
+        parameters=NOTEBOOK_EDIT_SCHEMA,
+        handler=lambda notebook_path,
+        new_source,
+        cell_id=None,
+        cell_type=None,
+        edit_mode="replace": notebook_edit(
+            context,
+            notebook_path=notebook_path,
+            new_source=new_source,
+            cell_id=cell_id,
+            cell_type=cell_type,
+            edit_mode=edit_mode,
+        ),
+        metadata={"risk": "medium", "writes_files": True, "src_origin_tool": "NotebookEdit"},
+        writes_state=True,
+        concurrency_safe=False,
+        max_result_size_chars=100000,
+        path_parameters=("notebook_path",),
+        activity_kind="edit",
+        activity_title="Edit notebook",
+        activity_target_argument="notebook_path",
+        result_formatter=format_notebook_edit_result,
     )
 
 
 def _register_patch_and_search(registry: ToolRegistry, context: ToolRuntimeContext) -> None:
-    registry.register(
-        "patch.apply",
-        "Apply exact text edits or create text files inside the current workspace.",
-        PATCH_APPLY_SCHEMA,
-        lambda edits=None, creates=None, dry_run=False: apply_patch(
+    _register_builtin_tool(
+        registry,
+        name="patch.apply",
+        description="Apply exact text edits or create text files inside the current workspace.",
+        parameters=PATCH_APPLY_SCHEMA,
+        handler=lambda edits=None, creates=None, dry_run=False: apply_patch(
             context,
             edits=edits,
             creates=creates,
             dry_run=dry_run,
         ),
         metadata={"risk": "medium", "writes_files": True},
+        writes_state=True,
+        concurrency_safe=False,
+        activity_kind="edit",
+        activity_title="Apply patch",
     )
-    registry.register(
-        "search.grep",
-        "Search text files inside the current workspace with a regular expression.",
-        GREP_SCHEMA,
-        lambda pattern, path=".", max_results=100, case_sensitive=True: grep(
+    _register_builtin_tool(
+        registry,
+        name="search.grep",
+        description="Search text files inside the current workspace with a regular expression.",
+        parameters=GREP_SCHEMA,
+        handler=lambda pattern, path=".", glob="", max_results=1000, case_sensitive=True, output_mode="files_with_matches", head_limit=None, offset=0, **options: grep(
+            context,
+            pattern,
+            path=path,
+            glob=glob,
+            max_results=max_results,
+            case_sensitive=case_sensitive,
+            output_mode=output_mode,
+            head_limit=head_limit,
+            offset=offset,
+            **options,
+        ),
+        read_only=True,
+        path_parameters=("path",),
+        activity_kind="workspace",
+        activity_title="Search files",
+        activity_target_argument="path",
+        result_formatter=format_grep_result,
+    )
+    _register_builtin_tool(
+        registry,
+        name="search.glob",
+        description="Find workspace files by glob pattern.",
+        parameters=GLOB_SCHEMA,
+        handler=lambda pattern, path=".", max_results=100: glob(
             context,
             pattern,
             path=path,
             max_results=max_results,
-            case_sensitive=case_sensitive,
         ),
+        read_only=True,
+        path_parameters=("path",),
+        activity_kind="workspace",
+        activity_title="Find files",
+        activity_target_argument="pattern",
+        result_formatter=format_glob_result,
+    )
+
+
+def _register_structured_output(registry: ToolRegistry, context: ToolRuntimeContext) -> None:
+    schema = structured_output_schema_from_metadata(_agent_spec_metadata(context))
+    _register_builtin_tool(
+        registry,
+        name="structured.output",
+        description="Return the final answer as structured data for SDK and non-interactive callers.",
+        parameters=schema,
+        handler=structured_output,
+        metadata={"risk": "low", "structured_output": True},
+        read_only=True,
+        max_result_size_chars=100000,
+        activity_kind="structured",
+        activity_title="Structured output",
+        result_formatter=format_structured_output_result,
+    )
+
+
+def _register_skill_invocation(registry: ToolRegistry, context: ToolRuntimeContext) -> None:
+    _register_builtin_tool(
+        registry,
+        name="skill.invoke",
+        description="Invoke a local skill by expanding its prompt or executing it in a forked child agent.",
+        parameters=SKILL_INVOKE_SCHEMA,
+        handler=lambda skill, args="", mode="auto": skill_invoke(context, skill=skill, args=args, mode=mode),
+        metadata={"risk": "high", "model_call": True},
+        writes_state=False,
+        concurrency_safe=False,
+        max_result_size_chars=100000,
+        activity_kind="skill",
+        activity_title="Invoke skill",
+        activity_target_argument="skill",
+        result_formatter=format_skill_invoke_result,
+    )
+
+
+def _register_config(registry: ToolRegistry, context: ToolRuntimeContext) -> None:
+    _register_builtin_tool(
+        registry,
+        name="config.manage",
+        description="Get or set session configuration settings such as theme, model, and permissions.defaultMode.",
+        parameters=CONFIG_MANAGE_SCHEMA,
+        handler=lambda setting, value=CONFIG_VALUE_UNSET: config_manage(context, setting=setting, value=value),
+        metadata={"risk": "medium", "writes_state": True, "defer": True},
+        writes_state=True,
+        max_result_size_chars=100000,
+        activity_kind="state",
+        activity_title="Manage config",
+        activity_target_argument="setting",
+        result_formatter=format_config_result,
+    )
+
+
+def _register_user_interaction(registry: ToolRegistry, context: ToolRuntimeContext) -> None:
+    _register_builtin_tool(
+        registry,
+        name="user.message",
+        description="Send a message to the user with optional workspace file attachments.",
+        parameters=USER_MESSAGE_SCHEMA,
+        handler=lambda message, attachments=None, status="normal": send_user_message(
+            context,
+            message=message,
+            attachments=attachments,
+            status=status,
+        ),
+        metadata={"risk": "low", "user_visible": True},
+        read_only=True,
+        max_result_size_chars=100000,
+        activity_kind="state",
+        activity_title="Message user",
+        activity_target_argument="message",
+        result_formatter=format_user_message_result,
+    )
+    _register_builtin_tool(
+        registry,
+        name="user.ask",
+        description="Ask the user one or more multiple-choice questions and return their answers.",
+        parameters=ASK_USER_QUESTION_SCHEMA,
+        handler=lambda questions, answers=None, annotations=None, metadata=None: ask_user_question(
+            questions=questions,
+            answers=answers,
+            annotations=annotations,
+            metadata=metadata,
+        ),
+        metadata={"risk": "low", "requires_user_interaction": True, "defer": True},
+        read_only=True,
+        max_result_size_chars=100000,
+        activity_kind="state",
+        activity_title="Ask user",
+        activity_target_argument="questions",
+        result_formatter=format_ask_user_question_result,
+    )
+
+
+def _register_worktrees(registry: ToolRegistry, context: ToolRuntimeContext) -> None:
+    _register_builtin_tool(
+        registry,
+        name="worktree.enter",
+        description="Create or resume an isolated git worktree and switch the session workspace to it.",
+        parameters=WORKTREE_ENTER_SCHEMA,
+        handler=lambda name="": enter_worktree(context, name=name),
+        metadata={"risk": "medium", "writes_state": True},
+        writes_state=True,
+        concurrency_safe=False,
+        activity_kind="state",
+        activity_title="Enter worktree",
+        activity_target_argument="name",
+        result_formatter=format_worktree_result,
+    )
+    _register_builtin_tool(
+        registry,
+        name="worktree.exit",
+        description="Exit the active git worktree, either preserving it or removing it after safety checks.",
+        parameters=WORKTREE_EXIT_SCHEMA,
+        handler=lambda action, discard_changes=False: exit_worktree(
+            context,
+            action=action,
+            discard_changes=discard_changes,
+        ),
+        metadata={"risk": "medium", "writes_state": True},
+        destructive=True,
+        writes_state=True,
+        concurrency_safe=False,
+        activity_kind="state",
+        activity_title="Exit worktree",
+        activity_target_argument="action",
+        result_formatter=format_worktree_result,
+    )
+
+
+def _agent_spec_metadata(context: ToolRuntimeContext) -> dict:
+    metadata = getattr(getattr(context, "agent_spec", None), "metadata", None)
+    return dict(metadata) if isinstance(metadata, dict) else {}
+
+
+SRC_ORIGIN_READ_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "file_path": {"type": "string", "description": "Path to the file to read."},
+        "offset": {"type": "integer", "minimum": 0},
+        "limit": {"type": "integer", "minimum": 1},
+        "pages": {"type": "string", "description": "Page range for PDF files."},
+        "max_bytes": {"type": "integer", "minimum": 1, "maximum": 200000},
+    },
+    "required": ["file_path"],
+}
+
+SRC_ORIGIN_WRITE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "file_path": {"type": "string", "description": "Path to the file to write."},
+        "content": {"type": "string", "description": "The content to write to the file."},
+    },
+    "required": ["file_path", "content"],
+}
+
+SRC_ORIGIN_EDIT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "file_path": {"type": "string", "description": "Path to the file to edit."},
+        "old_string": {"type": "string", "description": "Text to replace."},
+        "new_string": {"type": "string", "description": "Replacement text."},
+        "replace_all": {"type": "boolean", "description": "Replace all occurrences."},
+    },
+    "required": ["file_path", "old_string", "new_string"],
+}
+
+SRC_ORIGIN_WEB_SEARCH_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "query": {"type": "string", "description": "The search query to use."},
+        "allowed_domains": {"type": "array", "items": {"type": "string"}},
+        "blocked_domains": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["query"],
+}
+
+SRC_ORIGIN_WEB_FETCH_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "url": {"type": "string", "description": "The URL to fetch content from."},
+        "prompt": {"type": "string", "description": "The prompt to run on the fetched content."},
+    },
+    "required": ["url", "prompt"],
+}
+
+SRC_ORIGIN_TASK_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "task_id": {"type": "string", "description": "Background task id."},
+        "block": {"type": "boolean", "description": "Whether to wait for completion."},
+        "timeout": {"type": "number", "minimum": 0, "maximum": 600000, "description": "Max wait time in milliseconds."},
+        "max_bytes": {"type": "integer", "minimum": 1, "maximum": 200000},
+    },
+    "required": ["task_id"],
+}
+
+SRC_ORIGIN_TASK_STOP_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "task_id": {"type": "string", "description": "The ID of the background task to stop."},
+        "shell_id": {"type": "string", "description": "Deprecated shell task id alias."},
+    },
+}
+
+SRC_ORIGIN_TASK_CREATE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "subject": {"type": "string", "description": "A brief title for the task."},
+        "description": {"type": "string", "description": "What needs to be done."},
+        "activeForm": {"type": "string", "description": "Present-continuous status label."},
+        "metadata": {"type": "object", "additionalProperties": True},
+    },
+    "required": ["subject", "description"],
+}
+
+SRC_ORIGIN_TASK_GET_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "taskId": {"type": "string", "description": "The task ID to get."},
+    },
+    "required": ["taskId"],
+}
+
+SRC_ORIGIN_TASK_UPDATE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "taskId": {"type": "string", "description": "The ID of the task to update."},
+        "subject": {"type": "string", "description": "New subject for the task."},
+        "description": {"type": "string", "description": "New description for the task."},
+        "activeForm": {"type": "string", "description": "Present-continuous status label."},
+        "status": {
+            "type": "string",
+            "enum": ["pending", "running", "completed", "failed", "killed", "deleted"],
+            "description": "New src-origin task status.",
+        },
+        "owner": {"type": "string"},
+        "addBlocks": {"type": "array", "items": {"type": "string"}},
+        "addBlockedBy": {"type": "array", "items": {"type": "string"}},
+        "metadata": {"type": "object", "additionalProperties": True},
+    },
+    "required": ["taskId"],
+}
+
+SRC_ORIGIN_CRON_CREATE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "cron": {"type": "string", "description": "Standard 5-field cron expression."},
+        "prompt": {"type": "string", "description": "The prompt to enqueue at each fire time."},
+        "recurring": {"type": "boolean"},
+        "durable": {"type": "boolean"},
+    },
+    "required": ["cron", "prompt"],
+}
+
+SRC_ORIGIN_CRON_DELETE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "string", "description": "Job ID returned by CronCreate."},
+    },
+    "required": ["id"],
+}
+
+SRC_ORIGIN_EMPTY_SCHEMA = {"type": "object", "properties": {}}
+
+SRC_ORIGIN_AGENT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "description": {"type": "string", "description": "A short description of the task."},
+        "prompt": {"type": "string", "description": "The task for the agent to perform."},
+        "subagent_type": {"type": "string"},
+        "model": {"type": "string", "enum": ["sonnet", "opus", "haiku"]},
+        "run_in_background": {"type": "boolean"},
+        "name": {"type": "string"},
+        "team_name": {"type": "string"},
+        "mode": {"type": "string"},
+        "isolation": {"type": "string", "enum": ["worktree", "remote"]},
+        "cwd": {"type": "string"},
+    },
+    "required": ["description", "prompt"],
+}
+
+SRC_ORIGIN_SEND_MESSAGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "to": {"type": "string", "description": "Recipient teammate name or *."},
+        "summary": {"type": "string", "description": "Short message summary."},
+        "message": {
+            "description": "Plain text or structured message content.",
+            "anyOf": [{"type": "string"}, {"type": "object"}],
+        },
+        "team_name": {"type": "string", "description": "Optional team id/name override."},
+    },
+    "required": ["to", "message"],
+}
+
+SRC_ORIGIN_TEAM_CREATE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "team_name": {"type": "string", "description": "Name for the new team to create."},
+        "description": {"type": "string", "description": "Team description or purpose."},
+        "agent_type": {"type": "string", "description": "Role of the team lead."},
+    },
+    "required": ["team_name"],
+}
+
+
+def _src_origin_metadata(metadata: dict[str, Any] | None, **extra: Any) -> dict[str, Any]:
+    payload = dict(metadata or {})
+    for key, value in extra.items():
+        if value not in (None, ""):
+            payload[key] = value
+    return payload
+
+
+def _src_origin_task_status(status: str) -> str:
+    mapping = {
+        "pending": "created",
+        "running": "running",
+        "completed": "finished",
+        "failed": "error",
+        "killed": "canceled",
+        "deleted": "canceled",
+    }
+    value = str(status or "").strip()
+    return mapping.get(value, value)
+
+
+def _src_origin_prompt_title(prompt: str) -> str:
+    text = str(prompt or "").strip()
+    first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
+    return first_line[:80] or "Scheduled prompt"
+
+
+async def _src_origin_task_create(
+    context: ToolRuntimeContext,
+    *,
+    subject: str,
+    description: str,
+    activeForm: str = "",
+    metadata: dict[str, Any] | None = None,
+) -> dict:
+    return await task_create(
+        context,
+        title=subject,
+        input=description,
+        metadata=_src_origin_metadata(metadata, activeForm=activeForm),
+    )
+
+
+async def _src_origin_task_update(
+    context: ToolRuntimeContext,
+    *,
+    taskId: str,
+    subject: str = "",
+    description: str = "",
+    activeForm: str = "",
+    status: str = "",
+    owner: str = "",
+    addBlocks: list[str] | None = None,
+    addBlockedBy: list[str] | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> dict:
+    return await task_update(
+        context,
+        task_id=taskId,
+        title=subject,
+        input=description,
+        status=_src_origin_task_status(status),
+        metadata=_src_origin_metadata(
+            metadata,
+            activeForm=activeForm,
+            owner=owner,
+            blocks=",".join(addBlocks or []),
+            blockedBy=",".join(addBlockedBy or []),
+        ),
+    )
+
+
+async def _src_origin_cron_create(
+    context: ToolRuntimeContext,
+    *,
+    cron: str,
+    prompt: str,
+    recurring: bool = True,
+    durable: bool = False,
+) -> dict:
+    return await schedule_create(
+        context,
+        title=_src_origin_prompt_title(prompt),
+        input=prompt,
+        schedule=cron,
+        enabled=True,
+        metadata={"recurring": str(bool(recurring)).lower(), "durable": str(bool(durable)).lower()},
+    )
+
+
+async def _src_origin_agent(
+    context: ToolRuntimeContext,
+    *,
+    description: str,
+    prompt: str,
+    subagent_type: str = "",
+    model: str = "",
+    run_in_background: bool = False,
+    name: str = "",
+    team_name: str = "",
+    mode: str = "",
+    isolation: str = "",
+    cwd: str = "",
+) -> dict:
+    if run_in_background:
+        payload = await task_background(
+            context,
+            title=description,
+            input=prompt,
+            metadata=_src_origin_metadata(
+                {"source": "Agent"},
+                subagent_type=subagent_type,
+                model=model,
+                name=name,
+                team_name=team_name,
+                mode=mode,
+                isolation=isolation,
+                cwd=cwd,
+            ),
+            step_name="agent",
+        )
+        payload["status"] = "async_launched"
+        payload["agentId"] = payload["task"]["task_id"]
+        payload["description"] = description
+        payload["prompt"] = prompt
+        return payload
+    return await agent_run(
+        context,
+        prompt=prompt,
+        description=description,
+        agent_id=name,
+    )
+
+
+async def _src_origin_send_message(
+    context: ToolRuntimeContext,
+    *,
+    to: str,
+    message: Any,
+    summary: str = "",
+    team_name: str = "",
+) -> dict:
+    content = message if isinstance(message, str) else json.dumps(message, ensure_ascii=False, sort_keys=True)
+    team_id = str(team_name or (next(iter(context.teams)) if len(context.teams) == 1 else ""))
+    return await team_send(
+        context,
+        to=to,
+        message=content,
+        team_id=team_id,
+        from_agent="team-lead",
+        message_type="message",
+    )
+
+
+async def _src_origin_team_create(
+    context: ToolRuntimeContext,
+    *,
+    team_name: str,
+    description: str = "",
+    agent_type: str = "",
+) -> dict:
+    lead_agent_id = "team-lead"
+    payload = await team_create(
+        context,
+        team_id=team_name,
+        name=team_name,
+        description=description,
+        members=[
+            {
+                "agent_id": lead_agent_id,
+                "name": "team-lead",
+                "role": agent_type or "team-lead",
+            }
+        ],
+    )
+    payload.update(
+        {
+            "team_name": payload["team"]["name"],
+            "team_file_path": ".agents/teams/%s.json" % payload["team"]["team_id"],
+            "lead_agent_id": lead_agent_id,
+        }
+    )
+    return payload
+
+
+async def _src_origin_web_search(
+    context: ToolRuntimeContext,
+    provider: WebSearchProvider,
+    *,
+    query: str,
+    allowed_domains: list[str] | None = None,
+    blocked_domains: list[str] | None = None,
+) -> dict:
+    if allowed_domains and blocked_domains:
+        raise ValueError("Cannot specify both allowed_domains and blocked_domains")
+    return await web_search(
+        context,
+        provider,
+        query=query,
+        include_domains=allowed_domains,
+        exclude_domains=blocked_domains,
+    )
+
+
+async def _src_origin_web_fetch(
+    context: ToolRuntimeContext,
+    provider: WebSearchProvider,
+    *,
+    url: str,
+    prompt: str,
+) -> dict:
+    return await web_extract(
+        context,
+        provider,
+        urls=[url],
+        query=prompt,
+        extract_depth="basic",
+        format="markdown",
+    )
+
+
+async def _src_origin_task_output(
+    context: ToolRuntimeContext,
+    *,
+    task_id: str,
+    block: bool = True,
+    timeout: float = 30000,
+    max_bytes: int = 20000,
+) -> dict:
+    task_id = str(task_id or "")
+    if task_id.startswith("shell_"):
+        return await shell_output(
+            context,
+            task_id=task_id,
+            block=block,
+            timeout_seconds=float(timeout or 0) / 1000.0,
+            max_bytes=max_bytes,
+        )
+    return await task_output(context, task_id=task_id, max_bytes=max_bytes)
+
+
+async def _src_origin_task_stop(
+    context: ToolRuntimeContext,
+    *,
+    task_id: str = "",
+    shell_id: str = "",
+) -> dict:
+    resolved_task_id = str(task_id or shell_id or "")
+    if not resolved_task_id:
+        raise ValueError("Missing required parameter: task_id")
+    if resolved_task_id.startswith("shell_"):
+        return await shell_kill(context, task_id=resolved_task_id)
+    return await task_stop(context, task_id=resolved_task_id)
+
+
+def _register_src_origin_aliases(
+    registry: ToolRegistry,
+    context: ToolRuntimeContext,
+    active_web_provider: WebSearchProvider,
+) -> None:
+    structured_schema = structured_output_schema_from_metadata(_agent_spec_metadata(context))
+    _register_builtin_tool(
+        registry,
+        name="Read",
+        description="Read a file from the current workspace. src-origin alias for filesystem.read.",
+        parameters=SRC_ORIGIN_READ_SCHEMA,
+        handler=lambda file_path, offset=1, limit=None, pages=None, max_bytes=20000: read_file(
+            context,
+            file_path,
+            max_bytes=max_bytes,
+            offset=offset,
+            limit=limit,
+            pages=pages,
+        ),
+        metadata={"alias_of": "filesystem.read", "src_origin_tool": "Read"},
+        read_only=True,
+        path_parameters=("file_path",),
+        activity_kind="workspace",
+        activity_title="Read file",
+        activity_target_argument="file_path",
+        result_formatter=format_read_file_result,
+    )
+    _register_builtin_tool(
+        registry,
+        name="Write",
+        description="Create or overwrite a file in the current workspace. src-origin alias for filesystem.write.",
+        parameters=SRC_ORIGIN_WRITE_SCHEMA,
+        handler=lambda file_path, content: write_file(context, file_path, content),
+        metadata={"risk": "medium", "writes_files": True, "alias_of": "filesystem.write", "src_origin_tool": "Write"},
+        writes_state=True,
+        concurrency_safe=False,
+        max_result_size_chars=100000,
+        path_parameters=("file_path",),
+        activity_kind="edit",
+        activity_title="Write file",
+        activity_target_argument="file_path",
+    )
+    _register_builtin_tool(
+        registry,
+        name="Edit",
+        description="Replace text in a file. src-origin alias for patch.apply single-file edit.",
+        parameters=SRC_ORIGIN_EDIT_SCHEMA,
+        handler=lambda file_path, old_string, new_string, replace_all=False: apply_patch(
+            context,
+            edits=[
+                {
+                    "path": file_path,
+                    "old_text": old_string,
+                    "new_text": new_string,
+                    "replace_all": bool(replace_all),
+                }
+            ],
+        ),
+        metadata={"risk": "medium", "writes_files": True, "alias_of": "patch.apply", "src_origin_tool": "Edit"},
+        writes_state=True,
+        concurrency_safe=False,
+        max_result_size_chars=100000,
+        path_parameters=("file_path",),
+        activity_kind="edit",
+        activity_title="Edit file",
+        activity_target_argument="file_path",
+    )
+    _register_builtin_tool(
+        registry,
+        name="Bash",
+        description="Run a shell command. src-origin alias for shell.run.",
+        parameters=RUN_COMMAND_SCHEMA,
+        handler=lambda command,
+        timeout_seconds=20.0,
+        timeout=None,
+        description="",
+        run_in_background=False,
+        dangerouslyDisableSandbox=False: run_command(
+            context,
+            command=command,
+            timeout_seconds=timeout_seconds,
+            timeout=timeout,
+            description=description,
+            run_in_background=run_in_background,
+            dangerouslyDisableSandbox=dangerouslyDisableSandbox,
+        ),
+        metadata={"risk": "high", "requires_process": True, "alias_of": "shell.run", "src_origin_tool": "Bash"},
+        concurrency_safe=False,
+        interrupt_behavior="cancel",
+        cancels_siblings_on_error=True,
+        activity_kind="terminal",
+        activity_title="Run shell command",
+        activity_target_argument="command",
+    )
+    _register_builtin_tool(
+        registry,
+        name="Glob",
+        description="Find workspace files by glob pattern. src-origin alias for search.glob.",
+        parameters=GLOB_SCHEMA,
+        handler=lambda pattern, path=".", max_results=100: glob(context, pattern, path=path, max_results=max_results),
+        metadata={"alias_of": "search.glob", "src_origin_tool": "Glob"},
+        read_only=True,
+        path_parameters=("path",),
+        activity_kind="workspace",
+        activity_title="Find files",
+        activity_target_argument="pattern",
+        result_formatter=format_glob_result,
+    )
+    _register_builtin_tool(
+        registry,
+        name="Grep",
+        description="Search workspace files by regex. src-origin alias for search.grep.",
+        parameters=GREP_SCHEMA,
+        handler=lambda pattern, path=".", glob="", max_results=1000, case_sensitive=True, output_mode="files_with_matches", head_limit=None, offset=0, **options: grep(
+            context,
+            pattern,
+            path=path,
+            glob=glob,
+            max_results=max_results,
+            case_sensitive=case_sensitive,
+            output_mode=output_mode,
+            head_limit=head_limit,
+            offset=offset,
+            **options,
+        ),
+        metadata={"alias_of": "search.grep", "src_origin_tool": "Grep"},
+        read_only=True,
+        path_parameters=("path",),
+        activity_kind="workspace",
+        activity_title="Search files",
+        activity_target_argument="path",
+        result_formatter=format_grep_result,
+    )
+    _register_builtin_tool(
+        registry,
+        name="TodoWrite",
+        description="Update the structured todo list for the current session. src-origin alias for todo.write.",
+        parameters=TODO_WRITE_SCHEMA,
+        handler=lambda todos: todo_write(context, todos=todos),
+        metadata={"risk": "low", "writes_state": True, "alias_of": "todo.write", "src_origin_tool": "TodoWrite"},
+        writes_state=True,
+        concurrency_safe=False,
+        activity_kind="state",
+        activity_title="Update todos",
+    )
+    _register_builtin_tool(
+        registry,
+        name="NotebookEdit",
+        description="Edit a specific Jupyter notebook cell. src-origin alias for notebook.edit.",
+        parameters=NOTEBOOK_EDIT_SCHEMA,
+        handler=lambda notebook_path,
+        new_source,
+        cell_id=None,
+        cell_type=None,
+        edit_mode="replace": notebook_edit(
+            context,
+            notebook_path=notebook_path,
+            new_source=new_source,
+            cell_id=cell_id,
+            cell_type=cell_type,
+            edit_mode=edit_mode,
+        ),
+        metadata={"risk": "medium", "writes_files": True, "alias_of": "notebook.edit", "src_origin_tool": "NotebookEdit"},
+        writes_state=True,
+        concurrency_safe=False,
+        max_result_size_chars=100000,
+        path_parameters=("notebook_path",),
+        activity_kind="edit",
+        activity_title="Edit notebook",
+        activity_target_argument="notebook_path",
+        result_formatter=format_notebook_edit_result,
+    )
+    _register_builtin_tool(
+        registry,
+        name="Sleep",
+        description="Wait for a specified duration. src-origin alias for sleep.wait.",
+        parameters=SLEEP_WAIT_SCHEMA,
+        handler=lambda duration_seconds, reason="": sleep_wait(context, duration_seconds=duration_seconds, reason=reason),
+        metadata={"risk": "low", "alias_of": "sleep.wait", "src_origin_tool": "Sleep"},
+        read_only=True,
+        interrupt_behavior="cancel",
+        activity_kind="wait",
+        activity_title="Wait",
+        activity_target_argument="duration_seconds",
+    )
+    _register_builtin_tool(
+        registry,
+        name="WebSearch",
+        description="Search the web for current information. src-origin alias for web.search.",
+        parameters=SRC_ORIGIN_WEB_SEARCH_SCHEMA,
+        handler=lambda query, allowed_domains=None, blocked_domains=None: _src_origin_web_search(
+            context,
+            active_web_provider,
+            query=query,
+            allowed_domains=allowed_domains,
+            blocked_domains=blocked_domains,
+        ),
+        metadata={
+            "risk": "medium",
+            "requires_network": True,
+            "external_disclosure": True,
+            "provider": getattr(active_web_provider, "name", "none"),
+            "alias_of": "web.search",
+            "src_origin_tool": "WebSearch",
+        },
+        read_only=True,
+        activity_kind="web",
+        activity_title="Search web",
+        activity_target_argument="query",
+    )
+    _register_builtin_tool(
+        registry,
+        name="WebFetch",
+        description="Fetch and extract content from a URL. src-origin alias for web.extract.",
+        parameters=SRC_ORIGIN_WEB_FETCH_SCHEMA,
+        handler=lambda url, prompt: _src_origin_web_fetch(
+            context,
+            active_web_provider,
+            url=url,
+            prompt=prompt,
+        ),
+        metadata={
+            "risk": "medium",
+            "requires_network": True,
+            "external_disclosure": True,
+            "provider": getattr(active_web_provider, "name", "none"),
+            "alias_of": "web.extract",
+            "src_origin_tool": "WebFetch",
+        },
+        read_only=True,
+        activity_kind="web",
+        activity_title="Extract web content",
+        activity_target_argument="url",
+    )
+    _register_builtin_tool(
+        registry,
+        name="ListMcpResourcesTool",
+        description="List resources from configured MCP servers. src-origin alias for mcp.resources.",
+        parameters=MCP_RESOURCES_SCHEMA,
+        handler=lambda server="", uri_prefix="", max_results=50: mcp_resources(
+            context,
+            server=server,
+            uri_prefix=uri_prefix,
+            max_results=max_results,
+        ),
+        metadata={"risk": "low", "alias_of": "mcp.resources", "src_origin_tool": "ListMcpResourcesTool"},
+        read_only=True,
+        activity_kind="mcp",
+        activity_title="List MCP resources",
+        activity_target_argument="server",
+    )
+    _register_builtin_tool(
+        registry,
+        name="ReadMcpResourceTool",
+        description="Read a resource from a configured MCP server. src-origin alias for mcp.read_resource.",
+        parameters=MCP_READ_RESOURCE_SCHEMA,
+        handler=lambda uri, server="": mcp_read_resource(context, uri=uri, server=server),
+        metadata={"risk": "medium", "alias_of": "mcp.read_resource", "src_origin_tool": "ReadMcpResourceTool"},
+        read_only=True,
+        activity_kind="mcp",
+        activity_title="Read MCP resource",
+        activity_target_argument="uri",
+    )
+    for alias_name, src_origin_tool, alias_of in (
+        ("TaskOutput", "TaskOutput", "task.output"),
+        ("AgentOutputTool", "AgentOutputTool", "task.output"),
+        ("BashOutputTool", "BashOutputTool", "shell.output"),
+    ):
+        _register_builtin_tool(
+            registry,
+            name=alias_name,
+            description="Read output from a tracked or background task. src-origin alias for task.output/shell.output.",
+            parameters=SRC_ORIGIN_TASK_OUTPUT_SCHEMA,
+            handler=lambda task_id, block=True, timeout=30000, max_bytes=20000: _src_origin_task_output(
+                context,
+                task_id=task_id,
+                block=block,
+                timeout=timeout,
+                max_bytes=max_bytes,
+            ),
+            metadata={"risk": "low", "alias_of": alias_of, "src_origin_tool": src_origin_tool},
+            read_only=True,
+            activity_kind="state",
+            activity_title="Read task output",
+            activity_target_argument="task_id",
+        )
+    for alias_name, src_origin_tool in (("TaskStop", "TaskStop"), ("KillShell", "KillShell")):
+        _register_builtin_tool(
+            registry,
+            name=alias_name,
+            description="Stop a tracked or background task. src-origin alias for task.stop/shell.kill.",
+            parameters=SRC_ORIGIN_TASK_STOP_SCHEMA,
+            handler=lambda task_id="", shell_id="": _src_origin_task_stop(context, task_id=task_id, shell_id=shell_id),
+            metadata={"risk": "medium", "writes_state": True, "alias_of": "task.stop", "src_origin_tool": src_origin_tool},
+            writes_state=True,
+            concurrency_safe=False,
+            activity_kind="state",
+            activity_title="Stop task",
+            activity_target_argument="task_id",
+        )
+    _register_builtin_tool(
+        registry,
+        name="TaskCreate",
+        description="Create a tracked task. src-origin alias for task.create.",
+        parameters=SRC_ORIGIN_TASK_CREATE_SCHEMA,
+        handler=lambda subject, description, activeForm="", metadata=None: _src_origin_task_create(
+            context,
+            subject=subject,
+            description=description,
+            activeForm=activeForm,
+            metadata=metadata,
+        ),
+        metadata={"risk": "medium", "writes_state": True, "alias_of": "task.create", "src_origin_tool": "TaskCreate"},
+        writes_state=True,
+        activity_kind="state",
+        activity_title="Create task",
+        activity_target_argument="subject",
+    )
+    _register_builtin_tool(
+        registry,
+        name="TaskList",
+        description="List tracked tasks. src-origin alias for task.list.",
+        parameters=SRC_ORIGIN_EMPTY_SCHEMA,
+        handler=lambda: task_list(context),
+        metadata={"risk": "low", "alias_of": "task.list", "src_origin_tool": "TaskList"},
+        read_only=True,
+        activity_kind="state",
+        activity_title="List tasks",
+    )
+    _register_builtin_tool(
+        registry,
+        name="TaskGet",
+        description="Load a tracked task by id. src-origin alias for task.get.",
+        parameters=SRC_ORIGIN_TASK_GET_SCHEMA,
+        handler=lambda taskId: task_get(context, task_id=taskId),
+        metadata={"risk": "low", "alias_of": "task.get", "src_origin_tool": "TaskGet"},
+        read_only=True,
+        activity_kind="state",
+        activity_title="Read task",
+        activity_target_argument="taskId",
+    )
+    _register_builtin_tool(
+        registry,
+        name="TaskUpdate",
+        description="Update a tracked task. src-origin alias for task.update.",
+        parameters=SRC_ORIGIN_TASK_UPDATE_SCHEMA,
+        handler=lambda taskId,
+        subject="",
+        description="",
+        activeForm="",
+        status="",
+        owner="",
+        addBlocks=None,
+        addBlockedBy=None,
+        metadata=None: _src_origin_task_update(
+            context,
+            taskId=taskId,
+            subject=subject,
+            description=description,
+            activeForm=activeForm,
+            status=status,
+            owner=owner,
+            addBlocks=addBlocks,
+            addBlockedBy=addBlockedBy,
+            metadata=metadata,
+        ),
+        metadata={"risk": "medium", "writes_state": True, "alias_of": "task.update", "src_origin_tool": "TaskUpdate"},
+        writes_state=True,
+        concurrency_safe=False,
+        activity_kind="state",
+        activity_title="Update task",
+        activity_target_argument="taskId",
+    )
+    _register_builtin_tool(
+        registry,
+        name="CronCreate",
+        description="Schedule a recurring or one-shot prompt. src-origin alias for schedule.create.",
+        parameters=SRC_ORIGIN_CRON_CREATE_SCHEMA,
+        handler=lambda cron, prompt, recurring=True, durable=False: _src_origin_cron_create(
+            context,
+            cron=cron,
+            prompt=prompt,
+            recurring=recurring,
+            durable=durable,
+        ),
+        metadata={"risk": "medium", "writes_state": True, "alias_of": "schedule.create", "src_origin_tool": "CronCreate"},
+        writes_state=True,
+        activity_kind="state",
+        activity_title="Create schedule",
+        activity_target_argument="cron",
+    )
+    _register_builtin_tool(
+        registry,
+        name="CronList",
+        description="List scheduled prompts. src-origin alias for schedule.list.",
+        parameters=SRC_ORIGIN_EMPTY_SCHEMA,
+        handler=lambda: schedule_list(context),
+        metadata={"risk": "low", "alias_of": "schedule.list", "src_origin_tool": "CronList"},
+        read_only=True,
+        activity_kind="state",
+        activity_title="List schedules",
+    )
+    _register_builtin_tool(
+        registry,
+        name="CronDelete",
+        description="Delete a scheduled prompt. src-origin alias for schedule.delete.",
+        parameters=SRC_ORIGIN_CRON_DELETE_SCHEMA,
+        handler=lambda id: schedule_delete(context, schedule_id=id),
+        metadata={"risk": "medium", "writes_state": True, "alias_of": "schedule.delete", "src_origin_tool": "CronDelete"},
+        writes_state=True,
+        activity_kind="state",
+        activity_title="Delete schedule",
+        activity_target_argument="id",
+    )
+    _register_builtin_tool(
+        registry,
+        name="ToolSearch",
+        description="Search registered tools. src-origin alias for tool.search.",
+        parameters=TOOL_SEARCH_SCHEMA,
+        handler=lambda query="", max_results=5, include_all=False: tool_search(
+            context,
+            registry,
+            query=query,
+            max_results=max_results,
+            include_all=include_all,
+        ),
+        metadata={"risk": "low", "alias_of": "tool.search", "src_origin_tool": "ToolSearch"},
+        read_only=True,
+        activity_kind="state",
+        activity_title="Search tools",
+        activity_target_argument="query",
+    )
+    _register_builtin_tool(
+        registry,
+        name="EnterPlanMode",
+        description="Enter plan mode. src-origin alias for plan.enter.",
+        parameters=PLAN_ENTER_SCHEMA,
+        handler=lambda: plan_enter(context),
+        metadata={"risk": "low", "writes_state": True, "alias_of": "plan.enter", "src_origin_tool": "EnterPlanMode"},
+        writes_state=True,
+        activity_kind="state",
+        activity_title="Enter plan mode",
+    )
+    _register_builtin_tool(
+        registry,
+        name="ExitPlanMode",
+        description="Exit plan mode with a concrete plan. src-origin alias for plan.exit.",
+        parameters=PLAN_EXIT_SCHEMA,
+        handler=lambda plan, allowedPrompts=None, allowed_prompts=None: plan_exit(
+            context,
+            plan=plan,
+            allowedPrompts=allowedPrompts,
+            allowed_prompts=allowed_prompts,
+        ),
+        metadata={
+            "risk": "medium",
+            "writes_state": True,
+            "requires_approval": True,
+            "alias_of": "plan.exit",
+            "src_origin_tool": "ExitPlanMode",
+        },
+        writes_state=True,
+        activity_kind="state",
+        activity_title="Exit plan mode",
+        activity_target_argument="plan",
+    )
+    for alias_name, src_origin_tool in (("Agent", "Agent"), ("Task", "Task")):
+        _register_builtin_tool(
+            registry,
+            name=alias_name,
+            description="Delegate work to a child agent. src-origin alias for agent.run.",
+            parameters=SRC_ORIGIN_AGENT_SCHEMA,
+            handler=lambda description,
+            prompt,
+            subagent_type="",
+            model="",
+            run_in_background=False,
+            name="",
+            team_name="",
+            mode="",
+            isolation="",
+            cwd="": _src_origin_agent(
+                context,
+                description=description,
+                prompt=prompt,
+                subagent_type=subagent_type,
+                model=model,
+                run_in_background=run_in_background,
+                name=name,
+                team_name=team_name,
+                mode=mode,
+                isolation=isolation,
+                cwd=cwd,
+            ),
+            metadata={"risk": "high", "spawns_agent": True, "model_call": True, "alias_of": "agent.run", "src_origin_tool": src_origin_tool},
+            writes_state=True,
+            concurrency_safe=False,
+            activity_kind="agent",
+            activity_title="Run agent",
+            activity_target_argument="description",
+        )
+    _register_builtin_tool(
+        registry,
+        name="SendMessage",
+        description="Send a message to a teammate. src-origin alias for team.send.",
+        parameters=SRC_ORIGIN_SEND_MESSAGE_SCHEMA,
+        handler=lambda to, message, summary="", team_name="": _src_origin_send_message(
+            context,
+            to=to,
+            message=message,
+            summary=summary,
+            team_name=team_name,
+        ),
+        metadata={"risk": "low", "writes_state": True, "alias_of": "team.send", "src_origin_tool": "SendMessage"},
+        writes_state=True,
+        activity_kind="state",
+        activity_title="Send message",
+        activity_target_argument="to",
+    )
+    _register_builtin_tool(
+        registry,
+        name="TeamCreate",
+        description="Create a multi-agent team. src-origin alias for team.create.",
+        parameters=SRC_ORIGIN_TEAM_CREATE_SCHEMA,
+        handler=lambda team_name, description="", agent_type="": _src_origin_team_create(
+            context,
+            team_name=team_name,
+            description=description,
+            agent_type=agent_type,
+        ),
+        metadata={"risk": "low", "writes_state": True, "alias_of": "team.create", "src_origin_tool": "TeamCreate"},
+        writes_state=True,
+        activity_kind="state",
+        activity_title="Create team",
+        activity_target_argument="team_name",
+    )
+    _register_builtin_tool(
+        registry,
+        name="TeamDelete",
+        description="Delete the active team. src-origin alias for team.delete.",
+        parameters=SRC_ORIGIN_EMPTY_SCHEMA,
+        handler=lambda: team_delete(context),
+        metadata={"risk": "medium", "writes_state": True, "alias_of": "team.delete", "src_origin_tool": "TeamDelete"},
+        writes_state=True,
+        concurrency_safe=False,
+        activity_kind="state",
+        activity_title="Delete team",
+    )
+    _register_builtin_tool(
+        registry,
+        name="StructuredOutput",
+        description="Return structured output in the requested format. src-origin alias for structured.output.",
+        parameters=structured_schema,
+        handler=structured_output,
+        metadata={
+            "risk": "low",
+            "structured_output": True,
+            "alias_of": "structured.output",
+            "src_origin_tool": "StructuredOutput",
+        },
+        read_only=True,
+        max_result_size_chars=100000,
+        activity_kind="structured",
+        activity_title="Structured output",
+        result_formatter=format_structured_output_result,
+    )
+    _register_builtin_tool(
+        registry,
+        name="Skill",
+        description="Invoke a slash-command skill. src-origin alias for skill.invoke.",
+        parameters=SKILL_INVOKE_SCHEMA,
+        handler=lambda skill, args="", mode="auto": skill_invoke(context, skill=skill, args=args, mode=mode),
+        metadata={"risk": "high", "model_call": True, "alias_of": "skill.invoke", "src_origin_tool": "Skill"},
+        concurrency_safe=False,
+        max_result_size_chars=100000,
+        activity_kind="skill",
+        activity_title="Invoke skill",
+        activity_target_argument="skill",
+        result_formatter=format_skill_invoke_result,
+    )
+    _register_builtin_tool(
+        registry,
+        name="Config",
+        description="Get or set configuration settings. src-origin alias for config.manage.",
+        parameters=CONFIG_MANAGE_SCHEMA,
+        handler=lambda setting, value=CONFIG_VALUE_UNSET: config_manage(context, setting=setting, value=value),
+        metadata={"risk": "medium", "writes_state": True, "defer": True, "alias_of": "config.manage", "src_origin_tool": "Config"},
+        writes_state=True,
+        max_result_size_chars=100000,
+        activity_kind="state",
+        activity_title="Manage config",
+        activity_target_argument="setting",
+        result_formatter=format_config_result,
+    )
+    _register_builtin_tool(
+        registry,
+        name="AskUserQuestion",
+        description="Ask the user multiple-choice questions. src-origin alias for user.ask.",
+        parameters=ASK_USER_QUESTION_SCHEMA,
+        handler=lambda questions, answers=None, annotations=None, metadata=None: ask_user_question(
+            questions=questions,
+            answers=answers,
+            annotations=annotations,
+            metadata=metadata,
+        ),
+        metadata={
+            "risk": "low",
+            "requires_user_interaction": True,
+            "defer": True,
+            "alias_of": "user.ask",
+            "src_origin_tool": "AskUserQuestion",
+        },
+        read_only=True,
+        max_result_size_chars=100000,
+        activity_kind="state",
+        activity_title="Ask user",
+        activity_target_argument="questions",
+        result_formatter=format_ask_user_question_result,
+    )
+    for alias_name in ("SendUserMessage", "Brief"):
+        _register_builtin_tool(
+            registry,
+            name=alias_name,
+            description="Send a message to the user. src-origin alias for user.message.",
+            parameters=USER_MESSAGE_SCHEMA,
+            handler=lambda message, attachments=None, status="normal": send_user_message(
+                context,
+                message=message,
+                attachments=attachments,
+                status=status,
+            ),
+            metadata={"risk": "low", "user_visible": True, "alias_of": "user.message", "src_origin_tool": alias_name},
+            read_only=True,
+            max_result_size_chars=100000,
+            activity_kind="state",
+            activity_title="Message user",
+            activity_target_argument="message",
+            result_formatter=format_user_message_result,
+        )
+    _register_builtin_tool(
+        registry,
+        name="EnterWorktree",
+        description="Create or resume an isolated git worktree. src-origin alias for worktree.enter.",
+        parameters=WORKTREE_ENTER_SCHEMA,
+        handler=lambda name="": enter_worktree(context, name=name),
+        metadata={"risk": "medium", "writes_state": True, "alias_of": "worktree.enter", "src_origin_tool": "EnterWorktree"},
+        writes_state=True,
+        concurrency_safe=False,
+        activity_kind="state",
+        activity_title="Enter worktree",
+        activity_target_argument="name",
+        result_formatter=format_worktree_result,
+    )
+    _register_builtin_tool(
+        registry,
+        name="ExitWorktree",
+        description="Exit the active git worktree. src-origin alias for worktree.exit.",
+        parameters=WORKTREE_EXIT_SCHEMA,
+        handler=lambda action, discard_changes=False: exit_worktree(
+            context,
+            action=action,
+            discard_changes=discard_changes,
+        ),
+        metadata={"risk": "medium", "writes_state": True, "alias_of": "worktree.exit", "src_origin_tool": "ExitWorktree"},
+        destructive=True,
+        writes_state=True,
+        concurrency_safe=False,
+        activity_kind="state",
+        activity_title="Exit worktree",
+        activity_target_argument="action",
+        result_formatter=format_worktree_result,
     )
 
 
@@ -616,12 +2121,19 @@ def _register_mcp_management(registry: ToolRegistry, context: ToolRuntimeContext
         "mcp.configure",
         "Configure the local MCP server command for this session.",
         MCP_CONFIGURE_SCHEMA,
-        lambda command, name="default", execution_mode="", sandbox_profile="": mcp_configure(
+        lambda command="", name="default", transport="", url="", headers=None, execution_mode="", sandbox_profile="", auth_required=False, auth_url="", auth_status="", auth_message="": mcp_configure(
             context,
             command=command,
             name=name,
+            transport=transport,
+            url=url,
+            headers=headers,
             execution_mode=execution_mode,
             sandbox_profile=sandbox_profile,
+            auth_required=auth_required,
+            auth_url=auth_url,
+            auth_status=auth_status,
+            auth_message=auth_message,
         ),
         metadata={"risk": "medium", "writes_state": True, "source": "mcp", "model_call": True},
     )
@@ -938,11 +2450,12 @@ def _register_memory(registry: ToolRegistry, context: ToolRuntimeContext) -> Non
 
 
 def _register_web(registry: ToolRegistry, context: ToolRuntimeContext, active_web_provider: WebSearchProvider) -> None:
-    registry.register(
-        "web.search",
-        "Search the web through the configured control-plane search provider and return cited sources.",
-        WEB_SEARCH_SCHEMA,
-        lambda query,
+    _register_builtin_tool(
+        registry,
+        name="web.search",
+        description="Search the web through the configured control-plane search provider and return cited sources.",
+        parameters=WEB_SEARCH_SCHEMA,
+        handler=lambda query,
         topic="general",
         search_depth="basic",
         max_results=5,
@@ -973,12 +2486,17 @@ def _register_web(registry: ToolRegistry, context: ToolRuntimeContext, active_we
             "external_disclosure": True,
             "provider": getattr(active_web_provider, "name", "none"),
         },
+        read_only=True,
+        activity_kind="web",
+        activity_title="Search web",
+        activity_target_argument="query",
     )
-    registry.register(
-        "web.extract",
-        "Extract clean content from specific URLs through the configured control-plane search provider.",
-        WEB_EXTRACT_SCHEMA,
-        lambda urls, query="", extract_depth="basic", format="markdown", chunks_per_source=3: web_extract(
+    _register_builtin_tool(
+        registry,
+        name="web.extract",
+        description="Extract clean content from specific URLs through the configured control-plane search provider.",
+        parameters=WEB_EXTRACT_SCHEMA,
+        handler=lambda urls, query="", extract_depth="basic", format="markdown", chunks_per_source=3: web_extract(
             context,
             active_web_provider,
             urls=urls,
@@ -993,12 +2511,17 @@ def _register_web(registry: ToolRegistry, context: ToolRuntimeContext, active_we
             "external_disclosure": True,
             "provider": getattr(active_web_provider, "name", "none"),
         },
+        read_only=True,
+        activity_kind="web",
+        activity_title="Extract web content",
+        activity_target_argument="urls",
     )
-    registry.register(
-        "web.map",
-        "Discover URLs under a site through the configured control-plane search provider.",
-        WEB_MAP_SCHEMA,
-        lambda url, instructions="", max_depth=1, limit=50, include_domains=None, exclude_domains=None: web_map(
+    _register_builtin_tool(
+        registry,
+        name="web.map",
+        description="Discover URLs under a site through the configured control-plane search provider.",
+        parameters=WEB_MAP_SCHEMA,
+        handler=lambda url, instructions="", max_depth=1, limit=50, include_domains=None, exclude_domains=None: web_map(
             context,
             active_web_provider,
             url=url,
@@ -1014,39 +2537,61 @@ def _register_web(registry: ToolRegistry, context: ToolRuntimeContext, active_we
             "external_disclosure": True,
             "provider": getattr(active_web_provider, "name", "none"),
         },
+        read_only=True,
+        activity_kind="web",
+        activity_title="Map site",
+        activity_target_argument="url",
     )
 
 
 def _register_git(registry: ToolRegistry, context: ToolRuntimeContext) -> None:
-    registry.register(
-        "git.status",
-        "Return git workspace status from inside the sandbox.",
-        GIT_STATUS_SCHEMA,
-        lambda short=True: git_status(context, short=short),
+    _register_builtin_tool(
+        registry,
+        name="git.status",
+        description="Return git workspace status from inside the sandbox.",
+        parameters=GIT_STATUS_SCHEMA,
+        handler=lambda short=True: git_status(context, short=short),
+        read_only=True,
+        activity_kind="git",
+        activity_title="Inspect git status",
     )
-    registry.register(
-        "git.diff",
-        "Return git diff output from inside the sandbox.",
-        GIT_DIFF_SCHEMA,
-        lambda path="", staged=False, max_bytes=20000: git_diff(
+    _register_builtin_tool(
+        registry,
+        name="git.diff",
+        description="Return git diff output from inside the sandbox.",
+        parameters=GIT_DIFF_SCHEMA,
+        handler=lambda path="", staged=False, max_bytes=20000: git_diff(
             context,
             path=path,
             staged=staged,
             max_bytes=max_bytes,
         ),
+        read_only=True,
+        path_parameters=("path",),
+        activity_kind="git",
+        activity_title="Inspect git diff",
+        activity_target_argument="path",
     )
-    registry.register(
-        "git.add",
-        "Stage git workspace changes inside the sandbox.",
-        GIT_ADD_SCHEMA,
-        lambda paths=None, all=False: git_add(context, paths=paths, all=all),
+    _register_builtin_tool(
+        registry,
+        name="git.add",
+        description="Stage git workspace changes inside the sandbox.",
+        parameters=GIT_ADD_SCHEMA,
+        handler=lambda paths=None, all=False: git_add(context, paths=paths, all=all),
         metadata={"risk": "high", "requires_process": True, "writes_files": True},
+        writes_state=True,
+        concurrency_safe=False,
+        path_parameters=("paths",),
+        activity_kind="git",
+        activity_title="Stage git changes",
+        activity_target_argument="paths",
     )
-    registry.register(
-        "git.commit",
-        "Create a git commit inside the sandbox.",
-        GIT_COMMIT_SCHEMA,
-        lambda message, all=False, paths=None, allow_empty=False: git_commit(
+    _register_builtin_tool(
+        registry,
+        name="git.commit",
+        description="Create a git commit inside the sandbox.",
+        parameters=GIT_COMMIT_SCHEMA,
+        handler=lambda message, all=False, paths=None, allow_empty=False: git_commit(
             context,
             message=message,
             all=all,
@@ -1054,12 +2599,19 @@ def _register_git(registry: ToolRegistry, context: ToolRuntimeContext) -> None:
             allow_empty=allow_empty,
         ),
         metadata={"risk": "high", "requires_process": True, "writes_files": True},
+        writes_state=True,
+        concurrency_safe=False,
+        path_parameters=("paths",),
+        activity_kind="git",
+        activity_title="Create git commit",
+        activity_target_argument="message",
     )
-    registry.register(
-        "git.log",
-        "Return recent git history from inside the sandbox.",
-        GIT_LOG_SCHEMA,
-        lambda max_count=10, path="", oneline=True, max_bytes=20000: git_log(
+    _register_builtin_tool(
+        registry,
+        name="git.log",
+        description="Return recent git history from inside the sandbox.",
+        parameters=GIT_LOG_SCHEMA,
+        handler=lambda max_count=10, path="", oneline=True, max_bytes=20000: git_log(
             context,
             max_count=max_count,
             path=path,
@@ -1067,12 +2619,18 @@ def _register_git(registry: ToolRegistry, context: ToolRuntimeContext) -> None:
             max_bytes=max_bytes,
         ),
         metadata={"risk": "low", "requires_process": True},
+        read_only=True,
+        path_parameters=("path",),
+        activity_kind="git",
+        activity_title="Inspect git history",
+        activity_target_argument="path",
     )
-    registry.register(
-        "git.show",
-        "Return a git object or commit diff from inside the sandbox.",
-        GIT_SHOW_SCHEMA,
-        lambda revision="HEAD", path="", stat=True, patch=True, max_bytes=20000: git_show(
+    _register_builtin_tool(
+        registry,
+        name="git.show",
+        description="Return a git object or commit diff from inside the sandbox.",
+        parameters=GIT_SHOW_SCHEMA,
+        handler=lambda revision="HEAD", path="", stat=True, patch=True, max_bytes=20000: git_show(
             context,
             revision=revision,
             path=path,
@@ -1081,26 +2639,42 @@ def _register_git(registry: ToolRegistry, context: ToolRuntimeContext) -> None:
             max_bytes=max_bytes,
         ),
         metadata={"risk": "low", "requires_process": True},
+        read_only=True,
+        path_parameters=("path",),
+        activity_kind="git",
+        activity_title="Inspect git object",
+        activity_target_argument="revision",
     )
 
 
 def _register_tests(registry: ToolRegistry, context: ToolRuntimeContext) -> None:
-    registry.register(
-        "test.discover",
-        "Inspect workspace files and suggest likely test commands without running them.",
-        TEST_DISCOVER_SCHEMA,
-        lambda path=".": discover_tests(context, path=path),
+    _register_builtin_tool(
+        registry,
+        name="test.discover",
+        description="Inspect workspace files and suggest likely test commands without running them.",
+        parameters=TEST_DISCOVER_SCHEMA,
+        handler=lambda path=".": discover_tests(context, path=path),
+        read_only=True,
+        path_parameters=("path",),
+        activity_kind="terminal",
+        activity_title="Discover tests",
+        activity_target_argument="path",
     )
-    registry.register(
-        "test.run",
-        "Run a test command inside the sandbox.",
-        TEST_RUN_SCHEMA,
-        lambda command="pytest", timeout_seconds=120.0: run_tests(
+    _register_builtin_tool(
+        registry,
+        name="test.run",
+        description="Run a test command inside the sandbox.",
+        parameters=TEST_RUN_SCHEMA,
+        handler=lambda command="pytest", timeout_seconds=120.0: run_tests(
             context,
             command=command,
             timeout_seconds=timeout_seconds,
         ),
         metadata={"risk": "high", "requires_process": True},
+        concurrency_safe=False,
+        activity_kind="terminal",
+        activity_title="Run tests",
+        activity_target_argument="command",
     )
 
 
@@ -1181,9 +2755,16 @@ def _register_tasks(registry: ToolRegistry, context: ToolRuntimeContext) -> None
     )
     registry.register(
         "task.update",
-        "Update a tracked task status.",
+        "Update a tracked task title, input, status, or metadata.",
         TASK_UPDATE_SCHEMA,
-        lambda task_id, status: task_update(context, task_id=task_id, status=status),
+        lambda task_id, status="", title="", input="", metadata=None: task_update(
+            context,
+            task_id=task_id,
+            status=status,
+            title=title,
+            input=input,
+            metadata=metadata,
+        ),
         metadata={"risk": "medium", "writes_state": True},
     )
     registry.register(
@@ -1353,39 +2934,128 @@ def _register_workflows(registry: ToolRegistry, context: ToolRuntimeContext) -> 
 
 
 def _register_shell(registry: ToolRegistry, context: ToolRuntimeContext) -> None:
-    registry.register(
-        "shell.run",
-        "Run a shell command in the current workspace when the sandbox allows process execution.",
-        RUN_COMMAND_SCHEMA,
-        lambda command, timeout_seconds=20.0: run_command(context, command, timeout_seconds=timeout_seconds),
+    _register_builtin_tool(
+        registry,
+        name="shell.run",
+        description="Run a shell command in the current workspace when the sandbox allows process execution.",
+        parameters=RUN_COMMAND_SCHEMA,
+        handler=lambda command, timeout_seconds=20.0, timeout=None, description="", run_in_background=False, dangerouslyDisableSandbox=False: run_command(
+            context,
+            command,
+            timeout_seconds=timeout_seconds,
+            timeout=timeout,
+            description=description,
+            run_in_background=run_in_background,
+            dangerouslyDisableSandbox=dangerouslyDisableSandbox,
+        ),
         metadata={"risk": "high", "requires_process": True},
+        concurrency_safe=False,
+        interrupt_behavior="cancel",
+        cancels_siblings_on_error=True,
+        activity_kind="terminal",
+        activity_title="Run shell command",
+        activity_target_argument="command",
+    )
+    _register_builtin_tool(
+        registry,
+        name="shell.output",
+        description="Read output and status for a background shell command.",
+        parameters=SHELL_OUTPUT_SCHEMA,
+        handler=lambda task_id, block=True, timeout_seconds=30.0, max_bytes=20000: shell_output(
+            context,
+            task_id=task_id,
+            block=block,
+            timeout_seconds=timeout_seconds,
+            max_bytes=max_bytes,
+        ),
+        read_only=True,
+        activity_kind="terminal",
+        activity_title="Read background shell output",
+        activity_target_argument="task_id",
+    )
+    _register_builtin_tool(
+        registry,
+        name="shell.backgrounds",
+        description="List background shell commands launched by the current session.",
+        parameters=SHELL_BACKGROUNDS_SCHEMA,
+        handler=lambda: shell_backgrounds(context),
+        read_only=True,
+        activity_kind="terminal",
+        activity_title="List background shell commands",
+    )
+    _register_builtin_tool(
+        registry,
+        name="shell.kill",
+        description="Stop a background shell command.",
+        parameters=SHELL_KILL_SCHEMA,
+        handler=lambda task_id: shell_kill(context, task_id=task_id),
+        metadata={"risk": "medium", "requires_process": True},
+        writes_state=True,
+        concurrency_safe=False,
+        activity_kind="terminal",
+        activity_title="Stop background shell command",
+        activity_target_argument="task_id",
+    )
+
+
+def _register_sleep(registry: ToolRegistry, context: ToolRuntimeContext) -> None:
+    _register_builtin_tool(
+        registry,
+        name="sleep.wait",
+        description="Wait for a specified duration without holding a shell process.",
+        parameters=SLEEP_WAIT_SCHEMA,
+        handler=lambda duration_seconds, reason="": sleep_wait(
+            context,
+            duration_seconds=duration_seconds,
+            reason=reason,
+        ),
+        read_only=True,
+        concurrency_safe=True,
+        interrupt_behavior="cancel",
+        activity_kind="wait",
+        activity_title="Wait",
+        activity_target_argument="duration_seconds",
     )
 
 
 def _register_browser(registry: ToolRegistry, context: ToolRuntimeContext) -> None:
-    registry.register(
-        "browser.open",
-        "Fetch an HTTP(S) page inside the sandbox and store it in the run artifact store unless output_path is set.",
-        BROWSER_OPEN_SCHEMA,
-        lambda url, output_path="", max_bytes=200000: browser_open(
+    _register_builtin_tool(
+        registry,
+        name="browser.open",
+        description="Fetch an HTTP(S) page inside the sandbox and store it in the run artifact store unless output_path is set.",
+        parameters=BROWSER_OPEN_SCHEMA,
+        handler=lambda url, output_path="", max_bytes=200000: browser_open(
             context,
             url=url,
             output_path=output_path,
             max_bytes=max_bytes,
         ),
         metadata={"risk": "high", "requires_process": True, "requires_network": True, "writes_files": True},
+        writes_state=True,
+        concurrency_safe=False,
+        path_parameters=("output_path",),
+        activity_kind="browser",
+        activity_title="Open browser page",
+        activity_target_argument="url",
     )
-    registry.register(
-        "browser.download",
-        "Download an HTTP(S) URL inside the sandbox to the artifact store or an explicit workspace path.",
-        BROWSER_DOWNLOAD_SCHEMA,
-        lambda url, path="", max_bytes=20000000: browser_download(
+    _register_builtin_tool(
+        registry,
+        name="browser.download",
+        description="Download an HTTP(S) URL inside the sandbox to the artifact store or an explicit workspace path.",
+        parameters=BROWSER_DOWNLOAD_SCHEMA,
+        handler=lambda url, path="", max_bytes=20000000: browser_download(
             context,
             url=url,
             path=path,
             max_bytes=max_bytes,
         ),
         metadata={"risk": "high", "requires_process": True, "requires_network": True, "writes_files": True},
+        writes_state=True,
+        concurrency_safe=False,
+        path_parameters=("path",),
+        activity_kind="browser",
+        activity_title="Download URL",
+        activity_target_argument="url",
     )
 
 
@@ -1427,6 +3097,13 @@ def _register_teams(registry: ToolRegistry, context: ToolRuntimeContext) -> None
             members=members,
         ),
         metadata={"risk": "low", "writes_state": True, "model_call": True},
+    )
+    registry.register(
+        "team.delete",
+        "Delete an agent team and its queued messages.",
+        TEAM_DELETE_SCHEMA,
+        lambda team_id="": team_delete(context, team_id=team_id),
+        metadata={"risk": "medium", "writes_state": True, "model_call": True},
     )
     registry.register(
         "team.members",

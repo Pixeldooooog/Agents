@@ -6,6 +6,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Iterable
 
+from agents.kernel.governance.tool_rules import normalize_tool_name
+
 
 class ToolRisk(str, Enum):
     LOW = "low"
@@ -113,6 +115,7 @@ class SandboxPolicy:
 
 
 def classify_tool_risk(name: str) -> ToolRisk:
+    name = normalize_tool_name(name)
     if name.startswith("filesystem.read") or name.startswith("filesystem.list"):
         return ToolRisk.LOW
     if name.startswith("search."):
@@ -121,6 +124,8 @@ def classify_tool_risk(name: str) -> ToolRisk:
         return ToolRisk.MEDIUM
     if name.startswith("command."):
         return ToolRisk.LOW
+    if name == "skill.invoke":
+        return ToolRisk.HIGH
     if name in {"skill.install", "skill.uninstall", "skill.use", "skill.disable", "plugin.install", "plugin.uninstall", "plugin.enable", "plugin.disable"}:
         return ToolRisk.MEDIUM
     if name.startswith("tool.") or name.startswith("skill.") or name.startswith("plugin."):
@@ -137,9 +142,21 @@ def classify_tool_risk(name: str) -> ToolRisk:
         return ToolRisk.LOW
     if name.startswith("filesystem.write") or name in {"filesystem.delete", "filesystem.move"}:
         return ToolRisk.MEDIUM
+    if name == "notebook.edit":
+        return ToolRisk.MEDIUM
     if name.startswith("patch."):
         return ToolRisk.MEDIUM
     if name == "test.discover":
+        return ToolRisk.LOW
+    if name.startswith("structured."):
+        return ToolRisk.LOW
+    if name.startswith("config."):
+        return ToolRisk.MEDIUM
+    if name.startswith("user."):
+        return ToolRisk.LOW
+    if name.startswith("worktree."):
+        return ToolRisk.MEDIUM
+    if name.startswith("sleep."):
         return ToolRisk.LOW
     if name.startswith("todo."):
         return ToolRisk.LOW
@@ -187,6 +204,8 @@ def classify_tool_risk(name: str) -> ToolRisk:
         return ToolRisk.MEDIUM
     if name == "team.run_member":
         return ToolRisk.HIGH
+    if name == "team.delete":
+        return ToolRisk.MEDIUM
     if name.startswith("team."):
         return ToolRisk.LOW
     if name.startswith("agent."):
@@ -195,6 +214,10 @@ def classify_tool_risk(name: str) -> ToolRisk:
         return ToolRisk.MEDIUM
     if name.startswith("browser.") or name.startswith("web."):
         return ToolRisk.HIGH
+    if name in {"shell.output", "shell.backgrounds"}:
+        return ToolRisk.LOW
+    if name == "shell.kill":
+        return ToolRisk.MEDIUM
     if name.startswith("shell.") or name.startswith("git.") or name.startswith("test."):
         return ToolRisk.HIGH
     if name.startswith("mcp_"):

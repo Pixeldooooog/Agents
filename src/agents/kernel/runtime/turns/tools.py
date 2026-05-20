@@ -16,6 +16,7 @@ class ToolExecutionBatch:
     results: List[ToolResult]
     events: List[RuntimeEvent]
     messages: List[Message]
+    canceled: bool = False
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,19 @@ class ToolOrchestrator:
         self.registry = registry
         self.hooks = hooks
         self.permission_policy = permission_policy or AllowAllToolPermissionPolicy()
+
+    def describe_call(self, call: ToolCall) -> dict:
+        try:
+            return self.registry.describe_call(call.name, dict(call.arguments))
+        except KeyError:
+            return {
+                "name": call.name,
+                "description": "",
+                "activity": {"kind": "generic"},
+                "target": "",
+                "paths": [],
+                "metadata": {},
+            }
 
     async def execute(self, calls: Iterable[ToolCall]) -> ToolExecutionBatch:
         call_list = list(calls)
@@ -108,16 +122,25 @@ class ToolOrchestrator:
         task_id: str = "",
     ) -> ToolExecutionBatch:
         results_by_index = dict(prepared.results_by_index)
+        canceled = False
         if prepared.executable_calls:
             allowed_results = await self.registry.execute_many(prepared.executable_calls, run_id=run_id, task_id=task_id)
             for index, result in zip(prepared.executable_indexes, allowed_results):
-                results_by_index[index] = await self.hooks.after_tool_use(prepared.transformed_calls_by_index[index], result)
+                final_result = await self.hooks.after_tool_use(prepared.transformed_calls_by_index[index], result)
+                if _is_user_interrupted_result(final_result):
+                    canceled = True
+                results_by_index[index] = final_result
 
         results = [results_by_index[index] for index in range(len(prepared.calls))]
+        result_events = []
+        for index, result in enumerate(results):
+            call = prepared.transformed_calls_by_index.get(index, prepared.calls[index])
+            result_events.append(tool_result_event(result, contract=self.describe_call(call)))
         return ToolExecutionBatch(
             results=results,
-            events=[tool_result_event(result) for result in results],
+            events=result_events,
             messages=[self.hooks.format_tool_result(result) for result in results],
+            canceled=canceled,
         )
 
 
@@ -140,3 +163,8 @@ def _hook_denied_result(call: ToolCall, error: ToolHookDenied) -> ToolResult:
         is_error=True,
         raw={"hook": {"denied": True, "reason": error.reason}, "tool_call": call.to_dict()},
     )
+
+
+def _is_user_interrupted_result(result: ToolResult) -> bool:
+    raw = result.raw if isinstance(result.raw, dict) else {}
+    return raw.get("error") == "tool_execution_canceled" and raw.get("cancel_reason") == "user_interrupted"

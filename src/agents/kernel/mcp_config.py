@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import time
+import json
 from dataclasses import dataclass, field, replace
-from typing import List, Optional, Protocol
+from typing import List, Optional, Protocol, Dict
 
 from agents.kernel.persistence import SQLiteDatabase
 
@@ -11,8 +12,15 @@ from agents.kernel.persistence import SQLiteDatabase
 class MCPServerRecord:
     name: str
     command: str
+    transport: str = "stdio"
+    url: str = ""
+    headers: Dict[str, str] = field(default_factory=dict)
     execution_mode: str = "trusted_control_plane"
     sandbox_profile: str = ""
+    auth_required: bool = False
+    auth_url: str = ""
+    auth_status: str = ""
+    auth_message: str = ""
     enabled: bool = True
     agent_id: str = ""
     tenant_id: str = ""
@@ -28,8 +36,15 @@ class MCPServerRecord:
         return {
             "name": self.name,
             "command": self.command,
+            "transport": self.transport,
+            "url": self.url,
+            "headers": dict(self.headers),
             "execution_mode": self.execution_mode,
             "sandbox_profile": self.sandbox_profile,
+            "auth_required": self.auth_required,
+            "auth_url": self.auth_url,
+            "auth_status": self.auth_status,
+            "auth_message": self.auth_message,
             "enabled": self.enabled,
             "agent_id": self.agent_id,
             "tenant_id": self.tenant_id,
@@ -109,21 +124,36 @@ class SQLiteMCPConfigStore:
             connection.execute(
                 """
                 INSERT INTO mcp_servers (
-                    name, command, execution_mode, sandbox_profile, enabled,
+                    name, command, transport, url, headers_json, execution_mode, sandbox_profile,
+                    auth_required, auth_url, auth_status, auth_message, enabled,
                     agent_id, tenant_id, user_id, workspace_id, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(tenant_id, user_id, agent_id, workspace_id, name) DO UPDATE SET
                     command = excluded.command,
+                    transport = excluded.transport,
+                    url = excluded.url,
+                    headers_json = excluded.headers_json,
                     execution_mode = excluded.execution_mode,
                     sandbox_profile = excluded.sandbox_profile,
+                    auth_required = excluded.auth_required,
+                    auth_url = excluded.auth_url,
+                    auth_status = excluded.auth_status,
+                    auth_message = excluded.auth_message,
                     enabled = excluded.enabled,
                     updated_at = excluded.updated_at
                 """,
                 (
                     record.name,
                     record.command,
+                    record.transport,
+                    record.url,
+                    json.dumps(record.headers, ensure_ascii=False, sort_keys=True),
                     record.execution_mode,
                     record.sandbox_profile,
+                    1 if record.auth_required else 0,
+                    record.auth_url,
+                    record.auth_status,
+                    record.auth_message,
                     1 if record.enabled else 0,
                     record.agent_id,
                     record.tenant_id,
@@ -181,8 +211,15 @@ def _record_from_row(row) -> MCPServerRecord:
     return MCPServerRecord(
         name=str(row["name"]),
         command=str(row["command"]),
+        transport=str(row["transport"] or "stdio"),
+        url=str(row["url"] or ""),
+        headers=_decode_headers(row["headers_json"]),
         execution_mode=str(row["execution_mode"] or "trusted_control_plane"),
         sandbox_profile=str(row["sandbox_profile"] or ""),
+        auth_required=bool(int(row["auth_required"] or 0)),
+        auth_url=str(row["auth_url"] or ""),
+        auth_status=str(row["auth_status"] or ""),
+        auth_message=str(row["auth_message"] or ""),
         enabled=bool(int(row["enabled"])),
         agent_id=str(row["agent_id"] or ""),
         tenant_id=str(row["tenant_id"] or ""),
@@ -196,17 +233,31 @@ def _record_from_row(row) -> MCPServerRecord:
 def server_record_for_scope(
     *,
     name: str,
-    command: str,
-    execution_mode: str,
-    sandbox_profile: str,
     workspace,
+    command: str = "",
+    transport: str = "stdio",
+    url: str = "",
+    headers: dict[str, str] | None = None,
+    execution_mode: str = "trusted_control_plane",
+    sandbox_profile: str = "",
+    auth_required: bool = False,
+    auth_url: str = "",
+    auth_status: str = "",
+    auth_message: str = "",
     enabled: bool = True,
 ) -> MCPServerRecord:
     return MCPServerRecord(
         name=_name(name),
         command=str(command or "").strip(),
+        transport=_transport(transport),
+        url=str(url or "").strip(),
+        headers=_headers(headers),
         execution_mode=str(execution_mode or "trusted_control_plane"),
         sandbox_profile=str(sandbox_profile or ""),
+        auth_required=bool(auth_required),
+        auth_url=str(auth_url or "").strip(),
+        auth_status=str(auth_status or ""),
+        auth_message=str(auth_message or ""),
         enabled=bool(enabled),
         tenant_id=workspace.tenant_id,
         user_id=workspace.user_id,
@@ -230,3 +281,23 @@ def _matches(record: MCPServerRecord, tenant_id: str, user_id: str, agent_id: st
 
 def _name(value: str) -> str:
     return str(value or "default").strip() or "default"
+
+
+def _transport(value: str) -> str:
+    return str(value or "stdio").strip() or "stdio"
+
+
+def _headers(value: dict[str, str] | None) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): str(item) for key, item in value.items()}
+
+
+def _decode_headers(value) -> dict[str, str]:
+    try:
+        parsed = json.loads(str(value or "{}"))
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return {str(key): str(item) for key, item in parsed.items()}

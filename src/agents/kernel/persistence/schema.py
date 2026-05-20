@@ -45,6 +45,17 @@ SESSION_STATE_COLUMNS = {
 }
 
 
+MCP_SERVER_COLUMNS = {
+    "transport": "TEXT NOT NULL DEFAULT 'stdio'",
+    "url": "TEXT NOT NULL DEFAULT ''",
+    "headers_json": "TEXT NOT NULL DEFAULT '{}'",
+    "auth_required": "INTEGER NOT NULL DEFAULT 0",
+    "auth_url": "TEXT NOT NULL DEFAULT ''",
+    "auth_status": "TEXT NOT NULL DEFAULT ''",
+    "auth_message": "TEXT NOT NULL DEFAULT ''",
+}
+
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tenants (
     tenant_id TEXT PRIMARY KEY,
@@ -329,8 +340,15 @@ ON hooks(tenant_id, user_id, agent_id, workspace_id, updated_at);
 CREATE TABLE IF NOT EXISTS mcp_servers (
     name TEXT NOT NULL,
     command TEXT NOT NULL,
+    transport TEXT NOT NULL DEFAULT 'stdio',
+    url TEXT NOT NULL DEFAULT '',
+    headers_json TEXT NOT NULL DEFAULT '{}',
     execution_mode TEXT NOT NULL DEFAULT 'trusted_control_plane',
     sandbox_profile TEXT NOT NULL DEFAULT '',
+    auth_required INTEGER NOT NULL DEFAULT 0,
+    auth_url TEXT NOT NULL DEFAULT '',
+    auth_status TEXT NOT NULL DEFAULT '',
+    auth_message TEXT NOT NULL DEFAULT '',
     enabled INTEGER NOT NULL DEFAULT 1,
     agent_id TEXT NOT NULL DEFAULT '',
     tenant_id TEXT NOT NULL DEFAULT '',

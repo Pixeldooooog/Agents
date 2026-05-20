@@ -1266,11 +1266,18 @@ def test_ndjson_bridge_configures_reloads_and_clears_mcp(monkeypatch, tmp_path):
 
     async def fake_load_configured_mcp(settings, registry):
         registry.register(
-            "mcp_docs_search",
+            "mcp__docs__search",
             "Search docs",
             {},
             lambda query: query,
             metadata={"source": "mcp", "server": settings.mcp.SERVER_NAME, "risk": "medium"},
+        )
+        registry.register(
+            "mcp_docs_search",
+            "Search docs",
+            {},
+            lambda query: query,
+            metadata={"source": "mcp", "server": settings.mcp.SERVER_NAME, "risk": "medium", "alias_of": "mcp__docs__search"},
         )
 
     monkeypatch.setattr("agents.interfaces.bridge.slash.load_configured_mcp", fake_load_configured_mcp)
@@ -1294,8 +1301,8 @@ def test_ndjson_bridge_configures_reloads_and_clears_mcp(monkeypatch, tmp_path):
     assert emitted[7]["type"] == "mcp"
     assert ["tools", "1"] in emitted[7]["mcp"]
     assert emitted[8]["type"] == "tools"
-    assert state.active_tools == ["mcp_docs_search"]
-    assert runtime.enabled_tools == ["mcp_docs_search"]
+    assert state.active_tools == ["mcp__docs__search"]
+    assert runtime.enabled_tools == ["mcp__docs__search"]
 
     asyncio.run(run_slash(state, "/mcp clear", emitted))
 
@@ -2542,7 +2549,7 @@ def test_ndjson_bridge_switches_to_saved_agent_profile(monkeypatch, tmp_path):
 
 
 def test_ndjson_bridge_cancels_active_turn(monkeypatch, tmp_path):
-    started = asyncio.Event()
+    started = None
 
     class Runtime:
         protocol = "scripted"
@@ -2556,6 +2563,7 @@ def test_ndjson_bridge_cancels_active_turn(monkeypatch, tmp_path):
 
         async def stream(self, text, run_id=None):
             yield RuntimeEvent(type="text_delta", name="assistant", payload={"delta": "working"})
+            assert started is not None
             started.set()
             await asyncio.Event().wait()
 
@@ -2579,6 +2587,8 @@ def test_ndjson_bridge_cancels_active_turn(monkeypatch, tmp_path):
     )
 
     async def run_flow():
+        nonlocal started
+        started = asyncio.Event()
         await ndjson._handle_command(state, {"type": "user_message", "text": "slow", "run_id": "run-1"})
         assert active_task_running(state)
         await asyncio.wait_for(started.wait(), timeout=1)
@@ -2594,6 +2604,63 @@ def test_ndjson_bridge_cancels_active_turn(monkeypatch, tmp_path):
     assert state.active_run_id == ""
     assert emitted[0] == {"type": "turn_started", "run_id": "run-1"}
     assert any(payload.get("type") == "runtime_event" and payload["event"]["type"] == "text_delta" for payload in emitted)
+    assert emitted[-1] == {"type": "turn_finished", "status": "cancelled", "run_id": "run-1"}
+
+
+def test_ndjson_bridge_forwards_interrupt_cancel_reason(monkeypatch, tmp_path):
+    started = None
+
+    class Runtime:
+        protocol = "scripted"
+        model = "slow-model"
+
+    class SlowSession:
+        runtime = Runtime()
+
+        def __init__(self):
+            self.messages = []
+            self.cancel_reason = ""
+
+        async def stream(self, text, run_id=None):
+            yield RuntimeEvent(type="text_delta", name="assistant", payload={"delta": "working"})
+            assert started is not None
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError as exc:
+                self.cancel_reason = str(exc.args[0]) if exc.args else ""
+                raise
+
+    session = SlowSession()
+    emitted = []
+    monkeypatch.setattr(ndjson, "_write", emitted.append)
+    state = ndjson.BridgeState(
+        args=SimpleNamespace(),
+        profile="coding",
+        permission="guarded",
+        active_workspace=tmp_path,
+        active_tools=[],
+        permission_mode="auto",
+        approval_tools=[],
+        settings=SimpleNamespace(),
+        persistence=SimpleNamespace(),
+        model_profiles=[],
+        session=session,
+        session_store=TerminalSessionStore(tmp_path / "sessions"),
+        session_id="session-test",
+        event_offsets={},
+    )
+
+    async def run_flow():
+        nonlocal started
+        started = asyncio.Event()
+        await ndjson._handle_command(state, {"type": "user_message", "text": "slow", "run_id": "run-1"})
+        await asyncio.wait_for(started.wait(), timeout=1)
+        await ndjson._handle_command(state, {"type": "cancel", "run_id": "run-1", "reason": "interrupt"})
+
+    asyncio.run(run_flow())
+
+    assert session.cancel_reason == "interrupt"
     assert emitted[-1] == {"type": "turn_finished", "status": "cancelled", "run_id": "run-1"}
 
 

@@ -58,6 +58,7 @@ async def run_approval(state: Any, command: dict[str, Any], write: BridgeWrite) 
         return
     approvals_payload = command.get("approvals") if isinstance(command.get("approvals"), dict) else {}
     scopes_payload = command.get("approval_scopes") if isinstance(command.get("approval_scopes"), dict) else {}
+    tool_inputs = command.get("tool_inputs") if isinstance(command.get("tool_inputs"), dict) else {}
     approvals: dict[str, bool] = {}
     approval_scopes: dict[str, str] = {}
     for approval_id, raw_approved in approvals_payload.items():
@@ -78,7 +79,10 @@ async def run_approval(state: Any, command: dict[str, Any], write: BridgeWrite) 
         resume_stream = getattr(state.session, "resume_stream", None)
         if resume_stream is not None:
             event_offset: int | None = None
-            async for event in resume_stream(run_id, approvals=approvals, approval_scopes=approval_scopes):
+            resume_kwargs = {"approvals": approvals, "approval_scopes": approval_scopes}
+            if tool_inputs:
+                resume_kwargs["tool_inputs"] = tool_inputs
+            async for event in resume_stream(run_id, **resume_kwargs):
                 if event.type == "done":
                     status = str(event.payload.get("status") or status)
                     raw_event_count = event.payload.get("event_count")
@@ -88,7 +92,10 @@ async def run_approval(state: Any, command: dict[str, Any], write: BridgeWrite) 
             if event_offset is not None:
                 state.event_offsets[run_id] = event_offset
         else:
-            result = await state.session.resume(run_id, approvals=approvals, approval_scopes=approval_scopes)
+            resume_kwargs = {"approvals": approvals, "approval_scopes": approval_scopes}
+            if tool_inputs:
+                resume_kwargs["tool_inputs"] = tool_inputs
+            result = await state.session.resume(run_id, **resume_kwargs)
             for event in new_events(result.events, state.event_offsets.get(run_id, 0)):
                 write({"type": "runtime_event", "event": event.to_dict()})
             state.event_offsets[run_id] = len(result.events)

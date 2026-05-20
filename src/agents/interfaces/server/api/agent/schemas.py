@@ -8,7 +8,7 @@
 # 2026/04/24   Create
 # =====================================================
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import Field
 
@@ -56,6 +56,7 @@ class RunApprovalRequest(AppSchema):
     tool_call_ids: Optional[List[str]] = Field(None, description="Approval ids to decide; empty means all pending calls")
     approvals: Optional[Dict[str, bool]] = Field(None, description="Explicit approval id to decision map")
     decisions: Optional[Dict[str, str]] = Field(None, description="Explicit approval id to approval decision map")
+    tool_inputs: Optional[Dict[str, Dict[str, Any]]] = Field(None, description="Optional approval id to tool input updates")
     reason: Optional[str] = Field(None, description="Optional audit reason")
 
 

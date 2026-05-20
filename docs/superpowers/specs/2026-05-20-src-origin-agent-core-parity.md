@@ -1,0 +1,134 @@
+# Src-Origin Agent Core Parity
+
+## Goal
+
+Make `src/agents` capability-compatible with `nexus-code/src-origin` at the agent core and SDK boundary.
+
+The target is not a literal TypeScript port. The target is behavioral parity:
+
+- The same high-level SDK jobs can be expressed.
+- The same runtime states can be observed.
+- The same tool lifecycle decisions can be represented.
+- The same session, task, MCP, permission, compaction, and recovery concepts have first-class homes.
+- The Python implementation remains decoupled, typed, testable, and platform-neutral.
+
+`src-origin` is the compatibility reference. The Python kernel remains the implementation boundary.
+
+## Non-Negotiable Design Rules
+
+- Keep `agents.kernel` free of server, bridge, terminal, and web UI dependencies.
+- Public SDK entrypoints live above kernel assembly and hide settings/store wiring from SDK callers.
+- Runtime contracts are schema-first. Interface layers project these contracts; they do not invent their own agent semantics.
+- Tool behavior is declarative before it is executable: schema, risk, concurrency, interrupt behavior, permissions, result limits, and UI summaries are part of the tool contract.
+- Feature parity is accepted only when there is a testable contract, not when a similarly named module exists.
+- Prefer adapters over forks when matching `src-origin` behavior that is implementation-specific to Claude Code.
+
+## Parity Tracks
+
+| Track | `src-origin` reference | Python target | Acceptance |
+| --- | --- | --- | --- |
+| SDK facade | `query`, session create/resume/prompt/list/info/rename/tag/fork, SDK result stream | `agents.sdk` package | External callers can query and observe typed SDK messages without constructing stores manually |
+| SDK messages | init, assistant, result, status, compact boundary, retry, hooks, tool progress, tasks, auth, session state | Pydantic message models and runtime event projector | All emitted messages validate against exported JSON schema |
+| Query loop | tool loop, autocompact, microcompact, reactive recovery, fallback, stop hooks, token budget | runtime turn planner/recovery policies | Prompt-too-long, max-output, fallback, stop hook, and budget paths have deterministic tests |
+| Tool contract | schema, strict validation, read-only/destructive, concurrency, interrupt, UI summaries | extended `ToolDefinition` and registry | Invalid input fails before execution; concurrency and interrupt behavior are enforced |
+| Coding tools | Bash, read/edit/write, search, notebooks, web, todos, task/agent tools | sandbox-backed builtins | File edit safety, stale write, encoding/EOL, command risk, background and cancellation are tested |
+| Permissions | modes, allow/deny/ask rules, rule sources, MCP wildcard, classifier and hooks | governance permission engine | Permission decisions are explainable, persistable, and resumable |
+| MCP | stdio, SSE, HTTP, WS, SDK, IDE, OAuth, headers, roots, elicitation | MCP transport/config layer | Multiple named MCP servers can be configured, authorized, listed, called, and closed |
+| Remote sessions | websocket subscription, control requests, remote permission bridge | server streaming/control protocol | Remote clients can observe, cancel, and answer permission requests |
+| Context/memory | memory discovery, compact boundaries, context collapse, reactive compact | context planner and compaction engine | Long sessions retain useful context under budget with explicit compact events |
+| Tasks/agents | background agents, task outputs, agent definitions, scheduler, swarm/coordinator | task/orchestration modules | Child agents and durable tasks have resumable state and progress events |
+| Observability | API retry, cost/usage, duration, hook progress, file persistence | trace/audit/runtime event projection | SDK and UI can reconstruct what happened without raw debug logs |
+
+## Implementation Sequence
+
+1. SDK contract foundation
+   - Add `agents.sdk` with `query`, `AgentSDKClient`, typed options, typed SDK messages, and runtime-event projection.
+   - Export JSON schema for SDK options/messages/results.
+   - Add tests that prove SDK callers do not need to know platform store wiring.
+
+2. Tool contract hardening
+   - Introduce a first-class tool definition model.
+   - Add JSON schema input validation before execution.
+   - Add result size policy, concurrency policy, interrupt behavior, and risk metadata.
+   - Keep current builtin tools working through a compatibility adapter.
+
+3. Event protocol expansion
+   - Add SDK-compatible message types for init, result, status, compact boundary, retry, hook events, tool progress, task progress, session state, and files persisted.
+   - Make server SSE and bridge NDJSON project from the same event protocol.
+
+4. Coding tool parity
+   - Harden file read/write/edit and shell tools first.
+   - Add read-before-write, stale write detection, encoding/EOL preservation, binary/device guards, command classification, background execution, cancellation, and progress.
+
+5. Permission parity
+   - Add permission modes and persisted rule sources.
+   - Add wildcard matching for tool and MCP scopes.
+   - Add hook/classifier reasons to decisions and approval audit.
+
+6. MCP parity
+   - Replace single stdio-only loading with multi-server config.
+   - Add stdio, SSE, HTTP, WebSocket, SDK-hosted, and IDE transports as adapters.
+   - Add roots, elicitation, OAuth/header/proxy support, and lifecycle cleanup.
+
+7. Long-session recovery
+   - Add model-backed compaction, compact boundary messages, prompt-too-long recovery, max-output recovery, token budget continuation, and fallback handling.
+
+8. Remote/control parity
+   - Add control request protocol for permission, cancel, resume, and remote status.
+   - Add websocket session observer and replayable session message stream.
+
+## Current Baseline
+
+The existing Python code already has the right major ownership boundaries:
+
+- `agents.kernel` owns the agent runtime.
+- `agents.platform` owns run/session and store composition.
+- `agents.interfaces.server` and `agents.interfaces.bridge` adapt external protocols.
+- `apps/terminal` and `apps/web` stay product-facing.
+
+The gap is not package structure. The gap is contract depth and behavioral completeness.
+
+## First Milestone
+
+The first milestone is complete when:
+
+- `agents.sdk.query()` streams typed SDK messages.
+- SDK callers can pass prompt/options without constructing persistence stores.
+- A final result message includes session/run id, stop reason, content, duration, turn count, and status.
+- Runtime tool events are projected into SDK tool-progress messages.
+- Tests cover a successful query and a tool-using query.
+
+## Current Progress
+
+- SDK facade exists as `agents.sdk` with typed query/prompt options and runtime event projection.
+- Tool contract now covers explicit definitions, activity metadata, schema validation, concurrency policy, sibling error cancellation, result limits, and runtime/SDK/trace contract propagation.
+- User active-run cancellation during tool execution now produces synthetic `tool_execution_canceled` results for pending calls, saves a `canceled` checkpoint, and returns `AgentResult.status="canceled"` / streaming `done.status="canceled"`.
+- `task.cancel("interrupt")` now follows the `src-origin` split: default `interrupt_behavior="block"` tools complete and continue the turn, while explicit `interrupt_behavior="cancel"` tools produce user-interrupted synthetic results.
+- Terminal now projects `payload.contract.metadata.interrupt_behavior` into active-tool interruptible state and sends `cancel(reason="interrupt")` for queued user input when all active tools are cancelable.
+- File write/edit safety now has a first contract layer: full `filesystem.read` records file state, `filesystem.write` and `patch.apply` require a prior full read before modifying existing files, stale external changes are rejected, successful writes refresh read state, CRLF line endings are preserved on existing files, and text tools reject binary files instead of lossy decoding or corrupting them.
+- `patch.apply` now carries a first `src-origin` FileEdit-style validation/output slice: exact no-op edits are rejected, ambiguous multi-match edits require `replace_all=true` or more context, straight-quote `old_text` can match curly quotes in files and replacement text preserves that curly quote style, empty replacements delete a following newline when the matched text is line-like, successful edits include `editSummary` and structured patch hunks, and single-edit calls expose `filePath`, `oldString`, `newString`, `originalFile`, `replaceAll`, and `structuredPatch` for SDK/UI consumers while retaining the existing multi-file `files` plus unified diff result.
+- Text file metadata now includes `encoding` and `line_endings`; local and Docker sandbox reads recognize UTF-8, UTF-8 BOM, and UTF-16LE/BOM text, grep skips real binary files without skipping UTF-16 text, and write/edit tools preserve the encoding recorded by the prior full read.
+- `filesystem.read` now has a first `src-origin` FileRead text output/range slice: text reads expose `type=text` with nested `file.filePath`, `file.content`, `file.numLines`, `file.startLine`, and `file.totalLines` while retaining legacy top-level `content`, `startLine`, `numLines`, `totalLines`, and `isPartialView`; `offset`/`limit` line reads use cat-n-style model-visible line prefixes, and partial reads intentionally do not satisfy the full-file pre-read requirement used by write/edit safety checks.
+- `filesystem.read` also has a first `src-origin` repeated-read dedup slice: an unchanged repeated full read of the same range returns a `file_unchanged` stub instead of re-sending content, while the previous full-read state remains available for stale-write safety checks; writes and patch edits refresh state without being treated as prior Read results for dedup.
+- `filesystem.read` now has a first `src-origin` FileRead multi-type output slice: PNG/JPEG/GIF/WebP files return `type=image`, PDFs return `type=pdf`, and notebooks return `type=notebook` with `file.filePath`, `file.base64`, `file.type`, `file.originalSize`, or `file.cells` as appropriate. Image/PDF model-visible text uses a summary, notebook model-visible text includes cells JSON, low-level text reads still reject binary files, and the PDF `pages` schema is present but explicitly unsupported until page extraction exists.
+- `notebook.edit` now provides a first `src-origin` `NotebookEdit` parity slice: it edits `.ipynb` cells by actual `cell_id` or `cell-N` index, supports `replace`, `insert`, and `delete`, requires a prior full `filesystem.read`, rejects stale external modifications, resets code-cell execution outputs on replacement, writes back through the sandbox with encoding/EOL preservation, returns `original_file` and `updated_file` for SDK/UI consumers, and participates in `NotebookEdit(...)` permission/path matching.
+- Core coding tools now have a first `src-origin` tool-name alias layer: `Read`, `Write`, `Edit`, `Bash`, `Glob`, `Grep`, `TodoWrite`, `NotebookEdit`, `Sleep`, `WebSearch`, `WebFetch`, `ListMcpResourcesTool`, `ReadMcpResourceTool`, `TaskOutput`, `AgentOutputTool`, `BashOutputTool`, `TaskStop`, `KillShell`, `TaskCreate`, `TaskList`, `TaskGet`, `TaskUpdate`, `CronCreate`, `CronList`, `CronDelete`, `ToolSearch`, `EnterPlanMode`, `ExitPlanMode`, `Agent`, legacy `Task`, `SendMessage`, `TeamCreate`, `TeamDelete`, `StructuredOutput`, `Skill`, `Config`, `AskUserQuestion`, `SendUserMessage`, and legacy `Brief` are registered as real tool definitions with `alias_of` metadata and `src-origin` input names such as `file_path`, `old_string`, `new_string`, `allowed_domains`, `prompt`, `taskId`, `cron`, `subagent_type`, `team_name`, `skill`/`args`, `setting`/`value`, `questions`/`answers`, and `message`/`attachments`/`status`; handlers still route into the decoupled Python-native canonical tools so SDK/UI compatibility does not fork behavior.
+- `StructuredOutput` now has a canonical `structured.output` backing tool for SDK and non-interactive JSON output. `AgentSpec.metadata.structured_output_schema` and SDK `output_format={"type":"json_schema","schema":...}` drive the tool input schema, and sessions with a structured output schema auto-enable the `StructuredOutput` alias while preserving the Python-native canonical path.
+- `Skill` now has a canonical `skill.invoke` backing tool separate from `skill.use`: inline skills expand local skill prompt fragments into the model-visible tool result, while forked skills reuse the existing child-session boundary and return the child result. This starts aligning `src-origin` SkillTool's invocation semantics without overloading the existing session-level skill enable/disable path.
+- `Config` now has a canonical `config.manage` backing tool. It mirrors the `src-origin` get/set input and output shape, covers the `supportedSettings.ts` settings registry as session-scoped overrides, auto-allows config reads, requires approval for config writes, persists overrides in session state metadata, and applies `model` plus `permissions.defaultMode` to the live `AgentSpec`/runtime boundary.
+- `AskUserQuestion` now has a canonical `user.ask` backing tool. It validates 1-4 multiple-choice questions with 2-4 options each, supports optional previews, multi-select markers, answers, annotations, and metadata, and introduces runtime resume `tool_inputs` so user-selected answers can be merged back into a pending tool call after the user-interaction approval pause.
+- `SendUserMessage` and legacy `Brief` now have a canonical `user.message` backing tool. It validates `status=normal|proactive`, resolves workspace attachments into `{path,size,isImage}` metadata, returns a `sentAt` timestamp, and keeps user-visible output separate from teammate `SendMessage`/`team.send`.
+- `EnterWorktree` and `ExitWorktree` now have canonical `worktree.enter` / `worktree.exit` backing tools. `worktree.enter` validates the `src-origin` worktree slug shape, creates or resumes `.agents/worktrees/<slug>` through `git worktree`, switches the session `WorkspaceContext` and sandbox to the new worktree, and returns `worktreePath` / `worktreeBranch` / `message`. Newly created worktrees now run a first post-creation setup slice: `.agents/worktrees/` is added to the local git exclude file, `.worktreeinclude` copies matching gitignored files, ignored local config files (`.env`, `config/local.toml`, `.agents/settings.local.json`) are propagated, `core.hooksPath` points at `.husky` or the shared git hooks directory, metadata/settings can request sparse checkout paths, and metadata/settings can request symlinked directories to avoid duplicating large local caches. `worktree.exit` supports `keep` and `remove`; `remove` checks changed files and commits first and requires `discard_changes=true` before deleting dirty work. `ExitWorktree(action=remove)` is treated as approval-required and high-impact in permission/impact reporting. Current gap: no tmux lifecycle, hook-based VCS adapters, PR fetch/resume, or attribution hook parity yet.
+- MCP dynamic tool naming now follows the `src-origin` convention: tools loaded from MCP servers register canonical names as `mcp__<normalized_server>__<normalized_tool>`, using the same safe-name normalization shape, while legacy `mcp_<server>_<tool>` names remain available as `alias_of` compatibility entries. Bridge reload enables only canonical MCP names so runtime active tools do not contain duplicate aliases for the same remote tool. The first transport/auth slice is also in place: MCP config records carry transport/url/header/auth state, `load_configured_mcp` can create stdio, Streamable HTTP, and SSE clients through the Python MCP SDK, auth-required providers register `mcp__<server>__authenticate`, and the pseudo-tool returns `auth_url`, `unsupported`, or `error` payloads. Current MCP gaps remain broader than this slice: no WebSocket/SDK/IDE transports, OAuth callback listener, auth cache, reconnect-and-swap lifecycle, roots, or elicitation parity yet.
+- Background shell commands now have a first lifecycle contract: `shell.run(run_in_background=true)` returns a background task id and output file path, local/Docker sandbox providers share a `SandboxBackgroundCommand` handle, `shell.output` can poll or block for output, `shell.backgrounds` lists current session commands, and `shell.kill` stops a running background command.
+- `shell.run` now accepts the `src-origin` BashTool-style `timeout` field in milliseconds while keeping `timeout_seconds`; foreground and background raw payloads expose normalized `description`, `background`, `timeout_seconds`, `timeout_ms`, `interrupted`, `isImage`, and `dangerouslyDisableSandbox` for SDK/UI lifecycle projection, and background starts expose `backgroundTaskId`, `backgroundedByUser=false`, and `assistantAutoBackgrounded=false`. `dangerouslyDisableSandbox=true` is accepted by schema but explicitly rejected until this runtime has a real unsandboxed-execution policy.
+- `task.update` now updates title/input/metadata as well as status, so `TaskUpdate.subject`, `TaskUpdate.description`, `TaskUpdate.activeForm`, `TaskUpdate.owner`, dependency arrays, and metadata can be adapted onto the Python task store instead of being silently ignored.
+- `team.delete` is now a canonical Python-native operation backed by `TeamStore.delete_team`; `TeamDelete` uses it to delete the active/default team and clear queued messages. `TeamCreate` creates a `team-lead` member, `SendMessage` routes through `team.send`, and `Agent` / legacy `Task` route through `agent.run` while preserving the decoupled child-session boundary.
+- Dedicated waiting now has a first contract: `sleep.wait` mirrors the core purpose of `src-origin` Sleep by giving the model a low-risk, concurrent, interruptible wait tool instead of using `Bash(sleep ...)` and holding a shell process.
+- Bash/Sleep handoff now has a guard: foreground `shell.run` rejects standalone/leading `sleep N` commands of 2 seconds or longer and points the model to `sleep.wait` or `run_in_background=true`, while leaving short pacing sleeps and explicit background commands available.
+- Synchronous shell results now expose first-pass command semantics: `failed`, `no_output_expected` / `noOutputExpected`, and `return_code_interpretation` / `returnCodeInterpretation` are included so empty successful commands and failing commands are distinguishable without parsing raw stdout/stderr; nonzero exits are interpreted with the first `src-origin` BashTool semantic rules (`grep`/`rg` no matches, `diff` files differ, `find` partial inaccessibility, `test`/`[` false conditions), only real command errors/timeouts return model-visible error results with structured raw payload through `ToolExecutionError`, and raw payloads now include `command_classification` / `commandClassification` for the `src-origin` Bash search/read/list classification contract.
+- Permission and Hook matching now has a `src-origin`-style Bash rule slice: `Bash(...)` aliases to `shell.run`, `Bash(git *)` / `Bash(git:*)` match normalized shell subcommands, leading env assignments are stripped, compound commands match if any subcommand matches, and pre/post tool hooks fail safe on shell parse complexity.
+- Permission and Hook matching also covers a first `src-origin` path/pattern rule slice: `Read(...)`, `Write(...)`, `Edit(...)`, `NotebookEdit(...)`, `Grep(...)`, `Glob(...)`, `TodoWrite`, `Sleep`, `WebSearch`, `WebFetch`, `ListMcpResourcesTool`, `ReadMcpResourceTool`, `TaskOutput`, `AgentOutputTool`, `BashOutputTool`, `TaskStop`, `KillShell`, `TaskCreate`, `TaskList`, `TaskGet`, `TaskUpdate`, `CronCreate`, `CronList`, `CronDelete`, `ToolSearch`, `EnterPlanMode`, `ExitPlanMode`, `Agent`, `Task`, `SendMessage`, `TeamCreate`, `TeamDelete`, `Config(...)`, `AskUserQuestion(...)`, `SendUserMessage(...)`, and `Brief(...)` parse through the shared matcher, with read/write/edit/notebook paths mapped onto Python-native `filesystem.read`, `filesystem.write`, `patch.apply`, and `notebook.edit`, grep/glob-style rules matching the search pattern target, config rules matching the setting key, question rules matching question text/header, and user-message rules matching message text.
+- `search.glob` now provides the first native `src-origin` GlobTool parity slice: sandbox-level glob search, optional search directory, result limiting/truncation, file-only results, brace pattern expansion, modified-time ordering, tool contract metadata, impact metadata, `Glob(...)` permission/hook matching, and `src-origin`-style model-visible output (`No files found`, newline filenames, truncation hint).
+- `search.grep` now has a broader first `src-origin` GrepTool result contract slice: default `files_with_matches` model-visible output, optional `content` and `count` output modes, `glob` file filtering with comma/space splitting, brace expansion, and leading-`!` exclusion rules, common `type` file filtering, `multiline=true` cross-line regex matching, `head_limit`/`offset` pagination metadata and model-visible pagination notes, content context lines via `context`/`-A`/`-B`/`-C`, `-n` line-number control, `-i` case-insensitive search, `No files found` / `No matches found` text, and structured raw matches preserved for UI/SDK consumers.
+- Remaining tool-lifecycle gap: richer path matcher coverage for additional tools, shell progress events and stall notifications, assistant auto-backgrounding, proactive tick/notification draining around Sleep, worktree tmux lifecycle / hook-based VCS adapters / PR fetch-resume / attribution hook post-processing, broader encoding coverage beyond the current UTF-8/UTF-16 parity slice, PDF page extraction, richer NotebookEdit UI/LSP/file-history behavior, device-specific guards, FileRead memory freshness handling, richer FileEdit quote normalization/structured patch metadata/LSP notifications, and full `src-origin` coding-tool safety behavior.

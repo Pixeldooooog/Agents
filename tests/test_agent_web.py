@@ -14,7 +14,7 @@ from agents.kernel.capabilities.web import (
 )
 from agents.kernel.capabilities.web.factory import create_web_search_provider
 from agents.kernel.capabilities.web.providers.tavily import TavilyConfig
-from agents.kernel.capabilities.web.types import WebSearchResult, WebUsage
+from agents.kernel.capabilities.web.types import WebExtractResult, WebSearchResult, WebUsage
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.governance import SandboxPolicy, describe_tool_impact
 from agents.kernel.schema import ToolCall
@@ -85,6 +85,7 @@ class FakeWebProvider:
 
     def __init__(self):
         self.run_ids = []
+        self.extract_requests = []
 
     async def search(self, request, *, run_id=""):
         self.run_ids.append(run_id)
@@ -106,7 +107,22 @@ class FakeWebProvider:
         )
 
     async def extract(self, request, *, run_id=""):
-        raise RuntimeError("not used")
+        self.extract_requests.append((request, run_id))
+        return WebExtractResult(
+            provider=self.name,
+            request_id="extract-1",
+            usage=WebUsage(credits=1),
+            sources=[
+                WebSource(
+                    source_id="S1",
+                    title="Fetched",
+                    url=request.urls[0],
+                    domain="example.com",
+                    content="fetched content",
+                    score=1.0,
+                )
+            ],
+        )
 
     async def map(self, request, *, run_id=""):
         raise RuntimeError("not used")
@@ -127,6 +143,62 @@ def test_builtin_web_search_uses_control_plane_provider_and_run_scope(tmp_path: 
     assert result.raw["sources"][0]["source_id"] == "S1"
     assert provider.run_ids == ["run-1"]
     assert registry.specs(["web.search"])[0].raw["metadata"]["provider"] == "fake"
+
+
+def test_src_origin_web_aliases_route_to_control_plane_provider(tmp_path: Path):
+    workspace = WorkspaceContext("tenant", "user", "agent", "workspace", tmp_path, tmp_path)
+    context = ToolRuntimeContext(workspace=workspace, sandbox=SandboxPolicy.for_workspace(tmp_path))
+    context.current_run_id = "run-web-alias"
+    provider = FakeWebProvider()
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context, web_provider=provider)
+
+    search = asyncio.run(
+        registry.execute("WebSearch", {"query": "agents", "allowed_domains": ["example.com"]})
+    )
+    fetch = asyncio.run(
+        registry.execute(
+            "WebFetch",
+            {"url": "https://example.com/doc", "prompt": "summarize the page"},
+        )
+    )
+
+    assert search.is_error is False
+    assert search.raw["sources"][0]["url"] == "https://example.com/result"
+    assert provider.run_ids == ["run-web-alias"]
+    assert fetch.is_error is False
+    assert fetch.raw["sources"][0]["content"] == "fetched content"
+    request, run_id = provider.extract_requests[0]
+    assert request.urls == ("https://example.com/doc",)
+    assert request.query == "summarize the page"
+    assert run_id == "run-web-alias"
+    specs = {item.name: item.raw["metadata"] for item in registry.specs(["WebSearch", "WebFetch"])}
+    assert specs["WebSearch"]["alias_of"] == "web.search"
+    assert specs["WebFetch"]["alias_of"] == "web.extract"
+
+
+def test_src_origin_web_alias_impact_maps_domains_and_urls():
+    search_impact = describe_tool_impact(
+        ToolCall(
+            id="call-1",
+            name="WebSearch",
+            arguments={"query": "agents", "allowed_domains": ["example.com"]},
+        )
+    ).to_dict()
+    fetch_impact = describe_tool_impact(
+        ToolCall(
+            id="call-2",
+            name="WebFetch",
+            arguments={"url": "https://example.com/doc", "prompt": "summarize"},
+        )
+    ).to_dict()
+
+    assert search_impact["tool_name"] == "web.search"
+    assert search_impact["domains"] == ["example.com"]
+    assert search_impact["query"] == "agents"
+    assert fetch_impact["tool_name"] == "web.extract"
+    assert fetch_impact["domains"] == ["example.com"]
+    assert fetch_impact["query"] == "summarize"
 
 
 def test_web_search_impact_describes_external_disclosure_and_cost():

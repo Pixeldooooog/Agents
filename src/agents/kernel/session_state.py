@@ -260,6 +260,7 @@ def session_state_record_for_context(context: Any) -> SessionStateRecord:
         enabled_plugins=_string_list(getattr(context, "enabled_plugins", []) or []),
         skill_tools=_string_list_mapping(getattr(context, "skill_tools", {}) or {}),
         plugin_tools=_string_list_mapping(getattr(context, "plugin_tools", {}) or {}),
+        metadata=_string_mapping(getattr(context, "config_overrides", {}) or {}),
     )
 
 
@@ -341,3 +342,9 @@ def _string_list_mapping(value: Any) -> dict[str, list[str]]:
     for key, items in value.items():
         result[str(key)] = _string_list(items)
     return result
+
+
+def _string_mapping(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): str(item) for key, item in value.items()}

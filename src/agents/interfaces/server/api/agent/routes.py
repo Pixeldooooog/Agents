@@ -220,6 +220,7 @@ async def get_run_trace(run_id: str):
     artifacts = await persistence.artifacts.list_for_run(run_id)
     operation_frames = build_operation_frames(
         run_id=run_id,
+        runtime_events=record.events,
         sandbox_events=sandbox_events,
         sandbox_snapshots=sandbox_snapshots,
         artifacts=[artifact.to_dict() for artifact in artifacts],
@@ -288,13 +289,15 @@ async def approve_run_tools(run_id: str, request_data: RunApprovalRequest):
             await run_service.mark_running(run_id)
             session = await create_agent_session(spec=record.to_agent_spec())
             step = await persistence.tasks.load_step_for_run(run_id)
-            result = await session.resume(
-                run_id,
-                approvals=approvals,
-                approval_scopes=approval_scopes,
-                approval_grants=approval_grants,
-                task_id=step.task_id if step else None,
-            )
+            resume_kwargs = {
+                "approvals": approvals,
+                "approval_scopes": approval_scopes,
+                "approval_grants": approval_grants,
+                "task_id": step.task_id if step else None,
+            }
+            if request_data.tool_inputs is not None:
+                resume_kwargs["tool_inputs"] = request_data.tool_inputs
+            result = await session.resume(run_id, **resume_kwargs)
             new_events = new_runtime_events(record.events, result.events)
             await run_service.record_events(run_id, new_events)
             await _complete_or_pause(run_id, result.status, new_events)

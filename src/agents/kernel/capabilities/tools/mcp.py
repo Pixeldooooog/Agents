@@ -12,11 +12,15 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Protocol
 
 from agents.kernel.capabilities.tools.registry import ToolRegistry
+
+
+_MCP_UNSAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9_-]")
 
 
 @dataclass(frozen=True)
@@ -25,9 +29,17 @@ class MCPServerConfig:
     command: str = ""
     args: List[str] = field(default_factory=list)
     env: Dict[str, str] = field(default_factory=dict)
+    headers: Dict[str, str] = field(default_factory=dict)
+    transport: str = "stdio"
+    url: str = ""
     timeout_seconds: float = 30.0
+    sse_read_timeout_seconds: float = 300.0
     execution_mode: str = "trusted_control_plane"
     sandbox_profile: str = ""
+    auth_required: bool = False
+    auth_url: str = ""
+    auth_status: str = ""
+    auth_message: str = ""
 
 
 @dataclass(frozen=True)
@@ -82,31 +94,47 @@ class MCPClient(Protocol):
         raise NotImplementedError()
 
 
-class MCPStdioClient:
+class MCPAuthenticationRequired(Exception):
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        auth_url: str = "",
+        transport: str = "",
+        url: str = "",
+    ):
+        super().__init__(message or "MCP server requires authentication")
+        self.auth_url = str(auth_url or "")
+        self.transport = str(transport or "")
+        self.url = str(url or "")
+
+
+class _MCPSessionClient:
     def __init__(self, server: MCPServerConfig):
         self.server = server
-        self._stdio_context: Optional[Any] = None
+        self._transport_context: Optional[Any] = None
         self._session_context: Optional[Any] = None
         self._session: Optional[Any] = None
 
     async def initialize(self) -> None:
         if self._session is not None:
             return
-        from mcp import ClientSession, StdioServerParameters
-        from mcp.client.stdio import stdio_client
+        try:
+            from mcp import ClientSession
 
-        command = shutil.which(self.server.command) if self.server.command else None
-        command = command or self.server.command
-        params = StdioServerParameters(
-            command=command,
-            args=self.server.args,
-            env={**os.environ, **self.server.env} if self.server.env else None,
-        )
-        self._stdio_context = stdio_client(params)
-        read, write = await self._stdio_context.__aenter__()
-        self._session_context = ClientSession(read, write)
-        self._session = await self._session_context.__aenter__()
-        await self._session.initialize()
+            read, write = await self._open_transport()
+            self._session_context = ClientSession(read, write)
+            self._session = await self._session_context.__aenter__()
+            await self._session.initialize()
+        except Exception as exc:
+            await self.close()
+            auth_error = _auth_error_from_exception(exc, self.server)
+            if auth_error is not None:
+                raise auth_error from exc
+            raise
+
+    async def _open_transport(self) -> tuple[Any, Any]:
+        raise NotImplementedError()
 
     async def list_tools(self) -> List[MCPToolDefinition]:
         await self.initialize()
@@ -183,9 +211,52 @@ class MCPStdioClient:
             await self._session_context.__aexit__(None, None, None)
             self._session_context = None
             self._session = None
-        if self._stdio_context is not None:
-            await self._stdio_context.__aexit__(None, None, None)
-            self._stdio_context = None
+        if self._transport_context is not None:
+            await self._transport_context.__aexit__(None, None, None)
+            self._transport_context = None
+
+
+class MCPStdioClient(_MCPSessionClient):
+    async def _open_transport(self) -> tuple[Any, Any]:
+        from mcp import StdioServerParameters
+        from mcp.client.stdio import stdio_client
+
+        command = shutil.which(self.server.command) if self.server.command else None
+        command = command or self.server.command
+        params = StdioServerParameters(
+            command=command,
+            args=self.server.args,
+            env={**os.environ, **self.server.env} if self.server.env else None,
+        )
+        self._transport_context = stdio_client(params)
+        return await self._transport_context.__aenter__()
+
+
+class MCPStreamableHTTPClient(_MCPSessionClient):
+    async def _open_transport(self) -> tuple[Any, Any]:
+        from mcp.client.streamable_http import streamablehttp_client
+
+        self._transport_context = streamablehttp_client(
+            self.server.url,
+            headers=dict(self.server.headers or {}) or None,
+            timeout=self.server.timeout_seconds,
+            sse_read_timeout=self.server.sse_read_timeout_seconds,
+        )
+        read, write, _get_session_id = await self._transport_context.__aenter__()
+        return read, write
+
+
+class MCPSSEClient(_MCPSessionClient):
+    async def _open_transport(self) -> tuple[Any, Any]:
+        from mcp.client.sse import sse_client
+
+        self._transport_context = sse_client(
+            self.server.url,
+            headers=dict(self.server.headers or {}) or None,
+            timeout=self.server.timeout_seconds,
+            sse_read_timeout=self.server.sse_read_timeout_seconds,
+        )
+        return await self._transport_context.__aenter__()
 
 
 @dataclass(frozen=True)
@@ -194,24 +265,137 @@ class MCPToolProvider:
     server: MCPServerConfig
 
     async def load_tools(self, registry: ToolRegistry) -> None:
-        for tool in await self.client.list_tools():
-            registry.register(
-                self._registry_name(tool.name),
-                tool.description,
-                tool.parameters,
-                self._handler(tool.name),
-                metadata={
-                    "source": "mcp",
-                    "server": self.server.name,
-                    "remote_name": tool.name,
-                    "execution_mode": self.server.execution_mode,
-                    "sandbox_profile": self.server.sandbox_profile,
-                    "risk": "medium",
-                },
+        registered_names = set(registry.names()) if hasattr(registry, "names") else set()
+        if self.server.auth_required:
+            self._register_auth_tool(registry, registered_names)
+            return
+        try:
+            tools = await self.client.list_tools()
+        except MCPAuthenticationRequired as exc:
+            self._register_auth_tool(
+                registry,
+                registered_names,
+                auth_url=exc.auth_url,
+                transport=exc.transport,
+                url=exc.url,
+                message=str(exc),
             )
+            return
+        for tool in tools:
+            canonical_name = self._registry_name(tool.name)
+            if canonical_name not in registered_names:
+                registry.register(
+                    canonical_name,
+                    tool.description,
+                    tool.parameters,
+                    self._handler(tool.name),
+                    metadata=self._metadata(tool.name),
+                )
+                registered_names.add(canonical_name)
+
+            legacy_name = self._legacy_registry_name(tool.name)
+            if legacy_name != canonical_name and legacy_name not in registered_names:
+                registry.register(
+                    legacy_name,
+                    tool.description,
+                    tool.parameters,
+                    self._handler(tool.name),
+                    metadata=self._metadata(tool.name, alias_of=canonical_name, legacy_name=True),
+                )
+                registered_names.add(legacy_name)
+
+    def _register_auth_tool(
+        self,
+        registry: ToolRegistry,
+        registered_names: set[str],
+        *,
+        auth_url: str = "",
+        transport: str = "",
+        url: str = "",
+        message: str = "",
+    ) -> None:
+        remote_name = "authenticate"
+        name = build_mcp_tool_name(self.server.name, remote_name)
+        if name in registered_names:
+            return
+        location = _mcp_location(
+            transport or self.server.transport,
+            url or self.server.url,
+        )
+        description = (
+            "The `%s` MCP server (%s) is installed but requires authentication. "
+            "Call this tool to start or surface the authorization flow for the user."
+        ) % (self.server.name, location)
+        registry.register(
+            name,
+            description,
+            {"type": "object", "properties": {}},
+            self._auth_handler(
+                auth_url=auth_url,
+                transport=transport,
+                url=url,
+                message=message,
+            ),
+            metadata=self._metadata(
+                remote_name,
+                auth_tool=True,
+                requires_auth=True,
+                transport=transport,
+                url=url,
+                concurrency_safe=False,
+                max_result_size_chars=10000,
+            ),
+        )
+        registered_names.add(name)
 
     def _registry_name(self, name: str) -> str:
+        return build_mcp_tool_name(self.server.name, name)
+
+    def _legacy_registry_name(self, name: str) -> str:
         return "mcp_%s_%s" % (self.server.name, name)
+
+    def _metadata(
+        self,
+        remote_name: str,
+        *,
+        alias_of: str = "",
+        legacy_name: bool = False,
+        auth_tool: bool = False,
+        requires_auth: bool = False,
+        transport: str = "",
+        url: str = "",
+        concurrency_safe: bool | None = None,
+        max_result_size_chars: int | None = None,
+    ) -> Dict[str, Any]:
+        metadata: Dict[str, Any] = {
+            "source": "mcp",
+            "server": self.server.name,
+            "remote_name": remote_name,
+            "transport": transport or self.server.transport,
+            "url": url or self.server.url,
+            "execution_mode": self.server.execution_mode,
+            "sandbox_profile": self.server.sandbox_profile,
+            "risk": "medium",
+            "mcp_info": {
+                "server": self.server.name,
+                "remote_name": remote_name,
+                "normalized_server": normalize_mcp_name(self.server.name),
+                "normalized_tool": normalize_mcp_name(remote_name),
+            },
+        }
+        if alias_of:
+            metadata["alias_of"] = alias_of
+        if legacy_name:
+            metadata["legacy_name"] = True
+        if auth_tool:
+            metadata["auth_tool"] = True
+        if requires_auth:
+            metadata["requires_auth"] = True
+        if concurrency_safe is not None:
+            metadata["concurrency_safe"] = concurrency_safe
+        if max_result_size_chars is not None:
+            metadata["max_result_size_chars"] = max_result_size_chars
+        return metadata
 
     def _handler(self, remote_name: str):
         async def call_remote(**arguments: Any) -> str:
@@ -221,6 +405,79 @@ class MCPToolProvider:
             return json.dumps(result, ensure_ascii=False, sort_keys=True)
 
         return call_remote
+
+    def _auth_handler(
+        self,
+        *,
+        auth_url: str = "",
+        transport: str = "",
+        url: str = "",
+        message: str = "",
+    ):
+        async def authenticate() -> str:
+            payload = self._auth_payload(
+                auth_url=auth_url,
+                transport=transport,
+                url=url,
+                message=message,
+            )
+            return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+        return authenticate
+
+    def _auth_payload(
+        self,
+        *,
+        auth_url: str = "",
+        transport: str = "",
+        url: str = "",
+        message: str = "",
+    ) -> Dict[str, Any]:
+        transport_value = str(transport or self.server.transport or "stdio")
+        url_value = str(url or self.server.url or "")
+        auth_url_value = str(auth_url or self.server.auth_url or "")
+        base_message = str(message or self.server.auth_message or "").strip()
+        if transport_value == "claudeai-proxy":
+            return {
+                "status": "unsupported",
+                "server": self.server.name,
+                "transport": transport_value,
+                "url": url_value,
+                "message": base_message
+                or 'This is a claude.ai MCP connector. Ask the user to run /mcp and authenticate "%s" manually.'
+                % self.server.name,
+            }
+        if transport_value not in {"sse", "http"}:
+            return {
+                "status": "unsupported",
+                "server": self.server.name,
+                "transport": transport_value,
+                "url": url_value,
+                "message": base_message
+                or 'Server "%s" uses %s transport which does not support OAuth from this tool. Ask the user to run /mcp and authenticate manually.'
+                % (self.server.name, transport_value),
+            }
+        if not auth_url_value:
+            return {
+                "status": "error",
+                "server": self.server.name,
+                "transport": transport_value,
+                "url": url_value,
+                "message": base_message
+                or "Failed to start OAuth flow for %s: no authorization URL is available. Ask the user to run /mcp and authenticate manually."
+                % self.server.name,
+            }
+        return {
+            "status": "auth_url",
+            "server": self.server.name,
+            "transport": transport_value,
+            "url": url_value,
+            "authUrl": auth_url_value,
+            "auth_url": auth_url_value,
+            "message": base_message
+            or "Ask the user to open this URL in their browser to authorize the %s MCP server:\n\n%s\n\nOnce they complete the flow, the server's tools will become available automatically."
+            % (self.server.name, auth_url_value),
+        }
 
     async def list_resources(self) -> List[MCPResourceDefinition]:
         list_resources = getattr(self.client, "list_resources", None)
@@ -250,6 +507,46 @@ class MCPToolProvider:
         close = getattr(self.client, "close", None)
         if close is not None:
             await close()
+
+
+def normalize_mcp_name(name: str) -> str:
+    value = str(name or "")
+    normalized = _MCP_UNSAFE_NAME_RE.sub("_", value)
+    if value.startswith("claude.ai "):
+        normalized = re.sub(r"_+", "_", normalized).strip("_")
+    return normalized or "unnamed"
+
+
+def build_mcp_tool_name(server_name: str, tool_name: str) -> str:
+    return "mcp__%s__%s" % (normalize_mcp_name(server_name), normalize_mcp_name(tool_name))
+
+
+def mcp_info_from_name(name: str) -> Dict[str, str] | None:
+    value = str(name or "")
+    if not value.startswith("mcp__"):
+        return None
+    parts = value[len("mcp__") :].split("__", 1)
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        return None
+    return {"server": parts[0], "tool": parts[1]}
+
+
+def _mcp_location(transport: str, url: str) -> str:
+    transport_value = str(transport or "stdio")
+    url_value = str(url or "").strip()
+    return "%s at %s" % (transport_value, url_value) if url_value else transport_value
+
+
+def _auth_error_from_exception(exc: Exception, server: MCPServerConfig) -> MCPAuthenticationRequired | None:
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    if status_code == 401:
+        return MCPAuthenticationRequired(
+            "MCP server %s requires authentication" % server.name,
+            transport=server.transport,
+            url=server.url,
+        )
+    return None
 
 
 def _format_mcp_result(result: Any) -> Any:

@@ -25,7 +25,7 @@ HOOK_ADD_SCHEMA = {
         "action": {"type": "string", "enum": HOOK_ACTIONS},
         "content": {"type": "string"},
         "enabled": {"type": "boolean"},
-        "tool": {"type": "string", "description": "Optional tool name or prefix pattern for pre/post tool hooks, e.g. filesystem.*."},
+        "tool": {"type": "string", "description": "Optional tool matcher for pre/post hooks, e.g. filesystem.* or Bash(git *)."},
         "metadata": {"type": "object", "additionalProperties": {"type": "string"}},
     },
     "required": ["event", "name", "action"],

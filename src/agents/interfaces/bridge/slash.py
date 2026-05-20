@@ -898,6 +898,14 @@ async def _handle_mcp_set(state: Any, rest: str, *, write: BridgeWriter) -> None
         settings = _mcp_settings(state)
         settings.SERVER_NAME = name or "default"
         settings.SERVER_COMMAND = command
+        settings.SERVER_TRANSPORT = "stdio"
+        settings.SERVER_URL = ""
+        settings.SERVER_HEADERS = {}
+        settings.SERVER_HEADERS_JSON = ""
+        settings.AUTH_REQUIRED = False
+        settings.AUTH_URL = ""
+        settings.AUTH_STATUS = ""
+        settings.AUTH_MESSAGE = ""
         if not getattr(settings, "EXECUTION_MODE", ""):
             settings.EXECUTION_MODE = "trusted_control_plane"
         configured_name = settings.SERVER_NAME
@@ -914,6 +922,13 @@ async def _handle_mcp_clear(state: Any, *, write: BridgeWriter) -> None:
     else:
         settings.SERVER_COMMAND = ""
         settings.SERVER_NAME = ""
+        settings.SERVER_URL = ""
+        settings.SERVER_HEADERS = {}
+        settings.SERVER_HEADERS_JSON = ""
+        settings.AUTH_REQUIRED = False
+        settings.AUTH_URL = ""
+        settings.AUTH_STATUS = ""
+        settings.AUTH_MESSAGE = ""
     write({"type": "notice", "message": "mcp cleared%s" % (" · removed %s tool%s" % (removed, "" if removed == 1 else "s") if removed else "")})
     write({"type": "mcp", "mcp": mcp_payload(state)})
 
@@ -965,8 +980,8 @@ async def _handle_mcp_remove(state: Any, rest: str, *, write: BridgeWriter) -> N
 
 async def _handle_mcp_reload(state: Any, *, write: BridgeWriter) -> None:
     settings = _mcp_settings(state)
-    if not str(getattr(settings, "SERVER_COMMAND", "") or "").strip():
-        write({"type": "error", "message": "mcp server command is not configured"})
+    if not str(getattr(settings, "SERVER_COMMAND", "") or "").strip() and not str(getattr(settings, "SERVER_URL", "") or "").strip():
+        write({"type": "error", "message": "mcp server command or url is not configured"})
         return
     registry = getattr(getattr(getattr(state, "session", None), "runtime", None), "tools", None)
     if registry is None or not hasattr(registry, "names"):
@@ -982,7 +997,10 @@ async def _handle_mcp_reload(state: Any, *, write: BridgeWriter) -> None:
     if context is not None:
         context.mcp_providers = providers
     after = set(registry.names())
-    added = sorted(name for name in after - before if name.startswith("mcp_"))
+    new_mcp_tools = sorted(name for name in after - before if _is_mcp_tool_name(name))
+    added = [name for name in new_mcp_tools if _is_canonical_mcp_tool_name(name)]
+    if not added:
+        added = new_mcp_tools
     state.active_tools = _merge_unique(list(getattr(state, "active_tools", []) or []), added)
     _replace_runtime_enabled_tools(state, added)
     write({"type": "notice", "message": "mcp reloaded: %s new tool%s" % (len(added), "" if len(added) == 1 else "s")})
@@ -2113,9 +2131,18 @@ def _mcp_settings(state: Any) -> Any:
     for name, value in {
         "SERVER_NAME": "",
         "SERVER_COMMAND": "",
+        "SERVER_TRANSPORT": "stdio",
+        "SERVER_URL": "",
+        "SERVER_HEADERS": {},
+        "SERVER_HEADERS_JSON": "",
         "CLIENT_TIMEOUT": 30.0,
+        "SSE_READ_TIMEOUT": 300.0,
         "EXECUTION_MODE": "trusted_control_plane",
         "SANDBOX_PROFILE": "",
+        "AUTH_REQUIRED": False,
+        "AUTH_URL": "",
+        "AUTH_STATUS": "",
+        "AUTH_MESSAGE": "",
     }.items():
         if not hasattr(mcp, name):
             setattr(mcp, name, value)
@@ -2131,15 +2158,24 @@ def _parse_mcp_set(rest: str) -> tuple[str, str]:
 
 
 def _remove_mcp_tools(state: Any) -> int:
-    active = [name for name in list(getattr(state, "active_tools", []) or []) if not str(name).startswith("mcp_")]
+    active = [name for name in list(getattr(state, "active_tools", []) or []) if not _is_mcp_tool_name(name)]
     removed = len(list(getattr(state, "active_tools", []) or [])) - len(active)
     state.active_tools = active
     runtime = getattr(state.session, "runtime", None)
     config = getattr(runtime, "config", None)
     if config is not None:
-        enabled = [name for name in list(getattr(config, "enabled_tools", []) or []) if not str(name).startswith("mcp_")]
+        enabled = [name for name in list(getattr(config, "enabled_tools", []) or []) if not _is_mcp_tool_name(name)]
         runtime.config = replace(config, enabled_tools=enabled)
     return removed
+
+
+def _is_mcp_tool_name(name: Any) -> bool:
+    value = str(name)
+    return value.startswith("mcp_")
+
+
+def _is_canonical_mcp_tool_name(name: Any) -> bool:
+    return str(name).startswith("mcp__")
 
 
 def _replace_runtime_enabled_tools(state: Any, tools: list[str]) -> None:

@@ -200,7 +200,7 @@ async def _handle_command(state: BridgeState, command: dict[str, Any]) -> bool:
         await cancel_active_run(state, _write, quiet=True)
         return False
     if command_type == "cancel":
-        await cancel_active_run(state, _write)
+        await cancel_active_run(state, _write, reason=str(command.get("reason") or ""))
         return True
     if active_task_running(state):
         if command_type == "slash" and str(command.get("text") or "").strip() == "/cancel":

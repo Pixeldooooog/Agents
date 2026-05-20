@@ -193,6 +193,62 @@ class TestSessionStateHooks:
         assert exc_info.value.reason == "echo blocked"
         assert hook.run_count == 1
 
+    def test_pre_tool_hook_matches_bash_command_patterns(self):
+        registry = SessionHookRegistry()
+        hook = registry.add(
+            event="pre_tool_use",
+            name="block-git",
+            action="deny_tool",
+            content="git blocked",
+            tool="Bash(git *)",
+        )
+        hooks = SessionStateHooks(registry)
+
+        allowed = asyncio.run(hooks.before_tool_use(ToolCall(id="1", name="shell.run", arguments={"command": "npm test"})))
+        with pytest.raises(ToolHookDenied) as env_exc:
+            asyncio.run(hooks.before_tool_use(ToolCall(id="2", name="shell.run", arguments={"command": "FOO=bar git status"})))
+        with pytest.raises(ToolHookDenied) as compound_exc:
+            asyncio.run(hooks.before_tool_use(ToolCall(id="3", name="shell.run", arguments={"command": "npm test && git status"})))
+
+        assert allowed.name == "shell.run"
+        assert env_exc.value.reason == "git blocked"
+        assert compound_exc.value.reason == "git blocked"
+        assert hook.run_count == 2
+
+    def test_pre_tool_hook_matches_legacy_edit_path_patterns(self):
+        registry = SessionHookRegistry()
+        hook = registry.add(
+            event="pre_tool_use",
+            name="block-src-edits",
+            action="deny_tool",
+            content="src edits blocked",
+            tool="Edit(src/**)",
+        )
+        hooks = SessionStateHooks(registry)
+
+        allowed = asyncio.run(
+            hooks.before_tool_use(
+                ToolCall(id="1", name="patch.apply", arguments={"edits": [{"path": "docs/app.py", "old_text": "a", "new_text": "b"}]})
+            )
+        )
+        with pytest.raises(ToolHookDenied) as edit_exc:
+            asyncio.run(
+                hooks.before_tool_use(
+                    ToolCall(id="2", name="patch.apply", arguments={"edits": [{"path": "src/app.py", "old_text": "a", "new_text": "b"}]})
+                )
+            )
+        with pytest.raises(ToolHookDenied) as create_exc:
+            asyncio.run(
+                hooks.before_tool_use(
+                    ToolCall(id="3", name="patch.apply", arguments={"creates": [{"path": "src/new.py", "content": "print('x')"}]})
+                )
+            )
+
+        assert allowed.name == "patch.apply"
+        assert edit_exc.value.reason == "src edits blocked"
+        assert create_exc.value.reason == "src edits blocked"
+        assert hook.run_count == 2
+
     def test_tool_orchestrator_runs_pre_and_post_tool_hooks(self):
         hook_registry = SessionHookRegistry()
         pre = hook_registry.add(event="pre_tool_use", name="pre", action="record", tool="echo")
