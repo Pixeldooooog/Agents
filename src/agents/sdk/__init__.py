@@ -3,6 +3,7 @@
 from agents.sdk.client import (
     AgentSDKClient,
     SDKSession,
+    fork_session,
     get_session_info,
     get_session_messages,
     list_sessions,
@@ -16,6 +17,8 @@ from agents.sdk.client import (
 )
 from agents.sdk.types import (
     SDKAssistantMessage,
+    SDKForkSessionOptions,
+    SDKForkSessionResult,
     SDKGetSessionMessagesOptions,
     SDKListSessionsOptions,
     SDKMessage,
@@ -35,6 +38,8 @@ from agents.sdk.types import (
 __all__ = [
     "AgentSDKClient",
     "SDKAssistantMessage",
+    "SDKForkSessionOptions",
+    "SDKForkSessionResult",
     "SDKGetSessionMessagesOptions",
     "SDKListSessionsOptions",
     "SDKMessage",
@@ -45,6 +50,7 @@ __all__ = [
     "SDKStatusMessage",
     "SDKSystemMessage",
     "SDKToolProgressMessage",
+    "fork_session",
     "get_session_info",
     "get_session_messages",
     "list_sessions",

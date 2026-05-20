@@ -15,6 +15,8 @@ from agents.platform.persistence import PlatformPersistence, create_ephemeral_pe
 from agents.platform.sessions import RunService
 from agents.sdk.types import (
     SDKAssistantMessage,
+    SDKForkSessionOptions,
+    SDKForkSessionResult,
     SDKGetSessionMessagesOptions,
     SDKListSessionsOptions,
     SDKMessage,
@@ -244,6 +246,38 @@ class AgentSDKClient:
     async def tag_session(self, session_id: str, tag: str | None) -> None:
         await self._update_session_metadata(session_id, {"sdk_tag": (tag or "").strip()})
 
+    async def fork_session(
+        self,
+        session_id: str,
+        options: SDKForkSessionOptions | dict[str, Any] | None = None,
+    ) -> SDKForkSessionResult:
+        options = _coerce_fork_session_options(options)
+        records = await self._runs_for_session(session_id)
+        if not records:
+            raise KeyError("session not found: %s" % session_id)
+        forked_session_id = "session_%s" % uuid.uuid4().hex
+        forked_run_ids: list[str] = []
+        for record in sorted(records, key=lambda item: item.created_at):
+            metadata = {
+                **record.metadata,
+                "sdk_session_id": forked_session_id,
+                "sdk_forked_from_session_id": session_id,
+                "sdk_forked_from_run_id": record.run_id,
+            }
+            title = options.title.strip()
+            if title:
+                metadata["sdk_title"] = title
+            spec = replace(record.to_agent_spec(), metadata=metadata)
+            forked = await self.run_service.store.create_run(spec)
+            events, matched = _events_for_fork(record.events, options.up_to_message_id)
+            for event in events:
+                await self.run_service.store.append_event(forked.run_id, event)
+            await self.run_service.store.set_status(forked.run_id, record.status)
+            forked_run_ids.append(forked.run_id)
+            if options.up_to_message_id and matched:
+                break
+        return SDKForkSessionResult(session_id=forked_session_id, run_ids=forked_run_ids)
+
     async def _record_session_metadata(
         self,
         run_id: str,
@@ -328,6 +362,10 @@ class SDKSession:
     async def tag(self, tag: str | None) -> None:
         await self.client.tag_session(self.session_id, tag)
 
+    async def fork(self, options: SDKForkSessionOptions | dict[str, Any] | None = None) -> "SDKSession":
+        result = await self.client.fork_session(self.session_id, options)
+        return await self.client.resume_session(result.session_id)
+
 
 async def query(prompt: str, options: SDKOptions | dict[str, Any] | None = None) -> AsyncIterator[SDKMessage]:
     client = AgentSDKClient()
@@ -360,6 +398,13 @@ async def rename_session(session_id: str, title: str) -> None:
 
 async def tag_session(session_id: str, tag: str | None) -> None:
     await AgentSDKClient().tag_session(session_id, tag)
+
+
+async def fork_session(
+    session_id: str,
+    options: SDKForkSessionOptions | dict[str, Any] | None = None,
+) -> SDKForkSessionResult:
+    return await AgentSDKClient().fork_session(session_id, options)
 
 
 def unstable_v2_create_session(options: SDKOptions | dict[str, Any] | None = None) -> SDKSession:
@@ -425,6 +470,14 @@ def _coerce_get_session_messages_options(
     if isinstance(options, SDKGetSessionMessagesOptions):
         return options
     return SDKGetSessionMessagesOptions.model_validate(options)
+
+
+def _coerce_fork_session_options(options: SDKForkSessionOptions | dict[str, Any] | None) -> SDKForkSessionOptions:
+    if options is None:
+        return SDKForkSessionOptions()
+    if isinstance(options, SDKForkSessionOptions):
+        return options
+    return SDKForkSessionOptions.model_validate(options)
 
 
 def _spec_from_options(options: SDKOptions) -> AgentSpec:
@@ -532,6 +585,36 @@ def _record_cwd(record: RunRecord) -> str:
 
 def _duration_ms_from_record(record: RunRecord) -> int:
     return int(max(0, record.updated_at - record.created_at) * 1000)
+
+
+def _events_for_fork(events: list[RuntimeEvent], up_to_message_id: str = "") -> tuple[list[RuntimeEvent], bool]:
+    if not up_to_message_id:
+        return list(events), False
+    copied: list[RuntimeEvent] = []
+    for event in events:
+        copied.append(event)
+        if _event_matches_message_id(event, up_to_message_id):
+            return copied, True
+    return copied, False
+
+
+def _event_matches_message_id(event: RuntimeEvent, message_id: str) -> bool:
+    candidates = {
+        str(event.payload.get("uuid") or ""),
+        str(event.payload.get("message_id") or ""),
+        str(event.payload.get("id") or ""),
+        str(event.payload.get("tool_call_id") or ""),
+        str(event.payload.get("approval_id") or ""),
+    }
+    raw = event.raw if isinstance(event.raw, dict) else {}
+    candidates.update(
+        {
+            str(raw.get("uuid") or ""),
+            str(raw.get("message_id") or ""),
+            str(raw.get("id") or ""),
+        }
+    )
+    return message_id in candidates
 
 
 def _millis(timestamp: float) -> float:

@@ -10,6 +10,8 @@ from agents.kernel.capabilities.tools.registry import ToolRegistry
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.sdk import (
     AgentSDKClient,
+    SDKForkSessionOptions,
+    SDKForkSessionResult,
     SDKListSessionsOptions,
     SDKOptions,
     SDKSessionInfo,
@@ -175,6 +177,34 @@ def test_sdk_session_object_keeps_stable_session_id_across_prompts():
     assert renamed.tag == "followup"
     with pytest.raises(KeyError):
         asyncio.run(client.resume_session("missing-session"))
+
+
+def test_sdk_fork_session_copies_stored_runs_into_new_session():
+    client = AgentSDKClient(session_factory=_session_factory)
+    session = client.create_sdk_session(SDKOptions(session_id="source-session"))
+
+    first = asyncio.run(session.prompt("source turn one"))
+    second = asyncio.run(session.prompt("source turn two"))
+    result = asyncio.run(
+        client.fork_session("source-session", SDKForkSessionOptions(title="Forked copy"))
+    )
+    forked = asyncio.run(client.resume_session(result.session_id))
+    forked_info = asyncio.run(forked.info())
+    forked_messages = asyncio.run(forked.messages({"include_system_messages": False}))
+
+    assert isinstance(result, SDKForkSessionResult)
+    assert result.session_id != "source-session"
+    assert len(result.run_ids) == 2
+    assert forked_info.summary == "Forked copy"
+    assert forked_info.first_prompt == "source turn one"
+    assert forked_info.metadata["sdk_forked_from_session_id"] == "source-session"
+    forked_result_run_ids = [
+        message.run_id for message in forked_messages if message.type == "result"
+    ]
+    assert forked_result_run_ids == result.run_ids
+
+    source_info = asyncio.run(session.info())
+    assert source_info.run_ids == [first.run_id, second.run_id]
 
 
 def test_sdk_output_format_projects_structured_output_schema():

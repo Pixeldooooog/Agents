@@ -48,6 +48,24 @@ class SDKGetSessionMessagesOptions(BaseModel):
     include_system_messages: bool = True
 
 
+class SDKForkSessionOptions(BaseModel):
+    """Options for forking a stored SDK session."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = ""
+    up_to_message_id: str = ""
+
+
+class SDKForkSessionResult(BaseModel):
+    """Result returned after forking a stored SDK session."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str
+    run_ids: list[str] = Field(default_factory=list)
+
+
 class SDKSessionInfo(BaseModel):
     """Session metadata returned by SDK list/get session helpers.
 
