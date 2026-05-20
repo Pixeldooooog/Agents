@@ -124,6 +124,14 @@ class SDKCompactBoundaryMessage(SDKBaseMessage):
     compact_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class SDKAuthStatusMessage(SDKBaseMessage):
+    type: Literal["auth_status"] = "auth_status"
+    is_authenticating: bool = False
+    output: list[str] = Field(default_factory=list)
+    error: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class SDKAssistantMessage(SDKBaseMessage):
     type: Literal["assistant"] = "assistant"
     content: str = ""
@@ -181,6 +189,7 @@ SDKMessage = Union[
     SDKSystemMessage,
     SDKAPIRetryMessage,
     SDKCompactBoundaryMessage,
+    SDKAuthStatusMessage,
     SDKUserMessage,
     SDKAssistantMessage,
     SDKToolProgressMessage,

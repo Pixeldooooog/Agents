@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from collections.abc import AsyncIterator, Callable
@@ -17,6 +18,7 @@ from agents.platform.sessions import RunService
 from agents.sdk.types import (
     SDKAPIRetryMessage,
     SDKAssistantMessage,
+    SDKAuthStatusMessage,
     SDKCompactBoundaryMessage,
     SDKForkSessionOptions,
     SDKForkSessionResult,
@@ -133,22 +135,21 @@ class AgentSDKClient:
             async for event in session.stream(prompt, run_id=run_id):
                 event_count += 1
                 await self.run_service.record_event(run_id, event)
-                message = _project_runtime_event(
+                messages = _project_runtime_event_messages(
                     event,
                     session_id=session_id,
                     run_id=run_id,
                     duration_ms=_duration_ms(started_at),
                     num_turns=1,
                 )
-                if message is None:
-                    continue
-                if isinstance(message, SDKResultMessage):
-                    yielded_result = True
-                    final_status = message.status
-                elif isinstance(message, SDKToolProgressMessage) and message.status == "awaiting_approval":
-                    final_status = "awaiting_approval"
-                    await self.run_service.pause_for_approval(run_id)
-                yield message
+                for message in messages:
+                    if isinstance(message, SDKResultMessage):
+                        yielded_result = True
+                        final_status = message.status
+                    elif isinstance(message, SDKToolProgressMessage) and message.status == "awaiting_approval":
+                        final_status = "awaiting_approval"
+                        await self.run_service.pause_for_approval(run_id)
+                    yield message
         except Exception as exc:
             final_status = "error"
             yielded_result = True
@@ -230,15 +231,14 @@ class AgentSDKClient:
             for event in record.events:
                 if event.type == "run_created":
                     continue
-                message = _project_runtime_event(
+                projected = _project_runtime_event_messages(
                     event,
                     session_id=resolved_session_id,
                     run_id=record.run_id,
                     duration_ms=duration_ms,
                     num_turns=1,
                 )
-                if message is not None:
-                    messages.append(message)
+                messages.extend(projected)
         if options.offset:
             messages = messages[options.offset :]
         if options.limit:
@@ -665,6 +665,70 @@ def _user_message_priority(value: Any) -> str | None:
     return text if text in {"now", "next", "later"} else None
 
 
+def _auth_status_from_tool_result(
+    event: RuntimeEvent,
+    *,
+    session_id: str,
+    run_id: str,
+) -> SDKAuthStatusMessage | None:
+    if not _is_auth_tool_result(event):
+        return None
+    payload = _tool_result_payload_data(event.payload)
+    status = str(payload.get("status") or "")
+    auth_url = str(payload.get("authUrl") or payload.get("auth_url") or "")
+    message = str(payload.get("message") or "")
+    output = [item for item in [message, auth_url] if item]
+    if not output and status:
+        output = [status]
+    error = message if status in {"error", "unsupported"} else ""
+    return SDKAuthStatusMessage(
+        session_id=session_id,
+        run_id=run_id,
+        is_authenticating=status == "auth_url",
+        output=output,
+        error=error,
+        metadata={key: value for key, value in payload.items() if key != "_meta"},
+    )
+
+
+def _is_auth_tool_result(event: RuntimeEvent) -> bool:
+    if event.type != "tool_result":
+        return False
+    if str(event.name).endswith("__authenticate"):
+        return True
+    contract = event.payload.get("contract")
+    metadata = contract.get("metadata") if isinstance(contract, dict) else {}
+    return bool(isinstance(metadata, dict) and metadata.get("auth_tool"))
+
+
+def _tool_result_payload_data(payload: dict[str, Any]) -> dict[str, Any]:
+    raw = payload.get("raw")
+    if isinstance(raw, dict):
+        if isinstance(raw.get("result"), str):
+            parsed = _json_object(raw["result"])
+            if parsed:
+                return {**parsed, "_meta": dict(raw.get("_meta") or {})}
+        return dict(raw)
+    if isinstance(raw, str):
+        parsed = _json_object(raw)
+        if parsed:
+            return parsed
+    content = payload.get("content")
+    if isinstance(content, str):
+        parsed = _json_object(content)
+        if parsed:
+            return parsed
+    return {}
+
+
+def _json_object(value: str) -> dict[str, Any]:
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return {}
+    return dict(parsed) if isinstance(parsed, dict) else {}
+
+
 def _retry_attempt(payload: dict[str, Any]) -> int:
     if payload.get("next_attempt") is not None:
         return _int(payload.get("next_attempt"))
@@ -722,6 +786,28 @@ def _first_non_empty(values) -> str:
         if text:
             return text
     return ""
+
+
+def _project_runtime_event_messages(
+    event: RuntimeEvent,
+    *,
+    session_id: str,
+    run_id: str,
+    duration_ms: int,
+    num_turns: int,
+) -> list[SDKMessage]:
+    message = _project_runtime_event(
+        event,
+        session_id=session_id,
+        run_id=run_id,
+        duration_ms=duration_ms,
+        num_turns=num_turns,
+    )
+    messages = [] if message is None else [message]
+    auth_status = _auth_status_from_tool_result(event, session_id=session_id, run_id=run_id)
+    if auth_status is not None:
+        messages.append(auth_status)
+    return messages
 
 
 def _project_runtime_event(

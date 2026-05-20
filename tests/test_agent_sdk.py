@@ -25,6 +25,7 @@ from agents.sdk import (
 from agents.sdk.client import _spec_from_options
 from agents.sdk.types import (
     SDKAPIRetryMessage,
+    SDKAuthStatusMessage,
     SDKCompactBoundaryMessage,
     SDKResultMessage,
     SDKSystemMessage,
@@ -151,6 +152,56 @@ async def _compacting_session_factory(settings, spec):
     return session
 
 
+async def _auth_session_factory(settings, spec):
+    tools = ToolRegistry()
+    tools.register(
+        "mcp__docs__authenticate",
+        "Authenticate docs MCP server",
+        {},
+        lambda: {
+            "status": "auth_url",
+            "server": "docs",
+            "transport": "http",
+            "authUrl": "https://mcp.example.test/oauth",
+            "auth_url": "https://mcp.example.test/oauth",
+            "message": "Open the authorization URL.",
+        },
+        metadata={"auth_tool": True},
+    )
+    llm = ScriptedModelClient(
+        [
+            ModelResponse(
+                message=Message.from_text(
+                    "assistant",
+                    "",
+                    tool_calls=[ToolCall(id="auth-call", name="mcp__docs__authenticate", arguments={})],
+                ),
+                stop_reason="tool_calls",
+            ),
+            [
+                text_delta("authenticated"),
+                message_event(ModelResponse(message=Message.from_text("assistant", "authenticated"))),
+            ],
+        ]
+    )
+    runtime = AgentRuntime(
+        model_client=llm,
+        tools=tools,
+        protocol=spec.model.protocol or "scripted",
+        model=spec.model.model or "scripted",
+        enabled_tools=["mcp__docs__authenticate"],
+    )
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=".",
+        path=".",
+    )
+    return AgentSession(runtime, system_prompt="", workspace=workspace)
+
+
 def test_sdk_query_hides_store_wiring_and_streams_typed_messages():
     client = AgentSDKClient(session_factory=_session_factory)
 
@@ -210,6 +261,23 @@ def test_sdk_query_projects_context_fit_as_compact_boundary_message():
     assert validate_sdk_message(boundary.model_dump()) == boundary
     assert isinstance(replay[1], SDKUserMessage)
     assert any(isinstance(message, SDKCompactBoundaryMessage) for message in replay)
+
+
+def test_sdk_query_emits_auth_status_for_mcp_auth_tool_results():
+    client = AgentSDKClient(session_factory=_auth_session_factory)
+
+    messages = asyncio.run(_collect(client.query("auth", SDKOptions(session_id="session-auth"))))
+    replay = asyncio.run(client.get_session_messages("session-auth", {"include_system_messages": False}))
+
+    auth = next(message for message in messages if isinstance(message, SDKAuthStatusMessage))
+    assert auth.type == "auth_status"
+    assert auth.is_authenticating is True
+    assert auth.output == ["Open the authorization URL.", "https://mcp.example.test/oauth"]
+    assert auth.error == ""
+    assert auth.metadata["server"] == "docs"
+    assert validate_sdk_message(auth.model_dump()) == auth
+    assert any(isinstance(message, SDKToolProgressMessage) and message.status == "completed" for message in messages)
+    assert any(isinstance(message, SDKAuthStatusMessage) for message in replay)
 
 
 def test_sdk_prompt_returns_final_result():
@@ -357,6 +425,7 @@ def test_sdk_exports_json_schemas_and_rejects_invalid_messages():
     assert options_schema["additionalProperties"] is False
     assert "SDKSystemMessage" in message_schema["$defs"]
     assert "SDKAPIRetryMessage" in message_schema["$defs"]
+    assert "SDKAuthStatusMessage" in message_schema["$defs"]
     assert "SDKCompactBoundaryMessage" in message_schema["$defs"]
     assert "SDKUserMessage" in message_schema["$defs"]
     assert "SDKToolProgressMessage" in message_schema["$defs"]
