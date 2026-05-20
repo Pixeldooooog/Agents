@@ -3,8 +3,7 @@ from __future__ import annotations
 import time
 import uuid
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any
 
 from agents.kernel.assembly import create_agent_session_async
@@ -75,7 +74,23 @@ class AgentSDKClient:
             agent_profile_store=self.persistence.agent_profiles,
         )
 
-    async def query(self, prompt: str, options: SDKOptions | None = None) -> AsyncIterator[SDKMessage]:
+    def create_sdk_session(self, options: SDKOptions | dict[str, Any] | None = None) -> "SDKSession":
+        options = _coerce_options(options)
+        session_id = options.session_id or "session_%s" % uuid.uuid4().hex
+        return SDKSession(
+            client=self,
+            session_id=session_id,
+            options=options.model_copy(update={"session_id": session_id}),
+        )
+
+    async def resume_session(self, session_id: str, options: SDKOptions | dict[str, Any] | None = None) -> "SDKSession":
+        info = await self.get_session_info(session_id)
+        if info is None:
+            raise KeyError("session not found: %s" % session_id)
+        options = _coerce_options(options).model_copy(update={"session_id": session_id})
+        return SDKSession(client=self, session_id=session_id, options=options)
+
+    async def query(self, prompt: str, options: SDKOptions | dict[str, Any] | None = None) -> AsyncIterator[SDKMessage]:
         options = _coerce_options(options)
         spec = _spec_from_options(options)
         started_at = time.monotonic()
@@ -155,7 +170,7 @@ class AgentSDKClient:
             if close is not None:
                 await close()
 
-    async def prompt(self, prompt: str, options: SDKOptions | None = None) -> SDKResultMessage:
+    async def prompt(self, prompt: str, options: SDKOptions | dict[str, Any] | None = None) -> SDKResultMessage:
         result: SDKResultMessage | None = None
         async for message in self.query(prompt, options):
             if isinstance(message, SDKResultMessage):
@@ -264,13 +279,63 @@ class AgentSDKClient:
             await self.run_service.update_metadata(record.run_id, metadata)
 
 
-async def query(prompt: str, options: SDKOptions | None = None) -> AsyncIterator[SDKMessage]:
+@dataclass
+class SDKSession:
+    """High-level persistent SDK session handle.
+
+    The handle keeps a stable SDK session id while each prompt still executes as
+    a stored run, which keeps the wrapper decoupled from the kernel runtime.
+    """
+
+    client: AgentSDKClient
+    session_id: str
+    options: SDKOptions
+
+    async def query(
+        self,
+        prompt: str,
+        options: SDKOptions | dict[str, Any] | None = None,
+    ) -> AsyncIterator[SDKMessage]:
+        merged = _merge_session_options(self.options, options, session_id=self.session_id)
+        async for message in self.client.query(prompt, merged):
+            yield message
+
+    async def prompt(
+        self,
+        prompt: str,
+        options: SDKOptions | dict[str, Any] | None = None,
+    ) -> SDKResultMessage:
+        result: SDKResultMessage | None = None
+        async for message in self.query(prompt, options):
+            if isinstance(message, SDKResultMessage):
+                result = message
+        if result is None:
+            raise RuntimeError("SDK session prompt completed without a result message")
+        return result
+
+    async def messages(
+        self,
+        options: SDKGetSessionMessagesOptions | dict[str, Any] | None = None,
+    ) -> list[SDKMessage]:
+        return await self.client.get_session_messages(self.session_id, options)
+
+    async def info(self) -> SDKSessionInfo | None:
+        return await self.client.get_session_info(self.session_id)
+
+    async def rename(self, title: str) -> None:
+        await self.client.rename_session(self.session_id, title)
+
+    async def tag(self, tag: str | None) -> None:
+        await self.client.tag_session(self.session_id, tag)
+
+
+async def query(prompt: str, options: SDKOptions | dict[str, Any] | None = None) -> AsyncIterator[SDKMessage]:
     client = AgentSDKClient()
     async for message in client.query(prompt, options):
         yield message
 
 
-async def prompt(prompt: str, options: SDKOptions | None = None) -> SDKResultMessage:
+async def prompt(prompt: str, options: SDKOptions | dict[str, Any] | None = None) -> SDKResultMessage:
     return await AgentSDKClient().prompt(prompt, options)
 
 
@@ -297,12 +362,51 @@ async def tag_session(session_id: str, tag: str | None) -> None:
     await AgentSDKClient().tag_session(session_id, tag)
 
 
-def _coerce_options(options: SDKOptions | None) -> SDKOptions:
+def unstable_v2_create_session(options: SDKOptions | dict[str, Any] | None = None) -> SDKSession:
+    return AgentSDKClient().create_sdk_session(options)
+
+
+async def unstable_v2_resume_session(
+    session_id: str,
+    options: SDKOptions | dict[str, Any] | None = None,
+) -> SDKSession:
+    return await AgentSDKClient().resume_session(session_id, options)
+
+
+async def unstable_v2_prompt(
+    prompt: str,
+    options: SDKOptions | dict[str, Any] | None = None,
+) -> SDKResultMessage:
+    return await AgentSDKClient().prompt(prompt, _coerce_options(options))
+
+
+def _coerce_options(options: SDKOptions | dict[str, Any] | None) -> SDKOptions:
     if options is None:
         return SDKOptions()
     if isinstance(options, SDKOptions):
         return options
     return SDKOptions.model_validate(options)
+
+
+def _merge_session_options(
+    base: SDKOptions,
+    override: SDKOptions | dict[str, Any] | None,
+    *,
+    session_id: str,
+) -> SDKOptions:
+    values = base.model_dump()
+    if override is not None:
+        override_options = _coerce_options(override)
+        for key in override_options.model_fields_set:
+            if key == "metadata":
+                values["metadata"] = {
+                    **values.get("metadata", {}),
+                    **override_options.metadata,
+                }
+            else:
+                values[key] = getattr(override_options, key)
+    values["session_id"] = session_id
+    return SDKOptions.model_validate(values)
 
 
 def _coerce_list_sessions_options(options: SDKListSessionsOptions | dict[str, Any] | None) -> SDKListSessionsOptions:

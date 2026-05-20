@@ -13,6 +13,7 @@ from agents.sdk import (
     SDKListSessionsOptions,
     SDKOptions,
     SDKSessionInfo,
+    SDKSession,
     sdk_message_json_schema,
     sdk_options_json_schema,
     sdk_result_json_schema,
@@ -146,6 +147,34 @@ def test_sdk_session_helpers_list_replay_and_mutate_run_backed_sessions():
         asyncio.run(client.rename_session("session-1", " "))
     with pytest.raises(KeyError):
         asyncio.run(client.tag_session("missing-session", "review"))
+
+
+def test_sdk_session_object_keeps_stable_session_id_across_prompts():
+    client = AgentSDKClient(session_factory=_session_factory)
+    session = client.create_sdk_session(
+        SDKOptions(session_id="conversation-1", metadata={"caller": "test"})
+    )
+
+    first = asyncio.run(session.prompt("turn one"))
+    resumed = asyncio.run(client.resume_session("conversation-1"))
+    second_messages = asyncio.run(_collect(resumed.query("turn two", {"metadata": {"turn": "two"}})))
+    info = asyncio.run(resumed.info())
+
+    assert isinstance(session, SDKSession)
+    assert resumed.session_id == "conversation-1"
+    assert first.session_id == "conversation-1"
+    assert all(message.session_id == "conversation-1" for message in second_messages)
+    assert info.run_ids == [first.run_id, second_messages[-1].run_id]
+    assert info.first_prompt == "turn one"
+    assert info.metadata["run_count"] == 2
+
+    asyncio.run(resumed.rename("Conversation title"))
+    asyncio.run(resumed.tag("followup"))
+    renamed = asyncio.run(session.info())
+    assert renamed.summary == "Conversation title"
+    assert renamed.tag == "followup"
+    with pytest.raises(KeyError):
+        asyncio.run(client.resume_session("missing-session"))
 
 
 def test_sdk_output_format_projects_structured_output_schema():

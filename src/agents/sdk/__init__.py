@@ -2,6 +2,7 @@
 
 from agents.sdk.client import (
     AgentSDKClient,
+    SDKSession,
     get_session_info,
     get_session_messages,
     list_sessions,
@@ -9,6 +10,9 @@ from agents.sdk.client import (
     query,
     rename_session,
     tag_session,
+    unstable_v2_create_session,
+    unstable_v2_prompt,
+    unstable_v2_resume_session,
 )
 from agents.sdk.types import (
     SDKAssistantMessage,
@@ -36,6 +40,7 @@ __all__ = [
     "SDKMessage",
     "SDKOptions",
     "SDKResultMessage",
+    "SDKSession",
     "SDKSessionInfo",
     "SDKStatusMessage",
     "SDKSystemMessage",
@@ -51,5 +56,8 @@ __all__ = [
     "sdk_result_json_schema",
     "sdk_session_info_json_schema",
     "tag_session",
+    "unstable_v2_create_session",
+    "unstable_v2_prompt",
+    "unstable_v2_resume_session",
     "validate_sdk_message",
 ]
