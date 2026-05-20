@@ -132,6 +132,12 @@ class SDKAuthStatusMessage(SDKBaseMessage):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class SDKSessionStateChangedMessage(SDKBaseMessage):
+    type: Literal["system"] = "system"
+    subtype: Literal["session_state_changed"] = "session_state_changed"
+    state: Literal["idle", "running", "requires_action"]
+
+
 class SDKAssistantMessage(SDKBaseMessage):
     type: Literal["assistant"] = "assistant"
     content: str = ""
@@ -190,6 +196,7 @@ SDKMessage = Union[
     SDKAPIRetryMessage,
     SDKCompactBoundaryMessage,
     SDKAuthStatusMessage,
+    SDKSessionStateChangedMessage,
     SDKUserMessage,
     SDKAssistantMessage,
     SDKToolProgressMessage,

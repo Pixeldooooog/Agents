@@ -27,6 +27,7 @@ from agents.sdk.types import (
     SDKMessage,
     SDKOptions,
     SDKResultMessage,
+    SDKSessionStateChangedMessage,
     SDKSessionInfo,
     SDKStatusMessage,
     SDKSystemMessage,
@@ -117,9 +118,12 @@ class AgentSDKClient:
             run_id,
             _user_message_event(prompt, session_id=session_id, run_id=run_id),
         )
+        running_event = _session_state_event("running")
+        await self.run_service.record_event(run_id, running_event)
         final_status = "finished"
         yielded_result = False
         event_count = 0
+        requires_action_emitted = False
 
         yield SDKSystemMessage(
             session_id=session_id,
@@ -130,6 +134,7 @@ class AgentSDKClient:
             tools=list(getattr(session.runtime, "enabled_tools", []) or []),
             metadata=options.metadata,
         )
+        yield _project_session_state_event(running_event, session_id=session_id, run_id=run_id)
 
         try:
             async for event in session.stream(prompt, run_id=run_id):
@@ -149,6 +154,11 @@ class AgentSDKClient:
                     elif isinstance(message, SDKToolProgressMessage) and message.status == "awaiting_approval":
                         final_status = "awaiting_approval"
                         await self.run_service.pause_for_approval(run_id)
+                        if not requires_action_emitted:
+                            requires_action = _session_state_event("requires_action")
+                            await self.run_service.record_event(run_id, requires_action)
+                            yield _project_session_state_event(requires_action, session_id=session_id, run_id=run_id)
+                            requires_action_emitted = True
                     yield message
         except Exception as exc:
             final_status = "error"
@@ -177,6 +187,9 @@ class AgentSDKClient:
                 )
             if final_status != "awaiting_approval":
                 await self.run_service.finish(run_id, error="" if final_status == "finished" else final_status)
+                idle_event = _session_state_event("idle")
+                await self.run_service.record_event(run_id, idle_event)
+                yield _project_session_state_event(idle_event, session_id=session_id, run_id=run_id)
             close = getattr(session, "aclose", None)
             if close is not None:
                 await close()
@@ -542,6 +555,20 @@ def _user_message_event(prompt: str, *, session_id: str, run_id: str) -> Runtime
     )
 
 
+def _session_state_event(state: str) -> RuntimeEvent:
+    return RuntimeEvent(type="session_state_changed", name="session", payload={"state": state})
+
+
+def _project_session_state_event(
+    event: RuntimeEvent,
+    *,
+    session_id: str,
+    run_id: str,
+) -> SDKSessionStateChangedMessage:
+    state = _session_state(event.payload.get("state"))
+    return SDKSessionStateChangedMessage(session_id=session_id, run_id=run_id, state=state)
+
+
 def _session_infos_from_runs(records: list[RunRecord]) -> list[SDKSessionInfo]:
     grouped: dict[str, list[RunRecord]] = {}
     for record in records:
@@ -663,6 +690,11 @@ def _content_from_user_message(message: dict[str, Any]) -> str:
 def _user_message_priority(value: Any) -> str | None:
     text = str(value or "")
     return text if text in {"now", "next", "later"} else None
+
+
+def _session_state(value: Any) -> str:
+    text = str(value or "")
+    return text if text in {"idle", "running", "requires_action"} else "idle"
 
 
 def _auth_status_from_tool_result(
@@ -879,6 +911,8 @@ def _project_runtime_event(
                 "dropped_messages": _int(event.payload.get("dropped_messages")),
             },
         )
+    if event.type == "session_state_changed":
+        return _project_session_state_event(event, session_id=session_id, run_id=run_id)
     if event.type == "tool_start":
         contract = _tool_contract(event.payload)
         return SDKToolProgressMessage(

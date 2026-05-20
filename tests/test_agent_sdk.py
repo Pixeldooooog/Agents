@@ -1,9 +1,10 @@
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
 
-from agents.kernel.schema import Message, ModelResponse, ToolCall
+from agents.kernel.schema import Message, ModelResponse, RuntimeEvent, ToolCall
 from agents.kernel.models.protocol import message_event, retry_event, text_delta
 from agents.kernel.runtime import AgentRuntime, AgentSession, ScriptedModelClient
 from agents.kernel.capabilities.tools.registry import ToolRegistry
@@ -28,6 +29,7 @@ from agents.sdk.types import (
     SDKAuthStatusMessage,
     SDKCompactBoundaryMessage,
     SDKResultMessage,
+    SDKSessionStateChangedMessage,
     SDKSystemMessage,
     SDKToolProgressMessage,
     SDKUserMessage,
@@ -202,6 +204,36 @@ async def _auth_session_factory(settings, spec):
     return AgentSession(runtime, system_prompt="", workspace=workspace)
 
 
+async def _approval_session_factory(settings, spec):
+    approval_workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=".",
+        path=".",
+    )
+
+    class ApprovalSession:
+        runtime = SimpleNamespace(model="scripted", protocol="scripted", enabled_tools=["filesystem.write"])
+        workspace = approval_workspace
+
+        async def stream(self, text, run_id=None):
+            yield RuntimeEvent(
+                type="tool_approval_required",
+                name="filesystem.write",
+                payload={
+                    "tool_call": {
+                        "id": "write-call",
+                        "name": "filesystem.write",
+                        "arguments": {"path": "README.md", "content": "updated"},
+                    },
+                },
+            )
+
+    return ApprovalSession()
+
+
 def test_sdk_query_hides_store_wiring_and_streams_typed_messages():
     client = AgentSDKClient(session_factory=_session_factory)
 
@@ -210,24 +242,35 @@ def test_sdk_query_hides_store_wiring_and_streams_typed_messages():
     assert isinstance(messages[0], SDKSystemMessage)
     assert messages[0].session_id == "session-1"
     assert messages[0].tools == ["echo"]
-    assert [message.type for message in messages] == [
-        "system",
-        "tool_progress",
-        "tool_progress",
-        "assistant",
-        "result",
-    ]
-    assert isinstance(messages[1], SDKToolProgressMessage)
-    assert messages[1].status == "started"
-    assert messages[1].activity == {"kind": "terminal", "title": "Echo text", "target_argument": "text"}
-    assert messages[1].target == "hi"
-    assert messages[2].status == "completed"
-    assert messages[2].activity["kind"] == "terminal"
-    assert messages[2].target == "hi"
-    assert isinstance(messages[-1], SDKResultMessage)
-    assert messages[-1].content == "done"
-    assert messages[-1].status == "finished"
+    states = [message.state for message in messages if isinstance(message, SDKSessionStateChangedMessage)]
+    assert states == ["running", "idle"]
+    tool_messages = [message for message in messages if isinstance(message, SDKToolProgressMessage)]
+    assert len(tool_messages) == 2
+    assert tool_messages[0].status == "started"
+    assert tool_messages[0].activity == {"kind": "terminal", "title": "Echo text", "target_argument": "text"}
+    assert tool_messages[0].target == "hi"
+    assert tool_messages[1].status == "completed"
+    assert tool_messages[1].activity["kind"] == "terminal"
+    assert tool_messages[1].target == "hi"
+    result = next(message for message in messages if isinstance(message, SDKResultMessage))
+    assert result.content == "done"
+    assert result.status == "finished"
     assert [validate_sdk_message(message.model_dump()) for message in messages] == messages
+
+
+def test_sdk_query_emits_requires_action_state_for_approval_pause():
+    client = AgentSDKClient(session_factory=_approval_session_factory)
+
+    messages = asyncio.run(_collect(client.query("write", SDKOptions(session_id="session-approval"))))
+    replay = asyncio.run(client.get_session_messages("session-approval"))
+
+    states = [message.state for message in messages if isinstance(message, SDKSessionStateChangedMessage)]
+    assert states == ["running", "requires_action"]
+    assert any(
+        isinstance(message, SDKToolProgressMessage) and message.status == "awaiting_approval"
+        for message in messages
+    )
+    assert [message.state for message in replay if isinstance(message, SDKSessionStateChangedMessage)] == states
 
 
 def test_sdk_query_projects_model_retry_as_system_api_retry_message():
@@ -318,7 +361,7 @@ def test_sdk_session_helpers_list_replay_and_mutate_run_backed_sessions():
     renamed = asyncio.run(client.get_session_info("session-1"))
     paged = asyncio.run(client.list_sessions(SDKListSessionsOptions(limit=1, offset=0)))
     replay_without_system = asyncio.run(
-        client.get_session_messages("session-1", {"include_system_messages": False, "limit": 2})
+        client.get_session_messages("session-1", {"include_system_messages": False, "limit": 1})
     )
 
     assert renamed.summary == "Pinned title"
@@ -326,7 +369,7 @@ def test_sdk_session_helpers_list_replay_and_mutate_run_backed_sessions():
     assert renamed.tag == "review"
     assert paged[0].summary == "Pinned title"
     assert all(message.type != "system" for message in replay_without_system)
-    assert len(replay_without_system) == 2
+    assert len(replay_without_system) == 1
     with pytest.raises(ValueError):
         asyncio.run(client.rename_session("session-1", " "))
     with pytest.raises(KeyError):
@@ -427,6 +470,7 @@ def test_sdk_exports_json_schemas_and_rejects_invalid_messages():
     assert "SDKAPIRetryMessage" in message_schema["$defs"]
     assert "SDKAuthStatusMessage" in message_schema["$defs"]
     assert "SDKCompactBoundaryMessage" in message_schema["$defs"]
+    assert "SDKSessionStateChangedMessage" in message_schema["$defs"]
     assert "SDKUserMessage" in message_schema["$defs"]
     assert "SDKToolProgressMessage" in message_schema["$defs"]
     assert result_schema["properties"]["type"]["const"] == "result"
