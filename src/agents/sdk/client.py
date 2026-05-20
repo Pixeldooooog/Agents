@@ -17,6 +17,7 @@ from agents.platform.sessions import RunService
 from agents.sdk.types import (
     SDKAPIRetryMessage,
     SDKAssistantMessage,
+    SDKCompactBoundaryMessage,
     SDKForkSessionOptions,
     SDKForkSessionResult,
     SDKGetSessionMessagesOptions,
@@ -778,6 +779,19 @@ def _project_runtime_event(
             error_status=_retry_error_status(event.payload),
             error=_retry_error_payload(event.payload),
             metadata=dict(event.payload),
+        )
+    if event.type == "compact_boundary":
+        return SDKCompactBoundaryMessage(
+            session_id=session_id,
+            run_id=run_id,
+            compact_metadata={
+                "trigger": str(event.payload.get("trigger") or "auto"),
+                "pre_tokens": _int(event.payload.get("pre_tokens")),
+                "post_tokens": _int(event.payload.get("post_tokens")),
+                "before_messages": _int(event.payload.get("before_messages")),
+                "after_messages": _int(event.payload.get("after_messages")),
+                "dropped_messages": _int(event.payload.get("dropped_messages")),
+            },
         )
     if event.type == "tool_start":
         contract = _tool_contract(event.payload)

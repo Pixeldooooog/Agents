@@ -59,6 +59,26 @@ class AgentSession:
     def _truncate_messages(self, messages: List[Message]) -> List[Message]:
         return self.context_window.fit(messages)
 
+    def _fit_with_boundary(self, messages: List[Message], *, trigger: str = "auto") -> tuple[List[Message], RuntimeEvent | None]:
+        before_messages = len(messages)
+        before_tokens = self._estimate_tokens(messages)
+        fitted = self.context_window.fit(messages)
+        after_tokens = self._estimate_tokens(fitted)
+        if len(fitted) == before_messages and after_tokens >= before_tokens:
+            return fitted, None
+        return fitted, RuntimeEvent(
+            type="compact_boundary",
+            name="context",
+            payload={
+                "trigger": trigger,
+                "pre_tokens": before_tokens,
+                "post_tokens": after_tokens,
+                "before_messages": before_messages,
+                "after_messages": len(fitted),
+                "dropped_messages": max(0, before_messages - len(fitted)),
+            },
+        )
+
     def compact(self, target_tokens: int | None = None) -> dict[str, int]:
         before_messages = len(self.messages)
         before_tokens = self._estimate_tokens(self.messages)
@@ -133,7 +153,9 @@ class AgentSession:
         task_id: str | None = None,
     ) -> AsyncIterable[RuntimeEvent]:
         candidate = self.messages + [Message.from_text("user", text)]
-        candidate = self.context_window.fit(candidate)
+        candidate, boundary_event = self._fit_with_boundary(candidate)
+        if boundary_event is not None:
+            yield boundary_event
         async for event in self.runtime.stream(candidate, run_id=run_id, task_id=task_id):
             yield event
             if event.type == "done" and event.payload.get("messages"):

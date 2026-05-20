@@ -118,6 +118,12 @@ class SDKAPIRetryMessage(SDKBaseMessage):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class SDKCompactBoundaryMessage(SDKBaseMessage):
+    type: Literal["system"] = "system"
+    subtype: Literal["compact_boundary"] = "compact_boundary"
+    compact_metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class SDKAssistantMessage(SDKBaseMessage):
     type: Literal["assistant"] = "assistant"
     content: str = ""
@@ -174,6 +180,7 @@ class SDKResultMessage(SDKBaseMessage):
 SDKMessage = Union[
     SDKSystemMessage,
     SDKAPIRetryMessage,
+    SDKCompactBoundaryMessage,
     SDKUserMessage,
     SDKAssistantMessage,
     SDKToolProgressMessage,

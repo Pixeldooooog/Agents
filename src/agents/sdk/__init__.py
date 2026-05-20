@@ -18,6 +18,7 @@ from agents.sdk.client import (
 from agents.sdk.types import (
     SDKAPIRetryMessage,
     SDKAssistantMessage,
+    SDKCompactBoundaryMessage,
     SDKForkSessionOptions,
     SDKForkSessionResult,
     SDKGetSessionMessagesOptions,
@@ -41,6 +42,7 @@ __all__ = [
     "AgentSDKClient",
     "SDKAPIRetryMessage",
     "SDKAssistantMessage",
+    "SDKCompactBoundaryMessage",
     "SDKForkSessionOptions",
     "SDKForkSessionResult",
     "SDKGetSessionMessagesOptions",
