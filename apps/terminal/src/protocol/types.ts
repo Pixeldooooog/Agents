@@ -116,5 +116,5 @@ export type BridgeCommand =
   | { type: 'user_message'; text: string; run_id?: string }
   | { type: 'approval'; run_id: string; approvals: Record<string, boolean>; approval_scopes: Record<string, ApprovalDecision> }
   | { type: 'slash'; text: string }
-  | { type: 'cancel'; run_id?: string }
+  | { type: 'cancel'; run_id?: string; reason?: 'interrupt' | string }
   | { type: 'exit' }

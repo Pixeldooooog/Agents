@@ -100,9 +100,14 @@ export function OperationStage(props: Props) {
 function EmptyStage() {
   return (
     <div class="empty-stage">
-      <Monitor size={38} />
-      <h3>Ready to operate</h3>
-      <p>Tool calls replay here as file windows, browser searches, documents, terminals, and run summaries.</p>
+      <div class="idle-desktop-preview" aria-hidden="true">
+        <span class="idle-window idle-window-main" />
+        <span class="idle-window idle-window-side" />
+        <span class="idle-terminal-line" />
+      </div>
+      <Monitor size={34} />
+      <h3>Workspace ready</h3>
+      <p>Waiting for agent activity.</p>
     </div>
   );
 }

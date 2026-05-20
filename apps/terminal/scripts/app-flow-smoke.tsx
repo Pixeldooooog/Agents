@@ -306,6 +306,17 @@ try {
   await waitForOutput(stdout, 'queued after run')
   await waitForOutput(stdout, 'fixture answer: queued after run')
 
+  stdin.press('interruptible turn')
+  await settle()
+  stdin.press('\r')
+  await waitForOutput(stdout, 'Tool Running')
+  stdin.press('queued after interrupt')
+  await settle()
+  stdin.press('\r')
+  await waitForOutput(stdout, 'cancelable tools interrupted')
+  await waitForOutput(stdout, 'canceled')
+  await waitForOutput(stdout, 'fixture answer: queued after interrupt')
+
   stdin.press('hang turn')
   await settle()
   stdin.press('\r')

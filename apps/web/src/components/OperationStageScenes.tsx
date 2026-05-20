@@ -1,33 +1,32 @@
-import { AlertTriangle, CheckCircle2, FileText, FolderOpen, GitBranch, Globe2, Search, TerminalSquare } from "lucide-solid";
+import { AlertTriangle, CheckCircle2, FileText, FolderOpen, Globe2, Search, TerminalSquare } from "lucide-solid";
 import type { JSX } from "solid-js";
 import { For, Match, Show, Switch, createMemo } from "solid-js";
 import { scriptForOperation, type StageScript } from "../runtime/operationStageScript";
+import { surfaceForScene, surfaceLabel, type OperationSurfaceKind } from "../runtime/operationSurfaces";
 import type { OperationEvent, OperationSceneKind } from "../types";
 
-const meta: Record<OperationSceneKind, { label: string; icon: () => JSX.Element }> = {
-  workspace: { label: "Workspace", icon: () => <FolderOpen size={15} /> },
-  edit: { label: "Editor", icon: () => <FileText size={15} /> },
-  web: { label: "Web search", icon: () => <Globe2 size={15} /> },
-  browser: { label: "Browser", icon: () => <Globe2 size={15} /> },
-  terminal: { label: "Terminal", icon: () => <TerminalSquare size={15} /> },
-  git: { label: "Git", icon: () => <GitBranch size={15} /> },
-  document: { label: "Documents", icon: () => <FileText size={15} /> },
-  summary: { label: "Summary", icon: () => <CheckCircle2 size={15} /> },
+const meta: Record<OperationSurfaceKind, { icon: () => JSX.Element }> = {
+  finder: { icon: () => <FolderOpen size={15} /> },
+  editor: { icon: () => <FileText size={15} /> },
+  browser: { icon: () => <Globe2 size={15} /> },
+  terminal: { icon: () => <TerminalSquare size={15} /> },
+  reader: { icon: () => <FileText size={15} /> },
+  summary: { icon: () => <CheckCircle2 size={15} /> },
 };
 
 export function OperationScene(props: { event: OperationEvent }) {
   const script = createMemo(() => scriptForOperation(props.event));
+  const surface = createMemo(() => surfaceForScene(props.event.scene));
   return (
     <div class={`scene-canvas scene-${props.event.scene}`} data-phase={props.event.phase}>
       <DesktopBackdrop event={props.event} script={script()} />
-      <ProcessStrip script={script()} />
       <AutomationTrace script={script()} />
       <Switch fallback={<WorkspaceScene event={props.event} />}>
-        <Match when={props.event.scene === "web" || props.event.scene === "browser"}><WebScene event={props.event} /></Match>
-        <Match when={props.event.scene === "terminal" || props.event.scene === "git"}><TerminalScene event={props.event} /></Match>
-        <Match when={props.event.scene === "document"}><DocumentScene event={props.event} /></Match>
-        <Match when={props.event.scene === "edit"}><EditScene event={props.event} /></Match>
-        <Match when={props.event.scene === "summary"}><SummaryScene event={props.event} /></Match>
+        <Match when={surface() === "browser"}><WebScene event={props.event} /></Match>
+        <Match when={surface() === "terminal"}><TerminalScene event={props.event} /></Match>
+        <Match when={surface() === "reader"}><DocumentScene event={props.event} /></Match>
+        <Match when={surface() === "editor"}><EditScene event={props.event} /></Match>
+        <Match when={surface() === "summary"}><SummaryScene event={props.event} /></Match>
       </Switch>
       <EvidenceTray script={script()} />
     </div>
@@ -35,11 +34,11 @@ export function OperationScene(props: { event: OperationEvent }) {
 }
 
 export function sceneLabel(scene: OperationSceneKind) {
-  return meta[scene].label;
+  return surfaceLabel(surfaceForScene(scene));
 }
 
 export function SceneIcon(props: { scene: OperationSceneKind }) {
-  return meta[props.scene].icon();
+  return meta[surfaceForScene(props.scene)].icon();
 }
 
 export function StatusMark(props: { status: string }) {
@@ -49,26 +48,17 @@ export function StatusMark(props: { status: string }) {
 }
 
 function DesktopBackdrop(props: { event: OperationEvent; script: StageScript }) {
+  const surface = () => surfaceForScene(props.event.scene);
   return (
     <div class="desktop-backdrop">
       <div class="focus-beam" />
       <div class="stage-command-line">{props.script.appLabel} · {props.script.command}</div>
       <div class="desktop-dock">
-        <span classList={{ active: props.event.scene === "workspace" || props.event.scene === "edit" }}><FolderOpen size={17} /></span>
-        <span classList={{ active: props.event.scene === "web" || props.event.scene === "browser" }}><Globe2 size={17} /></span>
-        <span classList={{ active: props.event.scene === "terminal" || props.event.scene === "git" }}><TerminalSquare size={17} /></span>
-        <span classList={{ active: props.event.scene === "document" }}><FileText size={17} /></span>
+        <span classList={{ active: surface() === "finder" || surface() === "editor" }}><FolderOpen size={17} /></span>
+        <span classList={{ active: surface() === "browser" }}><Globe2 size={17} /></span>
+        <span classList={{ active: surface() === "terminal" }}><TerminalSquare size={17} /></span>
+        <span classList={{ active: surface() === "reader" }}><FileText size={17} /></span>
       </div>
-    </div>
-  );
-}
-
-function ProcessStrip(props: { script: StageScript }) {
-  return (
-    <div class="process-strip">
-      <For each={props.script.steps}>{(step) => (
-        <span classList={{ active: step.status === "active", done: step.status === "done", error: step.status === "error" }}>{step.label}</span>
-      )}</For>
     </div>
   );
 }
@@ -102,7 +92,7 @@ function WorkspaceScene(props: { event: OperationEvent }) {
   const files = () => props.event.files?.length ? props.event.files : [{ path: props.event.target || "workspace", status: "open" }];
   return (
     <>
-      <StageWindow className="finder-window" title="Workspace" subtitle={props.event.target || "project files"}>
+      <StageWindow className="finder-window" title="Finder" subtitle={props.event.target || "project files"}>
         <div class="finder-grid">
           <div class="finder-sidebar"><span>Project</span><span>apps</span><span>src</span><span>docs</span></div>
           <div class="file-list-mini">

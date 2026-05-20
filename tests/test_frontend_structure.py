@@ -21,6 +21,7 @@ def test_frontend_is_split_into_focused_modules():
         "runtime/operationFrames.ts",
         "runtime/operationProjector.ts",
         "runtime/operationPlayback.ts",
+        "runtime/operationSurfaces.ts",
         "runtime/operationStageScript.ts",
         "runtime/operationTrace.ts",
         "types.ts",
@@ -76,6 +77,7 @@ def test_operation_stage_uses_normalized_operation_events():
     frames = (FRONTEND_SRC / "runtime/operationFrames.ts").read_text(encoding="utf-8")
     playback = (FRONTEND_SRC / "runtime/operationPlayback.ts").read_text(encoding="utf-8")
     script = (FRONTEND_SRC / "runtime/operationStageScript.ts").read_text(encoding="utf-8")
+    surfaces = (FRONTEND_SRC / "runtime/operationSurfaces.ts").read_text(encoding="utf-8")
     trace = (FRONTEND_SRC / "runtime/operationTrace.ts").read_text(encoding="utf-8")
     stage = (FRONTEND_SRC / "components/OperationStage.tsx").read_text(encoding="utf-8")
     scenes = (FRONTEND_SRC / "components/OperationStageScenes.tsx").read_text(encoding="utf-8")
@@ -91,6 +93,9 @@ def test_operation_stage_uses_normalized_operation_events():
     assert "sceneForTool" in projector
     assert "playbackFrames" in playback
     assert "scriptForOperation" in script
+    assert "surfaceForScene" in surfaces
+    assert "finder" in surfaces
+    assert "git" in surfaces and "terminal" in surfaces
     assert "StageStep" in script
     assert "loadOperationTrace" in trace
     assert "OperationStage" in app
@@ -98,4 +103,5 @@ def test_operation_stage_uses_normalized_operation_events():
     assert "slice(-80)" in session
     assert "slice(-6)" in stage
     assert "DesktopBackdrop" in scenes
-    assert "ProcessStrip" in scenes
+    assert "AutomationTrace" in scenes
+    assert "ProcessStrip" not in scenes

@@ -13,13 +13,29 @@ The goal is not to show a tool log. The goal is to make the invisible work of an
 
 The chat is the source of truth for the conversation.
 
-The operation stage is the source of truth for execution visibility.
+The operation stage is the execution witness. It explains what the agent is doing, but it does not become a second conversation channel.
 
 Do not mix these responsibilities:
 
 - User questions, approvals, permission decisions, and final responses stay in the chat.
 - Tool execution, workspace navigation, file changes, web browsing, terminal output, and artifact handling are rendered in the operation stage.
 - The stage should feel like the agent is operating a computer, not like a list of JSON events.
+- If a state affects user decisions, the chat owns the decision and the stage mirrors the paused execution state.
+
+## Converged Product Model
+
+The normal product should have only two user-facing layers:
+
+- `Conversation`: intent, approvals, concise progress, final answer.
+- `Operation Stage`: live workspace operation, evidence, artifacts, and replay.
+
+Everything else is secondary and should be hidden until requested:
+
+- Raw events, JSON payloads, trace spans, sandbox leases, and timing counters belong in debug mode.
+- History is compact and observational; it should not compete with the active scene.
+- The stage should expose one progress system only. Do not show both a step strip and a step list.
+
+This keeps the product from drifting into a dashboard. The user should see one conversation and one working computer.
 
 ## Mental Model
 
@@ -75,6 +91,28 @@ The right side should feel like a high-quality remote computer or workbench:
 - Completed work collapses into summaries and artifacts.
 
 The stage should not include a permanent stepper or numbered timeline unless the product is in debug mode. A bottom `1/2/3/4` strip feels like prototype navigation and should not appear in the normal product experience.
+
+## Visual Product Direction
+
+The UI should feel like a serious coding tool, not a dashboard or demo page.
+
+Use a restrained workbench aesthetic:
+
+- Neutral application shell with low-contrast borders and very soft shadows.
+- Conversation is the primary reading surface; it should look calm, text-first, and stable.
+- Operation Stage is the focused execution surface; it can be dark, but should feel like a precise workspace screen, not a decorative black card.
+- Runs, Tasks, and Settings use the same panel, table, and form language as the chat shell.
+- Status chips should be quiet. Avoid many competing pills, badges, and counters in the same row.
+- Do not use marketing-style cards, decorative blobs, oversized hero typography, or prototype navigation strips.
+- Empty states should show state, not explain the whole product.
+
+Concrete visual rules:
+
+- Top navigation is compact and segmented; only the active route gets strong contrast.
+- Chat metadata is a low-emphasis text row, not a pile of pill tags.
+- Settings should be grouped by responsibility in stacked columns so one tall panel does not create large blank rows.
+- Operation windows use stable dimensions, subtle window chrome, and fixed scene areas to avoid layout jumps.
+- Mobile collapses into chat first, then stage. The stage remains inspectable but must not make the composer unusable.
 
 ## Event Architecture
 
@@ -166,6 +204,52 @@ Use tool families, not individual one-off components:
 
 Unknown tools should fall back to `workspace` or a generic `document` scene with a clear title, not crash the stage.
 
+## Six Surface Contract
+
+The UI should render many tool families through six reusable surfaces. Tool mapping can be detailed; visual surfaces should stay small.
+
+| Surface | Scene kinds | User sees | Primary evidence |
+| --- | --- | --- | --- |
+| Finder | `workspace` | Folder navigation, selected files, read/list focus | path, entries, file count |
+| Editor | `edit` | File open, inserted/changed lines, save state | path, diff, modified files |
+| Browser | `web`, `browser` | Query or URL, source cards, extracted snippets | sources, domains, captured pages |
+| Terminal | `terminal`, `git` | Command entry, output, exit state | command, stdout/stderr, duration |
+| Reader | `document` | Skill, prompt, context, or MCP resource reading | source id, section, extracted rules |
+| Summary | `summary` | Closed windows, artifacts, final handoff | artifacts, run status, result |
+
+This is the hard convergence boundary: new tools should first map into one of these six surfaces. Add a new surface only when the user needs a fundamentally different mental model, not because a tool has a new name.
+
+### Operation Frame Detail
+
+Runtime and trace events should project into `operation_frames` with enough detail for the stage to play a believable operation without parsing raw tool payloads:
+
+```ts
+type OperationFrame = OperationEvent & {
+  source: "runtime" | "sandbox_trace" | "synthetic";
+  sequence: number;
+  step?: {
+    label: string;
+    detail?: string;
+  };
+  files?: Array<{ path: string; status?: "target" | "created" | "modified" | "deleted" }>;
+  sources?: Array<{ title: string; url: string; domain?: string; content?: string; score?: number }>;
+  stats?: {
+    duration_ms?: number;
+    exit_code?: number;
+    total_bytes?: number;
+    file_count?: number;
+  };
+};
+```
+
+Frame rules:
+
+- A single tool call should normally emit `opening -> running -> closing -> done`.
+- Long-running shell, browser, and web operations may emit additional `running` frames, but the UI should coalesce them.
+- Approval waits are not operation frames. The chat owns approval; the stage can mirror a paused visual state.
+- Raw arguments and results must be redacted before they become frame previews.
+- Large stdout, diffs, file manifests, and source content must be summarized before reaching scene components.
+
 ## Component Architecture
 
 Keep the component set small and composable.
@@ -197,8 +281,9 @@ Keep the component set small and composable.
 - `StageWindow`
 - `WindowChrome`
 - `SceneTransition`
-- `TypingText`
-- `ProgressBadge`
+- `SurfaceRegistry`
+- `OperationTrace`
+- `EvidenceTray`
 - `ArtifactSummary`
 - `ReducedMotionFallback`
 
@@ -213,14 +298,47 @@ Start with:
 - `TerminalScene`
 - `SummaryScene`
 
-Add later:
+Add later only when the shared scene primitives are not enough:
 
 - `GitScene`
 - `BrowserScene`
 - `ArtifactScene`
 - `TestResultScene`
 
-The first useful production version should be around 18-22 components. A polished full version can grow to 30-40 components, but it should not become one component per tool.
+The first useful production version should stay around 12-16 components. A polished full version can grow, but it should grow by adding reusable scene primitives, not by creating one component per tool.
+
+## Detailed Build Plan
+
+### Step 1: Lock the Surface Registry
+
+- Implement a pure `surfaceForScene(scene)` mapping.
+- Render `git` through Terminal and `browser` through Browser, not separate visual systems.
+- Keep labels user-facing: Finder, Editor, Browser, Terminal, Reader, Summary.
+- Add structure tests so future edits cannot reintroduce one component per tool.
+
+### Step 2: Strengthen the Frame Contract
+
+- Keep `operation_frames` in the trace API.
+- Move tool-family details into backend projection where possible.
+- Ensure each frame has `source`, `sequence`, `phase`, `scene`, `target`, and optional `step`.
+- Keep frontend fallback projection for older runtimes, but prefer backend frames when available.
+
+### Step 3: Make Scenes More Believable Without Adding Surfaces
+
+- Finder: directory rows, selected target, optional preview pane.
+- Editor: line-level diff preview, save/closed state, changed file chips.
+- Browser: query/address bar, source cards, extraction evidence.
+- Terminal: command prompt, output preview, exit/duration.
+- Reader: document title, selected section, extracted rule list.
+- Summary: windows closed, artifacts, final handoff back to chat.
+
+### Step 4: Performance Guardrails
+
+- Cap remembered operation events.
+- Coalesce repeated running frames.
+- Truncate stdout, diffs, source content, and manifests before render.
+- Avoid layout shifts: fixed window sizes, fixed trace width, stable dock.
+- Respect `prefers-reduced-motion`.
 
 ## Scene Behavior
 
@@ -559,4 +677,3 @@ Performance requirements:
 
 Approvals stay inline in chat. The stage may show waiting state but must not become the permission surface.
 ```
-

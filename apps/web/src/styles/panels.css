@@ -4,7 +4,7 @@
   background: var(--surface);
   color: var(--text);
   padding: 16px;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-tight);
 }
 
 .card-title {
@@ -22,7 +22,7 @@
   padding: 12px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: #f7f8f8;
+  background: var(--surface-raised);
   color: #30343a;
   font: 12px/1.55 "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   white-space: pre-wrap;
@@ -51,7 +51,7 @@
   overflow-y: auto;
   background: var(--surface);
   border-left: 1px solid var(--border);
-  box-shadow: -24px 0 80px rgba(31, 36, 43, 0.18);
+  box-shadow: -18px 0 60px rgba(31, 36, 43, 0.14);
   padding: 20px;
   display: flex;
   flex-direction: column;

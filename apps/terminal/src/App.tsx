@@ -57,19 +57,21 @@ export function App({python, repoRoot, bridgeArgs, bridgeModule}: {python: strin
   const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null)
   const runtimeRef = useRef<RuntimeInfo | undefined>(undefined)
   const activeRunId = useRef('')
+  const hasInterruptibleToolInProgress = useRef(false)
   const turnStartedAt = useRef(0)
   const previousTranscriptLines = useRef(0)
   const modelPickerRequested = useRef(false)
   const sessionPickerRequested = useRef(false)
   const suppressNextModelProfiles = useRef(false)
   const bridge = useMemo(() => new BridgeClient({python, repoRoot, args: bridgeArgs, module: bridgeModule}), [python, repoRoot, bridgeArgs, bridgeModule])
-  const runtimeEvents = useRuntimeEventSink({activeRunId, append, setItems, setPendingApproval})
+  const runtimeEvents = useRuntimeEventSink({activeRunId, hasInterruptibleToolInProgress, append, setItems, setPendingApproval})
   const {assistantDraft, reasoningDraft, toolTimeline} = runtimeEvents
   const commandRunner = useCommandRunner({
     busy,
     bridge,
     commands,
     activeRunId,
+    hasInterruptibleToolInProgress,
     modelPickerRequested,
     sessionPickerRequested,
     suppressNextModelProfiles,
@@ -245,6 +247,7 @@ export function App({python, repoRoot, bridgeArgs, bridgeModule}: {python: strin
       runtimeEvents.flushAssistant()
       setBusy(false)
       activeRunId.current = ''
+      hasInterruptibleToolInProgress.current = false
       if (event.status === 'awaiting_approval') {
         append({kind: 'status', label: 'approval', text: 'waiting for your decision', level: 'warning'})
       } else {

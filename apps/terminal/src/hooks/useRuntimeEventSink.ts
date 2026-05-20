@@ -7,11 +7,13 @@ import {useToolTimeline} from './useToolTimeline.js'
 
 export function useRuntimeEventSink({
   activeRunId,
+  hasInterruptibleToolInProgress,
   append,
   setItems,
   setPendingApproval
 }: {
   activeRunId: MutableRefObject<string>
+  hasInterruptibleToolInProgress: MutableRefObject<boolean>
   append: (item: TranscriptItem) => void
   setItems: Dispatch<SetStateAction<TranscriptItem[]>>
   setPendingApproval: Dispatch<SetStateAction<PendingApproval | null>>
@@ -20,6 +22,7 @@ export function useRuntimeEventSink({
   const reasoningDraft = useLiveDraft({trimLive: true})
   const toolTimeline = useToolTimeline(setItems)
   const assistantCompleted = useRef(false)
+  const activeToolInterrupts = useRef(new Map<string, 'cancel' | 'block'>())
 
   function handle(event: RuntimeEvent) {
     const payload = event.payload ?? {}
@@ -49,10 +52,12 @@ export function useRuntimeEventSink({
     if (event.type === 'tool_start') {
       flushThinking()
       flushAssistant()
+      trackToolStart(payload)
       toolTimeline.start(event, payload)
       return
     }
     if (event.type === 'tool_result') {
+      trackToolFinish(payload)
       toolTimeline.finish(event, payload)
       return
     }
@@ -105,7 +110,36 @@ export function useRuntimeEventSink({
     reasoningDraft.clear()
     assistantCompleted.current = false
     toolTimeline.reset()
+    activeToolInterrupts.current.clear()
+    hasInterruptibleToolInProgress.current = false
+  }
+
+  function trackToolStart(payload: Record<string, unknown>) {
+    const id = String(payload.id ?? payload.tool_call_id ?? '')
+    if (!id) return
+    activeToolInterrupts.current.set(id, interruptBehaviorFromPayload(payload))
+    updateInterruptibleState()
+  }
+
+  function trackToolFinish(payload: Record<string, unknown>) {
+    const id = String(payload.tool_call_id ?? payload.id ?? '')
+    if (!id) return
+    activeToolInterrupts.current.delete(id)
+    updateInterruptibleState()
+  }
+
+  function updateInterruptibleState() {
+    const behaviors = [...activeToolInterrupts.current.values()]
+    hasInterruptibleToolInProgress.current = behaviors.length > 0 && behaviors.every(value => value === 'cancel')
   }
 
   return {assistantDraft, reasoningDraft, toolTimeline, handle, flushAssistant, flushThinking, resetLiveState}
+}
+
+function interruptBehaviorFromPayload(payload: Record<string, unknown>): 'cancel' | 'block' {
+  const contract = payload.contract
+  if (!contract || typeof contract !== 'object') return 'block'
+  const metadata = (contract as {metadata?: unknown}).metadata
+  if (!metadata || typeof metadata !== 'object') return 'block'
+  return (metadata as {interrupt_behavior?: unknown}).interrupt_behavior === 'cancel' ? 'cancel' : 'block'
 }

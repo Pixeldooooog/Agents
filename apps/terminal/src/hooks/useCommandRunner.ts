@@ -13,6 +13,7 @@ type CommandRunnerOptions = {
   bridge: BridgeClient
   commands: CommandDef[]
   activeRunId: MutableRef<string>
+  hasInterruptibleToolInProgress: MutableRef<boolean>
   modelPickerRequested: MutableRef<boolean>
   sessionPickerRequested: MutableRef<boolean>
   suppressNextModelProfiles: MutableRef<boolean>
@@ -29,6 +30,7 @@ export function useCommandRunner({
   bridge,
   commands,
   activeRunId,
+  hasInterruptibleToolInProgress,
   modelPickerRequested,
   sessionPickerRequested,
   suppressNextModelProfiles,
@@ -47,6 +49,10 @@ export function useCommandRunner({
     if (busy && !commandText.startsWith('/')) {
       inputQueue.enqueue(value, displayValue)
       append({kind: 'status', label: 'queued', text: displayValue})
+      if (hasInterruptibleToolInProgress.current) {
+        bridge.send({type: 'cancel', run_id: activeRunId.current || undefined, reason: 'interrupt'})
+        append({kind: 'status', label: 'interrupt', text: 'cancelable tools interrupted; queued message will run next'})
+      }
       return
     }
     runInput(value, displayValue)

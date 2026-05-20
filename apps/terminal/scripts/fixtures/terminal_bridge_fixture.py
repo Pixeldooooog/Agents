@@ -239,7 +239,8 @@ def main():
             run_id = current_active()
             if run_id:
                 clear_active(run_id)
-                write({"type": "turn_finished", "status": "cancelled", "run_id": run_id})
+                status = "canceled" if str(command.get("reason") or "") == "interrupt" else "cancelled"
+                write({"type": "turn_finished", "status": status, "run_id": run_id})
             else:
                 write({"type": "notice", "message": "nothing to cancel"})
             continue
@@ -305,6 +306,21 @@ def main():
                 write({"type": "turn_started", "run_id": run_id})
                 runtime_event({"type": "text_delta", "name": "assistant", "payload": {"delta": "working slowly"}})
                 threading.Timer(0.35, finish_slow, args=(run_id,)).start()
+            elif "interruptible" in text:
+                set_active(run_id)
+                write({"type": "turn_started", "run_id": run_id})
+                runtime_event(
+                    {
+                        "type": "tool_start",
+                        "name": "shell.run",
+                        "payload": {
+                            "id": "tool-shell-1",
+                            "name": "shell.run",
+                            "arguments": {"command": "sleep 10"},
+                            "contract": {"metadata": {"interrupt_behavior": "cancel"}},
+                        },
+                    }
+                )
             elif "stream scroll" in text:
                 lines = ["stream-line-%02d" % index for index in range(1, 31)]
                 set_active(run_id)
