@@ -15,6 +15,7 @@ from agents.kernel.state.runs import RunRecord
 from agents.platform.persistence import PlatformPersistence, create_ephemeral_persistence
 from agents.platform.sessions import RunService
 from agents.sdk.types import (
+    SDKAPIRetryMessage,
     SDKAssistantMessage,
     SDKForkSessionOptions,
     SDKForkSessionResult,
@@ -663,6 +664,48 @@ def _user_message_priority(value: Any) -> str | None:
     return text if text in {"now", "next", "later"} else None
 
 
+def _retry_attempt(payload: dict[str, Any]) -> int:
+    if payload.get("next_attempt") is not None:
+        return _int(payload.get("next_attempt"))
+    if payload.get("attempt") is not None:
+        return _int(payload.get("attempt"))
+    return _int(payload.get("failed_attempt")) + 1 if payload.get("failed_attempt") is not None else 0
+
+
+def _retry_max_attempts(payload: dict[str, Any]) -> int:
+    return _int(payload.get("max_attempts") or payload.get("max_retries"))
+
+
+def _retry_delay_ms(payload: dict[str, Any]) -> int:
+    if payload.get("retry_delay_ms") is not None:
+        return _int(payload.get("retry_delay_ms"))
+    return int(float(payload.get("delay_seconds") or 0) * 1000)
+
+
+def _retry_error_status(payload: dict[str, Any]) -> int | None:
+    value = payload.get("error_status", payload.get("status_code", payload.get("status")))
+    if value is None or value == "":
+        return None
+    return _int(value)
+
+
+def _retry_error_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    error = payload.get("error")
+    if isinstance(error, dict):
+        return dict(error)
+    return {
+        "message": str(error or payload.get("message") or "model request failed"),
+        "type": str(payload.get("error_type") or payload.get("type") or "unknown"),
+    }
+
+
+def _int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _millis(timestamp: float) -> float:
     return timestamp * 1000
 
@@ -726,11 +769,15 @@ def _project_runtime_event(
             data=dict(event.payload),
         )
     if event.type == "model_retry":
-        return SDKStatusMessage(
+        return SDKAPIRetryMessage(
             session_id=session_id,
             run_id=run_id,
-            status="api_retry",
-            data=dict(event.payload),
+            attempt=_retry_attempt(event.payload),
+            max_retries=_retry_max_attempts(event.payload),
+            retry_delay_ms=_retry_delay_ms(event.payload),
+            error_status=_retry_error_status(event.payload),
+            error=_retry_error_payload(event.payload),
+            metadata=dict(event.payload),
         )
     if event.type == "tool_start":
         contract = _tool_contract(event.payload)

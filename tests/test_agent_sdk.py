@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from agents.kernel.schema import Message, ModelResponse, ToolCall
-from agents.kernel.models.protocol import message_event, text_delta
+from agents.kernel.models.protocol import message_event, retry_event, text_delta
 from agents.kernel.runtime import AgentRuntime, AgentSession, ScriptedModelClient
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 from agents.kernel.context.workspace import WorkspaceContext
@@ -24,6 +24,7 @@ from agents.sdk import (
 )
 from agents.sdk.client import _spec_from_options
 from agents.sdk.types import (
+    SDKAPIRetryMessage,
     SDKResultMessage,
     SDKSystemMessage,
     SDKToolProgressMessage,
@@ -74,6 +75,41 @@ async def _session_factory(settings, spec):
     return AgentSession(runtime, system_prompt="", workspace=workspace)
 
 
+async def _retry_session_factory(settings, spec):
+    llm = ScriptedModelClient(
+        [
+            [
+                retry_event(
+                    {
+                        "next_attempt": 2,
+                        "max_attempts": 3,
+                        "delay_seconds": 0.25,
+                        "error": "connect failed",
+                    }
+                ),
+                text_delta("done"),
+                message_event(ModelResponse(message=Message.from_text("assistant", "done"))),
+            ],
+        ]
+    )
+    runtime = AgentRuntime(
+        model_client=llm,
+        tools=ToolRegistry(),
+        protocol=spec.model.protocol or "scripted",
+        model=spec.model.model or "scripted",
+        enabled_tools=[],
+    )
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=".",
+        path=".",
+    )
+    return AgentSession(runtime, system_prompt="", workspace=workspace)
+
+
 def test_sdk_query_hides_store_wiring_and_streams_typed_messages():
     client = AgentSDKClient(session_factory=_session_factory)
 
@@ -100,6 +136,22 @@ def test_sdk_query_hides_store_wiring_and_streams_typed_messages():
     assert messages[-1].content == "done"
     assert messages[-1].status == "finished"
     assert [validate_sdk_message(message.model_dump()) for message in messages] == messages
+
+
+def test_sdk_query_projects_model_retry_as_system_api_retry_message():
+    client = AgentSDKClient(session_factory=_retry_session_factory)
+
+    messages = asyncio.run(_collect(client.query("retry please", SDKOptions(session_id="session-1"))))
+
+    retry = next(message for message in messages if isinstance(message, SDKAPIRetryMessage))
+    assert retry.type == "system"
+    assert retry.subtype == "api_retry"
+    assert retry.attempt == 2
+    assert retry.max_retries == 3
+    assert retry.retry_delay_ms == 250
+    assert retry.error_status is None
+    assert retry.error["message"] == "connect failed"
+    assert validate_sdk_message(retry.model_dump()) == retry
 
 
 def test_sdk_prompt_returns_final_result():
@@ -246,6 +298,7 @@ def test_sdk_exports_json_schemas_and_rejects_invalid_messages():
 
     assert options_schema["additionalProperties"] is False
     assert "SDKSystemMessage" in message_schema["$defs"]
+    assert "SDKAPIRetryMessage" in message_schema["$defs"]
     assert "SDKUserMessage" in message_schema["$defs"]
     assert "SDKToolProgressMessage" in message_schema["$defs"]
     assert result_schema["properties"]["type"]["const"] == "result"

@@ -107,6 +107,17 @@ class SDKSystemMessage(SDKBaseMessage):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class SDKAPIRetryMessage(SDKBaseMessage):
+    type: Literal["system"] = "system"
+    subtype: Literal["api_retry"] = "api_retry"
+    attempt: int = 0
+    max_retries: int = 0
+    retry_delay_ms: int = 0
+    error_status: int | None = None
+    error: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class SDKAssistantMessage(SDKBaseMessage):
     type: Literal["assistant"] = "assistant"
     content: str = ""
@@ -162,6 +173,7 @@ class SDKResultMessage(SDKBaseMessage):
 
 SDKMessage = Union[
     SDKSystemMessage,
+    SDKAPIRetryMessage,
     SDKUserMessage,
     SDKAssistantMessage,
     SDKToolProgressMessage,

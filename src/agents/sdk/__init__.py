@@ -16,6 +16,7 @@ from agents.sdk.client import (
     unstable_v2_resume_session,
 )
 from agents.sdk.types import (
+    SDKAPIRetryMessage,
     SDKAssistantMessage,
     SDKForkSessionOptions,
     SDKForkSessionResult,
@@ -38,6 +39,7 @@ from agents.sdk.types import (
 
 __all__ = [
     "AgentSDKClient",
+    "SDKAPIRetryMessage",
     "SDKAssistantMessage",
     "SDKForkSessionOptions",
     "SDKForkSessionResult",
