@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 
 class SDKOptions(BaseModel):
@@ -90,3 +90,31 @@ SDKMessage = Union[
     SDKStatusMessage,
     SDKResultMessage,
 ]
+
+
+SDKMessageAdapter = TypeAdapter(SDKMessage)
+
+
+def sdk_options_json_schema() -> dict[str, Any]:
+    """Return the JSON schema accepted by high-level SDK options."""
+
+    return SDKOptions.model_json_schema()
+
+
+def sdk_message_json_schema() -> dict[str, Any]:
+    """Return the JSON schema for the SDK stream message union."""
+
+    return SDKMessageAdapter.json_schema()
+
+
+def sdk_result_json_schema() -> dict[str, Any]:
+    """Return the JSON schema for final SDK result messages."""
+
+    return SDKResultMessage.model_json_schema()
+
+
+def validate_sdk_message(message: SDKMessage | dict[str, Any]) -> SDKMessage:
+    """Validate and coerce an SDK stream message against the exported contract."""
+
+    payload = message.model_dump() if isinstance(message, BaseModel) else message
+    return SDKMessageAdapter.validate_python(payload)

@@ -100,7 +100,7 @@ The first milestone is complete when:
 
 ## Current Progress
 
-- SDK facade exists as `agents.sdk` with typed query/prompt options and runtime event projection.
+- SDK facade exists as `agents.sdk` with typed query/prompt options and runtime event projection. It now exports JSON schema for SDK options, stream messages, and final results via `sdk_options_json_schema()`, `sdk_message_json_schema()`, and `sdk_result_json_schema()`, plus `validate_sdk_message()` so external callers can validate streamed payloads against the same contract.
 - Tool contract now covers explicit definitions, activity metadata, schema validation, concurrency policy, sibling error cancellation, result limits, and runtime/SDK/trace contract propagation.
 - User active-run cancellation during tool execution now produces synthetic `tool_execution_canceled` results for pending calls, saves a `canceled` checkpoint, and returns `AgentResult.status="canceled"` / streaming `done.status="canceled"`.
 - `task.cancel("interrupt")` now follows the `src-origin` split: default `interrupt_behavior="block"` tools complete and continue the turn, while explicit `interrupt_behavior="cancel"` tools produce user-interrupted synthetic results.

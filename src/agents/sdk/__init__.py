@@ -9,6 +9,10 @@ from agents.sdk.types import (
     SDKStatusMessage,
     SDKSystemMessage,
     SDKToolProgressMessage,
+    sdk_message_json_schema,
+    sdk_options_json_schema,
+    sdk_result_json_schema,
+    validate_sdk_message,
 )
 
 __all__ = [
@@ -22,4 +26,8 @@ __all__ = [
     "SDKToolProgressMessage",
     "prompt",
     "query",
+    "sdk_message_json_schema",
+    "sdk_options_json_schema",
+    "sdk_result_json_schema",
+    "validate_sdk_message",
 ]
