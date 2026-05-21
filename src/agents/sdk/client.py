@@ -690,20 +690,21 @@ def _session_info_from_runs(records: list[RunRecord]) -> SDKSessionInfo:
     custom_title = str(metadata.get("sdk_title") or metadata.get("custom_title") or metadata.get("title") or "")
     first_prompt = _first_non_empty(record.metadata.get("sdk_first_prompt", "") for record in ordered)
     summary = custom_title or first_prompt or latest.run_id
-    return SDKSessionInfo(
-        session_id=_session_id_for_run(latest),
+    info = SDKSessionInfo(
+        sessionId=_session_id_for_run(latest),
         summary=summary,
-        last_modified=_millis(latest.updated_at),
-        created_at=_millis(ordered[0].created_at),
-        custom_title=custom_title,
-        first_prompt=first_prompt,
+        lastModified=_millis(latest.updated_at),
+        createdAt=_millis(ordered[0].created_at),
+        customTitle=custom_title or None,
+        firstPrompt=first_prompt or None,
         cwd=_first_non_empty(_record_cwd(record) for record in reversed(ordered)),
         tag=str(metadata.get("sdk_tag") or metadata.get("tag") or ""),
-        status=latest.status.value,
-        latest_run_id=latest.run_id,
-        run_ids=[record.run_id for record in ordered],
-        metadata={**metadata, "run_count": len(records)},
     )
+    info._status = latest.status.value
+    info._latest_run_id = latest.run_id
+    info._run_ids = [record.run_id for record in ordered]
+    info._metadata = {**metadata, "run_count": len(records)}
+    return info
 
 
 def _session_id_for_run(record: RunRecord) -> str:

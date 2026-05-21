@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal, Union
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, TypeAdapter
 
 
 class SDKOptions(BaseModel):
@@ -76,18 +76,57 @@ class SDKSessionInfo(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    session_id: str
+    sessionId: str
     summary: str = ""
-    last_modified: float = 0.0
-    created_at: float = 0.0
-    custom_title: str = ""
-    first_prompt: str = ""
-    cwd: str = ""
-    tag: str = ""
-    status: str = ""
-    latest_run_id: str = ""
-    run_ids: list[str] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    lastModified: float = 0.0
+    fileSize: float | None = None
+    customTitle: str | None = None
+    firstPrompt: str | None = None
+    gitBranch: str | None = None
+    cwd: str | None = None
+    tag: str | None = None
+    createdAt: float | None = None
+
+    _status: str = PrivateAttr(default="")
+    _latest_run_id: str = PrivateAttr(default="")
+    _run_ids: list[str] = PrivateAttr(default_factory=list)
+    _metadata: dict[str, Any] = PrivateAttr(default_factory=dict)
+
+    @property
+    def session_id(self) -> str:
+        return self.sessionId
+
+    @property
+    def last_modified(self) -> float:
+        return self.lastModified
+
+    @property
+    def created_at(self) -> float:
+        return float(self.createdAt or 0.0)
+
+    @property
+    def custom_title(self) -> str:
+        return self.customTitle or ""
+
+    @property
+    def first_prompt(self) -> str:
+        return self.firstPrompt or ""
+
+    @property
+    def status(self) -> str:
+        return self._status
+
+    @property
+    def latest_run_id(self) -> str:
+        return self._latest_run_id
+
+    @property
+    def run_ids(self) -> list[str]:
+        return list(self._run_ids)
+
+    @property
+    def metadata(self) -> dict[str, Any]:
+        return dict(self._metadata)
 
 
 class SDKBaseMessage(BaseModel):

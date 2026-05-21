@@ -913,9 +913,18 @@ def test_sdk_session_helpers_list_replay_and_mutate_run_backed_sessions():
     assert len(sessions) == 1
     assert isinstance(sessions[0], SDKSessionInfo)
     assert sessions[0].session_id == "session-1"
+    assert sessions[0].sessionId == "session-1"
     assert sessions[0].summary == "first meaningful prompt"
     assert sessions[0].first_prompt == "first meaningful prompt"
+    assert sessions[0].firstPrompt == "first meaningful prompt"
     assert sessions[0].run_ids == [result.run_id]
+    session_payload = sessions[0].model_dump()
+    assert session_payload["sessionId"] == "session-1"
+    assert session_payload["lastModified"] >= session_payload["createdAt"]
+    assert "session_id" not in session_payload
+    assert "run_ids" not in session_payload
+    assert "metadata" not in session_payload
+    assert "latest_run_id" not in session_payload
     assert info == sessions[0]
     assert messages[0].type == "system"
     assert isinstance(messages[1], SDKUserMessage)
@@ -936,6 +945,7 @@ def test_sdk_session_helpers_list_replay_and_mutate_run_backed_sessions():
 
     assert renamed.summary == "Pinned title"
     assert renamed.custom_title == "Pinned title"
+    assert renamed.customTitle == "Pinned title"
     assert renamed.tag == "review"
     assert paged[0].summary == "Pinned title"
     assert all(message.type != "system" for message in replay_without_system)
@@ -1086,7 +1096,15 @@ def test_sdk_exports_json_schemas_and_rejects_invalid_messages():
     assert "permission_denials" in result_schema["properties"]
     assert "content" not in result_schema["properties"]
     assert "status" not in result_schema["properties"]
-    assert session_schema["properties"]["session_id"]["title"] == "Session Id"
+    assert "sessionId" in session_schema["properties"]
+    assert "lastModified" in session_schema["properties"]
+    assert "customTitle" in session_schema["properties"]
+    assert "firstPrompt" in session_schema["properties"]
+    assert "createdAt" in session_schema["properties"]
+    assert "session_id" not in session_schema["properties"]
+    assert "last_modified" not in session_schema["properties"]
+    assert "run_ids" not in session_schema["properties"]
+    assert "metadata" not in session_schema["properties"]
 
     valid = validate_sdk_message(
         {
