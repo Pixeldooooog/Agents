@@ -31,6 +31,9 @@ from agents.sdk.types import (
     SDKSessionInfo,
     SDKStatusMessage,
     SDKSystemMessage,
+    SDKTaskNotificationMessage,
+    SDKTaskProgressMessage,
+    SDKTaskStartedMessage,
     SDKToolProgressMessage,
     SDKUserMessage,
 )
@@ -761,6 +764,167 @@ def _json_object(value: str) -> dict[str, Any]:
     return dict(parsed) if isinstance(parsed, dict) else {}
 
 
+def _task_messages_from_tool_result(
+    event: RuntimeEvent,
+    *,
+    session_id: str,
+    run_id: str,
+) -> list[SDKMessage]:
+    if event.type != "tool_result":
+        return []
+    payload = _tool_result_payload_data(event.payload)
+    task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
+    name = str(event.name or "")
+    tool_use_id = str(event.payload.get("tool_call_id") or "")
+    messages: list[SDKMessage] = []
+    if task and _is_task_start_tool(name):
+        messages.append(_task_started_message(task, session_id=session_id, run_id=run_id, tool_use_id=tool_use_id))
+    if task and _is_task_progress_tool(name):
+        messages.append(_task_progress_message(task, payload, session_id=session_id, run_id=run_id, tool_use_id=tool_use_id))
+    if task and _is_task_run_tool(name):
+        notification = _task_notification_message(task, payload, session_id=session_id, run_id=run_id, tool_use_id=tool_use_id)
+        if notification is not None:
+            messages.append(notification)
+    if name in {"task.backgrounds", "TaskBackgrounds"}:
+        for item in payload.get("background_tasks") or []:
+            if isinstance(item, dict):
+                notification = _background_task_notification(item, session_id=session_id, run_id=run_id)
+                if notification is not None:
+                    messages.append(notification)
+    return messages
+
+
+def _task_started_message(
+    task: dict[str, Any],
+    *,
+    session_id: str,
+    run_id: str,
+    tool_use_id: str,
+) -> SDKTaskStartedMessage:
+    metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
+    return SDKTaskStartedMessage(
+        session_id=session_id,
+        run_id=run_id,
+        task_id=str(task.get("task_id") or ""),
+        tool_use_id=tool_use_id,
+        description=str(task.get("title") or task.get("input") or ""),
+        task_type=str(metadata.get("task_type") or metadata.get("type") or ""),
+        workflow_name=str(metadata.get("workflow_name") or metadata.get("workflow") or ""),
+        prompt=str(task.get("input") or ""),
+    )
+
+
+def _task_progress_message(
+    task: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    session_id: str,
+    run_id: str,
+    tool_use_id: str,
+) -> SDKTaskProgressMessage:
+    step = payload.get("step") if isinstance(payload.get("step"), dict) else {}
+    return SDKTaskProgressMessage(
+        session_id=session_id,
+        run_id=run_id,
+        task_id=str(task.get("task_id") or ""),
+        tool_use_id=tool_use_id,
+        description=str(task.get("title") or task.get("input") or ""),
+        usage=_task_usage(payload),
+        last_tool_name=str(step.get("name") or ""),
+        summary=_task_summary(payload, task),
+    )
+
+
+def _task_notification_message(
+    task: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    session_id: str,
+    run_id: str,
+    tool_use_id: str,
+) -> SDKTaskNotificationMessage | None:
+    status = _task_notification_status(str(task.get("status") or payload.get("status") or ""))
+    if status is None:
+        return None
+    return SDKTaskNotificationMessage(
+        session_id=session_id,
+        run_id=run_id,
+        task_id=str(task.get("task_id") or ""),
+        tool_use_id=tool_use_id,
+        status=status,
+        output_file=str(payload.get("output_file") or payload.get("outputFile") or ""),
+        summary=_task_summary(payload, task),
+        usage=_task_usage(payload),
+    )
+
+
+def _background_task_notification(
+    item: dict[str, Any],
+    *,
+    session_id: str,
+    run_id: str,
+) -> SDKTaskNotificationMessage | None:
+    result = item.get("result") if isinstance(item.get("result"), dict) else {}
+    task = result.get("task") if isinstance(result.get("task"), dict) else {}
+    task_id = str(task.get("task_id") or item.get("task_id") or "")
+    status = _task_notification_status(str(result.get("status") or task.get("status") or ""))
+    if not task_id or status is None:
+        return None
+    return SDKTaskNotificationMessage(
+        session_id=session_id,
+        run_id=run_id,
+        task_id=task_id,
+        status=status,
+        summary=_task_summary(result, task),
+        usage=_task_usage(result),
+    )
+
+
+def _is_task_start_tool(name: str) -> bool:
+    return name in {"task.create", "TaskCreate", "task.background", "task.run", "Agent", "Task"}
+
+
+def _is_task_progress_tool(name: str) -> bool:
+    return name in {"task.update", "TaskUpdate"}
+
+
+def _is_task_run_tool(name: str) -> bool:
+    return name in {"task.run", "Agent", "Task"}
+
+
+def _task_notification_status(status: str) -> str | None:
+    if status == "finished":
+        return "completed"
+    if status == "error":
+        return "failed"
+    if status == "canceled":
+        return "stopped"
+    return None
+
+
+def _task_summary(payload: dict[str, Any], task: dict[str, Any]) -> str:
+    result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+    step = payload.get("step") if isinstance(payload.get("step"), dict) else {}
+    return str(
+        result.get("content")
+        or step.get("output")
+        or step.get("error")
+        or payload.get("status")
+        or task.get("title")
+        or ""
+    )
+
+
+def _task_usage(payload: dict[str, Any]) -> dict[str, int]:
+    result = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+    usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+    return {
+        "total_tokens": _int(usage.get("total_tokens")),
+        "tool_uses": _int(usage.get("tool_uses", result.get("tool_results"))),
+        "duration_ms": _int(usage.get("duration_ms")),
+    }
+
+
 def _retry_attempt(payload: dict[str, Any]) -> int:
     if payload.get("next_attempt") is not None:
         return _int(payload.get("next_attempt"))
@@ -839,6 +1003,7 @@ def _project_runtime_event_messages(
     auth_status = _auth_status_from_tool_result(event, session_id=session_id, run_id=run_id)
     if auth_status is not None:
         messages.append(auth_status)
+    messages.extend(_task_messages_from_tool_result(event, session_id=session_id, run_id=run_id))
     return messages
 
 

@@ -138,6 +138,39 @@ class SDKSessionStateChangedMessage(SDKBaseMessage):
     state: Literal["idle", "running", "requires_action"]
 
 
+class SDKTaskStartedMessage(SDKBaseMessage):
+    type: Literal["system"] = "system"
+    subtype: Literal["task_started"] = "task_started"
+    task_id: str
+    tool_use_id: str = ""
+    description: str = ""
+    task_type: str = ""
+    workflow_name: str = ""
+    prompt: str = ""
+
+
+class SDKTaskProgressMessage(SDKBaseMessage):
+    type: Literal["system"] = "system"
+    subtype: Literal["task_progress"] = "task_progress"
+    task_id: str
+    tool_use_id: str = ""
+    description: str = ""
+    usage: dict[str, int] = Field(default_factory=dict)
+    last_tool_name: str = ""
+    summary: str = ""
+
+
+class SDKTaskNotificationMessage(SDKBaseMessage):
+    type: Literal["system"] = "system"
+    subtype: Literal["task_notification"] = "task_notification"
+    task_id: str
+    tool_use_id: str = ""
+    status: Literal["completed", "failed", "stopped"]
+    output_file: str = ""
+    summary: str = ""
+    usage: dict[str, int] = Field(default_factory=dict)
+
+
 class SDKAssistantMessage(SDKBaseMessage):
     type: Literal["assistant"] = "assistant"
     content: str = ""
@@ -197,6 +230,9 @@ SDKMessage = Union[
     SDKCompactBoundaryMessage,
     SDKAuthStatusMessage,
     SDKSessionStateChangedMessage,
+    SDKTaskStartedMessage,
+    SDKTaskProgressMessage,
+    SDKTaskNotificationMessage,
     SDKUserMessage,
     SDKAssistantMessage,
     SDKToolProgressMessage,

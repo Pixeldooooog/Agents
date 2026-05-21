@@ -31,6 +31,9 @@ from agents.sdk.types import (
     SDKResultMessage,
     SDKSessionStateChangedMessage,
     SDKSystemMessage,
+    SDKTaskNotificationMessage,
+    SDKTaskProgressMessage,
+    SDKTaskStartedMessage,
     SDKToolProgressMessage,
     SDKUserMessage,
 )
@@ -234,6 +237,57 @@ async def _approval_session_factory(settings, spec):
     return ApprovalSession()
 
 
+async def _task_session_factory(settings, spec):
+    task_workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=".",
+        path=".",
+    )
+
+    class TaskSession:
+        runtime = SimpleNamespace(model="scripted", protocol="scripted", enabled_tools=["task.run", "task.update"])
+        workspace = task_workspace
+
+        async def stream(self, text, run_id=None):
+            task = {
+                "task_id": "task_123",
+                "title": "Run tracked work",
+                "input": "do the work",
+                "status": "finished",
+                "metadata": {"task_type": "agent"},
+            }
+            yield RuntimeEvent(
+                type="tool_result",
+                name="task.run",
+                payload={
+                    "tool_call_id": "task-run-call",
+                    "raw": {
+                        "task": task,
+                        "step": {"name": "execute", "output": "executed child"},
+                        "result": {"content": "executed child", "messages": 1, "tool_results": 2},
+                        "run": {"run_id": "run-child", "status": "finished"},
+                    },
+                },
+            )
+            yield RuntimeEvent(
+                type="tool_result",
+                name="task.update",
+                payload={
+                    "tool_call_id": "task-update-call",
+                    "raw": {
+                        "task": {**task, "status": "running"},
+                        "step": {"name": "review"},
+                    },
+                },
+            )
+            yield RuntimeEvent(type="done", name="assistant", payload={"content": "task done", "status": "finished"})
+
+    return TaskSession()
+
+
 def test_sdk_query_hides_store_wiring_and_streams_typed_messages():
     client = AgentSDKClient(session_factory=_session_factory)
 
@@ -321,6 +375,32 @@ def test_sdk_query_emits_auth_status_for_mcp_auth_tool_results():
     assert validate_sdk_message(auth.model_dump()) == auth
     assert any(isinstance(message, SDKToolProgressMessage) and message.status == "completed" for message in messages)
     assert any(isinstance(message, SDKAuthStatusMessage) for message in replay)
+
+
+def test_sdk_query_emits_task_messages_from_task_tool_results():
+    client = AgentSDKClient(session_factory=_task_session_factory)
+
+    messages = asyncio.run(_collect(client.query("run task", SDKOptions(session_id="session-task"))))
+    replay = asyncio.run(client.get_session_messages("session-task", {"include_system_messages": False}))
+
+    started = next(message for message in messages if isinstance(message, SDKTaskStartedMessage))
+    progress = next(message for message in messages if isinstance(message, SDKTaskProgressMessage))
+    notification = next(message for message in messages if isinstance(message, SDKTaskNotificationMessage))
+
+    assert started.task_id == "task_123"
+    assert started.tool_use_id == "task-run-call"
+    assert started.description == "Run tracked work"
+    assert started.task_type == "agent"
+    assert started.prompt == "do the work"
+    assert progress.task_id == "task_123"
+    assert progress.tool_use_id == "task-update-call"
+    assert progress.last_tool_name == "review"
+    assert notification.status == "completed"
+    assert notification.summary == "executed child"
+    assert notification.usage == {"total_tokens": 0, "tool_uses": 2, "duration_ms": 0}
+    assert validate_sdk_message(started.model_dump()) == started
+    assert any(isinstance(message, SDKTaskStartedMessage) for message in replay)
+    assert any(isinstance(message, SDKTaskNotificationMessage) for message in replay)
 
 
 def test_sdk_prompt_returns_final_result():
@@ -471,6 +551,9 @@ def test_sdk_exports_json_schemas_and_rejects_invalid_messages():
     assert "SDKAuthStatusMessage" in message_schema["$defs"]
     assert "SDKCompactBoundaryMessage" in message_schema["$defs"]
     assert "SDKSessionStateChangedMessage" in message_schema["$defs"]
+    assert "SDKTaskStartedMessage" in message_schema["$defs"]
+    assert "SDKTaskProgressMessage" in message_schema["$defs"]
+    assert "SDKTaskNotificationMessage" in message_schema["$defs"]
     assert "SDKUserMessage" in message_schema["$defs"]
     assert "SDKToolProgressMessage" in message_schema["$defs"]
     assert result_schema["properties"]["type"]["const"] == "result"
