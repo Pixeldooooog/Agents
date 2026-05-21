@@ -59,6 +59,12 @@ from agents.sdk.control import (
     validate_sdk_stdin_message,
     validate_sdk_stdout_message,
 )
+from agents.sdk.structured_io import (
+    SDKControlRequestCancelledError,
+    SDKControlRequestError,
+    SDKControlStreamClosedError,
+    SDKStructuredIO,
+)
 from agents.sdk.types import (
     SDKAPIRetryMessage,
     SDKAssistantMessage,
@@ -121,6 +127,8 @@ __all__ = [
     "SDKControlPermissionRequest",
     "SDKControlReloadPluginsRequest",
     "SDKControlRequest",
+    "SDKControlRequestCancelledError",
+    "SDKControlRequestError",
     "SDKControlResponse",
     "SDKControlRewindFilesRequest",
     "SDKControlSeedReadStateRequest",
@@ -128,6 +136,7 @@ __all__ = [
     "SDKControlSetModelRequest",
     "SDKControlSetPermissionModeRequest",
     "SDKControlStopTaskRequest",
+    "SDKControlStreamClosedError",
     "SDKControlSuccessResponse",
     "SDKFilesPersistedMessage",
     "SDKForkSessionOptions",
@@ -153,6 +162,7 @@ __all__ = [
     "SDKStdinMessage",
     "SDKStatusMessage",
     "SDKStdoutMessage",
+    "SDKStructuredIO",
     "SDKStreamEventMessage",
     "SDKSystemMessage",
     "SDKTaskNotificationMessage",

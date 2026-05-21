@@ -66,6 +66,7 @@ from agents.sdk.control import (
     validate_sdk_control_request,
     validate_sdk_stdin_message,
 )
+from agents.sdk.structured_io import SDKStructuredIO
 from agents.sdk.types import (
     SDKAPIRetryMessage,
     SDKAssistantMessage,
@@ -285,32 +286,78 @@ class AgentSDKClient:
         self,
         messages: AsyncIterable[SDKStdinMessage | dict[str, Any]] | Iterable[SDKStdinMessage | dict[str, Any]],
         options: SDKOptions | dict[str, Any] | None = None,
+        structured_io: SDKStructuredIO | None = None,
     ) -> AsyncIterator[SDKStdoutMessage]:
         session = self.create_sdk_session(_coerce_options(options))
         replay_user_messages = _replay_user_messages_enabled(session.options)
+        io = structured_io or SDKStructuredIO(replay_user_messages=replay_user_messages)
+        io.replay_user_messages = replay_user_messages
         received_user_uuids: set[str] = set()
-        async for raw_message in _aiter_stdin_messages(messages):
-            message = validate_sdk_stdin_message(raw_message)
-            if isinstance(message, SDKUserMessage):
-                user_message = _coerce_async_user_message(message, session_id=session.session_id)
-                if replay_user_messages:
-                    yield user_message.model_copy(update={"isReplay": True})
-                if user_message.uuid in received_user_uuids:
-                    continue
-                received_user_uuids.add(user_message.uuid)
-                session.enqueue_async_message(user_message)
-                async for output in session._drain_async_messages(session.options):
-                    yield output
-            elif isinstance(message, SDKControlRequest):
-                yield await session.handle_control_request(message)
-            elif isinstance(message, SDKUpdateEnvironmentVariablesMessage):
-                _apply_environment_variables_update(session.options, message)
-            elif isinstance(message, SDKKeepAliveMessage):
-                continue
-            elif isinstance(message, SDKControlResponse):
-                if replay_user_messages:
-                    yield message
-                continue
+        inbound = _aiter_stdin_messages(messages)
+        inbound_task: asyncio.Task[SDKStdinMessage | dict[str, Any]] | None = asyncio.create_task(_anext(inbound))
+        outbound_task: asyncio.Task[SDKStdoutMessage | None] | None = asyncio.create_task(io.next_stdout_message())
+        try:
+            while inbound_task is not None or outbound_task is not None:
+                tasks = {task for task in (inbound_task, outbound_task) if task is not None}
+                done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                if outbound_task in done:
+                    outbound = outbound_task.result()
+                    if outbound is None:
+                        outbound_task = None
+                    else:
+                        yield outbound
+                        outbound_task = asyncio.create_task(io.next_stdout_message())
+                if inbound_task in done:
+                    try:
+                        raw_message = inbound_task.result()
+                    except StopAsyncIteration:
+                        inbound_task = None
+                        io.close()
+                        continue
+                    async for output in self._process_stdin_message(
+                        raw_message,
+                        session=session,
+                        structured_io=io,
+                        replay_user_messages=replay_user_messages,
+                        received_user_uuids=received_user_uuids,
+                    ):
+                        yield output
+                    inbound_task = asyncio.create_task(_anext(inbound))
+        finally:
+            for task in (inbound_task, outbound_task):
+                if task is not None and not task.done():
+                    task.cancel()
+
+    async def _process_stdin_message(
+        self,
+        raw_message: SDKStdinMessage | dict[str, Any],
+        *,
+        session: "SDKSession",
+        structured_io: SDKStructuredIO,
+        replay_user_messages: bool,
+        received_user_uuids: set[str],
+    ) -> AsyncIterator[SDKStdoutMessage]:
+        message = await structured_io.receive(validate_sdk_stdin_message(raw_message))
+        if message is None:
+            return
+        if isinstance(message, SDKUserMessage):
+            user_message = _coerce_async_user_message(message, session_id=session.session_id)
+            if replay_user_messages:
+                yield user_message.model_copy(update={"isReplay": True})
+            if user_message.uuid in received_user_uuids:
+                return
+            received_user_uuids.add(user_message.uuid)
+            session.enqueue_async_message(user_message)
+            async for output in session._drain_async_messages(session.options):
+                yield output
+        elif isinstance(message, SDKControlRequest):
+            yield await session.handle_control_request(message)
+        elif isinstance(message, SDKUpdateEnvironmentVariablesMessage):
+            _apply_environment_variables_update(session.options, message)
+        elif isinstance(message, SDKKeepAliveMessage):
+            return
+        elif isinstance(message, SDKControlResponse):
+            yield message
 
     async def _query_turn(
         self,
@@ -1221,8 +1268,9 @@ async def handle_control_request(
 async def run_stdin(
     messages: AsyncIterable[SDKStdinMessage | dict[str, Any]] | Iterable[SDKStdinMessage | dict[str, Any]],
     options: SDKOptions | dict[str, Any] | None = None,
+    structured_io: SDKStructuredIO | None = None,
 ) -> AsyncIterator[SDKStdoutMessage]:
-    async for message in AgentSDKClient().run_stdin(messages, options):
+    async for message in AgentSDKClient().run_stdin(messages, options, structured_io=structured_io):
         yield message
 
 
@@ -1261,6 +1309,10 @@ async def _aiter_stdin_messages(
         return
     for message in messages:  # type: ignore[union-attr]
         yield message
+
+
+async def _anext(iterator: AsyncIterator[SDKStdinMessage | dict[str, Any]]) -> SDKStdinMessage | dict[str, Any]:
+    return await iterator.__anext__()
 
 
 def _apply_environment_variables_update(options: SDKOptions, message: SDKUpdateEnvironmentVariablesMessage) -> None:

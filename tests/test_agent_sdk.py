@@ -21,6 +21,7 @@ from agents.sdk import (
     AgentSDKClient,
     SDKControlApplyFlagSettingsRequest,
     SDKControlCancelAsyncMessageRequest,
+    SDKControlCancelRequest,
     SDKControlElicitationRequest,
     SDKControlErrorResponse,
     SDKControlGetSettingsRequest,
@@ -32,12 +33,14 @@ from agents.sdk import (
     SDKControlMcpToggleRequest,
     SDKControlPermissionRequest,
     SDKControlRequest,
+    SDKControlRequestCancelledError,
     SDKControlResponse,
     SDKControlRewindFilesRequest,
     SDKControlSeedReadStateRequest,
     SDKControlSetModelRequest,
     SDKControlSetPermissionModeRequest,
     SDKControlStopTaskRequest,
+    SDKControlStreamClosedError,
     SDKControlSuccessResponse,
     SDKHookCallbackRequest,
     SDKKeepAliveMessage,
@@ -47,6 +50,7 @@ from agents.sdk import (
     SDKOptions,
     SDKSessionInfo,
     SDKSession,
+    SDKStructuredIO,
     SDKUpdateEnvironmentVariablesMessage,
     handle_control_request,
     normalize_sdk_control_message_keys,
@@ -1448,6 +1452,105 @@ def test_sdk_control_validators_accept_camel_case_request_ids():
     assert normalize_sdk_control_message_keys({"requestId": "legacy"}) == {"request_id": "legacy"}
 
 
+def test_sdk_structured_io_tracks_pending_control_requests():
+    async def execute():
+        structured_io = SDKStructuredIO()
+        sent: list[str] = []
+        resolved: list[str] = []
+        structured_io.set_on_control_request_sent(lambda request: sent.append(request.request_id))
+        structured_io.set_on_control_request_resolved(lambda request_id: resolved.append(request_id))
+
+        request_task = asyncio.create_task(
+            structured_io.send_request(
+                SDKControlPermissionRequest(
+                    tool_name="Read",
+                    input={"file_path": "README.md"},
+                    tool_use_id="toolu_structured",
+                ),
+                response_validator=lambda payload: payload["behavior"],
+                request_id="permission-structured",
+            )
+        )
+        outbound = await structured_io.next_stdout_message()
+        pending = structured_io.get_pending_permission_requests()
+        replay = await structured_io.receive(
+            {
+                "type": "control_response",
+                "response": {
+                    "subtype": "success",
+                    "request_id": "permission-structured",
+                    "response": {"behavior": "allow", "toolUseID": "toolu_structured"},
+                },
+            }
+        )
+        result = await request_task
+        duplicate = await structured_io.receive(
+            {
+                "type": "control_response",
+                "response": {
+                    "subtype": "success",
+                    "request_id": "permission-structured",
+                    "response": {"behavior": "allow", "toolUseID": "toolu_structured"},
+                },
+            }
+        )
+        return outbound, pending, replay, result, duplicate, structured_io.pending_count, sent, resolved
+
+    outbound, pending, replay, result, duplicate, pending_count, sent, resolved = asyncio.run(execute())
+
+    assert isinstance(outbound, SDKControlRequest)
+    assert outbound.request_id == "permission-structured"
+    assert isinstance(outbound.request, SDKControlPermissionRequest)
+    assert pending == [outbound]
+    assert replay is None
+    assert result == "allow"
+    assert duplicate is None
+    assert pending_count == 0
+    assert sent == ["permission-structured"]
+    assert resolved == ["permission-structured"]
+
+
+def test_sdk_structured_io_cancels_and_closes_pending_requests():
+    async def execute_cancel():
+        structured_io = SDKStructuredIO()
+        request_task = asyncio.create_task(
+            structured_io.send_request(
+                SDKControlSetModelRequest(model="claude-sonnet"),
+                request_id="cancel-structured",
+            )
+        )
+        outbound = await structured_io.next_stdout_message()
+        await structured_io.cancel_request("cancel-structured")
+        cancel = await structured_io.next_stdout_message()
+        with pytest.raises(SDKControlRequestCancelledError):
+            await request_task
+        return outbound, cancel
+
+    async def execute_close():
+        structured_io = SDKStructuredIO()
+        request_task = asyncio.create_task(
+            structured_io.send_request(
+                SDKControlSetModelRequest(model="claude-opus"),
+                request_id="close-structured",
+            )
+        )
+        outbound = await structured_io.next_stdout_message()
+        structured_io.close()
+        closed = await structured_io.next_stdout_message()
+        with pytest.raises(SDKControlStreamClosedError):
+            await request_task
+        return outbound, closed
+
+    outbound, cancel = asyncio.run(execute_cancel())
+    close_outbound, closed = asyncio.run(execute_close())
+
+    assert isinstance(outbound, SDKControlRequest)
+    assert isinstance(cancel, SDKControlCancelRequest)
+    assert cancel.request_id == "cancel-structured"
+    assert isinstance(close_outbound, SDKControlRequest)
+    assert closed is None
+
+
 def test_sdk_control_request_handler_answers_initialize_and_permissions():
     initialize = asyncio.run(
         handle_control_request(
@@ -2075,6 +2178,74 @@ def test_sdk_run_stdin_replays_acknowledgements_and_skips_runtime_duplicates(mon
     assert results == ["first"]
     assert controls[0].response.request_id == "host-camel-response"
     assert [message.content for message in replay_users] == ["first"]
+
+
+def test_sdk_run_stdin_drains_structured_io_outbound_and_resolves_responses():
+    async def execute():
+        client = AgentSDKClient(session_factory=_echo_prompt_session_factory)
+        structured_io = SDKStructuredIO(replay_user_messages=True)
+        inbound = asyncio.Queue()
+        outputs = []
+
+        async def source():
+            while True:
+                item = await inbound.get()
+                if item is None:
+                    return
+                yield item
+
+        async def collect():
+            async for message in client.run_stdin(
+                source(),
+                SDKOptions(session_id="structured-stdin", replay_user_messages=True),
+                structured_io=structured_io,
+            ):
+                outputs.append(message)
+
+        collector = asyncio.create_task(collect())
+        request_task = asyncio.create_task(
+            structured_io.send_request(
+                SDKControlMcpMessageRequest(
+                    server_name="sdk-tools",
+                    message={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+                ),
+                response_validator=lambda payload: payload["mcp_response"],
+                request_id="mcp-structured",
+            )
+        )
+        for _ in range(50):
+            if outputs:
+                break
+            await asyncio.sleep(0.01)
+        await inbound.put(
+            {
+                "type": "control_response",
+                "response": {
+                    "subtype": "success",
+                    "request_id": "mcp-structured",
+                    "response": {
+                        "mcp_response": {"jsonrpc": "2.0", "id": 1, "result": {"tools": []}},
+                    },
+                },
+            }
+        )
+        response = await asyncio.wait_for(request_task, timeout=1)
+        for _ in range(50):
+            if len(outputs) >= 2:
+                break
+            await asyncio.sleep(0.01)
+        await inbound.put(None)
+        await asyncio.wait_for(collector, timeout=1)
+        return outputs, response
+
+    outputs, response = asyncio.run(execute())
+
+    assert isinstance(outputs[0], SDKControlRequest)
+    assert outputs[0].request_id == "mcp-structured"
+    assert isinstance(outputs[0].request, SDKControlMcpMessageRequest)
+    assert isinstance(outputs[1], SDKControlResponse)
+    assert outputs[1].response.request_id == "mcp-structured"
+    assert response == {"jsonrpc": "2.0", "id": 1, "result": {"tools": []}}
 
 
 def test_sdk_control_request_seeds_read_state_for_next_session(tmp_path):
