@@ -144,6 +144,7 @@ def _plan_patch(
     actions_by_path: dict[str, str] = {}
     edits_by_path: dict[str, int] = {}
     verified_paths: set[str] = set()
+    applied_new_texts_by_path: dict[str, list[str]] = {}
     planned_edits: list[_PlannedEdit] = []
 
     for operation in edits:
@@ -168,6 +169,7 @@ def _plan_patch(
         match_old_text, match_new_text = _normalize_edit_strings(before, old_text, new_text)
         if match_old_text == match_new_text:
             raise ValueError("No changes to make: old_text and new_text are exactly the same for %s" % path)
+        _reject_editing_previous_new_text(match_old_text, applied_new_texts_by_path.get(path, []))
         actual_old_text = _find_actual_text(before, match_old_text)
         if actual_old_text is None:
             raise ValueError("String to replace not found in file.\nPath: %s\nString: %s" % (path, old_text))
@@ -188,6 +190,7 @@ def _plan_patch(
         content_by_path[path] = before.replace(edit_old_text, edit_new_text, count)
         actions_by_path.setdefault(path, "edit")
         edits_by_path[path] = edits_by_path.get(path, 0) + count
+        applied_new_texts_by_path.setdefault(path, []).append(match_new_text)
         planned_edits.append(
             _PlannedEdit(
                 path=path,
@@ -386,6 +389,15 @@ def _normalize_replacement_text(path: str, new_text: str) -> str:
     if _is_markdown_path(path):
         return str(new_text)
     return _strip_trailing_whitespace(new_text)
+
+
+def _reject_editing_previous_new_text(old_text: str, previous_new_texts: list[str]) -> None:
+    old_text_to_check = re.sub(r"\n+$", "", str(old_text))
+    if not old_text_to_check:
+        return
+    for previous_new_text in previous_new_texts:
+        if old_text_to_check in previous_new_text:
+            raise ValueError("Cannot edit file: old_text is a substring of a new_text from a previous edit.")
 
 
 def _is_markdown_path(path: str) -> bool:

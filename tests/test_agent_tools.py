@@ -5116,6 +5116,44 @@ def test_patch_apply_preserves_markdown_trailing_whitespace_in_new_text(tmp_path
     assert (tmp_path / "guide.md").read_text(encoding="utf-8") == "beta  \nnext\t  \n"
 
 
+def test_patch_apply_rejects_later_edit_that_targets_previous_new_text(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "notes.txt").write_text("one\ntwo\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+    result = asyncio.run(
+        registry.execute(
+            "patch.apply",
+            {
+                "edits": [
+                    {"path": "notes.txt", "old_text": "one", "new_text": "one beta"},
+                    {"path": "notes.txt", "old_text": "beta\n", "new_text": "gamma\n"},
+                ]
+            },
+        )
+    )
+
+    assert read.is_error is False
+    assert result.is_error is True
+    assert "old_text is a substring of a new_text from a previous edit" in result.content
+    assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "one\ntwo\n"
+
+
 def test_patch_apply_empty_replacement_removes_trailing_newline_like_file_edit(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="default",
