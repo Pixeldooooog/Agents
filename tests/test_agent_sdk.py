@@ -810,6 +810,72 @@ async def _src_origin_write_rewind_session_factory(settings, spec):
     return SrcOriginWriteRewindSession()
 
 
+async def _file_history_snapshot_rewind_session_factory(settings, spec):
+    workspace_path = str(spec.workspace.path or spec.workspace.root or ".")
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=workspace_path,
+        path=workspace_path,
+    )
+
+    class FileHistorySnapshotRewindSession:
+        runtime = SimpleNamespace(model="scripted", protocol="scripted", enabled_tools=["Write"])
+
+        def __init__(self):
+            self.workspace = workspace
+
+        async def stream(self, text, run_id=None):
+            note = Path(workspace_path) / "snapshot-note.txt"
+            created = Path(workspace_path) / "snapshot-created.txt"
+            note.write_text("after\nextra\n", encoding="utf-8")
+            created.write_text("created\n", encoding="utf-8")
+            yield RuntimeEvent(
+                type="file-history-snapshot",
+                name="file-history",
+                payload={
+                    "type": "file-history-snapshot",
+                    "messageId": "msg-snapshot-rewind",
+                    "snapshot": {
+                        "messageId": "msg-snapshot-rewind",
+                        "trackedFileBackups": {},
+                        "timestamp": "2026-05-21T00:00:00.000Z",
+                    },
+                    "isSnapshotUpdate": False,
+                },
+            )
+            yield RuntimeEvent(
+                type="file-history-snapshot",
+                name="file-history",
+                payload={
+                    "type": "file-history-snapshot",
+                    "messageId": "msg-snapshot-rewind",
+                    "snapshot": {
+                        "messageId": "msg-snapshot-rewind",
+                        "trackedFileBackups": {
+                            "snapshot-note.txt": {
+                                "backupFileName": "snapshot-note@v1",
+                                "version": 1,
+                                "backupTime": "2026-05-21T00:00:00.000Z",
+                            },
+                            "snapshot-created.txt": {
+                                "backupFileName": None,
+                                "version": 1,
+                                "backupTime": "2026-05-21T00:00:00.000Z",
+                            },
+                        },
+                        "timestamp": "2026-05-21T00:00:01.000Z",
+                    },
+                    "isSnapshotUpdate": True,
+                },
+            )
+            yield RuntimeEvent(type="done", name="assistant", payload={"content": "edited", "status": "finished"})
+
+    return FileHistorySnapshotRewindSession()
+
+
 async def _read_state_seed_session_factory(settings, spec):
     workspace_path = str(spec.workspace.path or spec.workspace.root or ".")
     workspace = WorkspaceContext(
@@ -2121,6 +2187,61 @@ def test_sdk_control_request_rewinds_src_origin_wrapped_write_results(tmp_path):
         "filesChanged": ["origin-created.txt", "origin-write.txt"],
         "insertions": 3,
         "deletions": 1,
+    }
+    assert actual.response.response == {"canRewind": True}
+    assert note_content == "before\n"
+    assert created_exists is False
+
+
+def test_sdk_control_request_rewinds_file_history_snapshot_chain(tmp_path):
+    async def execute():
+        config_dir = tmp_path / "claude-config"
+        backup_dir = config_dir / "file-history" / "snapshot-session"
+        backup_dir.mkdir(parents=True)
+        (backup_dir / "snapshot-note@v1").write_text("before\n", encoding="utf-8")
+        note = tmp_path / "snapshot-note.txt"
+        created = tmp_path / "snapshot-created.txt"
+        note.write_text("before\n", encoding="utf-8")
+        client = AgentSDKClient(session_factory=_file_history_snapshot_rewind_session_factory)
+        session = client.create_sdk_session(
+            SDKOptions(
+                session_id="snapshot-session",
+                tenant_id="tenant",
+                user_id="user",
+                agent_id="agent",
+                cwd=str(tmp_path),
+                metadata={"claude_config_dir": str(config_dir)},
+            )
+        )
+        user_message = {
+            "type": "user",
+            "session_id": "snapshot-session",
+            "uuid": "msg-snapshot-rewind",
+            "message": {"role": "user", "content": [{"type": "text", "text": "edit from snapshot"}]},
+        }
+        await _collect(client.query_user_message(user_message, session.options))
+        dry_run = await session.handle_control_request(
+            SDKControlRequest(
+                request_id="rewind-file-history-snapshot-dry-run",
+                request=SDKControlRewindFilesRequest(user_message_id="msg-snapshot-rewind", dry_run=True),
+            )
+        )
+        actual = await session.handle_control_request(
+            SDKControlRequest(
+                request_id="rewind-file-history-snapshot",
+                request=SDKControlRewindFilesRequest(user_message_id="msg-snapshot-rewind"),
+            )
+        )
+        return dry_run, actual, note.read_text(encoding="utf-8"), created.exists()
+
+    dry_run, actual, note_content, created_exists = asyncio.run(execute())
+
+    assert isinstance(dry_run.response, SDKControlSuccessResponse)
+    assert dry_run.response.response == {
+        "canRewind": True,
+        "filesChanged": ["snapshot-created.txt", "snapshot-note.txt"],
+        "insertions": 1,
+        "deletions": 3,
     }
     assert actual.response.response == {"canRewind": True}
     assert note_content == "before\n"

@@ -114,10 +114,28 @@ MAX_SDK_SEED_READ_BYTES = 200000
 class _RewindFileEntry:
     path: str
     before: str = ""
+    before_bytes: bytes | None = None
     existed: bool = True
     encoding: str = "utf-8"
     insertions: int = 0
     deletions: int = 0
+    mode: int | None = None
+
+
+@dataclass
+class _FileHistoryBackupRef:
+    exists: bool
+    backup_file_name: str = ""
+    backup_path: str = ""
+    version: int = 0
+
+
+@dataclass
+class _FileHistorySnapshot:
+    message_id: str
+    backups: dict[str, _FileHistoryBackupRef] = field(default_factory=dict)
+    backup_root: str = ""
+    history_session_id: str = ""
 
 
 @dataclass
@@ -727,6 +745,29 @@ class AgentSDKClient:
         records = await self._runs_for_session(session_id)
         if not records:
             return {"canRewind": False, "error": "session not found: %s" % session_id}
+        root = _rewind_workspace_root(options, records)
+        entries, unsupported_paths, found_snapshot = _rewind_entries_from_file_history_snapshots(
+            records,
+            request.user_message_id,
+            root,
+            options,
+        )
+        if found_snapshot:
+            if unsupported_paths:
+                return {
+                    "canRewind": False,
+                    "error": "File history backup is incomplete for: %s" % ", ".join(unsupported_paths),
+                }
+            payload = _rewind_response_payload(entries)
+            if request.dry_run:
+                return payload
+            try:
+                for entry, target in [(entry, _safe_rewind_path(root, entry.path)) for entry in entries]:
+                    _apply_rewind_entry(entry, target)
+            except (OSError, ValueError) as exc:
+                return {"canRewind": False, "error": "Failed to rewind: %s" % exc}
+            return {"canRewind": True}
+
         entries, unsupported_paths, found_message = _rewind_entries_after_message(records, request.user_message_id)
         if not found_message:
             return {"canRewind": False, "error": "No user message found for id: %s" % request.user_message_id}
@@ -742,7 +783,6 @@ class AgentSDKClient:
         if request.dry_run:
             return payload
 
-        root = _rewind_workspace_root(options, records)
         try:
             targets = [(entry, _safe_rewind_path(root, entry.path)) for entry in entries]
         except ValueError as exc:
@@ -2033,6 +2073,336 @@ def _event_matches_message_id(event: RuntimeEvent, message_id: str) -> bool:
     return message_id in candidates
 
 
+def _rewind_entries_from_file_history_snapshots(
+    records: list[RunRecord],
+    message_id: str,
+    root: Path,
+    options: SDKOptions,
+) -> tuple[list[_RewindFileEntry], list[str], bool]:
+    snapshots = _file_history_snapshots_from_records(records)
+    target_snapshot = _last_file_history_snapshot_for_message(snapshots, message_id)
+    if target_snapshot is None:
+        return [], [], False
+
+    entries: list[_RewindFileEntry] = []
+    unsupported_paths: set[str] = set()
+    tracked_paths = sorted({path for snapshot in snapshots for path in snapshot.backups})
+    for tracking_path in tracked_paths:
+        backup = target_snapshot.backups.get(tracking_path) or _first_file_history_backup(tracking_path, snapshots)
+        if backup is None:
+            continue
+        try:
+            entry = _rewind_entry_from_file_history_backup(
+                tracking_path,
+                backup,
+                target_snapshot,
+                root,
+                options,
+                records,
+            )
+        except (OSError, UnicodeError, ValueError):
+            unsupported_paths.add(tracking_path)
+            continue
+        if entry is not None:
+            entries.append(entry)
+    return entries, sorted(unsupported_paths), True
+
+
+def _file_history_snapshots_from_records(records: list[RunRecord]) -> list[_FileHistorySnapshot]:
+    snapshots: list[_FileHistorySnapshot] = []
+    index_by_message_id: dict[str, int] = {}
+    for record in sorted(records, key=lambda item: item.created_at):
+        for event in record.events:
+            payload = _file_history_snapshot_payload(event)
+            if payload is None:
+                continue
+            snapshot = _file_history_snapshot_from_payload(payload, record)
+            if snapshot is None:
+                continue
+            is_update = bool(payload.get("isSnapshotUpdate") or payload.get("is_snapshot_update"))
+            existing_index = index_by_message_id.get(snapshot.message_id) if is_update else None
+            if existing_index is None:
+                index_by_message_id[snapshot.message_id] = len(snapshots)
+                snapshots.append(snapshot)
+            else:
+                snapshots[existing_index] = snapshot
+    return snapshots
+
+
+def _file_history_snapshot_payload(event: RuntimeEvent) -> dict[str, Any] | None:
+    candidates = [event.payload, event.raw]
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        if candidate.get("type") == "file-history-snapshot" and isinstance(candidate.get("snapshot"), dict):
+            return dict(candidate)
+        raw = candidate.get("raw")
+        if isinstance(raw, dict) and raw.get("type") == "file-history-snapshot":
+            return dict(raw)
+    if event.type == "file-history-snapshot" and isinstance(event.payload.get("snapshot"), dict):
+        payload = dict(event.payload)
+        payload.setdefault("type", "file-history-snapshot")
+        return payload
+    return None
+
+
+def _file_history_snapshot_from_payload(
+    payload: dict[str, Any],
+    record: RunRecord,
+) -> _FileHistorySnapshot | None:
+    snapshot_payload = payload.get("snapshot")
+    if not isinstance(snapshot_payload, dict):
+        return None
+    message_id = str(snapshot_payload.get("messageId") or snapshot_payload.get("message_id") or payload.get("messageId") or payload.get("message_id") or "")
+    if not message_id:
+        return None
+    backup_payload = snapshot_payload.get("trackedFileBackups")
+    if not isinstance(backup_payload, dict):
+        backup_payload = snapshot_payload.get("tracked_file_backups")
+    if not isinstance(backup_payload, dict):
+        return None
+    backups: dict[str, _FileHistoryBackupRef] = {}
+    for path, backup in backup_payload.items():
+        ref = _file_history_backup_ref(backup)
+        if ref is not None:
+            backups[_rewind_path_value(path)] = ref
+    return _FileHistorySnapshot(
+        message_id=message_id,
+        backups=backups,
+        backup_root=str(
+            payload.get("backupRoot")
+            or payload.get("backup_root")
+            or snapshot_payload.get("backupRoot")
+            or snapshot_payload.get("backup_root")
+            or ""
+        ),
+        history_session_id=str(
+            payload.get("sessionId")
+            or payload.get("session_id")
+            or snapshot_payload.get("sessionId")
+            or snapshot_payload.get("session_id")
+            or record.metadata.get("sdk_file_history_session_id")
+            or ""
+        ),
+    )
+
+
+def _file_history_backup_ref(value: Any) -> _FileHistoryBackupRef | None:
+    if not isinstance(value, dict):
+        return None
+    has_backup_name = "backupFileName" in value or "backup_file_name" in value
+    backup_name = value.get("backupFileName") if "backupFileName" in value else value.get("backup_file_name")
+    backup_path = str(value.get("backupPath") or value.get("backup_path") or "")
+    if backup_name is None and has_backup_name:
+        return _FileHistoryBackupRef(exists=False, version=_int_value(value.get("version")))
+    if isinstance(backup_name, str) and backup_name:
+        return _FileHistoryBackupRef(
+            exists=True,
+            backup_file_name=backup_name,
+            backup_path=backup_path,
+            version=_int_value(value.get("version")),
+        )
+    if backup_path:
+        return _FileHistoryBackupRef(
+            exists=True,
+            backup_path=backup_path,
+            version=_int_value(value.get("version")),
+        )
+    return None
+
+
+def _last_file_history_snapshot_for_message(
+    snapshots: list[_FileHistorySnapshot],
+    message_id: str,
+) -> _FileHistorySnapshot | None:
+    for snapshot in reversed(snapshots):
+        if snapshot.message_id == message_id:
+            return snapshot
+    return None
+
+
+def _first_file_history_backup(
+    tracking_path: str,
+    snapshots: list[_FileHistorySnapshot],
+) -> _FileHistoryBackupRef | None:
+    fallback: _FileHistoryBackupRef | None = None
+    for snapshot in snapshots:
+        backup = snapshot.backups.get(tracking_path)
+        if backup is None:
+            continue
+        if fallback is None:
+            fallback = backup
+        if backup.version == 1:
+            return backup
+    return fallback
+
+
+def _rewind_entry_from_file_history_backup(
+    tracking_path: str,
+    backup: _FileHistoryBackupRef,
+    snapshot: _FileHistorySnapshot,
+    root: Path,
+    options: SDKOptions,
+    records: list[RunRecord],
+) -> _RewindFileEntry | None:
+    target = _safe_rewind_path(root, tracking_path)
+    current_bytes = _read_rewind_target_bytes(target)
+    if not backup.exists:
+        if current_bytes is None:
+            return None
+        insertions, deletions = _rewind_bytes_change_stats(target, current_bytes, None, b"")
+        return _RewindFileEntry(
+            path=tracking_path,
+            before="",
+            before_bytes=None,
+            existed=False,
+            insertions=insertions,
+            deletions=deletions,
+        )
+
+    backup_path = _resolve_file_history_backup_path(backup, snapshot, options, records)
+    if backup_path is None or not backup_path.exists() or not backup_path.is_file():
+        raise FileNotFoundError("file history backup not found: %s" % tracking_path)
+    backup_bytes = backup_path.read_bytes()
+    if current_bytes == backup_bytes:
+        return None
+    insertions, deletions = _rewind_bytes_change_stats(target, current_bytes, backup_path, backup_bytes)
+    backup_text = _decode_rewind_bytes(backup_path, backup_bytes)
+    return _RewindFileEntry(
+        path=tracking_path,
+        before=backup_text,
+        before_bytes=backup_bytes,
+        existed=True,
+        encoding="utf-8",
+        insertions=insertions,
+        deletions=deletions,
+        mode=backup_path.stat().st_mode,
+    )
+
+
+def _read_rewind_target_bytes(target: Path) -> bytes | None:
+    if not target.exists():
+        return None
+    if not target.is_file():
+        raise ValueError("rewind path is not a file: %s" % target)
+    return target.read_bytes()
+
+
+def _resolve_file_history_backup_path(
+    backup: _FileHistoryBackupRef,
+    snapshot: _FileHistorySnapshot,
+    options: SDKOptions,
+    records: list[RunRecord],
+) -> Path | None:
+    if backup.backup_path:
+        path = Path(backup.backup_path).expanduser()
+        return path if path.is_absolute() else path.resolve()
+    name = str(backup.backup_file_name or "")
+    if not name or Path(name).is_absolute() or "/" in name or "\\" in name or name.startswith(".."):
+        return None
+    for root in _file_history_backup_roots(snapshot, options, records):
+        candidate = root / name
+        if candidate.exists():
+            return candidate
+    roots = _file_history_backup_roots(snapshot, options, records)
+    return (roots[0] / name) if roots else None
+
+
+def _file_history_backup_roots(
+    snapshot: _FileHistorySnapshot,
+    options: SDKOptions,
+    records: list[RunRecord],
+) -> list[Path]:
+    metadata = dict(options.metadata or {})
+    direct_roots = [
+        snapshot.backup_root,
+        str(metadata.get("file_history_root") or metadata.get("fileHistoryRoot") or ""),
+    ]
+    roots: list[Path] = []
+    for value in direct_roots:
+        if value:
+            roots.append(Path(value).expanduser().resolve())
+
+    config_values = [
+        str(metadata.get("claude_config_dir") or metadata.get("claudeConfigDir") or ""),
+        os.environ.get("CLAUDE_CONFIG_DIR", ""),
+        str(Path.home() / ".claude"),
+    ]
+    session_ids = _file_history_session_ids(snapshot, options, records)
+    for config_value in config_values:
+        if not config_value:
+            continue
+        config_dir = Path(config_value).expanduser().resolve()
+        for session_id in session_ids:
+            roots.append(config_dir / "file-history" / session_id)
+    return _unique_paths(roots)
+
+
+def _file_history_session_ids(
+    snapshot: _FileHistorySnapshot,
+    options: SDKOptions,
+    records: list[RunRecord],
+) -> list[str]:
+    metadata = dict(options.metadata or {})
+    values = [
+        snapshot.history_session_id,
+        str(metadata.get("file_history_session_id") or metadata.get("fileHistorySessionId") or ""),
+        str(options.session_id or ""),
+    ]
+    values.extend(str(record.metadata.get("sdk_session_id") or record.run_id or "") for record in records)
+    return _unique_strings(values)
+
+
+def _unique_paths(paths: Iterable[Path]) -> list[Path]:
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for path in paths:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(path)
+    return unique
+
+
+def _unique_strings(values: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        item = str(value or "").strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        unique.append(item)
+    return unique
+
+
+def _rewind_bytes_change_stats(
+    current_path: Path,
+    current_bytes: bytes | None,
+    backup_path: Path | None,
+    backup_bytes: bytes,
+) -> tuple[int, int]:
+    try:
+        current_text = _decode_rewind_bytes(current_path, current_bytes or b"")
+        backup_text = _decode_rewind_bytes(backup_path or current_path, backup_bytes)
+    except UnicodeError:
+        return 0, 0
+    return _text_change_stats(current_text, backup_text)
+
+
+def _decode_rewind_bytes(path: Path, data: bytes) -> str:
+    encoding = detect_text_encoding(path, data[:BINARY_SAMPLE_BYTES])
+    return decode_text_bytes(data, encoding)
+
+
+def _int_value(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _rewind_entries_after_message(
     records: list[RunRecord],
     message_id: str,
@@ -2297,7 +2667,12 @@ def _apply_rewind_entry(entry: _RewindFileEntry, target: Path) -> None:
             target.unlink()
         return
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(entry.before, encoding=entry.encoding or "utf-8")
+    if entry.before_bytes is not None:
+        target.write_bytes(entry.before_bytes)
+    else:
+        target.write_text(entry.before, encoding=entry.encoding or "utf-8")
+    if entry.mode is not None:
+        os.chmod(target, entry.mode)
 
 
 def _rewind_path_value(value: Any) -> str:
