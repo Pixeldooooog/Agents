@@ -1921,6 +1921,12 @@ def test_filesystem_read_returns_src_origin_style_image_payload(tmp_path: Path):
     assert result.raw["file"]["filePath"] == "pixel.png"
     assert result.raw["file"]["type"] == "image/png"
     assert result.raw["file"]["originalSize"] == len(png_bytes)
+    assert result.raw["file"]["dimensions"] == {
+        "originalWidth": 1,
+        "originalHeight": 1,
+        "displayWidth": 1,
+        "displayHeight": 1,
+    }
     assert base64.b64decode(result.raw["file"]["base64"]) == png_bytes
     assert result.content == "Image file read: pixel.png (image/png, %d bytes)" % len(png_bytes)
 
@@ -1986,6 +1992,7 @@ def test_filesystem_read_image_empty_and_unknown_format_follow_src_origin(tmp_pa
     assert unknown.is_error is False
     assert unknown.raw["mimeType"] == "image/png"
     assert unknown.raw["file"]["type"] == "image/png"
+    assert "dimensions" not in unknown.raw["file"]
     assert base64.b64decode(unknown.raw["file"]["base64"]) == b"not really an image"
 
 

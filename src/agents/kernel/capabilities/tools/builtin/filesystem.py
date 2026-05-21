@@ -12,6 +12,7 @@ from typing import Any
 
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.tools.builtin.file_safety import record_file_read, unchanged_read_stub, write_text_safely
+from agents.kernel.capabilities.tools.builtin.image_metadata import detect_image_media_type, image_dimensions
 from agents.kernel.capabilities.tools.builtin.read_errors import (
     binary_read_error_message,
     blocked_device_read_error,
@@ -323,20 +324,24 @@ def _read_image_file(context: ToolRuntimeContext, path: str) -> dict[str, Any]:
     resolved, relative_path, data = _read_binary_file_bytes(context, path, max_bytes=BINARY_READ_MAX_BYTES, kind="Image")
     if not data:
         raise ValueError("Image file is empty: %s" % path)
-    media_type = _detect_image_media_type(data, resolved)
+    media_type = detect_image_media_type(data)
     if media_type is None:
         raise ValueError("Unsupported or invalid image file: %s" % path)
+    dimensions = image_dimensions(data, media_type)
+    file_payload = {
+        "filePath": relative_path,
+        "base64": base64.b64encode(data).decode("ascii"),
+        "type": media_type,
+        "originalSize": len(data),
+    }
+    if dimensions:
+        file_payload["dimensions"] = dimensions
     return {
         "type": "image",
         "path": relative_path,
         "bytes": len(data),
         "mimeType": media_type,
-        "file": {
-            "filePath": relative_path,
-            "base64": base64.b64encode(data).decode("ascii"),
-            "type": media_type,
-            "originalSize": len(data),
-        },
+        "file": file_payload,
     }
 
 
@@ -460,7 +465,7 @@ def _pdf_page_image_blocks(image_files: list[Path]) -> list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = []
     for image_file in image_files:
         data = image_file.read_bytes()
-        media_type = _detect_image_media_type(data, image_file) or "image/jpeg"
+        media_type = detect_image_media_type(data) or "image/jpeg"
         blocks.append(
             {
                 "type": "image",
@@ -524,15 +529,3 @@ def _read_binary_file_bytes(context: ToolRuntimeContext, path: str, *, max_bytes
     if size > max_bytes:
         raise ValueError("%s file is too large to read inline: %s (%d bytes)" % (kind, path, size))
     return resolved, context.sandbox.relative_workspace_path(resolved), resolved.read_bytes()
-
-
-def _detect_image_media_type(data: bytes, path: Path) -> str | None:
-    if data.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image/png"
-    if data.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg"
-    if data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
-        return "image/gif"
-    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return "image/webp"
-    return "image/png" if data else None
