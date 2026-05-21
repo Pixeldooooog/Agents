@@ -94,7 +94,7 @@ The first milestone is complete when:
 
 - `agents.sdk.query()` streams typed SDK messages.
 - SDK callers can pass prompt/options without constructing persistence stores.
-- A final result message includes session/run id, stop reason, content, duration, turn count, and status.
+- A final result message includes session/run id, stop reason, result text, duration, turn count, error state, usage/cost fields, and permission-denial fields.
 - Runtime tool events are projected into SDK tool-progress messages.
 - Tests cover a successful query and a tool-using query.
 
@@ -113,6 +113,7 @@ The first milestone is complete when:
 - SDK projection now accepts additional `src-origin` SDK event subtypes for `rate_limit_event`, `elicitation_complete`, `prompt_suggestion`, and `post_turn_summary`, so future provider/MCP/prompt-suggestion producers can emit typed replayable messages without changing the SDK contract.
 - SDK streaming/status projection now separates partial model deltas into `SDKStreamEventMessage` (`type=stream_event`) and reserves `SDKStatusMessage` for the `src-origin` `system/status` shape (`status=compacting|null`), instead of using a Python-only top-level `status` message for reasoning deltas.
 - SDK assistant/user messages now expose the `src-origin` `message` plus `parent_tool_use_id` contract, with `SDKAssistantMessage.error`, `SDKAssistantMessage.uuid`, and camelCase user replay fields (`isSynthetic`, `isReplay`) while retaining Python-only read properties for `content` during migration.
+- SDK result messages now expose the `src-origin` result contract (`result`, `is_error`, `errors`, `duration_api_ms`, `total_cost_usd`, `modelUsage`, `permission_denials`, and `uuid`) instead of Python-only `content` / `status` / `error` fields in serialized payloads, while keeping read-only Python compatibility properties for existing callers.
 - Tool contract now covers explicit definitions, activity metadata, schema validation, concurrency policy, sibling error cancellation, result limits, and runtime/SDK/trace contract propagation.
 - User active-run cancellation during tool execution now produces synthetic `tool_execution_canceled` results for pending calls, saves a `canceled` checkpoint, and returns `AgentResult.status="canceled"` / streaming `done.status="canceled"`.
 - `task.cancel("interrupt")` now follows the `src-origin` split: default `interrupt_behavior="block"` tools complete and continue the turn, while explicit `interrupt_behavior="cancel"` tools produce user-interrupted synthetic results.

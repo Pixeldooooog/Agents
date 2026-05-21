@@ -339,15 +339,41 @@ class SDKStatusMessage(SDKBaseMessage):
 
 class SDKResultMessage(SDKBaseMessage):
     type: Literal["result"] = "result"
-    subtype: Literal["success", "error"] = "success"
-    content: str = ""
-    stop_reason: str = ""
+    subtype: Literal[
+        "success",
+        "error_during_execution",
+        "error_max_turns",
+        "error_max_budget_usd",
+        "error_max_structured_output_retries",
+    ] = "success"
     duration_ms: int = 0
+    duration_api_ms: int = 0
+    is_error: bool = False
     num_turns: int = 0
-    status: str = "finished"
-    error: str = ""
+    result: str = ""
+    stop_reason: str | None = None
+    total_cost_usd: float = 0.0
     usage: dict[str, Any] = Field(default_factory=dict)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    modelUsage: dict[str, Any] = Field(default_factory=dict)
+    permission_denials: list[dict[str, Any]] = Field(default_factory=list)
+    structured_output: Any = None
+    fast_mode_state: dict[str, Any] | None = None
+    errors: list[str] = Field(default_factory=list)
+    uuid: str = Field(default_factory=lambda: str(uuid4()))
+
+    @property
+    def content(self) -> str:
+        return self.result
+
+    @property
+    def status(self) -> str:
+        if self.is_error:
+            return "error"
+        return str(self.stop_reason or "finished")
+
+    @property
+    def error(self) -> str:
+        return self.errors[0] if self.errors else ""
 
 
 SDKMessage = Union[

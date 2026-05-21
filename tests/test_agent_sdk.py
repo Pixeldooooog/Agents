@@ -194,6 +194,27 @@ async def _assistant_message_session_factory(settings, spec):
     return AssistantMessageSession()
 
 
+async def _failing_session_factory(settings, spec):
+    failing_workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=".",
+        path=".",
+    )
+
+    class FailingSession:
+        runtime = SimpleNamespace(model="scripted", protocol="scripted", enabled_tools=[])
+        workspace = failing_workspace
+
+        async def stream(self, text, run_id=None):
+            raise RuntimeError("model transport failed")
+            yield
+
+    return FailingSession()
+
+
 async def _compacting_session_factory(settings, spec):
     llm = ScriptedModelClient(
         [
@@ -576,7 +597,11 @@ def test_sdk_query_hides_store_wiring_and_streams_typed_messages():
     assert any(isinstance(message, SDKToolUseSummaryMessage) for message in replay)
     result = next(message for message in messages if isinstance(message, SDKResultMessage))
     assert result.content == "done"
+    assert result.result == "done"
     assert result.status == "finished"
+    assert result.is_error is False
+    assert "content" not in result.model_dump()
+    assert "status" not in result.model_dump()
     assert [validate_sdk_message(message.model_dump()) for message in messages] == messages
 
 
@@ -808,7 +833,25 @@ def test_sdk_prompt_returns_final_result():
 
     assert result.type == "result"
     assert result.content == "done"
+    assert result.result == "done"
     assert result.subtype == "success"
+
+
+def test_sdk_query_projects_execution_errors_as_src_origin_result_shape():
+    client = AgentSDKClient(session_factory=_failing_session_factory)
+
+    messages = asyncio.run(_collect(client.query("fail", SDKOptions(session_id="session-error"))))
+
+    result = next(message for message in messages if isinstance(message, SDKResultMessage))
+    assert result.type == "result"
+    assert result.subtype == "error_during_execution"
+    assert result.is_error is True
+    assert result.status == "error"
+    assert result.error == "model transport failed"
+    assert result.errors == ["model transport failed"]
+    assert result.result == ""
+    assert "error" not in result.model_dump()
+    assert validate_sdk_message(result.model_dump()) == result
 
 
 def test_sdk_session_helpers_list_replay_and_mutate_run_backed_sessions():
@@ -833,6 +876,8 @@ def test_sdk_session_helpers_list_replay_and_mutate_run_backed_sessions():
     assert messages[1].message["content"][0]["text"] == "first meaningful prompt"
     assert any(isinstance(message, SDKToolProgressMessage) and message.status == "started" for message in messages)
     assert any(isinstance(message, SDKResultMessage) and message.content == "done" for message in messages)
+    stored_result = next(message for message in messages if isinstance(message, SDKResultMessage))
+    assert stored_result.result == "done"
 
     asyncio.run(client.rename_session("session-1", "Pinned title"))
     asyncio.run(client.tag_session("session-1", "review"))
@@ -974,6 +1019,14 @@ def test_sdk_exports_json_schemas_and_rejects_invalid_messages():
     assert "SDKUserMessage" in message_schema["$defs"]
     assert "SDKToolProgressMessage" in message_schema["$defs"]
     assert result_schema["properties"]["type"]["const"] == "result"
+    assert "result" in result_schema["properties"]
+    assert "is_error" in result_schema["properties"]
+    assert "duration_api_ms" in result_schema["properties"]
+    assert "total_cost_usd" in result_schema["properties"]
+    assert "modelUsage" in result_schema["properties"]
+    assert "permission_denials" in result_schema["properties"]
+    assert "content" not in result_schema["properties"]
+    assert "status" not in result_schema["properties"]
     assert session_schema["properties"]["session_id"]["title"] == "Session Id"
 
     valid = validate_sdk_message(
@@ -982,11 +1035,22 @@ def test_sdk_exports_json_schemas_and_rejects_invalid_messages():
             "subtype": "success",
             "session_id": "session-1",
             "run_id": "run-1",
-            "content": "done",
+            "result": "done",
+            "is_error": False,
+            "duration_ms": 10,
+            "duration_api_ms": 8,
+            "num_turns": 1,
+            "stop_reason": "finished",
+            "total_cost_usd": 0.0,
+            "usage": {},
+            "modelUsage": {},
+            "permission_denials": [],
+            "uuid": "result-1",
         }
     )
     assert isinstance(valid, SDKResultMessage)
     assert valid.status == "finished"
+    assert valid.content == "done"
 
     with pytest.raises(ValidationError):
         validate_sdk_message(

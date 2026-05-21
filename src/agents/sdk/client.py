@@ -180,24 +180,27 @@ class AgentSDKClient:
             error_message = SDKResultMessage(
                 session_id=session_id,
                 run_id=run_id,
-                subtype="error",
-                status="error",
-                error=str(exc),
+                subtype="error_during_execution",
+                is_error=True,
+                result="",
+                stop_reason="error",
+                errors=[str(exc)],
                 duration_ms=_duration_ms(started_at),
                 num_turns=1,
-                metadata={"event_count": event_count},
             )
             yield error_message
         finally:
             if not yielded_result:
+                is_error = final_status == "error"
                 yield SDKResultMessage(
                     session_id=session_id,
                     run_id=run_id,
-                    subtype="success" if final_status != "error" else "error",
-                    status=final_status,
+                    subtype="error_during_execution" if is_error else "success",
+                    is_error=is_error,
+                    stop_reason=final_status,
+                    errors=[final_status] if is_error else [],
                     duration_ms=_duration_ms(started_at),
                     num_turns=1,
-                    metadata={"event_count": event_count},
                 )
             if final_status != "awaiting_approval":
                 await self.run_service.finish(run_id, error="" if final_status == "finished" else final_status)
@@ -741,6 +744,64 @@ def _session_state(value: Any) -> str:
     return text if text in {"idle", "running", "requires_action"} else "idle"
 
 
+def _result_message_from_done(
+    payload: dict[str, Any],
+    *,
+    session_id: str,
+    run_id: str,
+    duration_ms: int,
+    num_turns: int,
+) -> SDKResultMessage:
+    status = str(payload.get("status") or payload.get("stop_reason") or payload.get("stopReason") or "finished")
+    errors = _string_list_field(payload.get("errors"))
+    error = _text_field(payload, "error")
+    if error and not errors:
+        errors = [error]
+    is_error = bool(payload.get("is_error", payload.get("isError", False))) or bool(errors) or status == "error"
+    result = payload["result"] if "result" in payload else payload.get("content", "")
+    return SDKResultMessage(
+        session_id=session_id,
+        run_id=run_id,
+        subtype=_result_subtype(payload.get("subtype"), is_error=is_error),
+        duration_ms=_int(payload.get("duration_ms", payload.get("durationMs", duration_ms))),
+        duration_api_ms=_int(payload.get("duration_api_ms", payload.get("durationApiMs", 0))),
+        is_error=is_error,
+        num_turns=_int(payload.get("num_turns", payload.get("numTurns", num_turns))),
+        result=str(result or ""),
+        stop_reason=_nullable_text_field(payload, "stop_reason", "stopReason") or status,
+        total_cost_usd=_float(payload.get("total_cost_usd", payload.get("totalCostUsd", 0))),
+        usage=_dict_field(payload.get("usage")),
+        modelUsage=_dict_field(payload.get("modelUsage", payload.get("model_usage"))),
+        permission_denials=_dict_list_field(payload.get("permission_denials", payload.get("permissionDenials"))),
+        structured_output=payload.get("structured_output", payload.get("structuredOutput")),
+        fast_mode_state=_optional_dict_field(payload.get("fast_mode_state", payload.get("fastModeState"))),
+        errors=errors,
+        uuid=_text_field(payload, "uuid", "message_id", "messageId") or str(uuid.uuid4()),
+    )
+
+
+def _result_subtype(
+    value: Any,
+    *,
+    is_error: bool,
+) -> Literal[
+    "success",
+    "error_during_execution",
+    "error_max_turns",
+    "error_max_budget_usd",
+    "error_max_structured_output_retries",
+]:
+    text = str(value or "")
+    if text in {
+        "error_during_execution",
+        "error_max_turns",
+        "error_max_budget_usd",
+        "error_max_structured_output_retries",
+    }:
+        return text
+    return "error_during_execution" if is_error else "success"
+
+
 def _auth_status_from_tool_result(
     event: RuntimeEvent,
     *,
@@ -1082,6 +1143,27 @@ def _int(value: Any) -> int:
         return 0
 
 
+def _float(value: Any) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _dict_field(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _optional_dict_field(value: Any) -> dict[str, Any] | None:
+    return dict(value) if isinstance(value, dict) else None
+
+
+def _dict_list_field(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value if isinstance(item, dict)]
+
+
 def _millis(timestamp: float) -> float:
     return timestamp * 1000
 
@@ -1352,19 +1434,12 @@ def _project_runtime_event(
             status=None,
         )
     if event.type == "done":
-        status = str(event.payload.get("status", "") or "finished")
-        error = str(event.payload.get("error", "") or "")
-        return SDKResultMessage(
+        return _result_message_from_done(
+            event.payload,
             session_id=session_id,
             run_id=run_id,
-            subtype="error" if error or status == "error" else "success",
-            content=str(event.payload.get("content", "") or ""),
-            stop_reason=status,
             duration_ms=duration_ms,
             num_turns=num_turns,
-            status=status,
-            error=error,
-            metadata={"event_count": event.payload.get("event_count")},
         )
     return SDKStatusMessage(
         session_id=session_id,
