@@ -281,6 +281,7 @@ def _read_pdf_file(context: ToolRuntimeContext, path: str, pages: str | None = N
             start_page=start_page,
             end_page=end_page,
         )
+    pdf_base64 = base64.b64encode(data).decode("ascii")
     return {
         "type": "pdf",
         "path": relative_path,
@@ -288,9 +289,25 @@ def _read_pdf_file(context: ToolRuntimeContext, path: str, pages: str | None = N
         "mimeType": "application/pdf",
         "file": {
             "filePath": relative_path,
-            "base64": base64.b64encode(data).decode("ascii"),
+            "base64": pdf_base64,
             "originalSize": len(data),
         },
+        "newMessages": [
+            {
+                "role": "user",
+                "isMeta": True,
+                "content": [
+                    {
+                        "type": "document",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "application/pdf",
+                            "data": pdf_base64,
+                        },
+                    }
+                ],
+            }
+        ],
     }
 
 

@@ -233,6 +233,11 @@ def _content_block_from_supplemental(raw_block: Any) -> ContentBlock | None:
         if not source:
             return None
         return ContentBlock(type="image", data={"source": dict(source)}, raw=raw_block)
+    if block_type == "document":
+        source = raw_block.get("source") if isinstance(raw_block.get("source"), dict) else {}
+        if not source:
+            return None
+        return ContentBlock(type="document", data={"source": dict(source)}, raw=raw_block)
     return None
 
 

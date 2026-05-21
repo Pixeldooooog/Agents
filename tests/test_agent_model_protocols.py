@@ -387,7 +387,7 @@ def test_claude_messages_groups_consecutive_tool_results():
     }
 
 
-def test_claude_messages_serializes_supplemental_image_blocks():
+def test_claude_messages_serializes_supplemental_media_blocks():
     adapter = ClaudeMessagesAdapter()
     request = ModelRequest(
         protocol="claude-messages",
@@ -421,6 +421,22 @@ def test_claude_messages_serializes_supplemental_image_blocks():
                 ],
                 raw={"isMeta": True},
             ),
+            Message(
+                role="user",
+                content=[
+                    ContentBlock(
+                        type="document",
+                        data={
+                            "source": {
+                                "type": "base64",
+                                "media_type": "application/pdf",
+                                "data": "JVBERi0xLjQ=",
+                            }
+                        },
+                    )
+                ],
+                raw={"isMeta": True},
+            ),
         ],
     )
 
@@ -448,6 +464,16 @@ def test_claude_messages_serializes_supplemental_image_blocks():
                 "type": "base64",
                 "media_type": "image/jpeg",
                 "data": "anBlZw==",
+            },
+        }
+    ]
+    assert payload["messages"][4]["content"] == [
+        {
+            "type": "document",
+            "source": {
+                "type": "base64",
+                "media_type": "application/pdf",
+                "data": "JVBERi0xLjQ=",
             },
         }
     ]

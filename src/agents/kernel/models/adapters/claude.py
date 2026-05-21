@@ -140,16 +140,29 @@ def _claude_content_blocks(message: Message) -> List[Dict[str, Any]]:
             image = _claude_image_block(block)
             if image is not None:
                 blocks.append(image)
+            continue
+        if block.type == "document":
+            document = _claude_document_block(block)
+            if document is not None:
+                blocks.append(document)
     return blocks
 
 
 def _claude_image_block(block) -> Optional[Dict[str, Any]]:
+    return _claude_media_block(block, "image")
+
+
+def _claude_document_block(block) -> Optional[Dict[str, Any]]:
+    return _claude_media_block(block, "document")
+
+
+def _claude_media_block(block, block_type: str) -> Optional[Dict[str, Any]]:
     raw = block.raw if isinstance(block.raw, dict) else {}
-    if raw.get("type") == "image" and isinstance(raw.get("source"), dict):
-        return {"type": "image", "source": dict(raw["source"])}
+    if raw.get("type") == block_type and isinstance(raw.get("source"), dict):
+        return {"type": block_type, "source": dict(raw["source"])}
     source = block.data.get("source") if isinstance(block.data, dict) else None
     if isinstance(source, dict):
-        return {"type": "image", "source": dict(source)}
+        return {"type": block_type, "source": dict(source)}
     return None
 
 

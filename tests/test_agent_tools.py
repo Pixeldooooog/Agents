@@ -1719,6 +1719,17 @@ def test_filesystem_read_returns_src_origin_style_pdf_payload(tmp_path: Path):
     assert result.raw["file"]["filePath"] == "sample.pdf"
     assert result.raw["file"]["originalSize"] == len(pdf_bytes)
     assert base64.b64decode(result.raw["file"]["base64"]) == pdf_bytes
+    document_blocks = result.raw["newMessages"][0]["content"]
+    assert document_blocks == [
+        {
+            "type": "document",
+            "source": {
+                "type": "base64",
+                "media_type": "application/pdf",
+                "data": result.raw["file"]["base64"],
+            },
+        }
+    ]
     assert result.content == "PDF file read: sample.pdf (%d bytes)" % len(pdf_bytes)
     assert pages.is_error is True
     assert "exceeds maximum of 20 pages" in pages.content
@@ -1861,6 +1872,65 @@ def test_runtime_injects_pdf_page_image_messages_after_read_tool(monkeypatch, tm
     assert supplemental.content[0].data["source"]["media_type"] == "image/jpeg"
     assert base64.b64decode(supplemental.content[0].data["source"]["data"]) == b"\xff\xd8\xffpage1"
     assert model.requests[1].messages[3].content[0].type == "image"
+
+
+def test_runtime_injects_pdf_document_messages_after_read_tool(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    pdf_bytes = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF\n"
+    (tmp_path / "sample.pdf").write_bytes(pdf_bytes)
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+    model = ScriptedModelClient(
+        [
+            ModelResponse(
+                message=Message.from_text(
+                    "assistant",
+                    "",
+                    tool_calls=[
+                        ToolCall(
+                            id="toolu-read-full-pdf",
+                            name="filesystem.read",
+                            arguments={"path": "sample.pdf"},
+                        )
+                    ],
+                ),
+                stop_reason="tool_calls",
+            ),
+            ModelResponse(message=Message.from_text("assistant", "done")),
+        ]
+    )
+    runtime = AgentRuntime(
+        model_client=model,
+        tools=registry,
+        protocol="scripted",
+        model="scripted",
+        enabled_tools=["filesystem.read"],
+    )
+
+    result = asyncio.run(runtime.run([Message.from_text("user", "read pdf")]))
+
+    assert result.content == "done"
+    assert [message.role for message in result.messages] == ["user", "assistant", "tool", "user", "assistant"]
+    supplemental = result.messages[3]
+    assert supplemental.raw["isMeta"] is True
+    assert supplemental.raw["source_tool_call_id"] == "toolu-read-full-pdf"
+    assert supplemental.content[0].type == "document"
+    assert supplemental.content[0].data["source"]["media_type"] == "application/pdf"
+    assert base64.b64decode(supplemental.content[0].data["source"]["data"]) == pdf_bytes
+    assert model.requests[1].messages[3].content[0].type == "document"
 
 
 def test_filesystem_read_returns_src_origin_style_notebook_payload(tmp_path: Path):
