@@ -746,8 +746,16 @@ def test_ndjson_bridge_restored_pending_approval_can_complete(tmp_path):
         "tool_approval_decision",
         "tool_start",
         "tool_result",
+        "tool_use_summary",
         "done",
     ]
+    summary_event = next(
+        payload["event"]
+        for payload in emitted
+        if payload.get("type") == "runtime_event" and payload["event"]["type"] == "tool_use_summary"
+    )
+    assert summary_event["payload"]["summary"] == "Ran echo"
+    assert summary_event["payload"]["preceding_tool_use_ids"] == ["call-1"]
     assert emitted[-1] == {"type": "turn_finished", "status": "finished", "run_id": "run-approval"}
     assert state.session.messages[-1].content_text() == "restored approval done"
     audits = asyncio.run(audit_store.list_for_run("run-approval"))
