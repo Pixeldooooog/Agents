@@ -114,7 +114,6 @@ def write_text_safely(context: ToolRuntimeContext, path: str, content: str) -> d
     output = normalize_text_write_content(relative_path, content)
     if existed:
         ensure_existing_file_current(context, relative_path, current)
-        output = preserve_existing_line_endings(current, output)
     result = context.sandbox_client.write_text(path, output, encoding=encoding)
     record_file_read(context, result.path, output, encoding=result.encoding)
     payload = result.to_dict()

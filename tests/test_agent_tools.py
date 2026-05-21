@@ -2395,7 +2395,7 @@ def test_filesystem_write_rejects_stale_prior_read(tmp_path: Path):
     assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "changed outside\n"
 
 
-def test_filesystem_write_preserves_crlf_for_existing_file(tmp_path: Path):
+def test_filesystem_write_uses_provided_line_endings_for_existing_file(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="default",
         user_id="user-1",
@@ -2419,8 +2419,8 @@ def test_filesystem_write_preserves_crlf_for_existing_file(tmp_path: Path):
 
     assert read.is_error is False
     assert written.is_error is False
-    assert written.raw["safety"]["line_endings"] == "crlf"
-    assert (tmp_path / "notes.txt").read_bytes() == b"new\r\ntext\r\n"
+    assert written.raw["safety"]["line_endings"] == "lf"
+    assert (tmp_path / "notes.txt").read_bytes() == b"new\ntext\n"
 
 
 def test_filesystem_write_preserves_utf16le_for_existing_file(tmp_path: Path):
@@ -5237,6 +5237,38 @@ def test_patch_apply_empty_replacement_removes_trailing_newline_like_file_edit(t
     assert result.is_error is False
     assert result.raw["editSummary"][0]["occurrences"] == 1
     assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "keep\nnext\n"
+
+
+def test_patch_apply_preserves_crlf_for_existing_file_edit(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "notes.txt").write_bytes(b"old\r\ntext\r\n")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+    result = asyncio.run(
+        registry.execute(
+            "patch.apply",
+            {"edits": [{"path": "notes.txt", "old_text": "old", "new_text": "new"}]},
+        )
+    )
+
+    assert read.is_error is False
+    assert result.is_error is False
+    assert (tmp_path / "notes.txt").read_bytes() == b"new\r\ntext\r\n"
 
 
 def test_patch_apply_preserves_utf16le_for_existing_file(tmp_path: Path):
