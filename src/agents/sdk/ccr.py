@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import time
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
-from typing import Any, Literal
-from urllib.parse import urlsplit, urlunsplit
+from typing import Any, Literal, Optional
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
-from agents.sdk.structured_io import ndjson_safe_dumps
 from agents.sdk.transports import SDKRetryableBatchError, SDKSerialBatchUploader
 
 
@@ -17,11 +15,14 @@ CCR_UPLOAD_MAX_DELAY_SECONDS = 30.0
 CCR_WORKER_STATE_BASE_DELAY_SECONDS = 0.5
 CCR_WORKER_STATE_MAX_DELAY_SECONDS = 30.0
 CCR_STREAM_EVENT_FLUSH_INTERVAL_SECONDS = 0.1
+CCR_GET_MAX_ATTEMPTS = 10
+CCR_GET_BASE_DELAY_SECONDS = 0.5
+CCR_GET_MAX_DELAY_SECONDS = 30.0
 
 
 SDKCCRDeliveryStatus = Literal["received", "processing", "processed"]
 SDKCCRRequestHandler = Callable[
-    [str, str, Mapping[str, str], dict[str, Any]],
+    [str, str, Mapping[str, str], Optional[dict[str, Any]]],
     Awaitable["SDKCCRRequestResult"],
 ]
 
@@ -130,6 +131,8 @@ class SDKCCRClient:
         get_auth_headers: Callable[[], Mapping[str, str]] | None = None,
         heartbeat_interval_seconds: float | None = CCR_HEARTBEAT_INTERVAL_SECONDS,
         stream_event_flush_interval_seconds: float = CCR_STREAM_EVENT_FLUSH_INTERVAL_SECONDS,
+        get_base_delay_seconds: float = CCR_GET_BASE_DELAY_SECONDS,
+        get_max_delay_seconds: float = CCR_GET_MAX_DELAY_SECONDS,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self.session_base_url = _normalize_session_url(session_url)
@@ -141,6 +144,8 @@ class SDKCCRClient:
         self._get_auth_headers = get_auth_headers or (lambda: {})
         self._heartbeat_interval_seconds = heartbeat_interval_seconds
         self._stream_event_flush_interval_seconds = stream_event_flush_interval_seconds
+        self._get_base_delay_seconds = get_base_delay_seconds
+        self._get_max_delay_seconds = get_max_delay_seconds
         self._sleep = sleep
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._delivery_enqueue_tasks: list[asyncio.Task[None]] = []
@@ -187,20 +192,30 @@ class SDKCCRClient:
         if not self._get_auth_headers():
             raise SDKCCRInitError("no_auth_headers")
         self.worker_epoch = int(epoch)
-        result = await self._request(
-            "put",
-            "/worker",
-            {
-                "worker_status": "idle",
-                "worker_epoch": self.worker_epoch,
-                "external_metadata": {"pending_action": None, "task_summary": None},
-            },
-        )
-        if not result.ok:
-            raise SDKCCRInitError("worker_register_failed")
-        self.current_state = "idle"
-        self._start_heartbeat()
-        return result.data if isinstance(result.data, dict) else None
+        restored_worker_state = asyncio.create_task(self.get_worker_state())
+        try:
+            result = await self._request(
+                "put",
+                "/worker",
+                {
+                    "worker_status": "idle",
+                    "worker_epoch": self.worker_epoch,
+                    "external_metadata": {"pending_action": None, "task_summary": None},
+                },
+            )
+            if not result.ok:
+                raise SDKCCRInitError("worker_register_failed")
+            self.current_state = "idle"
+            self._start_heartbeat()
+            return await restored_worker_state
+        except Exception:
+            if not restored_worker_state.done():
+                restored_worker_state.cancel()
+            try:
+                await restored_worker_state
+            except (asyncio.CancelledError, Exception):
+                pass
+            raise
 
     def report_state(self, state: str, details: dict[str, Any] | None = None) -> None:
         if state == self.current_state and not details:
@@ -270,6 +285,25 @@ class SDKCCRClient:
 
     async def flush_worker_state(self) -> None:
         await self.worker_state.flush()
+
+    async def get_worker_state(self) -> dict[str, Any] | None:
+        result = await self._get_with_retry("/worker")
+        if not isinstance(result, dict):
+            return None
+        worker = result.get("worker")
+        if not isinstance(worker, dict):
+            return None
+        metadata = worker.get("external_metadata")
+        return dict(metadata) if isinstance(metadata, dict) else None
+
+    async def read_internal_events(self) -> list[dict[str, Any]] | None:
+        return await self._paginated_get("/worker/internal-events")
+
+    async def read_subagent_internal_events(self) -> list[dict[str, Any]] | None:
+        return await self._paginated_get(
+            "/worker/internal-events",
+            {"subagents": "true"},
+        )
 
     async def close(self) -> None:
         self.closed = True
@@ -403,7 +437,7 @@ class SDKCCRClient:
         self,
         method: str,
         path: str,
-        body: dict[str, Any],
+        body: dict[str, Any] | None = None,
     ) -> SDKCCRRequestResult:
         headers = dict(self._get_auth_headers())
         if not headers:
@@ -414,11 +448,14 @@ class SDKCCRClient:
                 raise SDKCCREpochMismatchError("worker epoch mismatch")
             return result
         client = await self._ensure_http_client()
+        request_headers = {**headers}
+        if body is not None:
+            request_headers["Content-Type"] = "application/json"
         response = await client.request(
             method.upper(),
             f"{self.session_base_url}{path}",
-            headers={**headers, "Content-Type": "application/json"},
-            json=body,
+            headers=request_headers,
+            **({"json": body} if body is not None else {}),
         )
         if response.status_code == 409:
             raise SDKCCREpochMismatchError("worker epoch mismatch")
@@ -430,6 +467,47 @@ class SDKCCRClient:
             data=response.json() if response.content else None,
             retry_after_seconds=retry_after_seconds,
         )
+
+    async def _paginated_get(
+        self,
+        path: str,
+        params: Mapping[str, str] | None = None,
+    ) -> list[dict[str, Any]] | None:
+        all_events: list[dict[str, Any]] = []
+        cursor: str | None = None
+        while True:
+            page_path = _path_with_query(path, params or {}, cursor=cursor)
+            page = await self._get_with_retry(page_path)
+            if page is None:
+                return None
+            data = page.get("data") if isinstance(page, dict) else None
+            if isinstance(data, list):
+                all_events.extend(event for event in data if isinstance(event, dict))
+            next_cursor = page.get("next_cursor") if isinstance(page, dict) else None
+            cursor = next_cursor if isinstance(next_cursor, str) and next_cursor else None
+            if cursor is None:
+                return all_events
+
+    async def _get_with_retry(self, path: str) -> dict[str, Any] | None:
+        if not self._get_auth_headers():
+            return None
+        for attempt in range(1, CCR_GET_MAX_ATTEMPTS + 1):
+            try:
+                result = await self._request("get", path)
+            except SDKCCREpochMismatchError:
+                raise
+            except Exception:
+                result = SDKCCRRequestResult(False)
+            if result.ok:
+                return result.data if isinstance(result.data, dict) else None
+            if attempt < CCR_GET_MAX_ATTEMPTS:
+                await self._sleep(
+                    min(
+                        self._get_base_delay_seconds * (2 ** (attempt - 1)),
+                        self._get_max_delay_seconds,
+                    )
+                )
+        return None
 
     async def _ensure_http_client(self) -> Any:
         if self._http_client is None:
@@ -543,6 +621,20 @@ def _clear_stream_accumulator_for_message(
 
 def _stream_scope_key(message: Mapping[str, Any]) -> str:
     return f"{message.get('session_id')}:{message.get('parent_tool_use_id') or ''}"
+
+
+def _path_with_query(
+    path: str,
+    params: Mapping[str, str],
+    *,
+    cursor: str | None = None,
+) -> str:
+    query_params = dict(params)
+    if cursor:
+        query_params["cursor"] = cursor
+    if not query_params:
+        return path
+    return f"{path}?{urlencode(query_params)}"
 
 
 def _normalize_session_url(session_url: str) -> str:

@@ -2602,6 +2602,11 @@ def test_sdk_ccr_client_initializes_and_acks_transport_events():
 
         async def request(method, path, headers, body):
             requests.append((method, path, dict(headers), body))
+            if method == "get" and path == "/worker":
+                return SDKCCRRequestResult(
+                    True,
+                    data={"worker": {"external_metadata": {"pending_action": "approve"}}},
+                )
             return SDKCCRRequestResult(True)
 
         client = SDKCCRClient(
@@ -2611,14 +2616,15 @@ def test_sdk_ccr_client_initializes_and_acks_transport_events():
             get_auth_headers=lambda: {"Authorization": "Bearer token"},
             heartbeat_interval_seconds=None,
         )
-        await client.initialize(epoch=7)
+        restored = await client.initialize(epoch=7)
         transport.on_event({"event_id": "evt-1"})
         await client.flush_delivery()
         await client.close()
-        return requests
+        return restored, requests
 
-    requests = asyncio.run(execute())
+    restored, requests = asyncio.run(execute())
 
+    assert restored == {"pending_action": "approve"}
     assert requests[0] == (
         "put",
         "/worker",
@@ -2629,8 +2635,10 @@ def test_sdk_ccr_client_initializes_and_acks_transport_events():
             "external_metadata": {"pending_action": None, "task_summary": None},
         },
     )
-    assert requests[1][0:2] == ("post", "/worker/events/delivery")
-    assert requests[1][3] == {
+    assert requests[1][0:2] == ("get", "/worker")
+    assert requests[1][3] is None
+    assert requests[2][0:2] == ("post", "/worker/events/delivery")
+    assert requests[2][3] == {
         "worker_epoch": 7,
         "updates": [{"event_id": "evt-1", "status": "received"}],
     }
@@ -2664,8 +2672,10 @@ def test_sdk_ccr_client_writes_client_and_internal_events():
         return requests
 
     requests = asyncio.run(execute())
-    client_events = requests[1]
-    internal_events = requests[2]
+    client_events = next(request for request in requests if request[1] == "/worker/events")
+    internal_events = next(
+        request for request in requests if request[1] == "/worker/internal-events"
+    )
 
     assert client_events[0:2] == ("post", "/worker/events")
     assert client_events[2] == {
@@ -2751,8 +2761,9 @@ def test_sdk_ccr_client_coalesces_stream_event_text_deltas():
         return requests
 
     requests = asyncio.run(execute())
-    first_batch = requests[1][2]["events"]
-    second_batch = requests[2][2]["events"]
+    event_posts = [request for request in requests if request[1] == "/worker/events"]
+    first_batch = event_posts[0][2]["events"]
+    second_batch = event_posts[1][2]["events"]
 
     assert first_batch == [
         {
@@ -2796,6 +2807,89 @@ def test_sdk_ccr_client_coalesces_stream_event_text_deltas():
             "ephemeral": True,
         }
     ]
+
+
+def test_sdk_ccr_client_reads_restored_internal_events_with_pagination():
+    async def execute():
+        requests = []
+
+        async def request(method, path, headers, body):
+            requests.append((method, path, body))
+            if path == "/worker/internal-events":
+                return SDKCCRRequestResult(
+                    True,
+                    data={
+                        "data": [{"event_id": "foreground-1"}],
+                        "next_cursor": "cursor-1",
+                    },
+                )
+            if path == "/worker/internal-events?cursor=cursor-1":
+                return SDKCCRRequestResult(
+                    True,
+                    data={"data": [{"event_id": "foreground-2"}]},
+                )
+            if path == "/worker/internal-events?subagents=true":
+                return SDKCCRRequestResult(
+                    True,
+                    data={"data": [{"event_id": "subagent-1"}]},
+                )
+            return SDKCCRRequestResult(False, status=404)
+
+        client = SDKCCRClient(
+            "https://api.example.com/v1/code/sessions/session-4",
+            request=request,
+            get_auth_headers=lambda: {"Authorization": "Bearer token"},
+            heartbeat_interval_seconds=None,
+            get_base_delay_seconds=0,
+        )
+        foreground = await client.read_internal_events()
+        subagents = await client.read_subagent_internal_events()
+        await client.close()
+        return foreground, subagents, requests
+
+    foreground, subagents, requests = asyncio.run(execute())
+
+    assert foreground == [{"event_id": "foreground-1"}, {"event_id": "foreground-2"}]
+    assert subagents == [{"event_id": "subagent-1"}]
+    assert requests == [
+        ("get", "/worker/internal-events", None),
+        ("get", "/worker/internal-events?cursor=cursor-1", None),
+        ("get", "/worker/internal-events?subagents=true", None),
+    ]
+
+
+def test_sdk_ccr_client_retries_internal_event_reads():
+    async def execute():
+        attempts = 0
+        sleeps = []
+
+        async def request(method, path, headers, body):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                return SDKCCRRequestResult(False, status=500)
+            return SDKCCRRequestResult(True, data={"data": [{"event_id": "evt-1"}]})
+
+        async def sleep(delay):
+            sleeps.append(delay)
+
+        client = SDKCCRClient(
+            "https://api.example.com/v1/code/sessions/session-5",
+            request=request,
+            get_auth_headers=lambda: {"Authorization": "Bearer token"},
+            heartbeat_interval_seconds=None,
+            get_base_delay_seconds=0.25,
+            sleep=sleep,
+        )
+        events = await client.read_internal_events()
+        await client.close()
+        return attempts, sleeps, events
+
+    attempts, sleeps, events = asyncio.run(execute())
+
+    assert attempts == 2
+    assert sleeps == [0.25]
+    assert events == [{"event_id": "evt-1"}]
 
 
 def test_sdk_worker_state_uploader_coalesces_metadata_patches():
