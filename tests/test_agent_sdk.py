@@ -743,6 +743,82 @@ async def _rewind_patch_session_factory(settings, spec):
     return RewindPatchSession()
 
 
+async def _rewind_multi_turn_session_factory(settings, spec):
+    workspace_path = str(spec.workspace.path or spec.workspace.root or ".")
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=workspace_path,
+        path=workspace_path,
+    )
+
+    class RewindMultiTurnSession:
+        runtime = SimpleNamespace(model="scripted", protocol="scripted", enabled_tools=["patch.apply"])
+
+        def __init__(self):
+            self.workspace = workspace
+
+        async def stream(self, text, run_id=None):
+            note = Path(workspace_path) / "turn-note.txt"
+            if text == "first edit":
+                note.write_text("v1\n", encoding="utf-8")
+                yield RuntimeEvent(
+                    type="tool_result",
+                    name="patch.apply",
+                    payload={
+                        "tool_call_id": "patch-first-edit",
+                        "raw": {
+                            "changed": True,
+                            "files": [{"path": "turn-note.txt", "action": "edit", "edits": 1, "bytes": 3}],
+                            "filePath": "turn-note.txt",
+                            "oldString": "v0",
+                            "newString": "v1",
+                            "originalFile": "v0\n",
+                            "structuredPatch": [
+                                {
+                                    "oldStart": 1,
+                                    "oldLines": 1,
+                                    "newStart": 1,
+                                    "newLines": 1,
+                                    "lines": ["-v0", "+v1"],
+                                }
+                            ],
+                        },
+                    },
+                )
+            elif text == "second edit":
+                note.write_text("v2\n", encoding="utf-8")
+                yield RuntimeEvent(
+                    type="tool_result",
+                    name="patch.apply",
+                    payload={
+                        "tool_call_id": "patch-second-edit",
+                        "raw": {
+                            "changed": True,
+                            "files": [{"path": "turn-note.txt", "action": "edit", "edits": 1, "bytes": 3}],
+                            "filePath": "turn-note.txt",
+                            "oldString": "v1",
+                            "newString": "v2",
+                            "originalFile": "v1\n",
+                            "structuredPatch": [
+                                {
+                                    "oldStart": 1,
+                                    "oldLines": 1,
+                                    "newStart": 1,
+                                    "newLines": 1,
+                                    "lines": ["-v1", "+v2"],
+                                }
+                            ],
+                        },
+                    },
+                )
+            yield RuntimeEvent(type="done", name="assistant", payload={"content": "ok", "status": "finished"})
+
+    return RewindMultiTurnSession()
+
+
 async def _src_origin_write_rewind_session_factory(settings, spec):
     workspace_path = str(spec.workspace.path or spec.workspace.root or ".")
     workspace = WorkspaceContext(
@@ -2107,6 +2183,7 @@ def test_sdk_control_request_rewinds_files_from_run_store(tmp_path):
                 user_id="user",
                 agent_id="agent",
                 cwd=str(tmp_path),
+                metadata={"file_history_enabled": False},
             )
         )
         await _collect(session.query("edit files"))
@@ -2147,6 +2224,149 @@ def test_sdk_control_request_rewinds_files_from_run_store(tmp_path):
     assert created_exists is False
 
 
+def test_sdk_records_file_history_snapshots_for_rewind(tmp_path):
+    async def execute():
+        config_dir = tmp_path / "claude-config"
+        notes = tmp_path / "notes.txt"
+        created = tmp_path / "created.txt"
+        write_note = tmp_path / "write.txt"
+        notes.write_text("old\n", encoding="utf-8")
+        write_note.write_text("old write\n", encoding="utf-8")
+        client = AgentSDKClient(session_factory=_rewind_patch_session_factory)
+        session = client.create_sdk_session(
+            SDKOptions(
+                session_id="auto-history-session",
+                tenant_id="tenant",
+                user_id="user",
+                agent_id="agent",
+                cwd=str(tmp_path),
+                metadata={"claude_config_dir": str(config_dir)},
+            )
+        )
+        await _collect(session.query("edit files"))
+        records = await client._runs_for_session("auto-history-session")
+        snapshots = [
+            event.payload
+            for record in records
+            for event in record.events
+            if event.type == "file-history-snapshot"
+        ]
+        replay = await session.messages({"include_system_messages": False})
+        user_message = next(message for message in replay if isinstance(message, SDKUserMessage))
+        dry_run = await session.handle_control_request(
+            SDKControlRequest(
+                request_id="rewind-auto-file-history-dry-run",
+                request=SDKControlRewindFilesRequest(user_message_id=user_message.uuid, dry_run=True),
+            )
+        )
+        actual = await session.handle_control_request(
+            SDKControlRequest(
+                request_id="rewind-auto-file-history",
+                request=SDKControlRewindFilesRequest(user_message_id=user_message.uuid),
+            )
+        )
+        return (
+            snapshots,
+            dry_run,
+            actual,
+            notes.read_text(encoding="utf-8"),
+            write_note.read_text(encoding="utf-8"),
+            created.exists(),
+        )
+
+    snapshots, dry_run, actual, notes_content, write_content, created_exists = asyncio.run(execute())
+
+    assert len(snapshots) == 4
+    assert snapshots[0]["isSnapshotUpdate"] is False
+    assert all(snapshot["isSnapshotUpdate"] is True for snapshot in snapshots[1:])
+    message_ids = {snapshot["messageId"] for snapshot in snapshots}
+    assert len(message_ids) == 1
+    final_snapshot = snapshots[-1]
+    backup_root = Path(final_snapshot["backupRoot"])
+    assert backup_root == tmp_path / "claude-config" / "file-history" / "auto-history-session"
+    backups = final_snapshot["snapshot"]["trackedFileBackups"]
+    assert sorted(backups) == ["created.txt", "notes.txt", "write.txt"]
+    assert backups["created.txt"]["backupFileName"] is None
+    assert backups["created.txt"]["version"] == 1
+    note_backup = backup_root / backups["notes.txt"]["backupFileName"]
+    write_backup = backup_root / backups["write.txt"]["backupFileName"]
+    assert note_backup.name.endswith("@v1")
+    assert write_backup.name.endswith("@v1")
+    assert note_backup.read_text(encoding="utf-8") == "old\n"
+    assert write_backup.read_text(encoding="utf-8") == "old write\n"
+    assert isinstance(dry_run.response, SDKControlSuccessResponse)
+    assert dry_run.response.response == {
+        "canRewind": True,
+        "filesChanged": ["created.txt", "notes.txt", "write.txt"],
+        "insertions": 2,
+        "deletions": 3,
+    }
+    assert actual.response.response == {"canRewind": True}
+    assert notes_content == "old\n"
+    assert write_content == "old write\n"
+    assert created_exists is False
+
+
+def test_sdk_rewind_file_history_snapshot_seeds_previous_tracked_files(tmp_path):
+    async def execute():
+        config_dir = tmp_path / "claude-config"
+        note = tmp_path / "turn-note.txt"
+        note.write_text("v0\n", encoding="utf-8")
+        client = AgentSDKClient(session_factory=_rewind_multi_turn_session_factory)
+        session = client.create_sdk_session(
+            SDKOptions(
+                session_id="multi-turn-history-session",
+                tenant_id="tenant",
+                user_id="user",
+                agent_id="agent",
+                cwd=str(tmp_path),
+                metadata={"claude_config_dir": str(config_dir)},
+            )
+        )
+        await _collect(session.query("first edit"))
+        await _collect(session.query("no edits"))
+        await _collect(session.query("second edit"))
+        records = await client._runs_for_session("multi-turn-history-session")
+        replay = await session.messages({"include_system_messages": False})
+        user_messages = [message for message in replay if isinstance(message, SDKUserMessage)]
+        no_edit_message_id = user_messages[1].uuid
+        snapshots = [
+            event.payload
+            for record in records
+            for event in record.events
+            if event.type == "file-history-snapshot" and event.payload["messageId"] == no_edit_message_id
+        ]
+        dry_run = await session.handle_control_request(
+            SDKControlRequest(
+                request_id="rewind-no-edit-file-history-dry-run",
+                request=SDKControlRewindFilesRequest(user_message_id=no_edit_message_id, dry_run=True),
+            )
+        )
+        actual = await session.handle_control_request(
+            SDKControlRequest(
+                request_id="rewind-no-edit-file-history",
+                request=SDKControlRewindFilesRequest(user_message_id=no_edit_message_id),
+            )
+        )
+        return snapshots, dry_run, actual, note.read_text(encoding="utf-8")
+
+    snapshots, dry_run, actual, note_content = asyncio.run(execute())
+
+    assert len(snapshots) == 1
+    backups = snapshots[0]["snapshot"]["trackedFileBackups"]
+    assert backups["turn-note.txt"]["version"] == 2
+    assert backups["turn-note.txt"]["backupFileName"].endswith("@v2")
+    assert isinstance(dry_run.response, SDKControlSuccessResponse)
+    assert dry_run.response.response == {
+        "canRewind": True,
+        "filesChanged": ["turn-note.txt"],
+        "insertions": 1,
+        "deletions": 1,
+    }
+    assert actual.response.response == {"canRewind": True}
+    assert note_content == "v1\n"
+
+
 def test_sdk_control_request_rewinds_src_origin_wrapped_write_results(tmp_path):
     async def execute():
         note = tmp_path / "origin-write.txt"
@@ -2160,6 +2380,7 @@ def test_sdk_control_request_rewinds_src_origin_wrapped_write_results(tmp_path):
                 user_id="user",
                 agent_id="agent",
                 cwd=str(tmp_path),
+                metadata={"file_history_enabled": False},
             )
         )
         await _collect(session.query("write files"))
@@ -2210,7 +2431,7 @@ def test_sdk_control_request_rewinds_file_history_snapshot_chain(tmp_path):
                 user_id="user",
                 agent_id="agent",
                 cwd=str(tmp_path),
-                metadata={"claude_config_dir": str(config_dir)},
+                metadata={"claude_config_dir": str(config_dir), "file_history_enabled": False},
             )
         )
         user_message = {
