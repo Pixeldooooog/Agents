@@ -180,6 +180,13 @@ class SDKFilesPersistedMessage(SDKBaseMessage):
     processed_at: str = ""
 
 
+class SDKLocalCommandOutputMessage(SDKBaseMessage):
+    type: Literal["system"] = "system"
+    subtype: Literal["local_command_output"] = "local_command_output"
+    content: str = ""
+    uuid: str = Field(default_factory=lambda: str(uuid4()))
+
+
 class SDKHookStartedMessage(SDKBaseMessage):
     type: Literal["system"] = "system"
     subtype: Literal["hook_started"] = "hook_started"
@@ -278,6 +285,7 @@ SDKMessage = Union[
     SDKTaskProgressMessage,
     SDKTaskNotificationMessage,
     SDKFilesPersistedMessage,
+    SDKLocalCommandOutputMessage,
     SDKHookStartedMessage,
     SDKHookProgressMessage,
     SDKHookResponseMessage,

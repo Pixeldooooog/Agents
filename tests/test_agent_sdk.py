@@ -32,6 +32,7 @@ from agents.sdk.types import (
     SDKHookProgressMessage,
     SDKHookResponseMessage,
     SDKHookStartedMessage,
+    SDKLocalCommandOutputMessage,
     SDKResultMessage,
     SDKSessionStateChangedMessage,
     SDKSystemMessage,
@@ -382,6 +383,34 @@ async def _hook_session_factory(settings, spec):
     return HookSession()
 
 
+async def _local_command_session_factory(settings, spec):
+    local_command_workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=".",
+        path=".",
+    )
+
+    class LocalCommandSession:
+        runtime = SimpleNamespace(model="scripted", protocol="scripted", enabled_tools=[])
+        workspace = local_command_workspace
+
+        async def stream(self, text, run_id=None):
+            yield RuntimeEvent(
+                type="local_command_output",
+                name="local_command",
+                payload={
+                    "uuid": "local-command-1",
+                    "content": "<local-command-stdout>Switched to opus</local-command-stdout>",
+                },
+            )
+            yield RuntimeEvent(type="done", name="assistant", payload={"content": "", "status": "finished"})
+
+    return LocalCommandSession()
+
+
 def test_sdk_query_hides_store_wiring_and_streams_typed_messages():
     client = AgentSDKClient(session_factory=_session_factory)
 
@@ -545,6 +574,21 @@ def test_sdk_query_projects_hook_lifecycle_system_messages():
     assert validate_sdk_message(response.model_dump()) == response
 
 
+def test_sdk_query_projects_local_command_output_system_message():
+    client = AgentSDKClient(session_factory=_local_command_session_factory)
+
+    messages = asyncio.run(_collect(client.query("/model opus", SDKOptions(session_id="session-local-command"))))
+    replay = asyncio.run(client.get_session_messages("session-local-command", {"include_system_messages": False}))
+
+    output = next(message for message in messages if isinstance(message, SDKLocalCommandOutputMessage))
+    assert output.type == "system"
+    assert output.subtype == "local_command_output"
+    assert output.content == "Switched to opus"
+    assert output.uuid == "local-command-1"
+    assert validate_sdk_message(output.model_dump()) == output
+    assert any(isinstance(message, SDKLocalCommandOutputMessage) for message in replay)
+
+
 def test_sdk_prompt_returns_final_result():
     client = AgentSDKClient(session_factory=_session_factory)
 
@@ -696,6 +740,7 @@ def test_sdk_exports_json_schemas_and_rejects_invalid_messages():
     assert "SDKHookStartedMessage" in message_schema["$defs"]
     assert "SDKHookProgressMessage" in message_schema["$defs"]
     assert "SDKHookResponseMessage" in message_schema["$defs"]
+    assert "SDKLocalCommandOutputMessage" in message_schema["$defs"]
     assert "SDKSessionStateChangedMessage" in message_schema["$defs"]
     assert "SDKTaskStartedMessage" in message_schema["$defs"]
     assert "SDKTaskProgressMessage" in message_schema["$defs"]

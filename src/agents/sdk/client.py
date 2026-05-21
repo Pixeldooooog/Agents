@@ -31,6 +31,7 @@ from agents.sdk.types import (
     SDKHookProgressMessage,
     SDKHookResponseMessage,
     SDKHookStartedMessage,
+    SDKLocalCommandOutputMessage,
     SDKSessionStateChangedMessage,
     SDKSessionInfo,
     SDKStatusMessage,
@@ -1159,6 +1160,13 @@ def _project_runtime_event(
         )
     if event.type == "session_state_changed":
         return _project_session_state_event(event, session_id=session_id, run_id=run_id)
+    if event.type == "local_command_output":
+        return SDKLocalCommandOutputMessage(
+            session_id=session_id,
+            run_id=run_id,
+            content=_local_command_output_content(event.payload),
+            uuid=_text_field(event.payload, "uuid", "message_id", "messageId") or str(uuid.uuid4()),
+        )
     if event.type == "hook_started":
         return SDKHookStartedMessage(
             session_id=session_id,
@@ -1291,6 +1299,13 @@ def _tool_call_id(payload: dict[str, Any]) -> str:
 def _tool_contract(payload: dict[str, Any]) -> dict[str, Any]:
     contract = payload.get("contract")
     return dict(contract) if isinstance(contract, dict) else {}
+
+
+def _local_command_output_content(payload: dict[str, Any]) -> str:
+    content = str(payload.get("content") or payload.get("output") or "")
+    content = content.replace("<local-command-stdout>", "").replace("</local-command-stdout>", "")
+    content = content.replace("<local-command-stderr>", "").replace("</local-command-stderr>", "")
+    return content.strip()
 
 
 def _text_field(payload: dict[str, Any], *keys: str) -> str:
