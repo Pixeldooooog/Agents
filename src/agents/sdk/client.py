@@ -688,17 +688,47 @@ def _event_matches_message_id(event: RuntimeEvent, message_id: str) -> bool:
     return message_id in candidates
 
 
-def _content_from_user_message(message: dict[str, Any]) -> str:
-    content = message.get("content")
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for item in content:
-            if isinstance(item, dict) and item.get("type") == "text":
-                parts.append(str(item.get("text") or ""))
-        return "".join(parts)
-    return ""
+def _assistant_api_message(payload: dict[str, Any]) -> dict[str, Any]:
+    message = payload.get("message")
+    if isinstance(message, dict):
+        return dict(message)
+    raw = payload.get("raw")
+    if isinstance(raw, dict) and isinstance(raw.get("message"), dict):
+        return dict(raw["message"])
+    content = str(payload.get("content") or "")
+    return {
+        "id": str(payload.get("message_id") or payload.get("id") or "msg_%s" % uuid.uuid4().hex),
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "text", "text": content}] if content else [],
+        "model": str(payload.get("model") or ""),
+        "stop_reason": payload.get("stop_reason"),
+        "stop_sequence": payload.get("stop_sequence"),
+        "usage": payload.get("usage") if isinstance(payload.get("usage"), dict) else {},
+    }
+
+
+def _assistant_error(value: Any) -> Literal[
+    "authentication_failed",
+    "billing_error",
+    "rate_limit",
+    "invalid_request",
+    "server_error",
+    "unknown",
+    "max_output_tokens",
+] | None:
+    text = str(value or "")
+    if text in {
+        "authentication_failed",
+        "billing_error",
+        "rate_limit",
+        "invalid_request",
+        "server_error",
+        "unknown",
+        "max_output_tokens",
+    }:
+        return text
+    return None
 
 
 def _user_message_priority(value: Any) -> str | None:
@@ -1110,20 +1140,21 @@ def _project_runtime_event(
             run_id=run_id,
             uuid=str(event.payload.get("uuid") or event.payload.get("message_id") or ""),
             message=message,
-            content=str(event.payload.get("content") or _content_from_user_message(message)),
             parent_tool_use_id=event.payload.get("parent_tool_use_id"),
-            is_synthetic=bool(event.payload.get("isSynthetic") or event.payload.get("is_synthetic") or False),
+            isSynthetic=bool(event.payload.get("isSynthetic") or event.payload.get("is_synthetic") or False),
             tool_use_result=event.payload.get("tool_use_result"),
             priority=_user_message_priority(event.payload.get("priority")),
-            timestamp=str(event.payload.get("timestamp") or ""),
-            is_replay=bool(event.payload.get("isReplay", event.payload.get("is_replay", True))),
+            timestamp=str(event.payload.get("timestamp") or "") or None,
+            isReplay=bool(event.payload.get("isReplay", event.payload.get("is_replay", True))),
         )
     if event.type == "model_message":
         return SDKAssistantMessage(
             session_id=session_id,
             run_id=run_id,
-            content=str(event.payload.get("content", "") or ""),
-            raw=dict(event.payload),
+            message=_assistant_api_message(event.payload),
+            parent_tool_use_id=_nullable_text_field(event.payload, "parent_tool_use_id", "parentToolUseId"),
+            error=_assistant_error(event.payload.get("error")),
+            uuid=_text_field(event.payload, "uuid", "message_id", "messageId") or str(uuid.uuid4()),
         )
     if event.type == "text_delta":
         return SDKStreamEventMessage(

@@ -26,6 +26,7 @@ from agents.sdk import (
 from agents.sdk.client import _spec_from_options
 from agents.sdk.types import (
     SDKAPIRetryMessage,
+    SDKAssistantMessage,
     SDKAuthStatusMessage,
     SDKCompactBoundaryMessage,
     SDKFilesPersistedMessage,
@@ -154,6 +155,43 @@ async def _reasoning_session_factory(settings, spec):
         path=".",
     )
     return AgentSession(runtime, system_prompt="", workspace=workspace)
+
+
+async def _assistant_message_session_factory(settings, spec):
+    assistant_workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=".",
+        path=".",
+    )
+
+    class AssistantMessageSession:
+        runtime = SimpleNamespace(model="scripted", protocol="scripted", enabled_tools=[])
+        workspace = assistant_workspace
+
+        async def stream(self, text, run_id=None):
+            yield RuntimeEvent(
+                type="model_message",
+                name="assistant",
+                payload={
+                    "uuid": "assistant-message-1",
+                    "message": {
+                        "id": "msg_assistant_1",
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "assistant answer"}],
+                        "model": "scripted",
+                        "stop_reason": "end_turn",
+                        "stop_sequence": None,
+                        "usage": {},
+                    },
+                },
+            )
+            yield RuntimeEvent(type="done", name="assistant", payload={"content": "assistant answer", "status": "finished"})
+
+    return AssistantMessageSession()
 
 
 async def _compacting_session_factory(settings, spec):
@@ -588,6 +626,24 @@ def test_sdk_query_projects_reasoning_delta_as_stream_event_message():
     assert validate_sdk_message(stream.model_dump()) == stream
 
 
+def test_sdk_query_projects_assistant_message_shape():
+    client = AgentSDKClient(session_factory=_assistant_message_session_factory)
+
+    messages = asyncio.run(_collect(client.query("answer", SDKOptions(session_id="session-assistant"))))
+    replay = asyncio.run(client.get_session_messages("session-assistant", {"include_system_messages": False}))
+
+    assistant = next(message for message in messages if isinstance(message, SDKAssistantMessage))
+    assert assistant.type == "assistant"
+    assert assistant.uuid == "assistant-message-1"
+    assert assistant.parent_tool_use_id is None
+    assert assistant.message["role"] == "assistant"
+    assert assistant.message["content"][0]["text"] == "assistant answer"
+    assert assistant.content == "assistant answer"
+    assert "content" not in assistant.model_dump()
+    assert validate_sdk_message(assistant.model_dump()) == assistant
+    assert any(isinstance(message, SDKAssistantMessage) for message in replay)
+
+
 def test_sdk_query_projects_context_fit_as_compact_boundary_message():
     client = AgentSDKClient(session_factory=_compacting_session_factory)
 
@@ -888,6 +944,14 @@ def test_sdk_exports_json_schemas_and_rejects_invalid_messages():
     session_schema = sdk_session_info_json_schema()
 
     assert options_schema["additionalProperties"] is False
+    assistant_schema = message_schema["$defs"]["SDKAssistantMessage"]["properties"]
+    user_schema = message_schema["$defs"]["SDKUserMessage"]["properties"]
+    assert "message" in assistant_schema
+    assert "parent_tool_use_id" in assistant_schema
+    assert "content" not in assistant_schema
+    assert "raw" not in assistant_schema
+    assert "isSynthetic" in user_schema
+    assert "is_synthetic" not in user_schema
     assert "SDKSystemMessage" in message_schema["$defs"]
     assert "SDKAPIRetryMessage" in message_schema["$defs"]
     assert "SDKAuthStatusMessage" in message_schema["$defs"]

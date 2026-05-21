@@ -273,21 +273,46 @@ class SDKPostTurnSummaryMessage(SDKBaseMessage):
 
 class SDKAssistantMessage(SDKBaseMessage):
     type: Literal["assistant"] = "assistant"
-    content: str = ""
-    raw: dict[str, Any] = Field(default_factory=dict)
+    message: dict[str, Any] = Field(default_factory=dict)
+    parent_tool_use_id: str | None = None
+    error: Literal[
+        "authentication_failed",
+        "billing_error",
+        "rate_limit",
+        "invalid_request",
+        "server_error",
+        "unknown",
+        "max_output_tokens",
+    ] | None = None
+    uuid: str = Field(default_factory=lambda: str(uuid4()))
+
+    @property
+    def content(self) -> str:
+        return _message_content_text(self.message)
 
 
 class SDKUserMessage(SDKBaseMessage):
     type: Literal["user"] = "user"
     uuid: str = ""
     message: dict[str, Any] = Field(default_factory=dict)
-    content: str = ""
     parent_tool_use_id: str | None = None
-    is_synthetic: bool = False
+    isSynthetic: bool = False
     tool_use_result: Any = None
     priority: Literal["now", "next", "later"] | None = None
-    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    is_replay: bool = True
+    timestamp: str | None = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    isReplay: bool = True
+
+    @property
+    def content(self) -> str:
+        return _message_content_text(self.message)
+
+    @property
+    def is_synthetic(self) -> bool:
+        return self.isSynthetic
+
+    @property
+    def is_replay(self) -> bool:
+        return self.isReplay
 
 
 class SDKToolProgressMessage(SDKBaseMessage):
@@ -354,6 +379,19 @@ SDKMessage = Union[
 
 
 SDKMessageAdapter = TypeAdapter(SDKMessage)
+
+
+def _message_content_text(message: dict[str, Any]) -> str:
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                parts.append(str(item.get("text") or ""))
+        return "".join(parts)
+    return ""
 
 
 def sdk_options_json_schema() -> dict[str, Any]:
