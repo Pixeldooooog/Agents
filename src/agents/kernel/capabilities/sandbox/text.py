@@ -4,6 +4,7 @@ from pathlib import Path
 
 
 BINARY_SAMPLE_BYTES = 8192
+DEFAULT_TEXT_READ_MAX_BYTES = 256 * 1024
 BINARY_FILE_EXTENSIONS = {
     ".7z",
     ".avi",
@@ -86,6 +87,18 @@ def decode_text_bytes(data: bytes, encoding: str) -> str:
     return data.decode(encoding, errors="replace")
 
 
+def normalize_text_read_max_bytes(max_bytes: int | None) -> int:
+    return max(1, min(int(max_bytes or DEFAULT_TEXT_READ_MAX_BYTES), DEFAULT_TEXT_READ_MAX_BYTES))
+
+
+def text_file_too_large_message(size_in_bytes: int, max_size_bytes: int) -> str:
+    return (
+        "File content (%s) exceeds maximum allowed size (%s). "
+        "Use offset and limit parameters to read specific portions of the file, "
+        "or search for specific content instead of reading the whole file."
+    ) % (_format_file_size(size_in_bytes), _format_file_size(max_size_bytes))
+
+
 def _looks_like_binary_sample(path: str | Path, data: bytes) -> bool:
     suffix = Path(path).suffix.lower()
     if suffix in BINARY_FILE_EXTENSIONS:
@@ -105,3 +118,13 @@ def _has_utf16_bom(data: bytes) -> bool:
 
 def _has_utf8_bom(data: bytes) -> bool:
     return data.startswith(b"\xef\xbb\xbf")
+
+
+def _format_file_size(size_in_bytes: int) -> str:
+    size = float(max(0, int(size_in_bytes)))
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            if unit == "B":
+                return "%d B" % int(size)
+            return "%.1f %s" % (size, unit)
+        size /= 1024

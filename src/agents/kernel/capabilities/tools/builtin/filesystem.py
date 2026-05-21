@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
+from agents.kernel.capabilities.sandbox.text import DEFAULT_TEXT_READ_MAX_BYTES
 from agents.kernel.capabilities.tools.builtin.file_safety import record_file_read, unchanged_read_stub, write_text_safely
 from agents.kernel.capabilities.tools.builtin.image_metadata import detect_image_media_type, image_dimensions
 from agents.kernel.capabilities.tools.builtin.read_errors import (
@@ -43,7 +44,7 @@ READ_FILE_SCHEMA = {
     "type": "object",
     "properties": {
         "path": {"type": "string", "description": "Workspace-relative file path."},
-        "max_bytes": {"type": "integer", "minimum": 1, "maximum": 200000},
+        "max_bytes": {"type": "integer", "minimum": 1, "maximum": DEFAULT_TEXT_READ_MAX_BYTES},
         "offset": {"type": "integer", "minimum": 0},
         "limit": {"type": "integer", "minimum": 1},
         "pages": {"type": "string", "description": "Page range for PDF files. Currently reserved for PDF page extraction parity."},
@@ -90,7 +91,7 @@ MOVE_PATH_SCHEMA = {
 def read_file(
     context: ToolRuntimeContext,
     path: str,
-    max_bytes: int = 20000,
+    max_bytes: int = DEFAULT_TEXT_READ_MAX_BYTES,
     offset: int = 1,
     limit: int | None = None,
     pages: str | None = None,
@@ -120,7 +121,7 @@ def read_file(
 def _read_file(
     context: ToolRuntimeContext,
     path: str,
-    max_bytes: int = 20000,
+    max_bytes: int = DEFAULT_TEXT_READ_MAX_BYTES,
     offset: int = 1,
     limit: int | None = None,
     pages: str | None = None,

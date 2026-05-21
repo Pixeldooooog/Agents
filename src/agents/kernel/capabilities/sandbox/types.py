@@ -7,6 +7,8 @@ from typing import Any, Protocol
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.governance import SandboxPolicy
 
+from .text import DEFAULT_TEXT_READ_MAX_BYTES
+
 
 @dataclass(frozen=True)
 class SandboxProfile:
@@ -205,7 +207,7 @@ class SandboxClient(Protocol):
     def read_text(
         self,
         path: str,
-        max_bytes: int = 20000,
+        max_bytes: int = DEFAULT_TEXT_READ_MAX_BYTES,
         offset: int = 1,
         limit: int | None = None,
     ) -> SandboxFileRead:

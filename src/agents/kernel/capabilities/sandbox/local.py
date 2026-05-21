@@ -15,11 +15,14 @@ from agents.kernel.governance import SandboxPolicy
 
 from .text import (
     BINARY_SAMPLE_BYTES,
+    DEFAULT_TEXT_READ_MAX_BYTES,
     decode_text_bytes,
     detect_line_endings,
     detect_text_encoding,
     looks_like_binary_file,
+    normalize_text_read_max_bytes,
     public_encoding_name,
+    text_file_too_large_message,
 )
 from .types import (
     SandboxClient,
@@ -69,7 +72,7 @@ class LocalSandboxClient:
     def read_text(
         self,
         path: str,
-        max_bytes: int = 20000,
+        max_bytes: int = DEFAULT_TEXT_READ_MAX_BYTES,
         offset: int = 1,
         limit: int | None = None,
     ) -> SandboxFileRead:
@@ -81,7 +84,7 @@ class LocalSandboxClient:
         _ensure_regular_file(resolved, relative, operation="read")
         if not resolved.is_file():
             raise FileNotFoundError(str(path))
-        byte_limit = max(1, min(int(max_bytes or 20000), 200000))
+        byte_limit = normalize_text_read_max_bytes(max_bytes)
         line_offset = max(0, int(offset or 1) - 1)
         line_limit = _optional_positive_int(limit)
         range_requested = line_offset > 0 or line_limit is not None
@@ -89,6 +92,8 @@ class LocalSandboxClient:
             sample = handle.read(BINARY_SAMPLE_BYTES)
         encoding = detect_text_encoding(resolved, sample)
         size = resolved.stat().st_size
+        if line_limit is None and size > byte_limit:
+            raise ValueError(text_file_too_large_message(size, byte_limit))
         if range_requested:
             content = _read_text_line_range(
                 resolved,

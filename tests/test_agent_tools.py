@@ -1587,6 +1587,38 @@ def test_filesystem_read_formats_line_ranges_and_does_not_record_partial_read(tm
     assert "File has not been read yet" in write.content
 
 
+def test_filesystem_read_rejects_oversized_full_text_but_allows_limited_range(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "notes.txt").write_text("one\ntwo\nthree\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    full = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt", "max_bytes": 8}))
+    limited = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt", "max_bytes": 8, "limit": 1}))
+
+    assert full.is_error is True
+    assert "File content" in full.content
+    assert "Use offset and limit parameters" in full.content
+    assert limited.is_error is False
+    assert limited.raw["type"] == "text"
+    assert limited.raw["content"] == "one\n"
+    assert limited.raw["isPartialView"] is True
+    assert limited.content.startswith("1\tone")
+
+
 def test_filesystem_read_missing_file_reports_cwd_and_similar_file(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="default",

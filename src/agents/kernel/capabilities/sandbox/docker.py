@@ -12,6 +12,7 @@ from pathlib import Path
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.governance import SandboxPolicy
 
+from .text import DEFAULT_TEXT_READ_MAX_BYTES, normalize_text_read_max_bytes
 from .types import (
     SandboxClient,
     SandboxBackgroundCommand,
@@ -63,7 +64,7 @@ class DockerSandboxClient:
     def read_text(
         self,
         path: str,
-        max_bytes: int = 20000,
+        max_bytes: int = DEFAULT_TEXT_READ_MAX_BYTES,
         offset: int = 1,
         limit: int | None = None,
     ) -> SandboxFileRead:
@@ -71,7 +72,7 @@ class DockerSandboxClient:
         if not decision.allowed:
             raise PermissionError(decision.reason)
         relative = self.policy.relative_workspace_path(self.policy.resolve_workspace_path(path))
-        byte_limit = max(1, min(int(max_bytes or 20000), 200000))
+        byte_limit = normalize_text_read_max_bytes(max_bytes)
         line_offset = max(0, int(offset or 1) - 1)
         line_limit = "" if limit is None else str(max(1, int(limit)))
         script = """
@@ -82,6 +83,23 @@ path = pathlib.Path(sys.argv[1])
 byte_limit = int(sys.argv[2])
 line_offset = int(sys.argv[3])
 line_limit = None if sys.argv[4] == "" else int(sys.argv[4])
+
+def format_file_size(size_in_bytes):
+    size = float(max(0, int(size_in_bytes)))
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            if unit == "B":
+                return "%d B" % int(size)
+            return "%.1f %s" % (size, unit)
+        size /= 1024
+
+def too_large_message(size_in_bytes, max_size_bytes):
+    return (
+        "File content (%s) exceeds maximum allowed size (%s). "
+        "Use offset and limit parameters to read specific portions of the file, "
+        "or search for specific content instead of reading the whole file."
+    ) % (format_file_size(size_in_bytes), format_file_size(max_size_bytes))
+
 if not path.is_file():
     raise FileNotFoundError(sys.argv[1])
 data = path.read_bytes()
@@ -103,6 +121,8 @@ if encoding == "utf-8" and sample:
     if control / len(sample) > 0.10:
         raise ValueError("This text tool cannot read binary files. The file appears to be a binary file. Use an appropriate binary analysis tool instead.")
 range_requested = line_offset > 0 or line_limit is not None
+if line_limit is None and len(data) > byte_limit:
+    raise ValueError(too_large_message(len(data), byte_limit))
 if range_requested:
     lines = data.decode(encoding, errors="replace").splitlines(keepends=True)
     selected = lines[line_offset:] if line_limit is None else lines[line_offset:line_offset + line_limit]
