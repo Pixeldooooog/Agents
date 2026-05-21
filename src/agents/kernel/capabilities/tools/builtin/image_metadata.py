@@ -2,6 +2,11 @@ from __future__ import annotations
 
 
 JPEG_SOF_MARKERS = {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}
+WEBP_CHUNK_TYPE_OFFSET = 12
+WEBP_CHUNK_PAYLOAD_OFFSET = 20
+WEBP_DIMENSION_MASK = 0x3FFF
+WEBP_VP8_START_CODE = b"\x9d\x01\x2a"
+WEBP_VP8L_SIGNATURE = 0x2F
 
 
 def detect_image_media_type(data: bytes) -> str | None:
@@ -85,10 +90,45 @@ def _jpeg_dimensions(data: bytes) -> tuple[int, int] | None:
 
 
 def _webp_dimensions(data: bytes) -> tuple[int, int] | None:
-    if len(data) < 30 or data[:4] != b"RIFF" or data[8:12] != b"WEBP" or data[12:16] != b"VP8X":
+    if (
+        len(data) < WEBP_CHUNK_PAYLOAD_OFFSET
+        or data[:4] != b"RIFF"
+        or data[8:12] != b"WEBP"
+    ):
         return None
-    width = int.from_bytes(data[24:27], "little") + 1
-    height = int.from_bytes(data[27:30], "little") + 1
+    chunk_type = data[WEBP_CHUNK_TYPE_OFFSET:WEBP_CHUNK_TYPE_OFFSET + 4]
+    chunk_payload = data[WEBP_CHUNK_PAYLOAD_OFFSET:]
+    if chunk_type == b"VP8X":
+        return _webp_vp8x_dimensions(chunk_payload)
+    if chunk_type == b"VP8 ":
+        return _webp_vp8_dimensions(chunk_payload)
+    if chunk_type == b"VP8L":
+        return _webp_vp8l_dimensions(chunk_payload)
+    return None
+
+
+def _webp_vp8x_dimensions(payload: bytes) -> tuple[int, int] | None:
+    if len(payload) < 10:
+        return None
+    width = int.from_bytes(payload[4:7], "little") + 1
+    height = int.from_bytes(payload[7:10], "little") + 1
+    return _positive_dimensions(width, height)
+
+
+def _webp_vp8_dimensions(payload: bytes) -> tuple[int, int] | None:
+    if len(payload) < 10 or payload[3:6] != WEBP_VP8_START_CODE:
+        return None
+    width = int.from_bytes(payload[6:8], "little") & WEBP_DIMENSION_MASK
+    height = int.from_bytes(payload[8:10], "little") & WEBP_DIMENSION_MASK
+    return _positive_dimensions(width, height)
+
+
+def _webp_vp8l_dimensions(payload: bytes) -> tuple[int, int] | None:
+    if len(payload) < 5 or payload[0] != WEBP_VP8L_SIGNATURE:
+        return None
+    bits = int.from_bytes(payload[1:5], "little")
+    width = (bits & WEBP_DIMENSION_MASK) + 1
+    height = ((bits >> 14) & WEBP_DIMENSION_MASK) + 1
     return _positive_dimensions(width, height)
 
 
