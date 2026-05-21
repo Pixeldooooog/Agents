@@ -1614,9 +1614,54 @@ def test_filesystem_read_prefixes_stale_memory_freshness_note(tmp_path: Path):
 
     assert result.is_error is False
     assert result.raw["memoryFreshness"]["ageDays"] >= 3
+    assert result.raw["memoryFreshness"]["memoryKind"] == "auto"
+    assert result.raw["memoryFreshness"]["scope"] == "personal"
     assert result.content.startswith("<system-reminder>This memory is ")
     assert "Memories are point-in-time observations, not live state" in result.content
     assert "1\told repo fact" in result.content
+
+
+def test_filesystem_read_detects_managed_memory_freshness_paths(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    stale_mtime = time.time() - (5 * 86400)
+    cases = [
+        (".agents/memory/team/MEMORY.md", "team", "team"),
+        (".agents/projects/project-key/memory/MEMORY.md", "auto", "personal"),
+        (".agents/projects/project-key/memory/team/MEMORY.md", "team", "team"),
+        (".claude/agent-memory/reviewer/MEMORY.md", "agent", "project"),
+        (".claude/agent-memory-local/reviewer/MEMORY.md", "agent", "local"),
+        (".claude/session-memory/summary.md", "session", "session"),
+    ]
+    for relative_path, _, _ in cases:
+        path = tmp_path / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("remember %s\n" % relative_path, encoding="utf-8")
+        os.utime(path, (stale_mtime, stale_mtime))
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    for relative_path, memory_kind, scope in cases:
+        result = asyncio.run(registry.execute("filesystem.read", {"path": relative_path}))
+
+        assert result.is_error is False
+        assert result.raw["memoryFreshness"]["ageDays"] >= 4
+        assert result.raw["memoryFreshness"]["memoryKind"] == memory_kind
+        assert result.raw["memoryFreshness"]["scope"] == scope
+        assert result.content.startswith("<system-reminder>This memory is ")
+        assert "1\tremember %s" % relative_path in result.content
 
 
 def test_filesystem_read_does_not_prefix_fresh_memory_or_regular_markdown(tmp_path: Path):
@@ -1632,6 +1677,19 @@ def test_filesystem_read_does_not_prefix_fresh_memory_or_regular_markdown(tmp_pa
     memory_path.parent.mkdir(parents=True)
     memory_path.write_text("fresh memory\n", encoding="utf-8")
     (tmp_path / "MEMORY.md").write_text("regular project doc\n", encoding="utf-8")
+    claude_md = tmp_path / ".claude" / "CLAUDE.md"
+    rule_md = tmp_path / ".claude" / "rules" / "style.md"
+    unmanaged_claude_memory = tmp_path / ".claude" / "memory" / "note.md"
+    claude_md.parent.mkdir(parents=True)
+    rule_md.parent.mkdir(parents=True)
+    unmanaged_claude_memory.parent.mkdir(parents=True)
+    claude_md.write_text("project instructions\n", encoding="utf-8")
+    rule_md.write_text("project rule\n", encoding="utf-8")
+    unmanaged_claude_memory.write_text("unmanaged memory-shaped doc\n", encoding="utf-8")
+    stale_mtime = time.time() - (5 * 86400)
+    os.utime(claude_md, (stale_mtime, stale_mtime))
+    os.utime(rule_md, (stale_mtime, stale_mtime))
+    os.utime(unmanaged_claude_memory, (stale_mtime, stale_mtime))
     policy = SandboxPolicy.for_workspace(workspace.path)
     context = ToolRuntimeContext(
         workspace=workspace,
@@ -1643,6 +1701,9 @@ def test_filesystem_read_does_not_prefix_fresh_memory_or_regular_markdown(tmp_pa
 
     fresh = asyncio.run(registry.execute("filesystem.read", {"path": ".agents/memory/fresh.md"}))
     regular = asyncio.run(registry.execute("filesystem.read", {"path": "MEMORY.md"}))
+    claude = asyncio.run(registry.execute("filesystem.read", {"path": ".claude/CLAUDE.md"}))
+    rule = asyncio.run(registry.execute("filesystem.read", {"path": ".claude/rules/style.md"}))
+    unmanaged = asyncio.run(registry.execute("filesystem.read", {"path": ".claude/memory/note.md"}))
 
     assert fresh.is_error is False
     assert "memoryFreshness" not in fresh.raw
@@ -1650,6 +1711,15 @@ def test_filesystem_read_does_not_prefix_fresh_memory_or_regular_markdown(tmp_pa
     assert regular.is_error is False
     assert "memoryFreshness" not in regular.raw
     assert regular.content.startswith("1\tregular project doc")
+    assert claude.is_error is False
+    assert "memoryFreshness" not in claude.raw
+    assert claude.content.startswith("1\tproject instructions")
+    assert rule.is_error is False
+    assert "memoryFreshness" not in rule.raw
+    assert rule.content.startswith("1\tproject rule")
+    assert unmanaged.is_error is False
+    assert "memoryFreshness" not in unmanaged.raw
+    assert unmanaged.content.startswith("1\tunmanaged memory-shaped doc")
 
 
 def test_filesystem_read_returns_src_origin_style_image_payload(tmp_path: Path):

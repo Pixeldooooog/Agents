@@ -23,11 +23,9 @@ BINARY_READ_MAX_BYTES = 5 * 1024 * 1024
 NOTEBOOK_READ_MAX_BYTES = 2 * 1024 * 1024
 PDF_MAX_PAGES_PER_READ = 20
 SECONDS_PER_DAY = 86400
-MEMORY_FILE_PREFIXES = (
-    ".agents/memory/",
-    ".agents/memories/",
-    ".agents/session-memory/",
-)
+MEMORY_ROOTS = {".agents", ".claude"}
+AUTO_MEMORY_DIRS = {"memory", "memories"}
+AGENT_MEMORY_DIRS = {"agent-memory", "agent-memory-local"}
 
 
 READ_FILE_SCHEMA = {
@@ -211,7 +209,8 @@ def _text_read_payload(payload: dict[str, Any]) -> dict[str, Any]:
 def _add_memory_freshness(context: ToolRuntimeContext, payload: dict[str, Any]) -> None:
     file_payload = payload.get("file") if isinstance(payload.get("file"), dict) else {}
     relative_path = str(file_payload.get("filePath") or payload.get("path") or "")
-    if not _is_auto_memory_file(relative_path):
+    memory_metadata = _memory_file_metadata(relative_path)
+    if memory_metadata is None:
         return
     try:
         mtime = context.sandbox.resolve_workspace_path(relative_path).stat().st_mtime
@@ -226,15 +225,41 @@ def _add_memory_freshness(context: ToolRuntimeContext, payload: dict[str, Any]) 
         "claims about code behavior or file:line citations may be outdated. "
         "Verify against current code before asserting as fact.</system-reminder>\n"
     ) % age_days
-    payload["memoryFreshness"] = {"ageDays": age_days, "note": note}
+    payload["memoryFreshness"] = {"ageDays": age_days, "note": note, **memory_metadata}
     payload["memoryFreshnessNote"] = note
 
 
-def _is_auto_memory_file(path: str) -> bool:
+def _memory_file_metadata(path: str) -> dict[str, str] | None:
     normalized = str(path or "").replace("\\", "/").lstrip("/")
     if not normalized.endswith(".md"):
-        return False
-    return any(normalized.startswith(prefix) for prefix in MEMORY_FILE_PREFIXES)
+        return None
+    parts = [part for part in normalized.split("/") if part and part != "."]
+    if len(parts) < 3:
+        return None
+    root = parts[0]
+    category = parts[1]
+    if root == ".agents" and category in AUTO_MEMORY_DIRS:
+        return _auto_memory_metadata(parts[2:])
+    if root in MEMORY_ROOTS and category == "session-memory":
+        return {"memoryKind": "session", "scope": "session"}
+    if root in MEMORY_ROOTS and category in AGENT_MEMORY_DIRS:
+        return _agent_memory_metadata(category)
+    if len(parts) >= 5 and root == ".agents" and category == "projects" and parts[3] == "memory":
+        return _auto_memory_metadata(parts[4:])
+    if len(parts) >= 5 and root == ".agents" and category == "projects" and parts[3] in AGENT_MEMORY_DIRS:
+        return _agent_memory_metadata(parts[3])
+    return None
+
+
+def _auto_memory_metadata(tail_parts: list[str]) -> dict[str, str]:
+    if tail_parts and tail_parts[0] == "team":
+        return {"memoryKind": "team", "scope": "team"}
+    return {"memoryKind": "auto", "scope": "personal"}
+
+
+def _agent_memory_metadata(category: str) -> dict[str, str]:
+    scope = "local" if category == "agent-memory-local" else "project"
+    return {"memoryKind": "agent", "scope": scope}
 
 
 def _is_image_path(path: str) -> bool:
