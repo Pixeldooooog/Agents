@@ -12,13 +12,18 @@ from typing import Any
 
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.tools.builtin.file_safety import record_file_read, unchanged_read_stub, write_text_safely
+from agents.kernel.capabilities.tools.builtin.read_errors import (
+    binary_read_error_message,
+    directory_read_error,
+    file_not_found_message,
+    is_binary_text_read_error,
+)
 
 
 FILE_UNCHANGED_STUB = (
     "File unchanged since last read. The content from the earlier filesystem.read tool result "
     "in this conversation is still current; refer to that instead of re-reading."
 )
-FILE_NOT_FOUND_CWD_NOTE = "Note: your current working directory is"
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 BINARY_READ_MAX_BYTES = 5 * 1024 * 1024
 NOTEBOOK_READ_MAX_BYTES = 2 * 1024 * 1024
@@ -88,9 +93,9 @@ def read_file(
     try:
         return _read_file(context, path, max_bytes=max_bytes, offset=offset, limit=limit, pages=pages)
     except FileNotFoundError as exc:
-        raise ValueError(_file_not_found_message(context, path)) from exc
+        raise ValueError(file_not_found_message(context, path)) from exc
     except IsADirectoryError as exc:
-        raise ValueError("EISDIR: illegal operation on a directory, read '%s'" % path) from exc
+        raise ValueError(directory_read_error(path)) from exc
 
 
 def _read_file(
@@ -115,8 +120,8 @@ def _read_file(
     try:
         result = context.sandbox_client.read_text(path, max_bytes=max_bytes, offset=offset, limit=limit)
     except ValueError as exc:
-        if _is_binary_text_read_error(exc):
-            raise ValueError(_binary_read_error_message(path)) from exc
+        if is_binary_text_read_error(exc):
+            raise ValueError(binary_read_error_message(path)) from exc
         raise
     if not result.truncated and not result.is_partial_view:
         record_file_read(
@@ -226,48 +231,6 @@ def _text_read_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "totalLines": int(result.get("totalLines") or 0),
     }
     return result
-
-
-def _file_not_found_message(context: ToolRuntimeContext, path: str) -> str:
-    cwd = str(context.workspace.path or context.workspace.root or ".")
-    message = "File does not exist. %s %s." % (FILE_NOT_FOUND_CWD_NOTE, cwd)
-    suggestion = _similar_file(context, path)
-    if suggestion:
-        message += " Did you mean %s?" % suggestion
-    return message
-
-
-def _is_binary_text_read_error(exc: ValueError) -> bool:
-    return "cannot read binary files" in str(exc)
-
-
-def _binary_read_error_message(path: str) -> str:
-    suffix = Path(path).suffix.lower()
-    kind = " %s" % suffix if suffix else ""
-    return (
-        "This tool cannot read binary files. The file appears to be a binary%s file. "
-        "Please use appropriate tools for binary file analysis." % kind
-    )
-
-
-def _similar_file(context: ToolRuntimeContext, path: str) -> str:
-    try:
-        requested = context.sandbox.resolve_workspace_path(path)
-    except Exception:
-        return ""
-    directory = requested.parent
-    try:
-        entries = list(directory.iterdir())
-    except OSError:
-        return ""
-    requested_stem = requested.stem
-    requested_name = requested.name
-    for entry in sorted(entries, key=lambda item: item.name):
-        if entry.name == requested_name:
-            continue
-        if entry.stem == requested_stem and entry.is_file():
-            return context.sandbox.relative_workspace_path(entry)
-    return ""
 
 
 def _add_memory_freshness(context: ToolRuntimeContext, payload: dict[str, Any]) -> None:
