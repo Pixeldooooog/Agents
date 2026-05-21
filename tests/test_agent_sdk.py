@@ -43,6 +43,9 @@ from agents.sdk import (
     SDKControlStopTaskRequest,
     SDKControlStreamClosedError,
     SDKControlSuccessResponse,
+    SDKCCRClient,
+    SDKCCRRequestResult,
+    SDKWorkerStateUploader,
     SDKHookCallbackRequest,
     SDKKeepAliveMessage,
     SDKForkSessionOptions,
@@ -2582,6 +2585,131 @@ def test_sdk_websocket_transport_reconnects_after_sleep_gap_detection():
     assert len(calls) == 2
     assert sockets[0].pings == 0
     assert sockets[0].closed is True
+
+
+class _FakeCCRTransport:
+    def __init__(self):
+        self.on_event = None
+
+    def set_on_event(self, handler):
+        self.on_event = handler
+
+
+def test_sdk_ccr_client_initializes_and_acks_transport_events():
+    async def execute():
+        requests = []
+        transport = _FakeCCRTransport()
+
+        async def request(method, path, headers, body):
+            requests.append((method, path, dict(headers), body))
+            return SDKCCRRequestResult(True)
+
+        client = SDKCCRClient(
+            "https://api.example.com/v1/code/sessions/session-1",
+            transport=transport,
+            request=request,
+            get_auth_headers=lambda: {"Authorization": "Bearer token"},
+            heartbeat_interval_seconds=None,
+        )
+        await client.initialize(epoch=7)
+        transport.on_event({"event_id": "evt-1"})
+        await client.flush_delivery()
+        await client.close()
+        return requests
+
+    requests = asyncio.run(execute())
+
+    assert requests[0] == (
+        "put",
+        "/worker",
+        {"Authorization": "Bearer token"},
+        {
+            "worker_status": "idle",
+            "worker_epoch": 7,
+            "external_metadata": {"pending_action": None, "task_summary": None},
+        },
+    )
+    assert requests[1][0:2] == ("post", "/worker/events/delivery")
+    assert requests[1][3] == {
+        "worker_epoch": 7,
+        "updates": [{"event_id": "evt-1", "status": "received"}],
+    }
+
+
+def test_sdk_ccr_client_writes_client_and_internal_events():
+    async def execute():
+        requests = []
+
+        async def request(method, path, headers, body):
+            requests.append((method, path, body))
+            return SDKCCRRequestResult(True)
+
+        client = SDKCCRClient(
+            "https://api.example.com/v1/code/sessions/session-2",
+            request=request,
+            get_auth_headers=lambda: {"Authorization": "Bearer token"},
+            heartbeat_interval_seconds=None,
+        )
+        await client.initialize(epoch=9)
+        await client.write_event({"type": "result", "uuid": "result-1", "result": "ok"})
+        await client.flush()
+        await client.write_internal_event(
+            "transcript",
+            {"uuid": "internal-1", "message": {"role": "assistant"}},
+            is_compaction=True,
+            agent_id="agent-1",
+        )
+        await client.flush_internal_events()
+        await client.close()
+        return requests
+
+    requests = asyncio.run(execute())
+    client_events = requests[1]
+    internal_events = requests[2]
+
+    assert client_events[0:2] == ("post", "/worker/events")
+    assert client_events[2] == {
+        "worker_epoch": 9,
+        "events": [
+            {"payload": {"type": "result", "uuid": "result-1", "result": "ok"}}
+        ],
+    }
+    assert internal_events[0:2] == ("post", "/worker/internal-events")
+    assert internal_events[2] == {
+        "worker_epoch": 9,
+        "events": [
+            {
+                "payload": {
+                    "type": "transcript",
+                    "uuid": "internal-1",
+                    "message": {"role": "assistant"},
+                },
+                "is_compaction": True,
+                "agent_id": "agent-1",
+            }
+        ],
+    }
+
+
+def test_sdk_worker_state_uploader_coalesces_metadata_patches():
+    async def execute():
+        sent = []
+
+        async def send(body):
+            sent.append(body)
+            return True
+
+        uploader = SDKWorkerStateUploader(send)
+        uploader.enqueue({"external_metadata": {"a": 1}, "worker_status": "running"})
+        uploader.enqueue({"external_metadata": {"b": 2}, "worker_status": "idle"})
+        await uploader.flush()
+        return sent
+
+    sent = asyncio.run(execute())
+
+    assert sent == [
+        {"external_metadata": {"a": 1, "b": 2}, "worker_status": "idle"}
+    ]
 
 
 def test_sdk_sse_transport_unwraps_client_events_and_posts_stdout():

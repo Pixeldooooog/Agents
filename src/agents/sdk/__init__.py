@@ -19,6 +19,14 @@ from agents.sdk.client import (
     unstable_v2_prompt,
     unstable_v2_resume_session,
 )
+from agents.sdk.ccr import (
+    SDKCCRClient,
+    SDKCCREpochMismatchError,
+    SDKCCRInitError,
+    SDKCCRRequestHandler,
+    SDKCCRRequestResult,
+    SDKWorkerStateUploader,
+)
 from agents.sdk.control import (
     SDKControlApplyFlagSettingsRequest,
     SDKControlCancelAsyncMessageRequest,
@@ -137,6 +145,11 @@ __all__ = [
     "SDKAPIRetryMessage",
     "SDKAssistantMessage",
     "SDKAuthStatusMessage",
+    "SDKCCRClient",
+    "SDKCCREpochMismatchError",
+    "SDKCCRInitError",
+    "SDKCCRRequestHandler",
+    "SDKCCRRequestResult",
     "SDKCompactBoundaryMessage",
     "SDKControlApplyFlagSettingsRequest",
     "SDKControlCancelAsyncMessageRequest",
@@ -217,6 +230,7 @@ __all__ = [
     "SDKWebSocketCloseHandler",
     "SDKWebSocketConnector",
     "SDKWebSocketJsonlTransport",
+    "SDKWorkerStateUploader",
     "derive_hybrid_post_url",
     "derive_sse_post_url",
     "derive_sse_stream_url",
