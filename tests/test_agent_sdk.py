@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -27,6 +28,7 @@ from agents.sdk import (
     SDKControlPermissionRequest,
     SDKControlRequest,
     SDKControlResponse,
+    SDKControlRewindFilesRequest,
     SDKControlSetModelRequest,
     SDKControlSetPermissionModeRequest,
     SDKControlStopTaskRequest,
@@ -600,6 +602,111 @@ async def _sdk_extension_event_session_factory(settings, spec):
             yield RuntimeEvent(type="done", name="assistant", payload={"content": "", "status": "finished"})
 
     return ExtensionEventSession()
+
+
+async def _rewind_patch_session_factory(settings, spec):
+    workspace_path = str(spec.workspace.path or spec.workspace.root or ".")
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=workspace_path,
+        path=workspace_path,
+    )
+
+    class RewindPatchSession:
+        runtime = SimpleNamespace(model="scripted", protocol="scripted", enabled_tools=["patch.apply"])
+
+        def __init__(self):
+            self.workspace = workspace
+
+        async def stream(self, text, run_id=None):
+            notes = Path(workspace_path) / "notes.txt"
+            notes.write_text("new\n", encoding="utf-8")
+            yield RuntimeEvent(
+                type="tool_result",
+                name="patch.apply",
+                payload={
+                    "tool_call_id": "patch-edit",
+                    "raw": {
+                        "changed": True,
+                        "files": [{"path": "notes.txt", "action": "edit", "edits": 1, "bytes": 4}],
+                        "filePath": "notes.txt",
+                        "oldString": "old",
+                        "newString": "new",
+                        "originalFile": "old\n",
+                        "structuredPatch": [
+                            {
+                                "oldStart": 1,
+                                "oldLines": 1,
+                                "newStart": 1,
+                                "newLines": 1,
+                                "lines": ["-old", "+new"],
+                            }
+                        ],
+                    },
+                },
+            )
+            created = Path(workspace_path) / "created.txt"
+            created.write_text("created\n", encoding="utf-8")
+            yield RuntimeEvent(
+                type="tool_result",
+                name="patch.apply",
+                payload={
+                    "tool_call_id": "patch-create",
+                    "raw": {
+                        "changed": True,
+                        "files": [{"path": "created.txt", "action": "create", "edits": 0, "bytes": 8}],
+                        "structuredPatches": [
+                            {
+                                "filePath": "created.txt",
+                                "hunks": [
+                                    {
+                                        "oldStart": 1,
+                                        "oldLines": 0,
+                                        "newStart": 1,
+                                        "newLines": 1,
+                                        "lines": ["+created"],
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                },
+            )
+            write_note = Path(workspace_path) / "write.txt"
+            yield RuntimeEvent(
+                type="tool_result",
+                name="filesystem.read",
+                payload={
+                    "tool_call_id": "read-write-note",
+                    "raw": {
+                        "path": "write.txt",
+                        "content": "old write\n",
+                        "file": {"filePath": "write.txt", "content": "old write\n"},
+                        "truncated": False,
+                        "isPartialView": False,
+                    },
+                },
+            )
+            write_note.write_text("new write\n", encoding="utf-8")
+            yield RuntimeEvent(
+                type="tool_result",
+                name="filesystem.write",
+                payload={
+                    "tool_call_id": "write-note",
+                    "raw": {
+                        "path": "write.txt",
+                        "bytes": 10,
+                        "encoding": "utf-8",
+                        "safety": {"required_prior_read": True, "encoding": "utf-8"},
+                    },
+                },
+            )
+            yield RuntimeEvent(type="done", name="assistant", payload={"content": "edited", "status": "finished"})
+
+    return RewindPatchSession()
 
 
 def test_sdk_query_hides_store_wiring_and_streams_typed_messages():
@@ -1603,6 +1710,61 @@ def test_sdk_control_request_interrupt_cancels_active_session_query():
     assert result.stop_reason == "canceled"
     assert states == ["running", "idle"]
     assert any(isinstance(message, SDKResultMessage) and message.stop_reason == "canceled" for message in replay)
+
+
+def test_sdk_control_request_rewinds_files_from_run_store(tmp_path):
+    async def execute():
+        notes = tmp_path / "notes.txt"
+        created = tmp_path / "created.txt"
+        write_note = tmp_path / "write.txt"
+        notes.write_text("old\n", encoding="utf-8")
+        write_note.write_text("old write\n", encoding="utf-8")
+        client = AgentSDKClient(session_factory=_rewind_patch_session_factory)
+        session = client.create_sdk_session(
+            SDKOptions(
+                session_id="rewind-session",
+                tenant_id="tenant",
+                user_id="user",
+                agent_id="agent",
+                cwd=str(tmp_path),
+            )
+        )
+        await _collect(session.query("edit files"))
+        replay = await session.messages({"include_system_messages": False})
+        user_message = next(message for message in replay if isinstance(message, SDKUserMessage))
+        dry_run = await session.handle_control_request(
+            SDKControlRequest(
+                request_id="rewind-dry-run",
+                request=SDKControlRewindFilesRequest(user_message_id=user_message.uuid, dry_run=True),
+            )
+        )
+        actual = await session.handle_control_request(
+            SDKControlRequest(
+                request_id="rewind",
+                request=SDKControlRewindFilesRequest(user_message_id=user_message.uuid),
+            )
+        )
+        return (
+            dry_run,
+            actual,
+            notes.read_text(encoding="utf-8"),
+            write_note.read_text(encoding="utf-8"),
+            created.exists(),
+        )
+
+    dry_run, actual, notes_content, write_content, created_exists = asyncio.run(execute())
+
+    assert isinstance(dry_run.response, SDKControlSuccessResponse)
+    assert dry_run.response.response == {
+        "canRewind": True,
+        "filesChanged": ["created.txt", "notes.txt", "write.txt"],
+        "insertions": 2,
+        "deletions": 1,
+    }
+    assert actual.response.response == dry_run.response.response
+    assert notes_content == "old\n"
+    assert write_content == "old write\n"
+    assert created_exists is False
 
 
 def test_sdk_control_request_handler_stops_tasks_from_store():

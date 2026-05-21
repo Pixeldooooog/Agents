@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import difflib
 import inspect
 import json
 import time
@@ -9,6 +10,7 @@ from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
 from typing import Any, Literal
 
 from agents.kernel.assembly import create_agent_session_async
@@ -91,6 +93,17 @@ SessionFactory = Callable[[Any, AgentSpec], Any]
 SDKMcpMessageHandler = Callable[[Any], Any]
 SDKHookCallbackHandler = Callable[[SDKHookCallbackRequest], Any]
 SDKElicitationHandler = Callable[[SDKControlElicitationRequest], Any]
+
+
+@dataclass
+class _RewindFileEntry:
+    path: str
+    before: str = ""
+    existed: bool = True
+    encoding: str = "utf-8"
+    insertions: int = 0
+    deletions: int = 0
+
 
 try:
     _SDK_VERSION = version("agents")
@@ -466,7 +479,7 @@ class AgentSDKClient:
         if isinstance(request, SDKControlCancelAsyncMessageRequest):
             return {"cancelled": False}
         if isinstance(request, SDKControlRewindFilesRequest):
-            return {"canRewind": False, "error": "file rewind is not backed by SDK run-store history yet"}
+            return await self._rewind_files_control_response(request, options)
         if isinstance(request, SDKControlSeedReadStateRequest):
             return {"seeded": False, "path": request.path, "mtime": request.mtime}
         if isinstance(request, SDKControlMcpMessageRequest):
@@ -476,6 +489,41 @@ class AgentSDKClient:
         if isinstance(request, SDKControlElicitationRequest):
             return await self._elicitation_control_response(request)
         return {}
+
+    async def _rewind_files_control_response(
+        self,
+        request: SDKControlRewindFilesRequest,
+        options: SDKOptions,
+    ) -> dict[str, Any]:
+        session_id = str(options.session_id or "").strip()
+        if not session_id:
+            return {"canRewind": False, "error": "session_id is required for rewind_files"}
+        records = await self._runs_for_session(session_id)
+        if not records:
+            return {"canRewind": False, "error": "session not found: %s" % session_id}
+        entries, unsupported_paths, found_message = _rewind_entries_after_message(records, request.user_message_id)
+        if not found_message:
+            return {"canRewind": False, "error": "No user message found for id: %s" % request.user_message_id}
+        if unsupported_paths:
+            return {
+                "canRewind": False,
+                "error": "File history is incomplete for: %s" % ", ".join(unsupported_paths),
+            }
+        if not entries:
+            return {"canRewind": False, "error": "No file checkpoint found for this message."}
+
+        payload = _rewind_response_payload(entries)
+        if request.dry_run:
+            return payload
+
+        root = _rewind_workspace_root(options, records)
+        try:
+            targets = [(entry, _safe_rewind_path(root, entry.path)) for entry in entries]
+        except ValueError as exc:
+            return {"canRewind": False, "error": str(exc)}
+        for entry, target in targets:
+            _apply_rewind_entry(entry, target)
+        return payload
 
     async def _mcp_statuses_for_options(self, options: SDKOptions) -> list[dict[str, Any]]:
         statuses = await self._sdk_mcp_server_statuses_for_scope(
@@ -1516,6 +1564,265 @@ def _event_matches_message_id(event: RuntimeEvent, message_id: str) -> bool:
         }
     )
     return message_id in candidates
+
+
+def _rewind_entries_after_message(
+    records: list[RunRecord],
+    message_id: str,
+) -> tuple[list[_RewindFileEntry], list[str], bool]:
+    found_message = False
+    entries_by_path: dict[str, _RewindFileEntry] = {}
+    unsupported_paths: set[str] = set()
+    read_cache: dict[str, str] = {}
+    for record in sorted(records, key=lambda item: item.created_at):
+        for event in record.events:
+            if not found_message:
+                if _event_matches_message_id(event, message_id):
+                    found_message = True
+                continue
+            if event.type != "tool_result":
+                continue
+            payload = _tool_result_payload_data(event.payload)
+            read_path, read_content = _read_content_from_tool_result(event, payload)
+            if read_path:
+                read_cache[read_path] = read_content
+                continue
+            entries, unsupported = _rewind_entries_from_tool_result(event, payload, read_cache)
+            unsupported_paths.update(path for path in unsupported if path not in entries_by_path)
+            for entry in entries:
+                if entry.path in unsupported_paths:
+                    continue
+                existing = entries_by_path.get(entry.path)
+                if existing is None:
+                    entries_by_path[entry.path] = entry
+                    continue
+                existing.insertions += entry.insertions
+                existing.deletions += entry.deletions
+    entries = [entries_by_path[path] for path in sorted(entries_by_path)]
+    return entries, sorted(unsupported_paths), found_message
+
+
+def _read_content_from_tool_result(event: RuntimeEvent, payload: dict[str, Any]) -> tuple[str, str]:
+    if str(event.name or "") not in {"filesystem.read", "Read"}:
+        return "", ""
+    file_payload = payload.get("file") if isinstance(payload.get("file"), dict) else {}
+    path = _rewind_path_value(file_payload.get("filePath") or payload.get("path"))
+    content = file_payload.get("content") if "content" in file_payload else payload.get("content")
+    if not path or not isinstance(content, str):
+        return "", ""
+    if payload.get("truncated") or payload.get("isPartialView"):
+        return "", ""
+    return path, content
+
+
+def _rewind_entries_from_tool_result(
+    event: RuntimeEvent,
+    payload: dict[str, Any],
+    read_cache: dict[str, str],
+) -> tuple[list[_RewindFileEntry], list[str]]:
+    name = str(event.name or "")
+    if payload.get("dry_run") is True or payload.get("changed") is False:
+        return [], []
+    if name in {"patch.apply", "Edit"}:
+        return _rewind_entries_from_patch_payload(payload)
+    if name in {"notebook.edit", "NotebookEdit"}:
+        entry = _rewind_entry_from_notebook_payload(payload)
+        return ([entry], []) if entry is not None else ([], [])
+    if name in {"filesystem.write", "Write"}:
+        entry, unsupported = _rewind_entry_from_write_payload(payload, read_cache)
+        return ([entry], []) if entry is not None else ([], unsupported)
+    return [], []
+
+
+def _rewind_entries_from_patch_payload(payload: dict[str, Any]) -> tuple[list[_RewindFileEntry], list[str]]:
+    entries: list[_RewindFileEntry] = []
+    unsupported_paths: set[str] = set()
+    supported_paths: set[str] = set()
+    path = _rewind_path_value(payload.get("filePath") or payload.get("path"))
+    before = payload.get("originalFile")
+    if path and isinstance(before, str):
+        after = _patch_after_content(payload, before)
+        insertions, deletions = _change_stats(payload.get("structuredPatch"), before, after)
+        entries.append(
+            _RewindFileEntry(
+                path=path,
+                before=before,
+                existed=True,
+                encoding=str(payload.get("encoding") or "utf-8"),
+                insertions=insertions,
+                deletions=deletions,
+            )
+        )
+        supported_paths.add(path)
+
+    files = payload.get("files") if isinstance(payload.get("files"), list) else []
+    for item in files:
+        if not isinstance(item, dict):
+            continue
+        item_path = _rewind_path_value(item.get("path") or item.get("filePath"))
+        if not item_path or item_path in supported_paths:
+            continue
+        action = str(item.get("action") or "")
+        if action == "create":
+            insertions, deletions = _change_stats(_structured_patch_for_path(payload, item_path), "", None)
+            entries.append(
+                _RewindFileEntry(
+                    path=item_path,
+                    before="",
+                    existed=False,
+                    encoding=str(payload.get("encoding") or "utf-8"),
+                    insertions=insertions,
+                    deletions=deletions,
+                )
+            )
+            supported_paths.add(item_path)
+        elif action == "edit":
+            unsupported_paths.add(item_path)
+
+    if not files and payload.get("structuredPatches") and not supported_paths:
+        for item in payload.get("structuredPatches") or []:
+            if isinstance(item, dict):
+                item_path = _rewind_path_value(item.get("filePath") or item.get("path"))
+                if item_path:
+                    unsupported_paths.add(item_path)
+    return entries, sorted(unsupported_paths)
+
+
+def _rewind_entry_from_notebook_payload(payload: dict[str, Any]) -> _RewindFileEntry | None:
+    path = _rewind_path_value(payload.get("notebook_path") or payload.get("path") or payload.get("filePath"))
+    before = payload.get("original_file") if "original_file" in payload else payload.get("originalFile")
+    after = payload.get("updated_file") if "updated_file" in payload else payload.get("updatedFile")
+    if not path or not isinstance(before, str):
+        return None
+    insertions, deletions = _change_stats(None, before, after if isinstance(after, str) else None)
+    return _RewindFileEntry(
+        path=path,
+        before=before,
+        existed=True,
+        encoding=str(payload.get("encoding") or "utf-8"),
+        insertions=insertions,
+        deletions=deletions,
+    )
+
+
+def _rewind_entry_from_write_payload(
+    payload: dict[str, Any],
+    read_cache: dict[str, str],
+) -> tuple[_RewindFileEntry | None, list[str]]:
+    path = _rewind_path_value(payload.get("path") or payload.get("filePath"))
+    if not path:
+        return None, []
+    safety = payload.get("safety") if isinstance(payload.get("safety"), dict) else {}
+    existed = bool(safety.get("required_prior_read"))
+    encoding = str(payload.get("encoding") or safety.get("encoding") or "utf-8")
+    if not existed:
+        return _RewindFileEntry(path=path, before="", existed=False, encoding=encoding), []
+    before = read_cache.get(path)
+    if before is None:
+        return None, [path]
+    return _RewindFileEntry(path=path, before=before, existed=True, encoding=encoding), []
+
+
+def _rewind_response_payload(entries: list[_RewindFileEntry]) -> dict[str, Any]:
+    ordered = sorted(entries, key=lambda item: item.path)
+    return {
+        "canRewind": True,
+        "filesChanged": [entry.path for entry in ordered],
+        "insertions": sum(max(0, entry.insertions) for entry in ordered),
+        "deletions": sum(max(0, entry.deletions) for entry in ordered),
+    }
+
+
+def _rewind_workspace_root(options: SDKOptions, records: list[RunRecord]) -> Path:
+    root = str(options.cwd or "")
+    if not root:
+        root = _first_non_empty(_record_cwd(record) for record in reversed(records))
+    return Path(root or ".").resolve()
+
+
+def _safe_rewind_path(root: Path, path: str) -> Path:
+    target = Path(path)
+    resolved = target.resolve() if target.is_absolute() else (root / target).resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("rewind path escapes workspace: %s" % path) from exc
+    return resolved
+
+
+def _apply_rewind_entry(entry: _RewindFileEntry, target: Path) -> None:
+    if not entry.existed:
+        if target.exists():
+            if target.is_dir():
+                raise ValueError("cannot rewind file path because it is a directory: %s" % entry.path)
+            target.unlink()
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(entry.before, encoding=entry.encoding or "utf-8")
+
+
+def _rewind_path_value(value: Any) -> str:
+    path = str(value or "").strip()
+    if path.startswith("./"):
+        path = path[2:]
+    return path
+
+
+def _patch_after_content(payload: dict[str, Any], before: str) -> str | None:
+    old = payload.get("oldString")
+    new = payload.get("newString")
+    if isinstance(old, str) and isinstance(new, str) and old in before:
+        return before.replace(old, new, 1)
+    return None
+
+
+def _structured_patch_for_path(payload: dict[str, Any], path: str) -> list[dict[str, Any]] | None:
+    patches = payload.get("structuredPatches")
+    if not isinstance(patches, list):
+        return None
+    for item in patches:
+        if not isinstance(item, dict):
+            continue
+        item_path = _rewind_path_value(item.get("filePath") or item.get("path"))
+        if item_path == path and isinstance(item.get("hunks"), list):
+            return list(item["hunks"])
+    return None
+
+
+def _change_stats(patch: Any, before: str, after: str | None) -> tuple[int, int]:
+    insertions, deletions = _structured_patch_stats(patch)
+    if insertions or deletions or after is None:
+        return insertions, deletions
+    return _text_change_stats(before, after)
+
+
+def _structured_patch_stats(patch: Any) -> tuple[int, int]:
+    if not isinstance(patch, list):
+        return 0, 0
+    insertions = 0
+    deletions = 0
+    for hunk in patch:
+        if not isinstance(hunk, dict):
+            continue
+        for line in hunk.get("lines") or []:
+            text = str(line)
+            if text.startswith("+"):
+                insertions += 1
+            elif text.startswith("-"):
+                deletions += 1
+    return insertions, deletions
+
+
+def _text_change_stats(before: str, after: str) -> tuple[int, int]:
+    insertions = 0
+    deletions = 0
+    matcher = difflib.SequenceMatcher(a=before.splitlines(), b=after.splitlines(), autojunk=False)
+    for tag, old_start, old_end, new_start, new_end in matcher.get_opcodes():
+        if tag in {"replace", "delete"}:
+            deletions += old_end - old_start
+        if tag in {"replace", "insert"}:
+            insertions += new_end - new_start
+    return insertions, deletions
 
 
 def _assistant_api_message(payload: dict[str, Any]) -> dict[str, Any]:
