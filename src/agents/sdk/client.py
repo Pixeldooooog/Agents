@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import time
@@ -108,6 +109,8 @@ class AgentSDKClient:
     sdk_mcp_handlers: dict[str, SDKMcpMessageHandler] = field(default_factory=dict)
     hook_callback_handlers: dict[str, SDKHookCallbackHandler] = field(default_factory=dict)
     elicitation_handler: SDKElicitationHandler | None = None
+    active_turn_tasks: dict[str, asyncio.Task[Any]] = field(default_factory=dict)
+    active_turn_run_ids: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.settings is None:
@@ -189,6 +192,12 @@ class AgentSDKClient:
         run = await self.run_service.start(spec)
         run_id = run.run_id
         session_id = options.session_id or run_id
+        current_task = asyncio.current_task()
+        if current_task is not None:
+            self.active_turn_tasks[session_id] = current_task
+            self.active_turn_tasks[run_id] = current_task
+            self.active_turn_run_ids[session_id] = run_id
+            self.active_turn_run_ids[run_id] = run_id
         await self._record_session_metadata(
             run_id,
             session_id=session_id,
@@ -239,6 +248,25 @@ class AgentSDKClient:
                             yield _project_session_state_event(requires_action, session_id=session_id, run_id=run_id)
                             requires_action_emitted = True
                     yield message
+        except asyncio.CancelledError as exc:
+            if not _is_sdk_interrupt_cancel(exc):
+                raise
+            final_status = "canceled"
+            yielded_result = True
+            canceled_event = RuntimeEvent(
+                type="done",
+                name="assistant",
+                payload={"content": "run canceled", "status": "canceled"},
+            )
+            await self.run_service.record_event(run_id, canceled_event)
+            for message in _project_runtime_event_messages(
+                canceled_event,
+                session_id=session_id,
+                run_id=run_id,
+                duration_ms=_duration_ms(started_at),
+                num_turns=1,
+            ):
+                yield message
         except Exception as exc:
             final_status = "error"
             yielded_result = True
@@ -275,6 +303,7 @@ class AgentSDKClient:
             close = getattr(session, "aclose", None)
             if close is not None:
                 await close()
+            self._clear_active_turn(session_id, run_id, current_task)
 
     async def prompt(self, prompt: str, options: SDKOptions | dict[str, Any] | None = None) -> SDKResultMessage:
         result: SDKResultMessage | None = None
@@ -427,7 +456,7 @@ class AgentSDKClient:
         if isinstance(request, SDKControlMcpReconnectRequest):
             return {"serverName": request.serverName, "status": "pending"}
         if isinstance(request, SDKControlInterruptRequest):
-            return {"interrupted": False, "reason": "no active SDK turn is attached to this control handler"}
+            return self._interrupt_control_response(options)
         if isinstance(request, SDKControlGetContextUsageRequest):
             return _empty_context_usage_payload(options)
         if isinstance(request, SDKHookCallbackRequest):
@@ -457,6 +486,35 @@ class AgentSDKClient:
         )
         sdk_statuses = [{"name": name, "status": "connected"} for name in self.sdk_mcp_handlers]
         return [dict(item) for item in _merge_mcp_server_statuses(sdk_statuses, statuses)]
+
+    def _interrupt_control_response(self, options: SDKOptions) -> dict[str, Any]:
+        keys = [str(options.session_id or "")]
+        run_id = str(options.metadata.get("run_id") or options.metadata.get("runId") or "")
+        if run_id:
+            keys.append(run_id)
+        current = asyncio.current_task()
+        for key in keys:
+            if not key:
+                continue
+            task = self.active_turn_tasks.get(key)
+            if task is None or task.done():
+                continue
+            if task is current:
+                return {"interrupted": False, "reason": "cannot interrupt the current control handler task"}
+            task.cancel("interrupt")
+            return {"interrupted": True, "session_id": key, "run_id": self.active_turn_run_ids.get(key, "")}
+        return {"interrupted": False, "reason": "no active SDK turn is attached to this control handler"}
+
+    def _clear_active_turn(
+        self,
+        session_id: str,
+        run_id: str,
+        task: asyncio.Task[Any] | None,
+    ) -> None:
+        for key in (session_id, run_id):
+            if task is None or self.active_turn_tasks.get(key) is task:
+                self.active_turn_tasks.pop(key, None)
+                self.active_turn_run_ids.pop(key, None)
 
     async def _mcp_set_servers_control_response(
         self,
@@ -2311,3 +2369,7 @@ def _sdk_status(value: Any) -> Literal["compacting"] | None:
 
 def _duration_ms(started_at: float) -> int:
     return int((time.monotonic() - started_at) * 1000)
+
+
+def _is_sdk_interrupt_cancel(exc: asyncio.CancelledError) -> bool:
+    return bool(exc.args) and str(exc.args[0]) == "interrupt"

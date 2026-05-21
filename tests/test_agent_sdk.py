@@ -19,6 +19,7 @@ from agents.sdk import (
     SDKControlErrorResponse,
     SDKControlGetSettingsRequest,
     SDKControlInitializeRequest,
+    SDKControlInterruptRequest,
     SDKControlMcpMessageRequest,
     SDKControlMcpSetServersRequest,
     SDKControlMcpStatusRequest,
@@ -1542,6 +1543,66 @@ def test_sdk_control_request_handler_routes_hook_callbacks_and_elicitations():
         "content": {"channel": "#ops", "server": "slack"},
     }
     assert default_elicitation.response.response == {"action": "cancel"}
+
+
+def test_sdk_control_request_interrupt_cancels_active_session_query():
+    async def execute():
+        started = asyncio.Event()
+
+        async def interruptible_session_factory(settings, spec):
+            interrupt_workspace = WorkspaceContext(
+                tenant_id="tenant",
+                user_id="user",
+                agent_id="agent",
+                workspace_id="workspace",
+                root=".",
+                path=".",
+            )
+
+            class InterruptibleSession:
+                runtime = SimpleNamespace(model="scripted", protocol="scripted", enabled_tools=[])
+                workspace = interrupt_workspace
+
+                async def stream(self, text, run_id=None):
+                    started.set()
+                    await asyncio.sleep(60)
+                    yield RuntimeEvent(type="done", name="assistant", payload={"content": "late", "status": "finished"})
+
+            return InterruptibleSession()
+
+        client = AgentSDKClient(session_factory=interruptible_session_factory)
+        session = client.create_sdk_session(
+            SDKOptions(
+                session_id="interrupt-session",
+                tenant_id="tenant",
+                user_id="user",
+                agent_id="agent",
+            )
+        )
+
+        async def collect():
+            return [message async for message in session.query("wait")]
+
+        collector = asyncio.create_task(collect())
+        await started.wait()
+        response = await session.handle_control_request(
+            SDKControlRequest(request_id="interrupt", request=SDKControlInterruptRequest())
+        )
+        messages = await collector
+        replay = await session.messages()
+        return response, messages, replay
+
+    response, messages, replay = asyncio.run(execute())
+    result = next(message for message in messages if isinstance(message, SDKResultMessage))
+    states = [message.state for message in messages if isinstance(message, SDKSessionStateChangedMessage)]
+
+    assert response.response.response["interrupted"] is True
+    assert response.response.response["run_id"]
+    assert result.is_error is False
+    assert result.result == "run canceled"
+    assert result.stop_reason == "canceled"
+    assert states == ["running", "idle"]
+    assert any(isinstance(message, SDKResultMessage) and message.stop_reason == "canceled" for message in replay)
 
 
 def test_sdk_control_request_handler_stops_tasks_from_store():
