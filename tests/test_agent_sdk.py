@@ -747,6 +747,26 @@ async def _read_state_seed_session_factory(settings, spec):
     return ReadStateSeedSession()
 
 
+async def _echo_prompt_session_factory(settings, spec):
+    echo_workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=".",
+        path=".",
+    )
+
+    class EchoPromptSession:
+        runtime = SimpleNamespace(model="scripted", protocol="scripted", enabled_tools=[])
+        workspace = echo_workspace
+
+        async def stream(self, text, run_id=None):
+            yield RuntimeEvent(type="done", name="assistant", payload={"content": str(text), "status": "finished"})
+
+    return EchoPromptSession()
+
+
 def test_sdk_query_hides_store_wiring_and_streams_typed_messages():
     client = AgentSDKClient(session_factory=_session_factory)
     assert client.persistence is not None
@@ -1840,6 +1860,87 @@ def test_sdk_control_request_cancels_pending_async_messages():
     assert [message.uuid for message in session.list_async_messages()] == [next_message.uuid]
     assert session.dequeue_async_message().uuid == next_message.uuid
     assert session.dequeue_async_message() is None
+
+
+def test_sdk_session_drains_queued_async_messages_between_turns():
+    async def execute():
+        client = AgentSDKClient(session_factory=_echo_prompt_session_factory)
+        session = client.create_sdk_session(SDKOptions(session_id="drain-session"))
+        later = session.enqueue_async_message("queued later", priority="later")
+        next_message = session.enqueue_async_message(
+            {
+                "type": "user",
+                "session_id": "drain-session",
+                "uuid": "queued-next",
+                "message": {"role": "user", "content": [{"type": "text", "text": "queued next"}]},
+                "priority": "next",
+                "isReplay": False,
+            }
+        )
+        messages = await _collect(session.query("initial"))
+        replay = await session.messages({"include_system_messages": False})
+        return messages, replay, session.list_async_messages(), later.uuid, next_message.uuid
+
+    messages, replay, queued, later_uuid, next_uuid = asyncio.run(execute())
+    results = [message.result for message in messages if isinstance(message, SDKResultMessage)]
+    replay_users = [message for message in replay if isinstance(message, SDKUserMessage)]
+
+    assert results == ["initial", "queued next", "queued later"]
+    assert queued == []
+    assert [message.content for message in replay_users] == ["initial", "queued next", "queued later"]
+    assert [message.uuid for message in replay_users[1:]] == [next_uuid, later_uuid]
+
+
+def test_sdk_now_priority_async_message_interrupts_and_drains():
+    async def execute():
+        started = asyncio.Event()
+        workspace = WorkspaceContext(
+            tenant_id="tenant",
+            user_id="user",
+            agent_id="agent",
+            workspace_id="workspace",
+            root=".",
+            path=".",
+        )
+
+        async def session_factory(settings, spec):
+            class InterruptThenEchoSession:
+                runtime = SimpleNamespace(model="scripted", protocol="scripted", enabled_tools=[])
+
+                def __init__(self):
+                    self.workspace = workspace
+
+                async def stream(self, text, run_id=None):
+                    if text == "wait":
+                        started.set()
+                        await asyncio.sleep(60)
+                    yield RuntimeEvent(
+                        type="done",
+                        name="assistant",
+                        payload={"content": str(text), "status": "finished"},
+                    )
+
+            return InterruptThenEchoSession()
+
+        client = AgentSDKClient(session_factory=session_factory)
+        session = client.create_sdk_session(SDKOptions(session_id="now-drain-session"))
+
+        async def collect():
+            return [message async for message in session.query("wait")]
+
+        collector = asyncio.create_task(collect())
+        await started.wait()
+        urgent = session.enqueue_async_message("urgent", priority="now")
+        messages = await asyncio.wait_for(collector, timeout=2)
+        return messages, urgent.uuid
+
+    messages, urgent_uuid = asyncio.run(execute())
+    results = [message.result for message in messages if isinstance(message, SDKResultMessage)]
+    replay_users = [message for message in messages if isinstance(message, SDKUserMessage)]
+
+    assert results == ["run canceled", "urgent"]
+    assert replay_users == []
+    assert urgent_uuid
 
 
 def test_sdk_control_request_seeds_read_state_for_next_session(tmp_path):

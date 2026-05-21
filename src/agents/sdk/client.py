@@ -228,6 +228,8 @@ class AgentSDKClient:
         queued = _coerce_async_user_message(message, session_id=session_id, priority=priority)
         self.async_message_queue.append(_SDKAsyncMessageQueueItem(sequence=self.async_message_sequence, message=queued))
         self.async_message_sequence += 1
+        if queued.priority == "now":
+            self._interrupt_active_turn_for_async_message(queued.session_id)
         return queued
 
     def list_async_messages(self, *, session_id: str = "") -> list[SDKUserMessage]:
@@ -258,6 +260,28 @@ class AgentSDKClient:
 
     async def query(self, prompt: str, options: SDKOptions | dict[str, Any] | None = None) -> AsyncIterator[SDKMessage]:
         options = _coerce_options(options)
+        async for message in self._query_turn(str(prompt or ""), options):
+            yield message
+
+    async def query_user_message(
+        self,
+        message: SDKUserMessage | dict[str, Any],
+        options: SDKOptions | dict[str, Any] | None = None,
+    ) -> AsyncIterator[SDKMessage]:
+        options = _coerce_options(options)
+        user_message = _coerce_async_user_message(message, session_id=options.session_id or "")
+        if user_message.session_id and user_message.session_id != options.session_id:
+            options = options.model_copy(update={"session_id": user_message.session_id})
+        async for item in self._query_turn(user_message.content, options, user_message=user_message):
+            yield item
+
+    async def _query_turn(
+        self,
+        prompt: str,
+        options: SDKOptions,
+        *,
+        user_message: SDKUserMessage | None = None,
+    ) -> AsyncIterator[SDKMessage]:
         spec = _spec_from_options(options)
         started_at = time.monotonic()
         session = await self.create_session(options)
@@ -279,7 +303,7 @@ class AgentSDKClient:
         )
         await self.run_service.record_event(
             run_id,
-            _user_message_event(prompt, session_id=session_id, run_id=run_id),
+            _user_message_event(prompt, session_id=session_id, run_id=run_id, user_message=user_message),
         )
         running_event = _session_state_event("running")
         await self.run_service.record_event(run_id, running_event)
@@ -629,6 +653,20 @@ class AgentSDKClient:
             return []
         self.async_message_queue = remaining
         return [item.message for item in _sorted_async_message_items(matched)]
+
+    def _interrupt_active_turn_for_async_message(self, session_id: str) -> None:
+        if not session_id:
+            return
+        task = self.active_turn_tasks.get(session_id)
+        if task is None or task.done():
+            return
+        try:
+            current = asyncio.current_task()
+        except RuntimeError:
+            current = None
+        if task is current:
+            return
+        task.cancel("interrupt")
 
     async def _control_workspace_root(self, options: SDKOptions) -> Path:
         if options.cwd:
@@ -1023,8 +1061,23 @@ class SDKSession:
         options: SDKOptions | dict[str, Any] | None = None,
     ) -> AsyncIterator[SDKMessage]:
         merged = _merge_session_options(self.options, options, session_id=self.session_id)
+        last_result: SDKResultMessage | None = None
         async for message in self.client.query(prompt, merged):
+            if isinstance(message, SDKResultMessage):
+                last_result = message
             yield message
+        if last_result is not None and last_result.stop_reason == "awaiting_approval":
+            return
+        async for message in self._drain_async_messages(merged):
+            yield message
+
+    async def _drain_async_messages(self, options: SDKOptions) -> AsyncIterator[SDKMessage]:
+        while True:
+            queued = self.client.dequeue_async_message(session_id=self.session_id)
+            if queued is None:
+                return
+            async for message in self.client.query_user_message(queued, options):
+                yield message
 
     async def prompt(
         self,
@@ -1307,12 +1360,23 @@ def _structured_output_schema_from_options(options: SDKOptions) -> dict[str, Any
     return dict(schema) if isinstance(schema, dict) else None
 
 
-def _user_message_event(prompt: str, *, session_id: str, run_id: str) -> RuntimeEvent:
-    message_id = "msg_%s" % uuid.uuid4().hex
-    message = {
-        "role": "user",
-        "content": [{"type": "text", "text": prompt}],
-    }
+def _user_message_event(
+    prompt: str,
+    *,
+    session_id: str,
+    run_id: str,
+    user_message: SDKUserMessage | None = None,
+) -> RuntimeEvent:
+    message_id = str(getattr(user_message, "uuid", "") or "msg_%s" % uuid.uuid4().hex)
+    message = (
+        dict(user_message.message)
+        if user_message is not None
+        else {
+            "role": "user",
+            "content": [{"type": "text", "text": prompt}],
+        }
+    )
+    timestamp = getattr(user_message, "timestamp", None) if user_message is not None else None
     return RuntimeEvent(
         type="user_message",
         name="user",
@@ -1323,8 +1387,12 @@ def _user_message_event(prompt: str, *, session_id: str, run_id: str) -> Runtime
             "run_id": run_id,
             "message": message,
             "content": prompt,
-            "parent_tool_use_id": None,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "parent_tool_use_id": getattr(user_message, "parent_tool_use_id", None) if user_message is not None else None,
+            "timestamp": timestamp or datetime.now(timezone.utc).isoformat(),
+            "isSynthetic": bool(getattr(user_message, "isSynthetic", False)) if user_message is not None else False,
+            "tool_use_result": getattr(user_message, "tool_use_result", None) if user_message is not None else None,
+            "priority": getattr(user_message, "priority", None) if user_message is not None else None,
+            "isReplay": bool(getattr(user_message, "isReplay", True)) if user_message is not None else True,
         },
     )
 
