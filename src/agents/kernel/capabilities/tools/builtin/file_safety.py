@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
@@ -95,7 +96,6 @@ def ensure_existing_file_current(
 
 def write_text_safely(context: ToolRuntimeContext, path: str, content: str) -> dict[str, Any]:
     existed = True
-    output = str(content)
     try:
         current_read = read_current_file(context, path)
         relative_path = current_read.path
@@ -111,6 +111,7 @@ def write_text_safely(context: ToolRuntimeContext, path: str, content: str) -> d
         if message.startswith(SPECIAL_FILE_READ_ERROR_PREFIX):
             raise ValueError(message.replace("refusing to read", "refusing to write", 1)) from exc
         raise
+    output = normalize_text_write_content(relative_path, content)
     if existed:
         ensure_existing_file_current(context, relative_path, current)
         output = preserve_existing_line_endings(current, output)
@@ -127,10 +128,32 @@ def write_text_safely(context: ToolRuntimeContext, path: str, content: str) -> d
     return payload
 
 
+def normalize_text_write_content(path: str, content: str) -> str:
+    if _is_markdown_path(path):
+        return str(content)
+    return strip_trailing_whitespace(content)
+
+
+def strip_trailing_whitespace(text: str) -> str:
+    parts = re.split(r"(\r\n|\n|\r)", str(text))
+    output: list[str] = []
+    for index, part in enumerate(parts):
+        if index % 2 == 0:
+            output.append(re.sub(r"\s+$", "", part))
+        else:
+            output.append(part)
+    return "".join(output)
+
+
 def preserve_existing_line_endings(existing_content: str, new_content: str) -> str:
     if "\r\n" not in existing_content or "\r\n" in new_content:
         return new_content
     return new_content.replace("\r\n", "\n").replace("\n", "\r\n")
+
+
+def _is_markdown_path(path: str) -> bool:
+    normalized = str(path).lower()
+    return normalized.endswith(".md") or normalized.endswith(".mdx")
 
 
 def _normalize_path(context: ToolRuntimeContext, path: str) -> str:

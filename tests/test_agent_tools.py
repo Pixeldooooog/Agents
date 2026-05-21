@@ -2314,6 +2314,58 @@ def test_filesystem_write_requires_read_before_overwriting_existing_file(tmp_pat
     assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "new\n"
 
 
+def test_filesystem_write_strips_trailing_whitespace_for_non_markdown(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    written = asyncio.run(
+        registry.execute("filesystem.write", {"path": "notes.txt", "content": "alpha   \nnext\t  "})
+    )
+
+    assert written.is_error is False
+    assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "alpha\nnext"
+
+
+def test_filesystem_write_preserves_markdown_trailing_whitespace(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    written = asyncio.run(
+        registry.execute("filesystem.write", {"path": "guide.md", "content": "alpha  \nnext\t  "})
+    )
+
+    assert written.is_error is False
+    assert (tmp_path / "guide.md").read_text(encoding="utf-8") == "alpha  \nnext\t  "
+
+
 def test_filesystem_write_rejects_stale_prior_read(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="default",

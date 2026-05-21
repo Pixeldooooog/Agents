@@ -8,6 +8,7 @@ from typing import Any
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.tools.builtin.file_safety import (
     ensure_existing_file_current,
+    normalize_text_write_content,
     preserve_existing_line_endings,
     read_current_file,
     record_file_read,
@@ -165,7 +166,7 @@ def _plan_patch(
             ensure_existing_file_current(context, relative_path, before)
             verified_paths.add(relative_path)
             path = relative_path
-        new_text = _normalize_replacement_text(path, new_text)
+        new_text = normalize_text_write_content(path, new_text)
         match_old_text, match_new_text = _normalize_edit_strings(before, old_text, new_text)
         if match_old_text == match_new_text:
             raise ValueError("No changes to make: old_text and new_text are exactly the same for %s" % path)
@@ -385,12 +386,6 @@ def _desanitize_match_string(text: str) -> tuple[str, list[tuple[str, str]]]:
     return result, replacements
 
 
-def _normalize_replacement_text(path: str, new_text: str) -> str:
-    if _is_markdown_path(path):
-        return str(new_text)
-    return _strip_trailing_whitespace(new_text)
-
-
 def _reject_editing_previous_new_text(old_text: str, previous_new_texts: list[str]) -> None:
     old_text_to_check = re.sub(r"\n+$", "", str(old_text))
     if not old_text_to_check:
@@ -398,22 +393,6 @@ def _reject_editing_previous_new_text(old_text: str, previous_new_texts: list[st
     for previous_new_text in previous_new_texts:
         if old_text_to_check in previous_new_text:
             raise ValueError("Cannot edit file: old_text is a substring of a new_text from a previous edit.")
-
-
-def _is_markdown_path(path: str) -> bool:
-    normalized = str(path).lower()
-    return normalized.endswith(".md") or normalized.endswith(".mdx")
-
-
-def _strip_trailing_whitespace(text: str) -> str:
-    parts = re.split(r"(\r\n|\n|\r)", str(text))
-    output: list[str] = []
-    for index, part in enumerate(parts):
-        if index % 2 == 0:
-            output.append(re.sub(r"\s+$", "", part))
-        else:
-            output.append(part)
-    return "".join(output)
 
 
 def _preserve_quote_style(old_text: str, actual_old_text: str, new_text: str) -> str:
