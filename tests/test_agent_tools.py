@@ -1639,6 +1639,35 @@ def test_filesystem_read_directory_reports_src_origin_eisdir(tmp_path: Path):
     assert "EISDIR: illegal operation on a directory, read 'docs'" in result.content
 
 
+def test_filesystem_read_binary_reports_src_origin_binary_error(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "payload.zip").write_bytes(b"not a real zip")
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    result = asyncio.run(registry.execute("filesystem.read", {"path": "payload.zip"}))
+
+    assert result.is_error is True
+    assert (
+        result.content
+        == "This tool cannot read binary files. The file appears to be a binary .zip file. "
+        "Please use appropriate tools for binary file analysis."
+    )
+
+
 def test_filesystem_read_prefixes_stale_memory_freshness_note(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="default",

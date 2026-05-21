@@ -112,7 +112,12 @@ def _read_file(
     cached = unchanged_read_stub(context, path, offset=offset, limit=limit)
     if cached is not None:
         return cached
-    result = context.sandbox_client.read_text(path, max_bytes=max_bytes, offset=offset, limit=limit)
+    try:
+        result = context.sandbox_client.read_text(path, max_bytes=max_bytes, offset=offset, limit=limit)
+    except ValueError as exc:
+        if _is_binary_text_read_error(exc):
+            raise ValueError(_binary_read_error_message(path)) from exc
+        raise
     if not result.truncated and not result.is_partial_view:
         record_file_read(
             context,
@@ -230,6 +235,19 @@ def _file_not_found_message(context: ToolRuntimeContext, path: str) -> str:
     if suggestion:
         message += " Did you mean %s?" % suggestion
     return message
+
+
+def _is_binary_text_read_error(exc: ValueError) -> bool:
+    return "cannot read binary files" in str(exc)
+
+
+def _binary_read_error_message(path: str) -> str:
+    suffix = Path(path).suffix.lower()
+    kind = " %s" % suffix if suffix else ""
+    return (
+        "This tool cannot read binary files. The file appears to be a binary%s file. "
+        "Please use appropriate tools for binary file analysis." % kind
+    )
 
 
 def _similar_file(context: ToolRuntimeContext, path: str) -> str:
