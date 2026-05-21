@@ -16,6 +16,7 @@ from agents.kernel.tasks import TaskStatus
 from agents.sdk import (
     AgentSDKClient,
     SDKControlApplyFlagSettingsRequest,
+    SDKControlCancelAsyncMessageRequest,
     SDKControlElicitationRequest,
     SDKControlErrorResponse,
     SDKControlGetSettingsRequest,
@@ -1765,6 +1766,43 @@ def test_sdk_control_request_rewinds_files_from_run_store(tmp_path):
     assert notes_content == "old\n"
     assert write_content == "old write\n"
     assert created_exists is False
+
+
+def test_sdk_control_request_cancels_pending_async_messages():
+    client = AgentSDKClient(session_factory=_session_factory)
+    session = client.create_sdk_session(
+        SDKOptions(
+            session_id="async-message-session",
+            tenant_id="tenant",
+            user_id="user",
+            agent_id="agent",
+        )
+    )
+    later = session.enqueue_async_message("run later", priority="later")
+    next_message = session.enqueue_async_message("run next", priority="next")
+
+    response = asyncio.run(
+        session.handle_control_request(
+            SDKControlRequest(
+                request_id="cancel-async",
+                request=SDKControlCancelAsyncMessageRequest(message_uuid=later.uuid),
+            )
+        )
+    )
+    missing = asyncio.run(
+        session.handle_control_request(
+            SDKControlRequest(
+                request_id="cancel-missing",
+                request=SDKControlCancelAsyncMessageRequest(message_uuid=later.uuid),
+            )
+        )
+    )
+
+    assert response.response.response == {"cancelled": True}
+    assert missing.response.response == {"cancelled": False}
+    assert [message.uuid for message in session.list_async_messages()] == [next_message.uuid]
+    assert session.dequeue_async_message().uuid == next_message.uuid
+    assert session.dequeue_async_message() is None
 
 
 def test_sdk_control_request_handler_stops_tasks_from_store():

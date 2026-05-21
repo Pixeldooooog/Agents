@@ -105,6 +105,12 @@ class _RewindFileEntry:
     deletions: int = 0
 
 
+@dataclass
+class _SDKAsyncMessageQueueItem:
+    sequence: int
+    message: SDKUserMessage
+
+
 try:
     _SDK_VERSION = version("agents")
 except PackageNotFoundError:
@@ -124,6 +130,8 @@ class AgentSDKClient:
     elicitation_handler: SDKElicitationHandler | None = None
     active_turn_tasks: dict[str, asyncio.Task[Any]] = field(default_factory=dict)
     active_turn_run_ids: dict[str, str] = field(default_factory=dict)
+    async_message_queue: list[_SDKAsyncMessageQueueItem] = field(default_factory=list)
+    async_message_sequence: int = 0
 
     def __post_init__(self) -> None:
         if self.settings is None:
@@ -189,6 +197,37 @@ class AgentSDKClient:
 
     def set_elicitation_handler(self, handler: SDKElicitationHandler | None) -> None:
         self.elicitation_handler = handler
+
+    def enqueue_async_message(
+        self,
+        message: SDKUserMessage | dict[str, Any] | str,
+        *,
+        session_id: str = "",
+        priority: Literal["now", "next", "later"] | None = None,
+    ) -> SDKUserMessage:
+        queued = _coerce_async_user_message(message, session_id=session_id, priority=priority)
+        self.async_message_queue.append(_SDKAsyncMessageQueueItem(sequence=self.async_message_sequence, message=queued))
+        self.async_message_sequence += 1
+        return queued
+
+    def list_async_messages(self, *, session_id: str = "") -> list[SDKUserMessage]:
+        return [
+            item.message
+            for item in _sorted_async_message_items(self.async_message_queue)
+            if not session_id or item.message.session_id == session_id
+        ]
+
+    def dequeue_async_message(self, *, session_id: str = "") -> SDKUserMessage | None:
+        candidates = [
+            item
+            for item in _sorted_async_message_items(self.async_message_queue)
+            if not session_id or item.message.session_id == session_id
+        ]
+        if not candidates:
+            return None
+        target = candidates[0]
+        self.async_message_queue.remove(target)
+        return target.message
 
     async def resume_session(self, session_id: str, options: SDKOptions | dict[str, Any] | None = None) -> "SDKSession":
         info = await self.get_session_info(session_id)
@@ -477,7 +516,7 @@ class AgentSDKClient:
         if isinstance(request, SDKControlReloadPluginsRequest):
             return {"commands": _slash_command_infos(), "agents": [], "plugins": [], "mcpServers": [], "error_count": 0}
         if isinstance(request, SDKControlCancelAsyncMessageRequest):
-            return {"cancelled": False}
+            return self._cancel_async_message_control_response(request)
         if isinstance(request, SDKControlRewindFilesRequest):
             return await self._rewind_files_control_response(request, options)
         if isinstance(request, SDKControlSeedReadStateRequest):
@@ -489,6 +528,12 @@ class AgentSDKClient:
         if isinstance(request, SDKControlElicitationRequest):
             return await self._elicitation_control_response(request)
         return {}
+
+    def _cancel_async_message_control_response(self, request: SDKControlCancelAsyncMessageRequest) -> dict[str, Any]:
+        removed = self._dequeue_matching_async_messages(
+            lambda item: item.message.uuid == request.message_uuid,
+        )
+        return {"cancelled": bool(removed)}
 
     async def _rewind_files_control_response(
         self,
@@ -524,6 +569,22 @@ class AgentSDKClient:
         for entry, target in targets:
             _apply_rewind_entry(entry, target)
         return payload
+
+    def _dequeue_matching_async_messages(
+        self,
+        predicate: Callable[[_SDKAsyncMessageQueueItem], bool],
+    ) -> list[SDKUserMessage]:
+        matched: list[_SDKAsyncMessageQueueItem] = []
+        remaining: list[_SDKAsyncMessageQueueItem] = []
+        for item in self.async_message_queue:
+            if predicate(item):
+                matched.append(item)
+            else:
+                remaining.append(item)
+        if not matched:
+            return []
+        self.async_message_queue = remaining
+        return [item.message for item in _sorted_async_message_items(matched)]
 
     async def _mcp_statuses_for_options(self, options: SDKOptions) -> list[dict[str, Any]]:
         statuses = await self._sdk_mcp_server_statuses_for_scope(
@@ -897,6 +958,20 @@ class SDKSession:
             raise RuntimeError("SDK session prompt completed without a result message")
         return result
 
+    def enqueue_async_message(
+        self,
+        message: SDKUserMessage | dict[str, Any] | str,
+        *,
+        priority: Literal["now", "next", "later"] | None = None,
+    ) -> SDKUserMessage:
+        return self.client.enqueue_async_message(message, session_id=self.session_id, priority=priority)
+
+    def list_async_messages(self) -> list[SDKUserMessage]:
+        return self.client.list_async_messages(session_id=self.session_id)
+
+    def dequeue_async_message(self) -> SDKUserMessage | None:
+        return self.client.dequeue_async_message(session_id=self.session_id)
+
     async def messages(
         self,
         options: SDKGetSessionMessagesOptions | dict[str, Any] | None = None,
@@ -996,6 +1071,52 @@ def _coerce_options(options: SDKOptions | dict[str, Any] | None) -> SDKOptions:
     if isinstance(options, SDKOptions):
         return options
     return SDKOptions.model_validate(options)
+
+
+def _coerce_async_user_message(
+    message: SDKUserMessage | dict[str, Any] | str,
+    *,
+    session_id: str = "",
+    priority: Literal["now", "next", "later"] | None = None,
+) -> SDKUserMessage:
+    if isinstance(message, SDKUserMessage):
+        values = message.model_dump()
+    elif isinstance(message, dict):
+        values = dict(message)
+    else:
+        values = {
+            "type": "user",
+            "session_id": session_id,
+            "uuid": "msg_%s" % uuid.uuid4().hex,
+            "message": {"role": "user", "content": [{"type": "text", "text": str(message)}]},
+            "priority": priority,
+            "isReplay": False,
+        }
+    if session_id:
+        values["session_id"] = session_id
+    values.setdefault("type", "user")
+    values.setdefault("session_id", session_id)
+    values["uuid"] = str(values.get("uuid") or "msg_%s" % uuid.uuid4().hex)
+    if priority is not None:
+        values["priority"] = priority
+    elif not values.get("priority"):
+        values["priority"] = "next"
+    if "message" not in values:
+        values["message"] = {"role": "user", "content": []}
+    values.setdefault("isReplay", False)
+    return SDKUserMessage.model_validate(values)
+
+
+def _sorted_async_message_items(items: list[_SDKAsyncMessageQueueItem]) -> list[_SDKAsyncMessageQueueItem]:
+    return sorted(items, key=lambda item: (_async_message_priority(item.message.priority), item.sequence))
+
+
+def _async_message_priority(value: str | None) -> int:
+    if value == "now":
+        return 0
+    if value == "later":
+        return 2
+    return 1
 
 
 def _merge_session_options(
