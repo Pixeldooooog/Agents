@@ -66,7 +66,7 @@ from agents.sdk.control import (
     validate_sdk_control_request,
     validate_sdk_stdin_message,
 )
-from agents.sdk.structured_io import SDKStructuredIO
+from agents.sdk.structured_io import SDKStructuredIO, encode_stdout_message, iter_stdin_jsonl
 from agents.sdk.types import (
     SDKAPIRetryMessage,
     SDKAssistantMessage,
@@ -358,6 +358,15 @@ class AgentSDKClient:
             return
         elif isinstance(message, SDKControlResponse):
             yield message
+
+    async def run_stdin_jsonl(
+        self,
+        chunks: AsyncIterable[str | bytes] | Iterable[str | bytes],
+        options: SDKOptions | dict[str, Any] | None = None,
+        structured_io: SDKStructuredIO | None = None,
+    ) -> AsyncIterator[str]:
+        async for message in self.run_stdin(iter_stdin_jsonl(chunks), options, structured_io=structured_io):
+            yield encode_stdout_message(message)
 
     async def _query_turn(
         self,
@@ -1272,6 +1281,15 @@ async def run_stdin(
 ) -> AsyncIterator[SDKStdoutMessage]:
     async for message in AgentSDKClient().run_stdin(messages, options, structured_io=structured_io):
         yield message
+
+
+async def run_stdin_jsonl(
+    chunks: AsyncIterable[str | bytes] | Iterable[str | bytes],
+    options: SDKOptions | dict[str, Any] | None = None,
+    structured_io: SDKStructuredIO | None = None,
+) -> AsyncIterator[str]:
+    async for line in AgentSDKClient().run_stdin_jsonl(chunks, options, structured_io=structured_io):
+        yield line
 
 
 def unstable_v2_create_session(options: SDKOptions | dict[str, Any] | None = None) -> SDKSession:

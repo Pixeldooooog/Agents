@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from collections import deque
-from collections.abc import Callable
+from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable
 from dataclasses import dataclass
 from typing import Any, Union
 
-from pydantic import TypeAdapter
+from pydantic import BaseModel, TypeAdapter
 
 from agents.sdk.control import (
     SDKControlCancelRequest,
@@ -39,6 +40,10 @@ class SDKControlRequestCancelledError(RuntimeError):
 
 class SDKControlRequestError(RuntimeError):
     """Raised when a host returns an SDK control error response."""
+
+
+class SDKStdinDecodeError(ValueError):
+    """Raised when an SDK stdin JSONL frame cannot be decoded."""
 
 
 @dataclass
@@ -243,3 +248,64 @@ def _maybe_schedule(result: Any) -> None:
     except RuntimeError:
         return
     loop.create_task(result)
+
+
+async def iter_stdin_jsonl(
+    chunks: AsyncIterable[str | bytes] | Iterable[str | bytes],
+) -> AsyncIterator[SDKStdinMessage]:
+    """Parse newline-delimited SDK stdin messages from arbitrary chunks."""
+
+    buffer = ""
+    async for chunk in _aiter_chunks(chunks):
+        buffer += _chunk_to_text(chunk)
+        while True:
+            newline = buffer.find("\n")
+            if newline == -1:
+                break
+            line = buffer[:newline]
+            buffer = buffer[newline + 1 :]
+            message = _decode_stdin_jsonl_line(line)
+            if message is not None:
+                yield message
+    if buffer:
+        message = _decode_stdin_jsonl_line(buffer)
+        if message is not None:
+            yield message
+
+
+def encode_stdout_message(message: SDKStdoutMessage | dict[str, Any]) -> str:
+    """Encode one SDK stdout message as a safe NDJSON line."""
+
+    return ndjson_safe_dumps(validate_sdk_stdout_message(message)) + "\n"
+
+
+def ndjson_safe_dumps(value: Any) -> str:
+    payload = value.model_dump() if isinstance(value, BaseModel) else value
+    text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return text.replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
+
+
+async def _aiter_chunks(
+    chunks: AsyncIterable[str | bytes] | Iterable[str | bytes],
+) -> AsyncIterator[str | bytes]:
+    if hasattr(chunks, "__aiter__"):
+        async for chunk in chunks:  # type: ignore[union-attr]
+            yield chunk
+        return
+    for chunk in chunks:  # type: ignore[union-attr]
+        yield chunk
+
+
+def _chunk_to_text(chunk: str | bytes) -> str:
+    if isinstance(chunk, bytes):
+        return chunk.decode("utf-8")
+    return str(chunk)
+
+
+def _decode_stdin_jsonl_line(line: str) -> SDKStdinMessage | None:
+    if not line:
+        return None
+    try:
+        return validate_sdk_stdin_message(json.loads(line))
+    except Exception as exc:
+        raise SDKStdinDecodeError("Error parsing streaming input line: %s: %s" % (line, exc)) from exc

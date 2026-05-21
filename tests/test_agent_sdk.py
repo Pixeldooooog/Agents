@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -51,8 +52,12 @@ from agents.sdk import (
     SDKSessionInfo,
     SDKSession,
     SDKStructuredIO,
+    SDKStdinDecodeError,
     SDKUpdateEnvironmentVariablesMessage,
+    encode_stdout_message,
     handle_control_request,
+    iter_stdin_jsonl,
+    ndjson_safe_dumps,
     normalize_sdk_control_message_keys,
     sdk_control_request_json_schema,
     sdk_control_response_json_schema,
@@ -68,6 +73,7 @@ from agents.sdk import (
     validate_sdk_stdin_message,
     validate_sdk_stdout_message,
     run_stdin,
+    run_stdin_jsonl,
 )
 from agents.sdk.client import _spec_from_options
 from agents.sdk.types import (
@@ -1452,6 +1458,42 @@ def test_sdk_control_validators_accept_camel_case_request_ids():
     assert normalize_sdk_control_message_keys({"requestId": "legacy"}) == {"request_id": "legacy"}
 
 
+def test_sdk_structured_io_parses_and_encodes_jsonl_frames():
+    async def source():
+        yield b'{"type":"keep_alive"}\n'
+        yield '{"type":"control_request","requestId":"jsonl-request",'
+        yield '"request":{"subtype":"set_model","model":"claude-sonnet"}}\n\n'
+        yield '{"type":"update_environment_variables","variables":{"NEXUS_JSONL":"yes"}}'
+
+    messages = asyncio.run(_collect(iter_stdin_jsonl(source())))
+    encoded = encode_stdout_message(
+        SDKControlRequest(
+            request_id="jsonl-out",
+            request=SDKControlSetModelRequest(model="line\u2028separator\u2029test"),
+        )
+    )
+
+    assert isinstance(messages[0], SDKKeepAliveMessage)
+    assert isinstance(messages[1], SDKControlRequest)
+    assert messages[1].request_id == "jsonl-request"
+    assert isinstance(messages[2], SDKUpdateEnvironmentVariablesMessage)
+    assert "\\u2028" in encoded
+    assert "\\u2029" in encoded
+    assert "\u2028" not in encoded
+    assert "\u2029" not in encoded
+    assert encoded.endswith("\n")
+    assert json.loads(encoded)["request"]["model"] == "line\u2028separator\u2029test"
+    assert ndjson_safe_dumps({"text": "a\u2028b\u2029c"}) == '{"text":"a\\u2028b\\u2029c"}'
+
+
+def test_sdk_structured_io_reports_invalid_jsonl_frames():
+    async def execute():
+        return [message async for message in iter_stdin_jsonl(['{"type":"keep_alive"}\n', "{bad}\n"])]
+
+    with pytest.raises(SDKStdinDecodeError):
+        asyncio.run(execute())
+
+
 def test_sdk_structured_io_tracks_pending_control_requests():
     async def execute():
         structured_io = SDKStructuredIO()
@@ -2246,6 +2288,26 @@ def test_sdk_run_stdin_drains_structured_io_outbound_and_resolves_responses():
     assert isinstance(outputs[1], SDKControlResponse)
     assert outputs[1].response.request_id == "mcp-structured"
     assert response == {"jsonrpc": "2.0", "id": 1, "result": {"tools": []}}
+
+
+def test_sdk_run_stdin_jsonl_uses_structured_frame_codec():
+    async def execute():
+        client = AgentSDKClient(session_factory=_echo_prompt_session_factory)
+        chunks = [
+            '{"type":"user","session_id":"jsonl-session","uuid":"jsonl-user",',
+            '"message":{"role":"user","content":[{"type":"text","text":"hello jsonl"}]},',
+            '"isReplay":false}\n',
+        ]
+        return [line async for line in client.run_stdin_jsonl(chunks, SDKOptions(session_id="jsonl-session"))]
+
+    lines = asyncio.run(execute())
+    payloads = [json.loads(line) for line in lines]
+    results = [payload for payload in payloads if payload["type"] == "result"]
+
+    assert callable(run_stdin_jsonl)
+    assert all(line.endswith("\n") for line in lines)
+    assert results[0]["result"] == "hello jsonl"
+    assert results[0]["session_id"] == "jsonl-session"
 
 
 def test_sdk_control_request_seeds_read_state_for_next_session(tmp_path):
