@@ -57,6 +57,7 @@ from agents.sdk import (
     SDKStructuredIO,
     SDKStdinDecodeError,
     SDKUpdateEnvironmentVariablesMessage,
+    SDKWebSocketJsonlTransport,
     encode_stdout_message,
     derive_hybrid_post_url,
     derive_sse_post_url,
@@ -2346,6 +2347,132 @@ def test_sdk_hybrid_url_helper_matches_src_origin_shape():
     assert derive_hybrid_post_url("wss://api.example.com/v2/session_ingress/ws/abc?token=1") == (
         "https://api.example.com/v2/session_ingress/session/abc/events?token=1"
     )
+
+
+class _FakeWebSocketClosed(Exception):
+    def __init__(self, code):
+        super().__init__(f"closed {code}")
+        self.code = code
+
+
+class _FakeWebSocket:
+    def __init__(self, *, recv_items=None, response_headers=None):
+        self.recv_items = list(recv_items or [])
+        self.response_headers = dict(response_headers or {})
+        self.sent = []
+        self.closed = False
+
+    async def recv(self):
+        if self.recv_items:
+            item = self.recv_items.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return item
+        await asyncio.Event().wait()
+
+    async def send(self, data):
+        self.sent.append(data)
+
+    async def close(self):
+        self.closed = True
+
+
+def test_sdk_websocket_transport_reconnects_and_replays_unconfirmed_messages():
+    async def execute():
+        sockets = [
+            _FakeWebSocket(recv_items=[_FakeWebSocketClosed(1006)]),
+            _FakeWebSocket(
+                recv_items=['{"type":"keep_alive"}\n'],
+                response_headers={"x-last-request-id": "uuid-1"},
+            ),
+        ]
+        calls = []
+
+        async def connector(url, headers):
+            calls.append((url, dict(headers)))
+            return sockets[len(calls) - 1]
+
+        async def sleep(delay):
+            return None
+
+        transport = SDKWebSocketJsonlTransport(
+            "wss://api.example.com/v2/session_ingress/ws/abc",
+            headers={"Authorization": "Bearer token"},
+            connector=connector,
+            reconnect_base_delay_seconds=0,
+            sleep=sleep,
+        )
+        await transport.write('{"type":"result","uuid":"uuid-1","result":"one"}\n')
+        await transport.write('{"type":"result","uuid":"uuid-2","result":"two"}\n')
+        inbound = await asyncio.wait_for(transport.read(), timeout=1)
+        await transport.close()
+        return inbound, sockets, calls
+
+    inbound, sockets, calls = asyncio.run(execute())
+
+    assert inbound == '{"type":"keep_alive"}\n'
+    assert calls[0][1]["Authorization"] == "Bearer token"
+    assert calls[1][1]["X-Last-Request-Id"] == "uuid-2"
+    assert json.loads(sockets[0].sent[0])["uuid"] == "uuid-1"
+    assert json.loads(sockets[0].sent[1])["uuid"] == "uuid-2"
+    assert [json.loads(line)["uuid"] for line in sockets[1].sent] == ["uuid-2"]
+
+
+def test_sdk_websocket_transport_stops_on_permanent_close_code():
+    async def execute():
+        socket = _FakeWebSocket(recv_items=[_FakeWebSocketClosed(4001)])
+        closed = []
+
+        async def connector(url, headers):
+            return socket
+
+        transport = SDKWebSocketJsonlTransport(
+            "wss://api.example.com/v2/session_ingress/ws/abc",
+            connector=connector,
+        )
+        transport.set_on_close(lambda close_code: closed.append(close_code))
+        line = await asyncio.wait_for(transport.read(), timeout=1)
+        return line, closed, transport.is_closed_status()
+
+    line, closed, is_closed = asyncio.run(execute())
+
+    assert line is None
+    assert closed == [4001]
+    assert is_closed is True
+
+
+def test_sdk_websocket_transport_refreshes_headers_for_unauthorized_close():
+    async def execute():
+        sockets = [
+            _FakeWebSocket(recv_items=[_FakeWebSocketClosed(4003)]),
+            _FakeWebSocket(recv_items=['{"type":"keep_alive"}\n']),
+        ]
+        calls = []
+
+        async def connector(url, headers):
+            calls.append((url, dict(headers)))
+            return sockets[len(calls) - 1]
+
+        async def sleep(delay):
+            return None
+
+        transport = SDKWebSocketJsonlTransport(
+            "wss://api.example.com/v2/session_ingress/ws/abc",
+            headers={"Authorization": "Bearer old"},
+            refresh_headers=lambda: {"Authorization": "Bearer new"},
+            connector=connector,
+            reconnect_base_delay_seconds=0,
+            sleep=sleep,
+        )
+        line = await asyncio.wait_for(transport.read(), timeout=1)
+        await transport.close()
+        return line, calls
+
+    line, calls = asyncio.run(execute())
+
+    assert line == '{"type":"keep_alive"}\n'
+    assert calls[0][1]["Authorization"] == "Bearer old"
+    assert calls[1][1]["Authorization"] == "Bearer new"
 
 
 def test_sdk_sse_transport_unwraps_client_events_and_posts_stdout():

@@ -89,6 +89,8 @@ from agents.sdk.transports import (
     derive_sse_post_url,
     derive_sse_stream_url,
     parse_sse_frames,
+    SDKWebSocketCloseHandler,
+    SDKWebSocketConnector,
     SDKWebSocketJsonlTransport,
 )
 from agents.sdk.types import (
@@ -212,6 +214,8 @@ __all__ = [
     "SDKSSELivenessTimeoutError",
     "SDKSSEPostHandler",
     "SDKSSEReadChunksFactory",
+    "SDKWebSocketCloseHandler",
+    "SDKWebSocketConnector",
     "SDKWebSocketJsonlTransport",
     "derive_hybrid_post_url",
     "derive_sse_post_url",

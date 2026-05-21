@@ -17,6 +17,11 @@ HYBRID_POST_BASE_DELAY_SECONDS = 0.5
 HYBRID_POST_MAX_DELAY_SECONDS = 8.0
 HYBRID_POST_MAX_BATCH_SIZE = 500
 HYBRID_POST_MAX_QUEUE_SIZE = 100_000
+WEBSOCKET_MAX_BUFFER_SIZE = 1000
+WEBSOCKET_RECONNECT_BASE_DELAY_SECONDS = 1.0
+WEBSOCKET_RECONNECT_MAX_DELAY_SECONDS = 30.0
+WEBSOCKET_RECONNECT_GIVE_UP_SECONDS = 600.0
+WEBSOCKET_PERMANENT_CLOSE_CODES = {1002, 4001, 4003}
 SSE_POST_MAX_RETRIES = 10
 SSE_POST_BASE_DELAY_SECONDS = 0.5
 SSE_POST_MAX_DELAY_SECONDS = 8.0
@@ -37,6 +42,8 @@ SDKSSECloseHandler = Callable[[Optional[int]], Any]
 SDKHybridPostHandler = Callable[[str, Mapping[str, str], dict[str, Any]], Awaitable[int]]
 SDKBatchDropHandler = Callable[[int, int], Any]
 SDKBatchSendHandler = Callable[[list[dict[str, Any]]], Awaitable[None]]
+SDKWebSocketConnector = Callable[[str, Mapping[str, str]], Awaitable[Any]]
+SDKWebSocketCloseHandler = Callable[[Optional[int]], Any]
 
 
 class SDKJsonlTransport(Protocol):
@@ -449,48 +456,249 @@ class SDKWebSocketJsonlTransport:
     environments that only need local stdio or in-memory transports.
     """
 
-    def __init__(self, url: str, *, headers: Mapping[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        url: str,
+        *,
+        headers: Mapping[str, str] | None = None,
+        refresh_headers: Callable[[], Mapping[str, str]] | None = None,
+        connector: SDKWebSocketConnector | None = None,
+        auto_reconnect: bool = True,
+        max_buffer_size: int = WEBSOCKET_MAX_BUFFER_SIZE,
+        reconnect_base_delay_seconds: float = WEBSOCKET_RECONNECT_BASE_DELAY_SECONDS,
+        reconnect_max_delay_seconds: float = WEBSOCKET_RECONNECT_MAX_DELAY_SECONDS,
+        reconnect_give_up_seconds: float = WEBSOCKET_RECONNECT_GIVE_UP_SECONDS,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        monotonic: Callable[[], float] = time.monotonic,
+    ) -> None:
         self.url = url
         self.headers = dict(headers or {})
+        self.refresh_headers = refresh_headers
+        self._connector = connector
         self._connection = None
+        self._message_buffer: list[dict[str, Any]] = []
+        self._last_sent_id: str | None = None
+        self._on_close: SDKWebSocketCloseHandler | None = None
+        self._on_connect: Callable[[], Any] | None = None
+        self._auto_reconnect = auto_reconnect
+        self._max_buffer_size = max_buffer_size
+        self._reconnect_base_delay_seconds = reconnect_base_delay_seconds
+        self._reconnect_max_delay_seconds = reconnect_max_delay_seconds
+        self._reconnect_give_up_seconds = reconnect_give_up_seconds
+        self._sleep = sleep
+        self._monotonic = monotonic
+        self._reconnect_attempts = 0
+        self._reconnect_started_at: float | None = None
+        self.state = "idle"
         self.closed = False
 
+    def set_on_close(self, handler: SDKWebSocketCloseHandler | None) -> None:
+        self._on_close = handler
+
+    def set_on_connect(self, handler: Callable[[], Any] | None) -> None:
+        self._on_connect = handler
+
+    def is_connected_status(self) -> bool:
+        return self.state == "connected"
+
+    def is_closed_status(self) -> bool:
+        return self.state == "closed"
+
+    def get_state_label(self) -> str:
+        return self.state
+
     async def connect(self) -> None:
-        if self._connection is not None:
+        if self._connection is not None or self.closed:
             return
+        if self.state not in {"idle", "reconnecting"}:
+            return
+        self.state = "reconnecting"
+        headers = self._connect_headers()
+        self._connection = await self._open_connection(headers)
+        self.state = "connected"
+        self._reconnect_attempts = 0
+        self._reconnect_started_at = None
+        if self._on_connect is not None:
+            self._on_connect()
+        await self._replay_buffered_messages(self._server_last_request_id(self._connection))
+
+    async def _open_connection(self, headers: Mapping[str, str]) -> Any:
+        if self._connector is not None:
+            return await self._connector(self.url, headers)
         try:
             import websockets
         except ImportError as exc:
             raise RuntimeError("SDKWebSocketJsonlTransport requires the websockets package") from exc
         try:
-            self._connection = await websockets.connect(
+            return await websockets.connect(
                 self.url,
-                additional_headers=self.headers or None,
+                additional_headers=dict(headers) or None,
             )
         except TypeError:
-            self._connection = await websockets.connect(
+            return await websockets.connect(
                 self.url,
-                extra_headers=self.headers or None,
+                extra_headers=dict(headers) or None,
             )
 
     async def read(self) -> str | bytes | None:
-        await self.connect()
-        try:
-            return await self._connection.recv()
-        except Exception as exc:
-            if exc.__class__.__name__.startswith("ConnectionClosed"):
+        while not self.closed:
+            await self.connect()
+            if self._connection is None:
                 return None
-            raise
+            try:
+                return await self._connection.recv()
+            except Exception as exc:
+                close_code = _websocket_close_code(exc)
+                if close_code is None and not _is_websocket_closed_error(exc):
+                    raise
+                if not await self._handle_connection_error(close_code):
+                    return None
+        return None
 
     async def write(self, data: str) -> None:
-        await self.connect()
-        await self._connection.send(data)
+        for line in data.splitlines():
+            if not line.strip():
+                continue
+            message = json.loads(line)
+            buffered = self._buffer_message(message)
+            if self.state != "connected":
+                await self.connect()
+                if buffered:
+                    continue
+            if self.state == "connected":
+                sent = await self._send_line(ndjson_safe_dumps(message) + "\n")
+                if not sent:
+                    await self._handle_connection_error(None)
 
     async def close(self) -> None:
         self.closed = True
+        self.state = "closing"
         if self._connection is not None:
-            await self._connection.close()
+            await _maybe_await(self._connection.close())
             self._connection = None
+
+    def _connect_headers(self) -> dict[str, str]:
+        headers = dict(self.headers)
+        if self._last_sent_id:
+            headers["X-Last-Request-Id"] = self._last_sent_id
+        return headers
+
+    def _buffer_message(self, message: Any) -> bool:
+        if not isinstance(message, dict):
+            return False
+        uuid_value = message.get("uuid")
+        if not isinstance(uuid_value, str):
+            return False
+        self._message_buffer.append(message)
+        if len(self._message_buffer) > self._max_buffer_size:
+            overflow = len(self._message_buffer) - self._max_buffer_size
+            del self._message_buffer[:overflow]
+        self._last_sent_id = uuid_value
+        return True
+
+    async def _send_line(self, line: str) -> bool:
+        if self._connection is None or self.state != "connected":
+            return False
+        try:
+            await self._connection.send(line)
+            return True
+        except Exception:
+            return False
+
+    async def _handle_connection_error(self, close_code: int | None = None) -> bool:
+        await self._disconnect()
+        if self.state in {"closing", "closed"} or self.closed:
+            return False
+
+        headers_refreshed = False
+        if close_code == 4003 and self.refresh_headers is not None:
+            fresh_headers = dict(self.refresh_headers())
+            if fresh_headers.get("Authorization") != self.headers.get("Authorization"):
+                self.headers.update(fresh_headers)
+                headers_refreshed = True
+
+        if (
+            close_code is not None
+            and close_code in WEBSOCKET_PERMANENT_CLOSE_CODES
+            and not headers_refreshed
+        ):
+            self.closed = True
+            self.state = "closed"
+            self._notify_close(close_code)
+            return False
+
+        if not self._auto_reconnect:
+            self.closed = True
+            self.state = "closed"
+            self._notify_close(close_code)
+            return False
+
+        now = self._monotonic()
+        if self._reconnect_started_at is None:
+            self._reconnect_started_at = now
+        elapsed = now - self._reconnect_started_at
+        if elapsed >= self._reconnect_give_up_seconds:
+            self.closed = True
+            self.state = "closed"
+            self._notify_close(close_code)
+            return False
+
+        if not headers_refreshed and self.refresh_headers is not None:
+            self.headers.update(dict(self.refresh_headers()))
+        self._reconnect_attempts += 1
+        self.state = "reconnecting"
+        backoff = self._reconnect_base_delay_seconds * (
+            2 ** (self._reconnect_attempts - 1)
+        )
+        delay = min(backoff, self._reconnect_max_delay_seconds)
+        if delay > 0:
+            await self._sleep(delay)
+        return True
+
+    async def _disconnect(self) -> None:
+        if self._connection is not None:
+            connection = self._connection
+            self._connection = None
+            close = getattr(connection, "close", None)
+            if close is not None:
+                await _maybe_await(close())
+
+    async def _replay_buffered_messages(self, last_request_id: str | None) -> None:
+        if not self._message_buffer:
+            return
+        start_index = 0
+        if last_request_id:
+            for index, message in enumerate(self._message_buffer):
+                if message.get("uuid") == last_request_id:
+                    start_index = index + 1
+                    self._message_buffer = self._message_buffer[start_index:]
+                    if not self._message_buffer:
+                        self._last_sent_id = None
+                    break
+        for message in list(self._message_buffer):
+            if not await self._send_line(ndjson_safe_dumps(message) + "\n"):
+                break
+
+    def _server_last_request_id(self, connection: Any) -> str | None:
+        headers = (
+            getattr(connection, "response_headers", None)
+            or getattr(connection, "headers", None)
+            or getattr(getattr(connection, "response", None), "headers", None)
+        )
+        if not headers:
+            return None
+        for key in ("x-last-request-id", "X-Last-Request-Id"):
+            try:
+                value = headers.get(key)
+            except AttributeError:
+                value = None
+            if isinstance(value, str):
+                return value
+        return None
+
+    def _notify_close(self, close_code: int | None) -> None:
+        if self._on_close is not None:
+            self._on_close(close_code)
 
 
 class SDKHybridJsonlTransport:
@@ -870,3 +1078,25 @@ def _find_sse_frame_delimiter(buffer: str, start: int) -> tuple[int, int] | None
         if idx != -1:
             candidates.append((idx, len(delimiter)))
     return min(candidates, key=lambda item: item[0]) if candidates else None
+
+
+def _websocket_close_code(exc: Exception) -> int | None:
+    code = getattr(exc, "code", None)
+    if isinstance(code, int):
+        return code
+    rcvd = getattr(exc, "rcvd", None)
+    rcvd_code = getattr(rcvd, "code", None)
+    return rcvd_code if isinstance(rcvd_code, int) else None
+
+
+def _is_websocket_closed_error(exc: Exception) -> bool:
+    return (
+        exc.__class__.__name__.startswith("ConnectionClosed")
+        or _websocket_close_code(exc) is not None
+    )
+
+
+async def _maybe_await(value: Any) -> Any:
+    if hasattr(value, "__await__"):
+        return await value
+    return value
