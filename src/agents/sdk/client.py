@@ -15,6 +15,12 @@ from typing import Any, Literal
 
 from agents.kernel.assembly import create_agent_session_async
 from agents.kernel.config import runtime_settings
+from agents.kernel.capabilities.sandbox.text import (
+    BINARY_SAMPLE_BYTES,
+    decode_text_bytes,
+    detect_text_encoding,
+    public_encoding_name,
+)
 from agents.kernel.governance.factory import build_tool_permission_policy
 from agents.kernel.mcp_config import MCPServerRecord
 from agents.kernel.schema import RuntimeEvent, ToolCall
@@ -93,6 +99,7 @@ SessionFactory = Callable[[Any, AgentSpec], Any]
 SDKMcpMessageHandler = Callable[[Any], Any]
 SDKHookCallbackHandler = Callable[[SDKHookCallbackRequest], Any]
 SDKElicitationHandler = Callable[[SDKControlElicitationRequest], Any]
+MAX_SDK_SEED_READ_BYTES = 200000
 
 
 @dataclass
@@ -109,6 +116,14 @@ class _RewindFileEntry:
 class _SDKAsyncMessageQueueItem:
     sequence: int
     message: SDKUserMessage
+
+
+@dataclass
+class _SDKReadStateSeed:
+    path: str
+    content: str
+    timestamp: float
+    encoding: str = "utf-8"
 
 
 try:
@@ -132,6 +147,7 @@ class AgentSDKClient:
     active_turn_run_ids: dict[str, str] = field(default_factory=dict)
     async_message_queue: list[_SDKAsyncMessageQueueItem] = field(default_factory=list)
     async_message_sequence: int = 0
+    read_state_seeds: dict[str, dict[str, _SDKReadStateSeed]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.settings is None:
@@ -148,9 +164,11 @@ class AgentSDKClient:
         options = _coerce_options(options)
         spec = _spec_from_options(options)
         if self.session_factory is not None:
-            return await self.session_factory(self.settings, spec)
+            session = await self.session_factory(self.settings, spec)
+            self._apply_read_state_seeds_to_session(session, options)
+            return session
         assert self.persistence is not None
-        return await create_agent_session_async(
+        session = await create_agent_session_async(
             self.settings,
             spec,
             checkpoint_store=self.persistence.checkpoints,
@@ -167,6 +185,8 @@ class AgentSDKClient:
             run_service=self.run_service,
             agent_profile_store=self.persistence.agent_profiles,
         )
+        self._apply_read_state_seeds_to_session(session, options)
+        return session
 
     def create_sdk_session(self, options: SDKOptions | dict[str, Any] | None = None) -> "SDKSession":
         options = _coerce_options(options)
@@ -520,7 +540,7 @@ class AgentSDKClient:
         if isinstance(request, SDKControlRewindFilesRequest):
             return await self._rewind_files_control_response(request, options)
         if isinstance(request, SDKControlSeedReadStateRequest):
-            return {"seeded": False, "path": request.path, "mtime": request.mtime}
+            return await self._seed_read_state_control_response(request, options)
         if isinstance(request, SDKControlMcpMessageRequest):
             return await self._mcp_message_control_response(request, options)
         if isinstance(request, SDKControlStopTaskRequest):
@@ -534,6 +554,30 @@ class AgentSDKClient:
             lambda item: item.message.uuid == request.message_uuid,
         )
         return {"cancelled": bool(removed)}
+
+    async def _seed_read_state_control_response(
+        self,
+        request: SDKControlSeedReadStateRequest,
+        options: SDKOptions,
+    ) -> dict[str, Any]:
+        root = await self._control_workspace_root(options)
+        try:
+            target = _safe_workspace_path(root, request.path)
+            relative_path = target.relative_to(root).as_posix()
+            disk_mtime = target.stat().st_mtime
+            if _is_seed_observation_stale(disk_mtime, request.mtime):
+                return {"seeded": False, "path": relative_path, "mtime": disk_mtime}
+            content, encoding = _read_seed_text(target)
+        except (OSError, UnicodeError, ValueError):
+            return {"seeded": False, "path": request.path, "mtime": request.mtime}
+        seed_key = _read_state_seed_key(options)
+        self.read_state_seeds.setdefault(seed_key, {})[relative_path] = _SDKReadStateSeed(
+            path=relative_path,
+            content=content,
+            timestamp=disk_mtime,
+            encoding=encoding,
+        )
+        return {"seeded": True, "path": relative_path, "mtime": disk_mtime}
 
     async def _rewind_files_control_response(
         self,
@@ -585,6 +629,43 @@ class AgentSDKClient:
             return []
         self.async_message_queue = remaining
         return [item.message for item in _sorted_async_message_items(matched)]
+
+    async def _control_workspace_root(self, options: SDKOptions) -> Path:
+        if options.cwd:
+            return Path(options.cwd).resolve()
+        if options.session_id:
+            records = await self._runs_for_session(options.session_id)
+            cwd = _first_non_empty(_record_cwd(record) for record in reversed(records))
+            if cwd:
+                return Path(cwd).resolve()
+        return Path(".").resolve()
+
+    def _apply_read_state_seeds_to_session(self, session: Any, options: SDKOptions) -> None:
+        context = getattr(session, "tool_context", None)
+        file_read_state = getattr(context, "file_read_state", None)
+        if not isinstance(file_read_state, dict):
+            return
+        seed_key = _read_state_seed_key(options)
+        seeds: dict[str, _SDKReadStateSeed] = {}
+        default_seeds = self.read_state_seeds.pop("", {})
+        session_seeds = self.read_state_seeds.pop(seed_key, {}) if seed_key else {}
+        seeds.update(default_seeds)
+        seeds.update(session_seeds)
+        for path, seed in seeds.items():
+            file_read_state.setdefault(
+                path,
+                {
+                    "path": seed.path,
+                    "content": seed.content,
+                    "encoding": seed.encoding,
+                    "timestamp": seed.timestamp,
+                    "full_read": True,
+                    "source": "read",
+                    "offset": 1,
+                    "limit": None,
+                    "is_partial_view": False,
+                },
+            )
 
     async def _mcp_statuses_for_options(self, options: SDKOptions) -> list[dict[str, Any]]:
         statuses = await self._sdk_mcp_server_statuses_for_scope(
@@ -1861,14 +1942,21 @@ def _rewind_workspace_root(options: SDKOptions, records: list[RunRecord]) -> Pat
     return Path(root or ".").resolve()
 
 
-def _safe_rewind_path(root: Path, path: str) -> Path:
+def _safe_workspace_path(root: Path, path: str) -> Path:
     target = Path(path)
     resolved = target.resolve() if target.is_absolute() else (root / target).resolve()
     try:
         resolved.relative_to(root)
     except ValueError as exc:
-        raise ValueError("rewind path escapes workspace: %s" % path) from exc
+        raise ValueError("path escapes workspace: %s" % path) from exc
     return resolved
+
+
+def _safe_rewind_path(root: Path, path: str) -> Path:
+    try:
+        return _safe_workspace_path(root, path)
+    except ValueError as exc:
+        raise ValueError("rewind path escapes workspace: %s" % path) from exc
 
 
 def _apply_rewind_entry(entry: _RewindFileEntry, target: Path) -> None:
@@ -1887,6 +1975,26 @@ def _rewind_path_value(value: Any) -> str:
     if path.startswith("./"):
         path = path[2:]
     return path
+
+
+def _read_state_seed_key(options: SDKOptions) -> str:
+    return str(options.session_id or "")
+
+
+def _is_seed_observation_stale(disk_mtime: float, observed_mtime: float) -> bool:
+    observed = float(observed_mtime or 0.0)
+    if observed > 10_000_000_000:
+        return int(disk_mtime * 1000) > int(observed)
+    return disk_mtime > observed
+
+
+def _read_seed_text(path: Path) -> tuple[str, str]:
+    with path.open("rb") as handle:
+        data = handle.read(MAX_SDK_SEED_READ_BYTES + 1)
+    if len(data) > MAX_SDK_SEED_READ_BYTES:
+        raise ValueError("file is too large to seed read state: %s" % path)
+    encoding = detect_text_encoding(path, data[:BINARY_SAMPLE_BYTES])
+    return decode_text_bytes(data, encoding), public_encoding_name(encoding)
 
 
 def _patch_after_content(payload: dict[str, Any], before: str) -> str | None:

@@ -9,8 +9,11 @@ from agents.kernel.mcp_config import MCPServerRecord
 from agents.kernel.schema import Message, ModelResponse, RuntimeEvent, ToolCall
 from agents.kernel.models.protocol import message_event, reasoning_delta, retry_event, text_delta
 from agents.kernel.runtime import AgentRuntime, AgentSession, ScriptedModelClient
+from agents.kernel.capabilities.tools.context import ToolRuntimeContext
+from agents.kernel.capabilities.tools.builtin.file_safety import write_text_safely
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 from agents.kernel.context.workspace import WorkspaceContext
+from agents.kernel.governance import SandboxPolicy
 from agents.kernel.specs import AgentSpec
 from agents.kernel.tasks import TaskStatus
 from agents.sdk import (
@@ -30,6 +33,7 @@ from agents.sdk import (
     SDKControlRequest,
     SDKControlResponse,
     SDKControlRewindFilesRequest,
+    SDKControlSeedReadStateRequest,
     SDKControlSetModelRequest,
     SDKControlSetPermissionModeRequest,
     SDKControlStopTaskRequest,
@@ -708,6 +712,39 @@ async def _rewind_patch_session_factory(settings, spec):
             yield RuntimeEvent(type="done", name="assistant", payload={"content": "edited", "status": "finished"})
 
     return RewindPatchSession()
+
+
+async def _read_state_seed_session_factory(settings, spec):
+    workspace_path = str(spec.workspace.path or spec.workspace.root or ".")
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=workspace_path,
+        path=workspace_path,
+    )
+    tool_context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=SandboxPolicy.for_workspace(workspace.path, allow_file_write=True),
+    )
+
+    class ReadStateSeedSession:
+        runtime = SimpleNamespace(model="scripted", protocol="scripted", enabled_tools=["filesystem.write"])
+
+        def __init__(self):
+            self.workspace = workspace
+            self.tool_context = tool_context
+
+        async def stream(self, text, run_id=None):
+            try:
+                write_text_safely(self.tool_context, "notes.txt", "updated\n")
+                content = "seeded write"
+            except Exception as exc:
+                content = "error: %s" % exc
+            yield RuntimeEvent(type="done", name="assistant", payload={"content": content, "status": "finished"})
+
+    return ReadStateSeedSession()
 
 
 def test_sdk_query_hides_store_wiring_and_streams_typed_messages():
@@ -1803,6 +1840,64 @@ def test_sdk_control_request_cancels_pending_async_messages():
     assert [message.uuid for message in session.list_async_messages()] == [next_message.uuid]
     assert session.dequeue_async_message().uuid == next_message.uuid
     assert session.dequeue_async_message() is None
+
+
+def test_sdk_control_request_seeds_read_state_for_next_session(tmp_path):
+    async def execute():
+        notes = tmp_path / "notes.txt"
+        notes.write_text("observed\n", encoding="utf-8")
+        client = AgentSDKClient(session_factory=_read_state_seed_session_factory)
+        session = client.create_sdk_session(
+            SDKOptions(
+                session_id="read-state-session",
+                tenant_id="tenant",
+                user_id="user",
+                agent_id="agent",
+                cwd=str(tmp_path),
+            )
+        )
+        seed = await session.handle_control_request(
+            SDKControlRequest(
+                request_id="seed-read-state",
+                request=SDKControlSeedReadStateRequest(
+                    path="notes.txt",
+                    mtime=int(notes.stat().st_mtime * 1000),
+                ),
+            )
+        )
+        messages = await _collect(session.query("write with seeded read state"))
+        result = next(message for message in messages if isinstance(message, SDKResultMessage))
+        return seed, result, notes.read_text(encoding="utf-8")
+
+    seed, result, content = asyncio.run(execute())
+
+    assert seed.response.response["seeded"] is True
+    assert seed.response.response["path"] == "notes.txt"
+    assert result.result == "seeded write"
+    assert content == "updated\n"
+
+
+def test_sdk_control_request_skips_stale_read_state_seed(tmp_path):
+    async def execute():
+        notes = tmp_path / "notes.txt"
+        notes.write_text("observed\n", encoding="utf-8")
+        client = AgentSDKClient(session_factory=_read_state_seed_session_factory)
+        session = client.create_sdk_session(SDKOptions(session_id="stale-seed-session", cwd=str(tmp_path)))
+        seed = await session.handle_control_request(
+            SDKControlRequest(
+                request_id="stale-seed",
+                request=SDKControlSeedReadStateRequest(path="notes.txt", mtime=0),
+            )
+        )
+        messages = await _collect(session.query("write without valid seed"))
+        result = next(message for message in messages if isinstance(message, SDKResultMessage))
+        return seed, result, notes.read_text(encoding="utf-8")
+
+    seed, result, content = asyncio.run(execute())
+
+    assert seed.response.response["seeded"] is False
+    assert "File has not been read yet" in result.result
+    assert content == "observed\n"
 
 
 def test_sdk_control_request_handler_stops_tasks_from_store():
