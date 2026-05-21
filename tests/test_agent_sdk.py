@@ -12,10 +12,17 @@ from agents.kernel.capabilities.tools.registry import ToolRegistry
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.sdk import (
     AgentSDKClient,
+    SDKControlApplyFlagSettingsRequest,
+    SDKControlGetSettingsRequest,
     SDKControlInitializeRequest,
+    SDKControlMcpSetServersRequest,
+    SDKControlMcpStatusRequest,
+    SDKControlMcpToggleRequest,
     SDKControlPermissionRequest,
     SDKControlRequest,
     SDKControlResponse,
+    SDKControlSetModelRequest,
+    SDKControlSetPermissionModeRequest,
     SDKControlSuccessResponse,
     SDKKeepAliveMessage,
     SDKForkSessionOptions,
@@ -25,6 +32,7 @@ from agents.sdk import (
     SDKSessionInfo,
     SDKSession,
     SDKUpdateEnvironmentVariablesMessage,
+    handle_control_request,
     sdk_control_request_json_schema,
     sdk_control_response_json_schema,
     sdk_message_json_schema,
@@ -1237,6 +1245,152 @@ def test_sdk_exports_control_protocol_schemas_and_validators():
                 "unexpected": True,
             }
         )
+
+
+def test_sdk_control_request_handler_answers_initialize_and_permissions():
+    initialize = asyncio.run(
+        handle_control_request(
+            SDKControlRequest(
+                request_id="init-handler",
+                request=SDKControlInitializeRequest(
+                    agents={"reviewer": {"description": "Review code", "model": "claude-sonnet"}},
+                ),
+            ),
+            SDKOptions(
+                model="claude-sonnet",
+                permission_mode="acceptEdits",
+                metadata={"apiKeySource": "oauth", "output_style": "concise", "fast_mode_state": "off"},
+            ),
+        )
+    )
+
+    assert isinstance(initialize.response, SDKControlSuccessResponse)
+    assert validate_sdk_control_response(initialize.model_dump()) == initialize
+    init_payload = initialize.response.response
+    assert init_payload["output_style"] == "concise"
+    assert init_payload["fast_mode_state"] == "off"
+    assert init_payload["account"] == {"apiKeySource": "oauth"}
+    assert init_payload["models"] == [
+        {"value": "claude-sonnet", "displayName": "claude-sonnet", "description": "Configured SDK model"}
+    ]
+    assert init_payload["agents"] == [
+        {"name": "reviewer", "description": "Review code", "model": "claude-sonnet"}
+    ]
+    assert any(command["name"] == "help" for command in init_payload["commands"])
+
+    permission = asyncio.run(
+        handle_control_request(
+            {
+                "type": "control_request",
+                "request_id": "perm-handler",
+                "request": {
+                    "subtype": "can_use_tool",
+                    "tool_name": "Read",
+                    "input": {"file_path": "README.md"},
+                    "tool_use_id": "toolu_handler",
+                },
+            },
+            {"permission_mode": "deny"},
+        )
+    )
+
+    assert isinstance(permission.response, SDKControlSuccessResponse)
+    assert permission.response.response["behavior"] == "deny"
+    assert permission.response.response["allowed"] is False
+    assert permission.response.response["requires_approval"] is False
+    assert "tool execution disabled" in permission.response.response["reason"]
+
+
+def test_sdk_control_request_handler_applies_session_options_and_mcp_state():
+    client = AgentSDKClient(session_factory=_session_factory)
+    session = client.create_sdk_session(
+        SDKOptions(
+            session_id="control-session",
+            tenant_id="tenant",
+            user_id="user",
+            agent_id="agent",
+        )
+    )
+
+    set_model = asyncio.run(
+        session.handle_control_request(
+            SDKControlRequest(
+                request_id="set-model",
+                request=SDKControlSetModelRequest(model="claude-sonnet"),
+            )
+        )
+    )
+    set_permission = asyncio.run(
+        session.handle_control_request(
+            SDKControlRequest(
+                request_id="set-permission",
+                request=SDKControlSetPermissionModeRequest(mode="acceptEdits", ultraplan=True),
+            )
+        )
+    )
+    apply_settings = asyncio.run(
+        session.handle_control_request(
+            SDKControlRequest(
+                request_id="apply-settings",
+                request=SDKControlApplyFlagSettingsRequest(
+                    settings={
+                        "model": "claude-opus",
+                        "permissionMode": "dontAsk",
+                        "systemPrompt": "Be precise.",
+                    }
+                ),
+            )
+        )
+    )
+    settings = asyncio.run(
+        session.handle_control_request(
+            SDKControlRequest(request_id="settings", request=SDKControlGetSettingsRequest())
+        )
+    )
+
+    assert set_model.response.response == {"model": "claude-sonnet"}
+    assert set_permission.response.response == {"mode": "acceptEdits", "ultraplan": True}
+    assert apply_settings.response.response["effective"]["model"] == "claude-opus"
+    assert session.options.model == "claude-opus"
+    assert session.options.permission_mode == "dontAsk"
+    assert session.options.system_prompt == "Be precise."
+    assert settings.response.response["effective"]["model"] == "claude-opus"
+    assert settings.response.response["effective"]["permissionMode"] == "dontAsk"
+    assert settings.response.response["effective"]["systemPrompt"] == "Be precise."
+
+    mcp_set = asyncio.run(
+        session.handle_control_request(
+            SDKControlRequest(
+                request_id="mcp-set",
+                request=SDKControlMcpSetServersRequest(
+                    servers={"docs": {"type": "stdio", "command": "docs-mcp", "args": ["--serve"]}}
+                ),
+            )
+        )
+    )
+    mcp_status = asyncio.run(
+        session.handle_control_request(
+            SDKControlRequest(request_id="mcp-status", request=SDKControlMcpStatusRequest())
+        )
+    )
+    mcp_toggle = asyncio.run(
+        session.handle_control_request(
+            SDKControlRequest(
+                request_id="mcp-toggle",
+                request=SDKControlMcpToggleRequest(serverName="docs", enabled=False),
+            )
+        )
+    )
+    mcp_status_after_toggle = asyncio.run(
+        session.handle_control_request(
+            SDKControlRequest(request_id="mcp-status-disabled", request=SDKControlMcpStatusRequest())
+        )
+    )
+
+    assert mcp_set.response.response == {"added": ["docs"], "removed": [], "errors": {}}
+    assert {"name": "docs", "status": "connected"} in mcp_status.response.response["mcpServers"]
+    assert mcp_toggle.response.response == {"serverName": "docs", "enabled": False}
+    assert {"name": "docs", "status": "disabled"} in mcp_status_after_toggle.response.response["mcpServers"]
 
 
 async def _collect(messages):

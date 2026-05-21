@@ -11,13 +11,43 @@ from typing import Any, Literal
 
 from agents.kernel.assembly import create_agent_session_async
 from agents.kernel.config import runtime_settings
+from agents.kernel.governance.factory import build_tool_permission_policy
 from agents.kernel.mcp_config import MCPServerRecord
-from agents.kernel.schema import RuntimeEvent
+from agents.kernel.schema import RuntimeEvent, ToolCall
 from agents.kernel.specs import AgentSpec
-from agents.platform.commands import command_names
+from agents.platform.commands import COMMANDS, command_names
 from agents.kernel.state.runs import RunRecord
 from agents.platform.persistence import PlatformPersistence, create_ephemeral_persistence
 from agents.platform.sessions import RunService
+from agents.sdk.control import (
+    SDKControlApplyFlagSettingsRequest,
+    SDKControlCancelAsyncMessageRequest,
+    SDKControlElicitationRequest,
+    SDKControlErrorResponse,
+    SDKControlGetContextUsageRequest,
+    SDKControlGetSettingsRequest,
+    SDKControlInitializeRequest,
+    SDKControlInterruptRequest,
+    SDKControlMcpMessageRequest,
+    SDKControlMcpReconnectRequest,
+    SDKControlMcpSetServersRequest,
+    SDKControlMcpStatusRequest,
+    SDKControlMcpToggleRequest,
+    SDKControlPermissionRequest,
+    SDKControlReloadPluginsRequest,
+    SDKControlRequest,
+    SDKControlRequestInner,
+    SDKControlResponse,
+    SDKControlResponseInner,
+    SDKControlRewindFilesRequest,
+    SDKControlSeedReadStateRequest,
+    SDKControlSetMaxThinkingTokensRequest,
+    SDKControlSetModelRequest,
+    SDKControlSetPermissionModeRequest,
+    SDKControlStopTaskRequest,
+    SDKControlSuccessResponse,
+    validate_sdk_control_request,
+)
 from agents.sdk.types import (
     SDKAPIRetryMessage,
     SDKAssistantMessage,
@@ -321,6 +351,151 @@ class AgentSDKClient:
                 break
         return SDKForkSessionResult(session_id=forked_session_id, run_ids=forked_run_ids)
 
+    async def handle_control_request(
+        self,
+        message: SDKControlRequest | dict[str, Any],
+        options: SDKOptions | dict[str, Any] | None = None,
+    ) -> SDKControlResponse:
+        control = validate_sdk_control_request(message)
+        resolved_options = _coerce_options(options)
+        try:
+            payload = await self._control_response_payload(control.request, resolved_options)
+            response: SDKControlResponseInner = SDKControlSuccessResponse(
+                request_id=control.request_id,
+                response=payload,
+            )
+        except Exception as exc:
+            response = SDKControlErrorResponse(request_id=control.request_id, error=str(exc))
+        return SDKControlResponse(response=response)
+
+    async def _control_response_payload(
+        self,
+        request: SDKControlRequestInner,
+        options: SDKOptions,
+    ) -> dict[str, Any]:
+        if isinstance(request, SDKControlInitializeRequest):
+            return _initialize_control_response_payload(self.settings, options, request)
+        if isinstance(request, SDKControlMcpStatusRequest):
+            return {"mcpServers": await self._mcp_statuses_for_options(options)}
+        if isinstance(request, SDKControlPermissionRequest):
+            return await _permission_control_response_payload(request, options)
+        if isinstance(request, SDKControlSetModelRequest):
+            return {"model": request.model or ""}
+        if isinstance(request, SDKControlSetPermissionModeRequest):
+            return {"mode": request.mode, "ultraplan": bool(request.ultraplan or False)}
+        if isinstance(request, SDKControlSetMaxThinkingTokensRequest):
+            return {"max_thinking_tokens": request.max_thinking_tokens}
+        if isinstance(request, SDKControlGetSettingsRequest):
+            return _settings_control_response_payload(options)
+        if isinstance(request, SDKControlApplyFlagSettingsRequest):
+            updated = _apply_control_settings(options, request.settings)
+            return _settings_control_response_payload(updated)
+        if isinstance(request, SDKControlMcpSetServersRequest):
+            return await self._mcp_set_servers_control_response(request, options)
+        if isinstance(request, SDKControlMcpToggleRequest):
+            return await self._mcp_toggle_control_response(request, options)
+        if isinstance(request, SDKControlMcpReconnectRequest):
+            return {"serverName": request.serverName, "status": "pending"}
+        if isinstance(request, SDKControlInterruptRequest):
+            return {"interrupted": False, "reason": "no active SDK turn is attached to this control handler"}
+        if isinstance(request, SDKControlGetContextUsageRequest):
+            return _empty_context_usage_payload(options)
+        if isinstance(request, SDKControlReloadPluginsRequest):
+            return {"commands": _slash_command_infos(), "agents": [], "plugins": [], "mcpServers": [], "error_count": 0}
+        if isinstance(request, SDKControlCancelAsyncMessageRequest):
+            return {"cancelled": False}
+        if isinstance(request, SDKControlRewindFilesRequest):
+            return {"canRewind": False, "error": "file rewind is not backed by SDK run-store history yet"}
+        if isinstance(request, SDKControlSeedReadStateRequest):
+            return {"seeded": False, "path": request.path, "mtime": request.mtime}
+        if isinstance(request, SDKControlMcpMessageRequest):
+            return {"sent": False, "server_name": request.server_name}
+        if isinstance(request, SDKControlStopTaskRequest):
+            return {"stopped": False, "task_id": request.task_id}
+        if isinstance(request, SDKControlElicitationRequest):
+            return {"action": "cancel"}
+        return {}
+
+    async def _mcp_statuses_for_options(self, options: SDKOptions) -> list[dict[str, Any]]:
+        statuses = await self._sdk_mcp_server_statuses_for_scope(
+            tenant_id=options.tenant_id or "",
+            user_id=options.user_id or "",
+            agent_id=options.agent_id or "",
+            workspace_id="",
+        )
+        return [dict(item) for item in statuses]
+
+    async def _mcp_set_servers_control_response(
+        self,
+        request: SDKControlMcpSetServersRequest,
+        options: SDKOptions,
+    ) -> dict[str, Any]:
+        assert self.persistence is not None
+        tenant_id = options.tenant_id or ""
+        user_id = options.user_id or ""
+        agent_id = options.agent_id or ""
+        workspace_id = ""
+        existing = await self.persistence.mcp_configs.list_for_scope(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            agent_id=agent_id,
+            workspace_id=workspace_id,
+        )
+        wanted = {str(name): dict(config) for name, config in request.servers.items()}
+        existing_names = {record.name for record in existing}
+        removed: list[str] = []
+        for record in existing:
+            if record.name not in wanted:
+                await self.persistence.mcp_configs.delete(
+                    record.name,
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    agent_id=agent_id,
+                    workspace_id=workspace_id,
+                )
+                removed.append(record.name)
+        added: list[str] = []
+        errors: dict[str, str] = {}
+        for name, config in wanted.items():
+            try:
+                await self.persistence.mcp_configs.save(
+                    _mcp_record_from_control_config(
+                        name,
+                        config,
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        agent_id=agent_id,
+                        workspace_id=workspace_id,
+                    )
+                )
+                if name not in existing_names:
+                    added.append(name)
+            except Exception as exc:
+                errors[name] = str(exc)
+        return {"added": sorted(added), "removed": sorted(removed), "errors": errors}
+
+    async def _mcp_toggle_control_response(
+        self,
+        request: SDKControlMcpToggleRequest,
+        options: SDKOptions,
+    ) -> dict[str, Any]:
+        assert self.persistence is not None
+        tenant_id = options.tenant_id or ""
+        user_id = options.user_id or ""
+        agent_id = options.agent_id or ""
+        workspace_id = ""
+        records = await self.persistence.mcp_configs.list_for_scope(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            agent_id=agent_id,
+            workspace_id=workspace_id,
+        )
+        for record in records:
+            if record.name == request.serverName:
+                await self.persistence.mcp_configs.save(replace(record, enabled=request.enabled))
+                return {"serverName": request.serverName, "enabled": request.enabled}
+        return {"serverName": request.serverName, "enabled": False, "error": "MCP server not found"}
+
     async def _system_message_from_session(
         self,
         session: Any,
@@ -493,6 +668,14 @@ class SDKSession:
         result = await self.client.fork_session(self.session_id, options)
         return await self.client.resume_session(result.session_id)
 
+    async def handle_control_request(
+        self,
+        message: SDKControlRequest | dict[str, Any],
+    ) -> SDKControlResponse:
+        control = validate_sdk_control_request(message)
+        self.options = _apply_session_control_request(self.options, control.request)
+        return await self.client.handle_control_request(control, self.options)
+
 
 async def query(prompt: str, options: SDKOptions | dict[str, Any] | None = None) -> AsyncIterator[SDKMessage]:
     client = AgentSDKClient()
@@ -532,6 +715,13 @@ async def fork_session(
     options: SDKForkSessionOptions | dict[str, Any] | None = None,
 ) -> SDKForkSessionResult:
     return await AgentSDKClient().fork_session(session_id, options)
+
+
+async def handle_control_request(
+    message: SDKControlRequest | dict[str, Any],
+    options: SDKOptions | dict[str, Any] | None = None,
+) -> SDKControlResponse:
+    return await AgentSDKClient().handle_control_request(message, options)
 
 
 def unstable_v2_create_session(options: SDKOptions | dict[str, Any] | None = None) -> SDKSession:
@@ -578,6 +768,34 @@ def _merge_session_options(
             else:
                 values[key] = getattr(override_options, key)
     values["session_id"] = session_id
+    return SDKOptions.model_validate(values)
+
+
+def _apply_session_control_request(options: SDKOptions, request: SDKControlRequestInner) -> SDKOptions:
+    if isinstance(request, SDKControlSetModelRequest):
+        return options.model_copy(update={"model": request.model})
+    if isinstance(request, SDKControlSetPermissionModeRequest):
+        return options.model_copy(update={"permission_mode": request.mode})
+    if isinstance(request, SDKControlApplyFlagSettingsRequest):
+        return _apply_control_settings(options, request.settings)
+    return options
+
+
+def _apply_control_settings(options: SDKOptions, settings: dict[str, Any]) -> SDKOptions:
+    values = options.model_dump()
+    if "model" in settings:
+        values["model"] = str(settings.get("model") or "") or None
+    if "permissionMode" in settings:
+        values["permission_mode"] = str(settings.get("permissionMode") or "") or None
+    if "permission_mode" in settings:
+        values["permission_mode"] = str(settings.get("permission_mode") or "") or None
+    if "systemPrompt" in settings:
+        values["system_prompt"] = str(settings.get("systemPrompt") or "") or None
+    if "system_prompt" in settings:
+        values["system_prompt"] = str(settings.get("system_prompt") or "") or None
+    metadata = dict(values.get("metadata") or {})
+    metadata["flagSettings"] = dict(settings)
+    values["metadata"] = metadata
     return SDKOptions.model_validate(values)
 
 
@@ -724,6 +942,160 @@ def _runtime_fields_from_run(record: RunRecord) -> tuple[str, str, list[str]]:
         str(model_spec.get("model") or "") if isinstance(model_spec, dict) else "",
         str(model_spec.get("protocol") or "") if isinstance(model_spec, dict) else "",
         [str(item) for item in enabled_tools],
+    )
+
+
+def _initialize_control_response_payload(
+    settings: Any,
+    options: SDKOptions,
+    request: SDKControlInitializeRequest,
+) -> dict[str, Any]:
+    model = options.model or _default_model_from_settings(settings)
+    return {
+        "commands": _slash_command_infos(),
+        "agents": _agent_infos_from_request(request),
+        "output_style": str(options.metadata.get("output_style") or options.metadata.get("outputStyle") or "default"),
+        "available_output_styles": ["default"],
+        "models": _model_infos(model),
+        "account": _account_info_from_options(options),
+        "fast_mode_state": options.metadata.get("fast_mode_state", options.metadata.get("fastModeState")),
+    }
+
+
+async def _permission_control_response_payload(
+    request: SDKControlPermissionRequest,
+    options: SDKOptions,
+) -> dict[str, Any]:
+    policy = build_tool_permission_policy(_spec_from_options(options))
+    decision = await policy.authorize(
+        ToolCall(
+            id=request.tool_use_id,
+            name=request.tool_name,
+            arguments=dict(request.input or {}),
+        )
+    )
+    if decision.requires_approval:
+        behavior = "ask"
+    elif decision.allowed:
+        behavior = "allow"
+    else:
+        behavior = "deny"
+    return {
+        "behavior": behavior,
+        "allowed": decision.allowed,
+        "requires_approval": decision.requires_approval,
+        "reason": decision.reason,
+        "metadata": decision.metadata,
+    }
+
+
+def _settings_control_response_payload(options: SDKOptions) -> dict[str, Any]:
+    effective = {
+        "model": options.model,
+        "permissionMode": options.permission_mode,
+        "systemPrompt": options.system_prompt,
+        "cwd": options.cwd,
+        "allowedTools": list(options.allowed_tools or []),
+        "skills": list(options.skills or []),
+    }
+    return {
+        "effective": {key: value for key, value in effective.items() if value not in (None, "", [])},
+        "sources": [{"source": "flagSettings", "settings": dict(options.metadata.get("flagSettings") or {})}],
+        "applied": {"model": options.model or "", "effort": None},
+    }
+
+
+def _empty_context_usage_payload(options: SDKOptions) -> dict[str, Any]:
+    return {
+        "categories": [],
+        "totalTokens": 0,
+        "maxTokens": 0,
+        "rawMaxTokens": 0,
+        "percentage": 0,
+        "gridRows": [],
+        "model": options.model or "",
+        "memoryFiles": [],
+        "mcpTools": [],
+        "isAutoCompactEnabled": False,
+        "agents": [],
+        "apiUsage": None,
+    }
+
+
+def _slash_command_infos() -> list[dict[str, str]]:
+    return [
+        {
+            "name": command.name.lstrip("/"),
+            "description": command.action,
+            "argumentHint": command.argument_hint,
+        }
+        for command in COMMANDS
+    ]
+
+
+def _agent_infos_from_request(request: SDKControlInitializeRequest) -> list[dict[str, str]]:
+    agents = request.agents or {}
+    infos: list[dict[str, str]] = []
+    for name, definition in agents.items():
+        payload = definition if isinstance(definition, dict) else {}
+        info = {
+            "name": str(name),
+            "description": str(payload.get("description") or payload.get("prompt") or ""),
+        }
+        model = str(payload.get("model") or "")
+        if model:
+            info["model"] = model
+        infos.append(info)
+    return infos
+
+
+def _model_infos(model: str) -> list[dict[str, Any]]:
+    value = model or "default"
+    return [{"value": value, "displayName": value, "description": "Configured SDK model"}]
+
+
+def _account_info_from_options(options: SDKOptions) -> dict[str, str]:
+    source = _api_key_source(options.metadata.get("apiKeySource", options.metadata.get("api_key_source")))
+    return {"apiKeySource": source}
+
+
+def _default_model_from_settings(settings: Any) -> str:
+    agent_model = str(getattr(getattr(settings, "agent", None), "CLAUDE_MODEL", "") or "")
+    if agent_model:
+        return agent_model
+    models = getattr(settings, "models", None)
+    for name in ("anthropic", "openai", "openai_responses", "gemini"):
+        value = str(getattr(getattr(models, name, None), "MODEL", "") or "")
+        if value:
+            return value
+    return ""
+
+
+def _mcp_record_from_control_config(
+    name: str,
+    config: dict[str, Any],
+    *,
+    tenant_id: str,
+    user_id: str,
+    agent_id: str,
+    workspace_id: str,
+) -> MCPServerRecord:
+    transport = str(config.get("type") or "stdio")
+    args = config.get("args") if isinstance(config.get("args"), list) else []
+    command_parts = [str(config.get("command") or ""), *[str(arg) for arg in args]]
+    command = " ".join(part for part in command_parts if part).strip()
+    headers = config.get("headers") if isinstance(config.get("headers"), dict) else {}
+    return MCPServerRecord(
+        name=name,
+        command=command,
+        transport=transport,
+        url=str(config.get("url") or ""),
+        headers={str(key): str(value) for key, value in headers.items()},
+        enabled=True,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        agent_id=agent_id,
+        workspace_id=workspace_id,
     )
 
 
