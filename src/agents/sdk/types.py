@@ -101,11 +101,21 @@ class SDKBaseMessage(BaseModel):
 class SDKSystemMessage(SDKBaseMessage):
     type: Literal["system"] = "system"
     subtype: Literal["init"] = "init"
+    agents: list[str] = Field(default_factory=list)
+    apiKeySource: Literal["user", "project", "org", "temporary", "oauth"] = "project"
+    betas: list[str] = Field(default_factory=list)
+    claude_code_version: str = ""
     cwd: str = ""
-    model: str = ""
-    protocol: str = ""
     tools: list[str] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    mcp_servers: list[dict[str, str]] = Field(default_factory=list)
+    model: str = ""
+    permissionMode: Literal["default", "acceptEdits", "bypassPermissions", "plan", "dontAsk"] = "default"
+    slash_commands: list[str] = Field(default_factory=list)
+    output_style: str = "default"
+    skills: list[str] = Field(default_factory=list)
+    plugins: list[dict[str, str]] = Field(default_factory=list)
+    fast_mode_state: Literal["off", "cooldown", "on"] | None = None
+    uuid: str = Field(default_factory=lambda: str(uuid4()))
 
 
 class SDKStreamEventMessage(SDKBaseMessage):

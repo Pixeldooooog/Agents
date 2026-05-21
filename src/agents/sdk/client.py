@@ -6,12 +6,15 @@ import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Literal
 
 from agents.kernel.assembly import create_agent_session_async
 from agents.kernel.config import runtime_settings
+from agents.kernel.mcp_config import MCPServerRecord
 from agents.kernel.schema import RuntimeEvent
 from agents.kernel.specs import AgentSpec
+from agents.platform.commands import command_names
 from agents.kernel.state.runs import RunRecord
 from agents.platform.persistence import PlatformPersistence, create_ephemeral_persistence
 from agents.platform.sessions import RunService
@@ -51,6 +54,11 @@ from agents.sdk.types import (
 
 
 SessionFactory = Callable[[Any, AgentSpec], Any]
+
+try:
+    _SDK_VERSION = version("agents")
+except PackageNotFoundError:
+    _SDK_VERSION = "0.1.0"
 
 
 @dataclass
@@ -139,14 +147,11 @@ class AgentSDKClient:
         event_count = 0
         requires_action_emitted = False
 
-        yield SDKSystemMessage(
+        yield await self._system_message_from_session(
+            session,
+            options,
             session_id=session_id,
             run_id=run_id,
-            cwd=str(getattr(session.workspace, "path", "") or ""),
-            model=str(getattr(session.runtime, "model", "") or ""),
-            protocol=str(getattr(session.runtime, "protocol", "") or ""),
-            tools=list(getattr(session.runtime, "enabled_tools", []) or []),
-            metadata=options.metadata,
         )
         yield _project_session_state_event(running_event, session_id=session_id, run_id=run_id)
 
@@ -256,7 +261,7 @@ class AgentSDKClient:
         for record in sorted(records, key=lambda item: item.created_at):
             resolved_session_id = _session_id_for_run(record)
             if options.include_system_messages:
-                messages.append(_system_message_from_run(record, session_id=resolved_session_id))
+                messages.append(await self._system_message_from_run(record, session_id=resolved_session_id))
             duration_ms = _duration_ms_from_record(record)
             for event in record.events:
                 if event.type == "run_created":
@@ -316,6 +321,81 @@ class AgentSDKClient:
                 break
         return SDKForkSessionResult(session_id=forked_session_id, run_ids=forked_run_ids)
 
+    async def _system_message_from_session(
+        self,
+        session: Any,
+        options: SDKOptions,
+        *,
+        session_id: str,
+        run_id: str,
+    ) -> SDKSystemMessage:
+        workspace = getattr(session, "workspace", None)
+        runtime = getattr(session, "runtime", None)
+        mcp_servers = await self._sdk_mcp_server_statuses_for_scope(
+            tenant_id=str(getattr(workspace, "tenant_id", "") or options.tenant_id or ""),
+            user_id=str(getattr(workspace, "user_id", "") or options.user_id or ""),
+            agent_id=str(getattr(workspace, "agent_id", "") or options.agent_id or ""),
+            workspace_id=str(getattr(workspace, "workspace_id", "") or ""),
+        )
+        return _sdk_system_message(
+            session_id=session_id,
+            run_id=run_id,
+            cwd=str(getattr(workspace, "path", "") or options.cwd or ""),
+            model=str(getattr(runtime, "model", "") or options.model or ""),
+            tools=[str(tool) for tool in list(getattr(runtime, "enabled_tools", []) or [])],
+            skills=list(options.skills or []),
+            permission_mode=options.permission_mode,
+            metadata=options.metadata,
+            mcp_servers=mcp_servers,
+        )
+
+    async def _system_message_from_run(self, record: RunRecord, *, session_id: str) -> SDKSystemMessage:
+        model, _protocol, tools = _runtime_fields_from_run(record)
+        spec = record.spec
+        workspace = spec.get("workspace") if isinstance(spec.get("workspace"), dict) else {}
+        spec_metadata = spec.get("metadata") if isinstance(spec.get("metadata"), dict) else {}
+        metadata = {**dict(record.metadata), **dict(spec_metadata)}
+        mcp_servers = await self._sdk_mcp_server_statuses_for_scope(
+            tenant_id=_text_field(metadata, "sdk_tenant_id") or str(workspace.get("tenant_id") or ""),
+            user_id=_text_field(metadata, "sdk_user_id") or str(workspace.get("user_id") or ""),
+            agent_id=_text_field(metadata, "sdk_agent_id") or str(workspace.get("agent_id") or spec.get("agent_id") or ""),
+            workspace_id=_text_field(metadata, "sdk_workspace_id") or str(workspace.get("workspace_id") or ""),
+        )
+        skills = spec.get("skills") if isinstance(spec.get("skills"), list) else []
+        return _sdk_system_message(
+            session_id=session_id,
+            run_id=record.run_id,
+            cwd=_record_cwd(record),
+            model=_text_field(metadata, "sdk_init_model") or model,
+            tools=_metadata_string_list(metadata, "sdk_init_tools_json") or tools,
+            skills=[str(skill) for skill in skills],
+            permission_mode=str(spec.get("permission_profile") or ""),
+            metadata=metadata,
+            mcp_servers=mcp_servers,
+        )
+
+    async def _sdk_mcp_server_statuses_for_scope(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str = "",
+        agent_id: str = "",
+        workspace_id: str = "",
+    ) -> list[dict[str, str]]:
+        servers = _settings_mcp_server_statuses(self.settings)
+        if self.persistence is None:
+            return servers
+        try:
+            records = await self.persistence.mcp_configs.list_for_scope(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                agent_id=agent_id,
+                workspace_id=workspace_id,
+            )
+        except Exception:
+            return servers
+        return _merge_mcp_server_statuses(servers, [_mcp_server_status_from_record(record) for record in records])
+
     async def _record_session_metadata(
         self,
         run_id: str,
@@ -325,11 +405,20 @@ class AgentSDKClient:
         options: SDKOptions,
         session: Any,
     ) -> None:
-        workspace_path = str(getattr(getattr(session, "workspace", None), "path", "") or options.cwd or "")
+        workspace = getattr(session, "workspace", None)
+        workspace_path = str(getattr(workspace, "path", "") or options.cwd or "")
+        runtime = getattr(session, "runtime", None)
+        enabled_tools = [str(tool) for tool in list(getattr(runtime, "enabled_tools", []) or [])]
         metadata = {
             "sdk_session_id": session_id,
             "sdk_first_prompt": _truncate(prompt),
             "sdk_cwd": workspace_path,
+            "sdk_tenant_id": str(getattr(workspace, "tenant_id", "") or options.tenant_id or ""),
+            "sdk_user_id": str(getattr(workspace, "user_id", "") or options.user_id or ""),
+            "sdk_agent_id": str(getattr(workspace, "agent_id", "") or options.agent_id or ""),
+            "sdk_workspace_id": str(getattr(workspace, "workspace_id", "") or ""),
+            "sdk_init_tools_json": json.dumps(enabled_tools, ensure_ascii=False),
+            "sdk_init_model": str(getattr(runtime, "model", "") or options.model or ""),
         }
         await self.run_service.update_metadata(run_id, metadata)
 
@@ -621,24 +710,13 @@ def _session_id_for_run(record: RunRecord) -> str:
     return str(record.metadata.get("sdk_session_id") or record.run_id)
 
 
-def _system_message_from_run(record: RunRecord, *, session_id: str) -> SDKSystemMessage:
-    model, protocol, tools = _runtime_fields_from_run(record)
-    return SDKSystemMessage(
-        session_id=session_id,
-        run_id=record.run_id,
-        cwd=_record_cwd(record),
-        model=model,
-        protocol=protocol,
-        tools=tools,
-        metadata=dict(record.metadata),
-    )
-
-
 def _runtime_fields_from_run(record: RunRecord) -> tuple[str, str, list[str]]:
     spec = record.spec
     model_spec = spec.get("model") if isinstance(spec.get("model"), dict) else {}
     tools = spec.get("tools") if isinstance(spec.get("tools"), dict) else {}
-    enabled_tools = tools.get("enabled_tools") if isinstance(tools, dict) else []
+    enabled_tools = spec.get("enabled_tools")
+    if enabled_tools is None:
+        enabled_tools = tools.get("enabled_tools") if isinstance(tools, dict) else []
     if not isinstance(enabled_tools, list):
         enabled_tools = []
     return (
@@ -646,6 +724,155 @@ def _runtime_fields_from_run(record: RunRecord) -> tuple[str, str, list[str]]:
         str(model_spec.get("protocol") or "") if isinstance(model_spec, dict) else "",
         [str(item) for item in enabled_tools],
     )
+
+
+def _sdk_system_message(
+    *,
+    session_id: str,
+    run_id: str,
+    cwd: str,
+    model: str,
+    tools: list[str],
+    skills: list[str],
+    permission_mode: str | None,
+    metadata: dict[str, Any],
+    mcp_servers: list[dict[str, str]],
+) -> SDKSystemMessage:
+    return SDKSystemMessage(
+        session_id=session_id,
+        run_id=run_id,
+        agents=_metadata_string_list(metadata, "agents", "sdk_agents"),
+        apiKeySource=_api_key_source(metadata.get("apiKeySource", metadata.get("api_key_source"))),
+        betas=_metadata_string_list(metadata, "betas", "sdk_betas"),
+        claude_code_version=_text_field(metadata, "claude_code_version", "sdk_version") or _SDK_VERSION,
+        cwd=cwd,
+        tools=tools,
+        mcp_servers=mcp_servers,
+        model=model,
+        permissionMode=_permission_mode(metadata.get("permissionMode", permission_mode)),
+        slash_commands=_metadata_string_list(metadata, "slash_commands", "slashCommands") or command_names(),
+        output_style=_text_field(metadata, "output_style", "outputStyle") or "default",
+        skills=_metadata_string_list(metadata, "skills", "sdk_skills") or skills,
+        plugins=_plugin_list_field(metadata.get("plugins", metadata.get("sdk_plugins"))),
+        fast_mode_state=_fast_mode_state(metadata.get("fast_mode_state", metadata.get("fastModeState"))),
+        uuid=_text_field(metadata, "uuid", "message_id", "messageId") or str(uuid.uuid4()),
+    )
+
+
+def _api_key_source(value: Any) -> Literal["user", "project", "org", "temporary", "oauth"]:
+    text = str(value or "")
+    if text in {"user", "project", "org", "temporary", "oauth"}:
+        return text
+    return "project"
+
+
+def _permission_mode(value: Any) -> Literal["default", "acceptEdits", "bypassPermissions", "plan", "dontAsk"]:
+    text = str(value or "")
+    if text in {"default", "acceptEdits", "bypassPermissions", "plan", "dontAsk"}:
+        return text
+    normalized = text.strip().lower().replace("_", "-")
+    if normalized in {"accept-edits", "acceptedits"}:
+        return "acceptEdits"
+    if normalized in {"bypass", "bypass-permissions", "bypasspermissions"}:
+        return "bypassPermissions"
+    if normalized in {"deny", "dont-ask", "dontask"}:
+        return "dontAsk"
+    if normalized == "plan":
+        return "plan"
+    return "default"
+
+
+def _fast_mode_state(value: Any) -> Literal["off", "cooldown", "on"] | None:
+    text = str(value or "")
+    if text in {"off", "cooldown", "on"}:
+        return text
+    return None
+
+
+def _metadata_string_list(metadata: dict[str, Any], *keys: str) -> list[str]:
+    for key in keys:
+        value = metadata.get(key)
+        if isinstance(value, list):
+            return [str(item) for item in value if str(item or "")]
+        if isinstance(value, str) and value:
+            parsed = _json_list(value)
+            if parsed:
+                return [str(item) for item in parsed if str(item or "")]
+    return []
+
+
+def _plugin_list_field(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    plugins: list[dict[str, str]] = []
+    for item in value:
+        if isinstance(item, str):
+            if item:
+                plugins.append({"name": item, "path": ""})
+            continue
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "")
+        if not name:
+            continue
+        plugin = {"name": name, "path": str(item.get("path") or "")}
+        source = str(item.get("source") or "")
+        if source:
+            plugin["source"] = source
+        plugins.append(plugin)
+    return plugins
+
+
+def _settings_mcp_server_statuses(settings: Any) -> list[dict[str, str]]:
+    mcp = getattr(settings, "mcp", None)
+    if mcp is None:
+        return []
+    name = str(getattr(mcp, "SERVER_NAME", "") or "default")
+    transport = str(getattr(mcp, "SERVER_TRANSPORT", "stdio") or "stdio")
+    command = str(getattr(mcp, "SERVER_COMMAND", "") or "").strip()
+    url = str(getattr(mcp, "SERVER_URL", "") or "").strip()
+    auth_required = bool(getattr(mcp, "AUTH_REQUIRED", False))
+    if transport == "stdio" and not command and not auth_required:
+        return []
+    if transport != "stdio" and not url and not auth_required:
+        return []
+    return [{"name": name, "status": _mcp_status(enabled=True, auth_required=auth_required, auth_status=getattr(mcp, "AUTH_STATUS", ""))}]
+
+
+def _mcp_server_status_from_record(record: MCPServerRecord) -> dict[str, str]:
+    return {
+        "name": record.name,
+        "status": _mcp_status(
+            enabled=record.enabled,
+            auth_required=record.auth_required,
+            auth_status=record.auth_status,
+        ),
+    }
+
+
+def _mcp_status(*, enabled: bool, auth_required: bool, auth_status: Any) -> str:
+    if not enabled:
+        return "disabled"
+    status = str(auth_status or "").strip().lower()
+    if auth_required and status not in {"authenticated", "connected", "ok", "ready"}:
+        return "needs-auth"
+    if status in {"failed", "error"}:
+        return "failed"
+    if status == "pending":
+        return "pending"
+    return "connected"
+
+
+def _merge_mcp_server_statuses(
+    base: list[dict[str, str]],
+    extra: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    merged: dict[str, dict[str, str]] = {}
+    for item in [*base, *extra]:
+        name = str(item.get("name") or "")
+        if name:
+            merged[name] = {"name": name, "status": str(item.get("status") or "connected")}
+    return sorted(merged.values(), key=lambda item: item["name"])
 
 
 def _record_cwd(record: RunRecord) -> str:
@@ -864,6 +1091,14 @@ def _json_object(value: str) -> dict[str, Any]:
     except (TypeError, ValueError):
         return {}
     return dict(parsed) if isinstance(parsed, dict) else {}
+
+
+def _json_list(value: str) -> list[Any]:
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return []
+    return list(parsed) if isinstance(parsed, list) else []
 
 
 def _task_messages_from_tool_result(

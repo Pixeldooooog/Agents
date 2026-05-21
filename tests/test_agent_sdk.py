@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
+from agents.kernel.mcp_config import MCPServerRecord
 from agents.kernel.schema import Message, ModelResponse, RuntimeEvent, ToolCall
 from agents.kernel.models.protocol import message_event, reasoning_delta, retry_event, text_delta
 from agents.kernel.runtime import AgentRuntime, AgentSession, ScriptedModelClient
@@ -572,13 +573,59 @@ async def _sdk_extension_event_session_factory(settings, spec):
 
 def test_sdk_query_hides_store_wiring_and_streams_typed_messages():
     client = AgentSDKClient(session_factory=_session_factory)
+    assert client.persistence is not None
+    asyncio.run(
+        client.persistence.mcp_configs.save(
+            MCPServerRecord(
+                name="docs",
+                command="docs-mcp",
+                auth_required=True,
+                tenant_id="tenant",
+                user_id="user",
+                agent_id="agent",
+            )
+        )
+    )
 
-    messages = asyncio.run(_collect(client.query("say hi", SDKOptions(session_id="session-1"))))
+    options = SDKOptions(
+        session_id="session-1",
+        skills=["review"],
+        permission_mode="acceptEdits",
+        metadata={
+            "apiKeySource": "oauth",
+            "agents": ["reviewer"],
+            "betas": ["context-1m-2025-08-07"],
+            "output_style": "concise",
+            "plugins": [{"name": "docs-plugin", "path": "/plugins/docs", "source": "docs@inline"}],
+            "fast_mode_state": "off",
+        },
+    )
+    messages = asyncio.run(_collect(client.query("say hi", options)))
     replay = asyncio.run(client.get_session_messages("session-1", {"include_system_messages": False}))
+    replay_with_system = asyncio.run(client.get_session_messages("session-1"))
 
     assert isinstance(messages[0], SDKSystemMessage)
-    assert messages[0].session_id == "session-1"
-    assert messages[0].tools == ["echo"]
+    init = messages[0]
+    assert init.session_id == "session-1"
+    assert init.apiKeySource == "oauth"
+    assert init.permissionMode == "acceptEdits"
+    assert init.tools == ["echo"]
+    assert init.skills == ["review"]
+    assert init.agents == ["reviewer"]
+    assert init.betas == ["context-1m-2025-08-07"]
+    assert init.output_style == "concise"
+    assert init.plugins == [{"name": "docs-plugin", "path": "/plugins/docs", "source": "docs@inline"}]
+    assert init.fast_mode_state == "off"
+    assert init.mcp_servers == [{"name": "docs", "status": "needs-auth"}]
+    assert "/help" in init.slash_commands
+    assert init.claude_code_version
+    assert "protocol" not in init.model_dump()
+    assert "metadata" not in init.model_dump()
+    assert validate_sdk_message(init.model_dump()) == init
+    replay_init = next(message for message in replay_with_system if isinstance(message, SDKSystemMessage))
+    assert replay_init.tools == ["echo"]
+    assert replay_init.skills == ["review"]
+    assert replay_init.mcp_servers == [{"name": "docs", "status": "needs-auth"}]
     states = [message.state for message in messages if isinstance(message, SDKSessionStateChangedMessage)]
     assert states == ["running", "idle"]
     stream_events = [message for message in messages if isinstance(message, SDKStreamEventMessage)]
@@ -991,12 +1038,24 @@ def test_sdk_exports_json_schemas_and_rejects_invalid_messages():
     assert options_schema["additionalProperties"] is False
     assistant_schema = message_schema["$defs"]["SDKAssistantMessage"]["properties"]
     user_schema = message_schema["$defs"]["SDKUserMessage"]["properties"]
+    system_schema = message_schema["$defs"]["SDKSystemMessage"]["properties"]
     assert "message" in assistant_schema
     assert "parent_tool_use_id" in assistant_schema
     assert "content" not in assistant_schema
     assert "raw" not in assistant_schema
     assert "isSynthetic" in user_schema
     assert "is_synthetic" not in user_schema
+    assert "apiKeySource" in system_schema
+    assert "claude_code_version" in system_schema
+    assert "mcp_servers" in system_schema
+    assert "permissionMode" in system_schema
+    assert "slash_commands" in system_schema
+    assert "output_style" in system_schema
+    assert "skills" in system_schema
+    assert "plugins" in system_schema
+    assert "uuid" in system_schema
+    assert "protocol" not in system_schema
+    assert "metadata" not in system_schema
     assert "SDKSystemMessage" in message_schema["$defs"]
     assert "SDKAPIRetryMessage" in message_schema["$defs"]
     assert "SDKAuthStatusMessage" in message_schema["$defs"]
