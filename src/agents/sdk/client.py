@@ -747,9 +747,12 @@ class AgentSDKClient:
             targets = [(entry, _safe_rewind_path(root, entry.path)) for entry in entries]
         except ValueError as exc:
             return {"canRewind": False, "error": str(exc)}
-        for entry, target in targets:
-            _apply_rewind_entry(entry, target)
-        return payload
+        try:
+            for entry, target in targets:
+                _apply_rewind_entry(entry, target)
+        except (OSError, ValueError) as exc:
+            return {"canRewind": False, "error": "Failed to rewind: %s" % exc}
+        return {"canRewind": True}
 
     def _dequeue_matching_async_messages(
         self,
@@ -2046,7 +2049,7 @@ def _rewind_entries_after_message(
                 continue
             if event.type != "tool_result":
                 continue
-            payload = _tool_result_payload_data(event.payload)
+            payload = _rewind_tool_result_payload_data(event.payload)
             read_path, read_content = _read_content_from_tool_result(event, payload)
             if read_path:
                 read_cache[read_path] = read_content
@@ -2077,6 +2080,17 @@ def _read_content_from_tool_result(event: RuntimeEvent, payload: dict[str, Any])
     if payload.get("truncated") or payload.get("isPartialView"):
         return "", ""
     return path, content
+
+
+def _rewind_tool_result_payload_data(payload: dict[str, Any]) -> dict[str, Any]:
+    data = _tool_result_payload_data(payload)
+    nested = data.get("data")
+    if not isinstance(nested, dict):
+        return data
+    merged = dict(nested)
+    if isinstance(data.get("_meta"), dict) and "_meta" not in merged:
+        merged["_meta"] = dict(data["_meta"])
+    return merged
 
 
 def _rewind_entries_from_tool_result(
@@ -2173,9 +2187,48 @@ def _rewind_entry_from_write_payload(
     payload: dict[str, Any],
     read_cache: dict[str, str],
 ) -> tuple[_RewindFileEntry | None, list[str]]:
-    path = _rewind_path_value(payload.get("path") or payload.get("filePath"))
+    file_payload = payload.get("file") if isinstance(payload.get("file"), dict) else {}
+    path = _rewind_path_value(payload.get("path") or payload.get("filePath") or file_payload.get("filePath"))
     if not path:
         return None, []
+    original_present, original = _first_present(payload, "originalFile", "original_file", "oldContent", "old_content")
+    after = _first_string(
+        payload,
+        "content",
+        "updatedFile",
+        "updated_file",
+        "newContent",
+        "new_content",
+    )
+    encoding = str(payload.get("encoding") or payload.get("charset") or "utf-8")
+    if original_present:
+        existed = isinstance(original, str)
+        before = original if isinstance(original, str) else ""
+        insertions, deletions = _change_stats(payload.get("structuredPatch"), before, after)
+        return (
+            _RewindFileEntry(
+                path=path,
+                before=before,
+                existed=existed,
+                encoding=encoding,
+                insertions=insertions,
+                deletions=deletions,
+            ),
+            [],
+        )
+    if str(payload.get("type") or "").lower() == "create":
+        insertions, deletions = _change_stats(payload.get("structuredPatch"), "", after)
+        return (
+            _RewindFileEntry(
+                path=path,
+                before="",
+                existed=False,
+                encoding=encoding,
+                insertions=insertions,
+                deletions=deletions,
+            ),
+            [],
+        )
     safety = payload.get("safety") if isinstance(payload.get("safety"), dict) else {}
     existed = bool(safety.get("required_prior_read"))
     encoding = str(payload.get("encoding") or safety.get("encoding") or "utf-8")
@@ -2185,6 +2238,21 @@ def _rewind_entry_from_write_payload(
     if before is None:
         return None, [path]
     return _RewindFileEntry(path=path, before=before, existed=True, encoding=encoding), []
+
+
+def _first_present(payload: dict[str, Any], *keys: str) -> tuple[bool, Any]:
+    for key in keys:
+        if key in payload:
+            return True, payload[key]
+    return False, None
+
+
+def _first_string(payload: dict[str, Any], *keys: str) -> str | None:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, str):
+            return value
+    return None
 
 
 def _rewind_response_payload(entries: list[_RewindFileEntry]) -> dict[str, Any]:

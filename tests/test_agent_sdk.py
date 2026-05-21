@@ -743,6 +743,73 @@ async def _rewind_patch_session_factory(settings, spec):
     return RewindPatchSession()
 
 
+async def _src_origin_write_rewind_session_factory(settings, spec):
+    workspace_path = str(spec.workspace.path or spec.workspace.root or ".")
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=workspace_path,
+        path=workspace_path,
+    )
+
+    class SrcOriginWriteRewindSession:
+        runtime = SimpleNamespace(model="scripted", protocol="scripted", enabled_tools=["Write"])
+
+        def __init__(self):
+            self.workspace = workspace
+
+        async def stream(self, text, run_id=None):
+            note = Path(workspace_path) / "origin-write.txt"
+            note.write_text("after\nextra\n", encoding="utf-8")
+            yield RuntimeEvent(
+                type="tool_result",
+                name="Write",
+                payload={
+                    "tool_call_id": "write-update",
+                    "raw": {
+                        "data": {
+                            "type": "update",
+                            "filePath": "origin-write.txt",
+                            "content": "after\nextra\n",
+                            "originalFile": "before\n",
+                            "structuredPatch": [
+                                {
+                                    "oldStart": 1,
+                                    "oldLines": 1,
+                                    "newStart": 1,
+                                    "newLines": 2,
+                                    "lines": ["-before", "+after", "+extra"],
+                                }
+                            ],
+                        }
+                    },
+                },
+            )
+            created = Path(workspace_path) / "origin-created.txt"
+            created.write_text("new file\n", encoding="utf-8")
+            yield RuntimeEvent(
+                type="tool_result",
+                name="Write",
+                payload={
+                    "tool_call_id": "write-create",
+                    "raw": {
+                        "data": {
+                            "type": "create",
+                            "filePath": "origin-created.txt",
+                            "content": "new file\n",
+                            "structuredPatch": [],
+                            "originalFile": None,
+                        }
+                    },
+                },
+            )
+            yield RuntimeEvent(type="done", name="assistant", payload={"content": "edited", "status": "finished"})
+
+    return SrcOriginWriteRewindSession()
+
+
 async def _read_state_seed_session_factory(settings, spec):
     workspace_path = str(spec.workspace.path or spec.workspace.root or ".")
     workspace = WorkspaceContext(
@@ -2008,9 +2075,55 @@ def test_sdk_control_request_rewinds_files_from_run_store(tmp_path):
         "insertions": 2,
         "deletions": 1,
     }
-    assert actual.response.response == dry_run.response.response
+    assert actual.response.response == {"canRewind": True}
     assert notes_content == "old\n"
     assert write_content == "old write\n"
+    assert created_exists is False
+
+
+def test_sdk_control_request_rewinds_src_origin_wrapped_write_results(tmp_path):
+    async def execute():
+        note = tmp_path / "origin-write.txt"
+        created = tmp_path / "origin-created.txt"
+        note.write_text("before\n", encoding="utf-8")
+        client = AgentSDKClient(session_factory=_src_origin_write_rewind_session_factory)
+        session = client.create_sdk_session(
+            SDKOptions(
+                session_id="src-origin-write-rewind-session",
+                tenant_id="tenant",
+                user_id="user",
+                agent_id="agent",
+                cwd=str(tmp_path),
+            )
+        )
+        await _collect(session.query("write files"))
+        replay = await session.messages({"include_system_messages": False})
+        user_message = next(message for message in replay if isinstance(message, SDKUserMessage))
+        dry_run = await session.handle_control_request(
+            SDKControlRequest(
+                request_id="rewind-src-origin-write-dry-run",
+                request=SDKControlRewindFilesRequest(user_message_id=user_message.uuid, dry_run=True),
+            )
+        )
+        actual = await session.handle_control_request(
+            SDKControlRequest(
+                request_id="rewind-src-origin-write",
+                request=SDKControlRewindFilesRequest(user_message_id=user_message.uuid),
+            )
+        )
+        return dry_run, actual, note.read_text(encoding="utf-8"), created.exists()
+
+    dry_run, actual, note_content, created_exists = asyncio.run(execute())
+
+    assert isinstance(dry_run.response, SDKControlSuccessResponse)
+    assert dry_run.response.response == {
+        "canRewind": True,
+        "filesChanged": ["origin-created.txt", "origin-write.txt"],
+        "insertions": 3,
+        "deletions": 1,
+    }
+    assert actual.response.response == {"canRewind": True}
+    assert note_content == "before\n"
     assert created_exists is False
 
 
