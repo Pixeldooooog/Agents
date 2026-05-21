@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any, Literal, Union
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
@@ -179,6 +180,41 @@ class SDKFilesPersistedMessage(SDKBaseMessage):
     processed_at: str = ""
 
 
+class SDKHookStartedMessage(SDKBaseMessage):
+    type: Literal["system"] = "system"
+    subtype: Literal["hook_started"] = "hook_started"
+    hook_id: str
+    hook_name: str
+    hook_event: str
+    uuid: str = Field(default_factory=lambda: str(uuid4()))
+
+
+class SDKHookProgressMessage(SDKBaseMessage):
+    type: Literal["system"] = "system"
+    subtype: Literal["hook_progress"] = "hook_progress"
+    hook_id: str
+    hook_name: str
+    hook_event: str
+    stdout: str = ""
+    stderr: str = ""
+    output: str = ""
+    uuid: str = Field(default_factory=lambda: str(uuid4()))
+
+
+class SDKHookResponseMessage(SDKBaseMessage):
+    type: Literal["system"] = "system"
+    subtype: Literal["hook_response"] = "hook_response"
+    hook_id: str
+    hook_name: str
+    hook_event: str
+    output: str = ""
+    stdout: str = ""
+    stderr: str = ""
+    exit_code: int | None = None
+    outcome: Literal["success", "error", "cancelled"] = "success"
+    uuid: str = Field(default_factory=lambda: str(uuid4()))
+
+
 class SDKAssistantMessage(SDKBaseMessage):
     type: Literal["assistant"] = "assistant"
     content: str = ""
@@ -242,6 +278,9 @@ SDKMessage = Union[
     SDKTaskProgressMessage,
     SDKTaskNotificationMessage,
     SDKFilesPersistedMessage,
+    SDKHookStartedMessage,
+    SDKHookProgressMessage,
+    SDKHookResponseMessage,
     SDKUserMessage,
     SDKAssistantMessage,
     SDKToolProgressMessage,

@@ -32,6 +32,7 @@ class ToolExecutionPreparation:
     executable_calls: List[ToolCall]
     transformed_calls_by_index: dict[int, ToolCall]
     results_by_index: dict[int, ToolResult]
+    events: List[RuntimeEvent]
 
 
 class ToolOrchestrator:
@@ -112,6 +113,7 @@ class ToolOrchestrator:
             executable_calls=executable_calls,
             transformed_calls_by_index=transformed_calls_by_index,
             results_by_index=results_by_index,
+            events=self.hooks.drain_runtime_events(),
         )
 
     async def execute_prepared(
@@ -120,19 +122,23 @@ class ToolOrchestrator:
         *,
         run_id: str = "",
         task_id: str = "",
+        include_preparation_events: bool = True,
     ) -> ToolExecutionBatch:
         results_by_index = dict(prepared.results_by_index)
+        hook_events: List[RuntimeEvent] = []
         canceled = False
         if prepared.executable_calls:
             allowed_results = await self.registry.execute_many(prepared.executable_calls, run_id=run_id, task_id=task_id)
             for index, result in zip(prepared.executable_indexes, allowed_results):
                 final_result = await self.hooks.after_tool_use(prepared.transformed_calls_by_index[index], result)
+                hook_events.extend(self.hooks.drain_runtime_events())
                 if _is_user_interrupted_result(final_result):
                     canceled = True
                 results_by_index[index] = final_result
 
         results = [results_by_index[index] for index in range(len(prepared.calls))]
-        result_events = []
+        result_events = list(prepared.events) if include_preparation_events else []
+        result_events.extend(hook_events)
         for index, result in enumerate(results):
             call = prepared.transformed_calls_by_index.get(index, prepared.calls[index])
             result_events.append(tool_result_event(result, contract=self.describe_call(call)))

@@ -29,6 +29,9 @@ from agents.sdk.types import (
     SDKAuthStatusMessage,
     SDKCompactBoundaryMessage,
     SDKFilesPersistedMessage,
+    SDKHookProgressMessage,
+    SDKHookResponseMessage,
+    SDKHookStartedMessage,
     SDKResultMessage,
     SDKSessionStateChangedMessage,
     SDKSystemMessage,
@@ -324,6 +327,61 @@ async def _artifact_session_factory(settings, spec):
     return ArtifactSession()
 
 
+async def _hook_session_factory(settings, spec):
+    hook_workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=".",
+        path=".",
+    )
+
+    class HookSession:
+        runtime = SimpleNamespace(model="scripted", protocol="scripted", enabled_tools=["shell.run"])
+        workspace = hook_workspace
+
+        async def stream(self, text, run_id=None):
+            yield RuntimeEvent(
+                type="hook_started",
+                name="block-shell",
+                payload={
+                    "hook_id": "hook_123",
+                    "hook_name": "block-shell",
+                    "hook_event": "PreToolUse",
+                },
+            )
+            yield RuntimeEvent(
+                type="hook_progress",
+                name="block-shell",
+                payload={
+                    "hook_id": "hook_123",
+                    "hook_name": "block-shell",
+                    "hook_event": "PreToolUse",
+                    "stdout": "checking shell",
+                    "stderr": "",
+                    "output": "checking shell",
+                },
+            )
+            yield RuntimeEvent(
+                type="hook_response",
+                name="block-shell",
+                payload={
+                    "hook_id": "hook_123",
+                    "hook_name": "block-shell",
+                    "hook_event": "PreToolUse",
+                    "stdout": "blocked",
+                    "stderr": "",
+                    "output": "blocked",
+                    "exit_code": 0,
+                    "outcome": "success",
+                },
+            )
+            yield RuntimeEvent(type="done", name="assistant", payload={"content": "hooked", "status": "finished"})
+
+    return HookSession()
+
+
 def test_sdk_query_hides_store_wiring_and_streams_typed_messages():
     client = AgentSDKClient(session_factory=_session_factory)
 
@@ -453,6 +511,38 @@ def test_sdk_query_emits_files_persisted_from_artifact_results():
     assert persisted.processed_at.startswith("2023-11-14T")
     assert validate_sdk_message(persisted.model_dump()) == persisted
     assert any(isinstance(message, SDKFilesPersistedMessage) for message in replay)
+
+
+def test_sdk_query_projects_hook_lifecycle_system_messages():
+    client = AgentSDKClient(session_factory=_hook_session_factory)
+
+    messages = asyncio.run(_collect(client.query("run hook", SDKOptions(session_id="session-hooks"))))
+    replay = asyncio.run(client.get_session_messages("session-hooks", {"include_system_messages": False}))
+
+    started = next(message for message in messages if isinstance(message, SDKHookStartedMessage))
+    progress = next(message for message in messages if isinstance(message, SDKHookProgressMessage))
+    response = next(message for message in messages if isinstance(message, SDKHookResponseMessage))
+
+    assert started.type == "system"
+    assert started.subtype == "hook_started"
+    assert started.hook_id == "hook_123"
+    assert started.hook_name == "block-shell"
+    assert started.hook_event == "PreToolUse"
+    assert progress.stdout == "checking shell"
+    assert progress.output == "checking shell"
+    assert response.output == "blocked"
+    assert response.exit_code == 0
+    assert response.outcome == "success"
+    assert [
+        type(message)
+        for message in replay
+        if isinstance(message, (SDKHookStartedMessage, SDKHookProgressMessage, SDKHookResponseMessage))
+    ] == [
+        SDKHookStartedMessage,
+        SDKHookProgressMessage,
+        SDKHookResponseMessage,
+    ]
+    assert validate_sdk_message(response.model_dump()) == response
 
 
 def test_sdk_prompt_returns_final_result():
@@ -603,6 +693,9 @@ def test_sdk_exports_json_schemas_and_rejects_invalid_messages():
     assert "SDKAuthStatusMessage" in message_schema["$defs"]
     assert "SDKCompactBoundaryMessage" in message_schema["$defs"]
     assert "SDKFilesPersistedMessage" in message_schema["$defs"]
+    assert "SDKHookStartedMessage" in message_schema["$defs"]
+    assert "SDKHookProgressMessage" in message_schema["$defs"]
+    assert "SDKHookResponseMessage" in message_schema["$defs"]
     assert "SDKSessionStateChangedMessage" in message_schema["$defs"]
     assert "SDKTaskStartedMessage" in message_schema["$defs"]
     assert "SDKTaskProgressMessage" in message_schema["$defs"]

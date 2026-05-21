@@ -110,6 +110,7 @@ class AgentRuntime:
 
             while self._can_continue_tool_loop(state):
                 response = await self._complete_once(state.messages)
+                state.events.extend(self.hooks.drain_runtime_events())
                 calls = await self._apply_model_response(state, response, run_id)
                 if not calls:
                     return AgentResult(response.content_text(), state.messages, state.tool_results, state.events)
@@ -297,6 +298,8 @@ class AgentRuntime:
         decisions = approval_resolution.decisions
 
         prepared = await self.tool_orchestrator.prepare_with_decisions(state.pending_tool_calls, decisions)
+        state.events.extend(prepared.events)
+        emitted.extend(prepared.events)
 
         for call in prepared.executable_calls:
             event = tool_start_event(call, contract=self.tool_orchestrator.describe_call(call))
@@ -306,6 +309,7 @@ class AgentRuntime:
             prepared,
             run_id=run_id or "",
             task_id=task_id or "",
+            include_preparation_events=False,
         )
         state.tool_results.extend(batch.results)
         state.events.extend(batch.events)

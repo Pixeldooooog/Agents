@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, List, Optional
 
-from agents.kernel.schema import Message, ModelResponse, ToolCall, ToolResult
+from agents.kernel.schema import Message, ModelResponse, RuntimeEvent, ToolCall, ToolResult
 
 if TYPE_CHECKING:
     from agents.kernel.runtime import AgentResult
@@ -10,6 +10,18 @@ if TYPE_CHECKING:
 
 class AgentHooks:
     """Agent Runtime 扩展钩子。子类覆盖需要的方法即可。"""
+
+    def emit_runtime_event(self, event: RuntimeEvent) -> None:
+        events = getattr(self, "_runtime_events", None)
+        if events is None:
+            events = []
+            setattr(self, "_runtime_events", events)
+        events.append(event)
+
+    def drain_runtime_events(self) -> List[RuntimeEvent]:
+        events = list(getattr(self, "_runtime_events", []) or [])
+        setattr(self, "_runtime_events", [])
+        return events
 
     async def before_request(self, messages: List[Message]) -> List[Message]:
         """在消息发给模型前调用，可修改/增强消息列表。"""

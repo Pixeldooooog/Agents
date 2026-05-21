@@ -1135,9 +1135,20 @@ def test_agent_runtime_stream_does_not_emit_tool_start_for_hook_denied_tool():
 
     events = asyncio.run(collect())
 
-    assert [event.type for event in events] == ["tool_result", "text_delta", "done"]
-    assert events[0].payload["is_error"] is True
-    assert events[0].payload["content"] == "shell blocked"
+    assert [event.type for event in events] == [
+        "hook_started",
+        "hook_progress",
+        "hook_response",
+        "tool_result",
+        "text_delta",
+        "done",
+    ]
+    assert events[0].payload["hook_event"] == "PreToolUse"
+    assert events[0].payload["hook_name"] == "block-shell"
+    assert events[2].payload["outcome"] == "success"
+    assert events[2].payload["output"] == "shell blocked"
+    assert events[3].payload["is_error"] is True
+    assert events[3].payload["content"] == "shell blocked"
 
 
 def test_agent_runtime_stream_done_uses_error_content_on_failure():

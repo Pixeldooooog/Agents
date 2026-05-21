@@ -6,7 +6,7 @@ import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from agents.kernel.assembly import create_agent_session_async
 from agents.kernel.config import runtime_settings
@@ -28,6 +28,9 @@ from agents.sdk.types import (
     SDKMessage,
     SDKOptions,
     SDKResultMessage,
+    SDKHookProgressMessage,
+    SDKHookResponseMessage,
+    SDKHookStartedMessage,
     SDKSessionStateChangedMessage,
     SDKSessionInfo,
     SDKStatusMessage,
@@ -1156,6 +1159,38 @@ def _project_runtime_event(
         )
     if event.type == "session_state_changed":
         return _project_session_state_event(event, session_id=session_id, run_id=run_id)
+    if event.type == "hook_started":
+        return SDKHookStartedMessage(
+            session_id=session_id,
+            run_id=run_id,
+            hook_id=_text_field(event.payload, "hook_id", "hookId"),
+            hook_name=_text_field(event.payload, "hook_name", "hookName"),
+            hook_event=_text_field(event.payload, "hook_event", "hookEvent"),
+        )
+    if event.type == "hook_progress":
+        return SDKHookProgressMessage(
+            session_id=session_id,
+            run_id=run_id,
+            hook_id=_text_field(event.payload, "hook_id", "hookId"),
+            hook_name=_text_field(event.payload, "hook_name", "hookName"),
+            hook_event=_text_field(event.payload, "hook_event", "hookEvent"),
+            stdout=_text_field(event.payload, "stdout"),
+            stderr=_text_field(event.payload, "stderr"),
+            output=_text_field(event.payload, "output"),
+        )
+    if event.type == "hook_response":
+        return SDKHookResponseMessage(
+            session_id=session_id,
+            run_id=run_id,
+            hook_id=_text_field(event.payload, "hook_id", "hookId"),
+            hook_name=_text_field(event.payload, "hook_name", "hookName"),
+            hook_event=_text_field(event.payload, "hook_event", "hookEvent"),
+            output=_text_field(event.payload, "output"),
+            stdout=_text_field(event.payload, "stdout"),
+            stderr=_text_field(event.payload, "stderr"),
+            exit_code=_optional_int(event.payload.get("exit_code", event.payload.get("exitCode"))),
+            outcome=_hook_outcome(event.payload.get("outcome")),
+        )
     if event.type == "tool_start":
         contract = _tool_contract(event.payload)
         return SDKToolProgressMessage(
@@ -1256,6 +1291,29 @@ def _tool_call_id(payload: dict[str, Any]) -> str:
 def _tool_contract(payload: dict[str, Any]) -> dict[str, Any]:
     contract = payload.get("contract")
     return dict(contract) if isinstance(contract, dict) else {}
+
+
+def _text_field(payload: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = payload.get(key)
+        if value is not None:
+            return str(value)
+    return ""
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    return _int(value)
+
+
+def _hook_outcome(value: Any) -> Literal["success", "error", "cancelled"]:
+    text = str(value or "")
+    if text == "error":
+        return "error"
+    if text == "cancelled":
+        return "cancelled"
+    return "success"
 
 
 def _duration_ms(started_at: float) -> int:

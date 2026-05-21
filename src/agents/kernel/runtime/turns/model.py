@@ -43,6 +43,8 @@ class ModelTurnRunner:
         config: RuntimeConfig,
     ) -> AsyncIterable[ModelTurnUpdate]:
         working = await self.hooks.before_request(messages)
+        for event in self.hooks.drain_runtime_events():
+            yield ModelTurnUpdate(event=event)
         request = self.request_compiler.compile(working, config)
         final_response: Optional[ModelResponse] = None
 
@@ -63,4 +65,7 @@ class ModelTurnRunner:
 
         if final_response is None:
             raise AgentRuntimeError("model stream did not include final message")
-        yield ModelTurnUpdate(response=await self.hooks.after_response(final_response))
+        final_response = await self.hooks.after_response(final_response)
+        for event in self.hooks.drain_runtime_events():
+            yield ModelTurnUpdate(event=event)
+        yield ModelTurnUpdate(response=final_response)

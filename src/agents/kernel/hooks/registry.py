@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from agents.kernel.hooks.base import AgentHooks, ToolHookDenied
 from agents.kernel.governance.tool_rules import tool_rule_matches_call
-from agents.kernel.schema import Message, ModelResponse, ToolCall, ToolResult
+from agents.kernel.schema import Message, ModelResponse, RuntimeEvent, ToolCall, ToolResult
 
 
 HOOK_EVENTS = ["before_request", "after_response", "pre_tool_use", "post_tool_use"]
@@ -125,17 +125,26 @@ class SessionStateHooks(AgentHooks):
         working = list(messages)
         for record in self.registry.list(event="before_request", enabled=True, limit=100):
             if record.action == "append_system":
+                self._emit_hook_started(record)
+                self._emit_hook_progress(record)
                 working = _append_once_after_system(working, "system", record.content)
                 await self._mark_ran(record)
+                self._emit_hook_response(record, output=record.content)
             elif record.action == "append_user":
+                self._emit_hook_started(record)
+                self._emit_hook_progress(record)
                 working.append(Message.from_text("user", record.content))
                 await self._mark_ran(record)
+                self._emit_hook_response(record, output=record.content)
         return working
 
     async def after_response(self, response: ModelResponse) -> ModelResponse:
         for record in self.registry.list(event="after_response", enabled=True, limit=100):
             if record.action == "record":
+                self._emit_hook_started(record)
+                self._emit_hook_progress(record)
                 await self._mark_ran(record)
+                self._emit_hook_response(record, output="recorded")
         return response
 
     async def before_tool_use(self, call: ToolCall) -> ToolCall:
@@ -143,17 +152,67 @@ class SessionStateHooks(AgentHooks):
             if not _hook_matches_tool(record, call):
                 continue
             if record.action == "record":
+                self._emit_hook_started(record, call)
+                self._emit_hook_progress(record, call)
                 await self._mark_ran(record)
+                self._emit_hook_response(record, call, output="recorded")
             elif record.action == "deny_tool":
+                self._emit_hook_started(record, call)
+                self._emit_hook_progress(record, call)
                 await self._mark_ran(record)
-                raise ToolHookDenied(call.name, record.content or "tool denied by hook: %s" % record.name)
+                reason = record.content or "tool denied by hook: %s" % record.name
+                self._emit_hook_response(record, call, output=reason)
+                raise ToolHookDenied(call.name, reason)
         return call
 
     async def after_tool_use(self, call: ToolCall, result: ToolResult) -> ToolResult:
         for record in self.registry.list(event="post_tool_use", enabled=True, limit=100):
             if record.action == "record" and _hook_matches_tool(record, call):
+                self._emit_hook_started(record, call)
+                self._emit_hook_progress(record, call)
                 await self._mark_ran(record)
+                self._emit_hook_response(record, call, output=result.content)
         return result
+
+    def _emit_hook_started(self, record: HookRecord, call: ToolCall | None = None) -> None:
+        self.emit_runtime_event(
+            RuntimeEvent(
+                type="hook_started",
+                name=record.name,
+                payload=_hook_event_payload(record, call),
+            )
+        )
+
+    def _emit_hook_progress(self, record: HookRecord, call: ToolCall | None = None) -> None:
+        output = _hook_progress_output(record, call)
+        self.emit_runtime_event(
+            RuntimeEvent(
+                type="hook_progress",
+                name=record.name,
+                payload={
+                    **_hook_event_payload(record, call),
+                    "stdout": output,
+                    "stderr": "",
+                    "output": output,
+                },
+            )
+        )
+
+    def _emit_hook_response(self, record: HookRecord, call: ToolCall | None = None, *, output: str = "") -> None:
+        self.emit_runtime_event(
+            RuntimeEvent(
+                type="hook_response",
+                name=record.name,
+                payload={
+                    **_hook_event_payload(record, call),
+                    "stdout": output,
+                    "stderr": "",
+                    "output": output,
+                    "exit_code": 0,
+                    "outcome": "success",
+                },
+            )
+        )
 
     async def _mark_ran(self, record: HookRecord) -> None:
         self.registry.mark_ran(record)
@@ -188,6 +247,42 @@ def _append_once_after_system(messages: list[Message], role: str, text: str) -> 
 def _hook_matches_tool(record: HookRecord, call: ToolCall) -> bool:
     pattern = str(record.metadata.get("tool") or record.metadata.get("tool_name") or "*").strip()
     return tool_rule_matches_call(pattern or "*", call, shell_parse_error_matches=True)
+
+
+def _hook_event_payload(record: HookRecord, call: ToolCall | None = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "hook_id": record.hook_id,
+        "hook_name": record.name,
+        "hook_event": _sdk_hook_event(record.event),
+        "action": record.action,
+        "command": _hook_command(record),
+    }
+    if call is not None:
+        payload["tool_call_id"] = call.id
+        payload["tool_name"] = call.name
+    return payload
+
+
+def _hook_command(record: HookRecord) -> str:
+    tool = str(record.metadata.get("tool") or record.metadata.get("tool_name") or "").strip()
+    if tool:
+        return "%s %s(%s)" % (record.action, _sdk_hook_event(record.event), tool)
+    return "%s %s" % (record.action, _sdk_hook_event(record.event))
+
+
+def _hook_progress_output(record: HookRecord, call: ToolCall | None = None) -> str:
+    if call is not None:
+        return "Running hook %s for %s" % (record.name, call.name)
+    return "Running hook %s" % record.name
+
+
+def _sdk_hook_event(event: str) -> str:
+    return {
+        "before_request": "BeforeRequest",
+        "after_response": "AfterResponse",
+        "pre_tool_use": "PreToolUse",
+        "post_tool_use": "PostToolUse",
+    }.get(event, event)
 
 
 def _event(value: str) -> str:
