@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Optional, Protocol, Union
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from agents.sdk.structured_io import ndjson_safe_dumps
@@ -13,11 +14,20 @@ from agents.sdk.structured_io import ndjson_safe_dumps
 SSE_POST_MAX_RETRIES = 10
 SSE_POST_BASE_DELAY_SECONDS = 0.5
 SSE_POST_MAX_DELAY_SECONDS = 8.0
+SSE_RECONNECT_BASE_DELAY_SECONDS = 1.0
+SSE_RECONNECT_MAX_DELAY_SECONDS = 30.0
+SSE_RECONNECT_GIVE_UP_SECONDS = 600.0
+SSE_LIVENESS_TIMEOUT_SECONDS = 45.0
 SSE_PERMANENT_HTTP_STATUS_CODES = {401, 403, 404}
 SSE_POST_SUCCESS_STATUS_CODES = {200, 201}
 
 
 SDKSSEPostHandler = Callable[[str, Mapping[str, str], dict[str, Any]], Awaitable[int]]
+SDKSSEReadChunksFactory = Callable[
+    [str, Mapping[str, str]],
+    AsyncIterable[Union[str, bytes]],
+]
+SDKSSECloseHandler = Callable[[Optional[int]], Any]
 
 
 class SDKJsonlTransport(Protocol):
@@ -38,6 +48,10 @@ class SDKSSEFrame:
     event: str | None = None
     id: str | None = None
     data: str | None = None
+
+
+class SDKSSELivenessTimeoutError(TimeoutError):
+    """Raised internally when an SSE read connection stops producing frames."""
 
 
 class SDKQueueJsonlTransport:
@@ -94,10 +108,18 @@ class SDKSSEJsonlTransport:
         initial_sequence_num: int | None = None,
         post_url: str | None = None,
         read_chunks: AsyncIterable[str | bytes] | None = None,
+        read_chunks_factory: SDKSSEReadChunksFactory | None = None,
         post_message: SDKSSEPostHandler | None = None,
         post_max_retries: int = SSE_POST_MAX_RETRIES,
         post_base_delay_seconds: float = SSE_POST_BASE_DELAY_SECONDS,
         post_max_delay_seconds: float = SSE_POST_MAX_DELAY_SECONDS,
+        reconnect: bool | None = None,
+        reconnect_base_delay_seconds: float = SSE_RECONNECT_BASE_DELAY_SECONDS,
+        reconnect_max_delay_seconds: float = SSE_RECONNECT_MAX_DELAY_SECONDS,
+        reconnect_give_up_seconds: float = SSE_RECONNECT_GIVE_UP_SECONDS,
+        liveness_timeout_seconds: float | None = SSE_LIVENESS_TIMEOUT_SECONDS,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self.url = url
         self.headers = dict(headers or {})
@@ -108,6 +130,7 @@ class SDKSSEJsonlTransport:
         self.post_base_delay_seconds = post_base_delay_seconds
         self.post_max_delay_seconds = post_max_delay_seconds
         self._read_chunks = read_chunks
+        self._read_chunks_factory = read_chunks_factory
         self._post_message = post_message
         self._http_client = None
         self._reader_task: asyncio.Task[None] | None = None
@@ -116,6 +139,21 @@ class SDKSSEJsonlTransport:
         self._seen_sequence_nums: set[int] = set()
         self._last_sequence_num = max(initial_sequence_num or 0, 0)
         self._on_event: Callable[[dict[str, Any]], Any] | None = None
+        self._on_close: SDKSSECloseHandler | None = None
+        self._reconnect_enabled = (
+            reconnect
+            if reconnect is not None
+            else read_chunks is None or read_chunks_factory is not None
+        )
+        self._reconnect_base_delay_seconds = reconnect_base_delay_seconds
+        self._reconnect_max_delay_seconds = reconnect_max_delay_seconds
+        self._reconnect_give_up_seconds = reconnect_give_up_seconds
+        self._liveness_timeout_seconds = liveness_timeout_seconds
+        self._sleep = sleep
+        self._monotonic = monotonic
+        self._reconnect_attempts = 0
+        self._reconnect_started_at: float | None = None
+        self.state = "idle"
         self.closed = False
 
     @property
@@ -128,8 +166,17 @@ class SDKSSEJsonlTransport:
     def set_on_event(self, handler: Callable[[dict[str, Any]], Any] | None) -> None:
         self._on_event = handler
 
+    def set_on_close(self, handler: SDKSSECloseHandler | None) -> None:
+        self._on_close = handler
+
+    def is_connected_status(self) -> bool:
+        return self.state == "connected"
+
+    def is_closed_status(self) -> bool:
+        return self.state == "closed"
+
     async def read(self) -> str | None:
-        if self.closed and self._reader_task is None:
+        if self.closed and self._inbound.empty():
             return None
         self._start_reader()
         return await self._inbound.get()
@@ -144,6 +191,7 @@ class SDKSSEJsonlTransport:
 
     async def close(self) -> None:
         self.closed = True
+        self.state = "closing"
         if self._reader_task is not None:
             self._reader_task.cancel()
             try:
@@ -157,30 +205,62 @@ class SDKSSEJsonlTransport:
 
     def _start_reader(self) -> None:
         if self._reader_task is None and not self.closed:
-            self._reader_task = asyncio.create_task(self._pump_read_chunks())
+            self._reader_task = asyncio.create_task(self._pump_read_connections())
 
-    async def _pump_read_chunks(self) -> None:
+    async def _pump_read_connections(self) -> None:
         try:
-            async for chunk in self._iter_read_chunks():
-                if isinstance(chunk, bytes):
-                    self._buffer += chunk.decode("utf-8")
-                else:
-                    self._buffer += chunk
-                frames, self._buffer = parse_sse_frames(self._buffer)
-                for frame in frames:
-                    self._track_frame_id(frame)
-                    payload = self._client_event_payload(frame)
-                    if payload is not None:
-                        await self._inbound.put(ndjson_safe_dumps(payload) + "\n")
+            while not self.closed:
+                try:
+                    await self._read_one_connection()
+                except asyncio.CancelledError:
+                    raise
+                except SDKSSELivenessTimeoutError:
+                    if not await self._prepare_reconnect():
+                        break
+                    continue
+                except Exception:
+                    if not await self._prepare_reconnect():
+                        break
+                    continue
+
+                if self.closed or not await self._prepare_reconnect():
+                    break
         finally:
+            self.closed = True
+            if self.state != "closing":
+                self.state = "closed"
             await self._inbound.put(None)
 
+    async def _read_one_connection(self) -> None:
+        self.state = "reconnecting"
+        self._buffer = ""
+        self.state = "connected"
+        saw_chunk = False
+        async for chunk in self._iter_read_chunks():
+            if not saw_chunk:
+                self._reconnect_attempts = 0
+                self._reconnect_started_at = None
+                saw_chunk = True
+            if isinstance(chunk, bytes):
+                self._buffer += chunk.decode("utf-8")
+            else:
+                self._buffer += chunk
+            frames, self._buffer = parse_sse_frames(self._buffer)
+            for frame in frames:
+                self._track_frame_id(frame)
+                payload = self._client_event_payload(frame)
+                if payload is not None:
+                    await self._inbound.put(ndjson_safe_dumps(payload) + "\n")
+
     async def _iter_read_chunks(self) -> AsyncIterator[str | bytes]:
-        if self._read_chunks is not None:
-            async for chunk in self._read_chunks:
-                yield chunk
-            return
-        async for chunk in self._iter_http_read_chunks():
+        if self._read_chunks_factory is not None:
+            chunks = self._read_chunks_factory(self._stream_url(), self._sse_headers())
+        elif self._read_chunks is not None:
+            chunks = self._read_chunks
+            self._read_chunks = None
+        else:
+            chunks = self._iter_http_read_chunks()
+        async for chunk in self._iter_chunks_with_liveness(chunks):
             yield chunk
 
     async def _iter_http_read_chunks(self) -> AsyncIterator[bytes]:
@@ -188,10 +268,57 @@ class SDKSSEJsonlTransport:
         async with client.stream("GET", self._stream_url(), headers=self._sse_headers()) as response:
             if response.status_code in SSE_PERMANENT_HTTP_STATUS_CODES:
                 self.closed = True
+                self._notify_close(response.status_code)
                 return
             response.raise_for_status()
             async for chunk in response.aiter_bytes():
                 yield chunk
+
+    async def _iter_chunks_with_liveness(
+        self,
+        chunks: AsyncIterable[str | bytes],
+    ) -> AsyncIterator[str | bytes]:
+        iterator = chunks.__aiter__()
+        while not self.closed:
+            try:
+                if self._liveness_timeout_seconds is None or self._liveness_timeout_seconds <= 0:
+                    chunk = await iterator.__anext__()
+                else:
+                    chunk = await asyncio.wait_for(
+                        iterator.__anext__(),
+                        timeout=self._liveness_timeout_seconds,
+                    )
+            except StopAsyncIteration:
+                return
+            except asyncio.TimeoutError as exc:
+                raise SDKSSELivenessTimeoutError("SSE liveness timeout") from exc
+            yield chunk
+
+    async def _prepare_reconnect(self) -> bool:
+        if self.closed or not self._reconnect_enabled:
+            return False
+
+        self.state = "reconnecting"
+        now = self._monotonic()
+        if self._reconnect_started_at is None:
+            self._reconnect_started_at = now
+        elapsed = now - self._reconnect_started_at
+        if elapsed >= self._reconnect_give_up_seconds:
+            self.closed = True
+            self.state = "closed"
+            self._notify_close(None)
+            return False
+
+        self._reconnect_attempts += 1
+        if self.refresh_headers is not None:
+            self.headers.update(dict(self.refresh_headers()))
+        backoff = self._reconnect_base_delay_seconds * (
+            2 ** (self._reconnect_attempts - 1)
+        )
+        delay = min(backoff, self._reconnect_max_delay_seconds)
+        if delay > 0:
+            await self._sleep(delay)
+        return not self.closed
 
     def _track_frame_id(self, frame: SDKSSEFrame) -> None:
         if not frame.id:
@@ -292,6 +419,10 @@ class SDKSSEJsonlTransport:
         query = dict(parse_qsl(parts.query, keep_blank_values=True))
         query["from_sequence_num"] = str(self._last_sequence_num)
         return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+    def _notify_close(self, close_code: int | None) -> None:
+        if self._on_close is not None:
+            self._on_close(close_code)
 
 
 class SDKWebSocketJsonlTransport:

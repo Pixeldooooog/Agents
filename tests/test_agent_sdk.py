@@ -2403,6 +2403,179 @@ def test_sdk_sse_transport_unwraps_client_events_and_posts_stdout():
     assert posted[0][2] == {"type": "keep_alive"}
 
 
+def test_sdk_sse_transport_reconnects_with_sequence_resume_and_refreshed_headers():
+    def event(seq, text):
+        return (
+            f"id: {seq}\n"
+            "event: client_event\n"
+            "data: "
+            + json.dumps(
+                {
+                    "event_id": f"evt-{seq}",
+                    "sequence_num": seq,
+                    "event_type": "sdk",
+                    "source": "worker",
+                    "payload": {
+                        "type": "user",
+                        "session_id": "sse-reconnect",
+                        "uuid": f"sse-reconnect-{seq}",
+                        "message": {
+                            "role": "user",
+                            "content": [{"type": "text", "text": text}],
+                        },
+                        "isReplay": False,
+                    },
+                    "created_at": "2026-05-21T00:00:00Z",
+                },
+                separators=(",", ":"),
+            )
+            + "\n\n"
+        )
+
+    async def execute():
+        calls = []
+        refreshes = []
+
+        def refresh_headers():
+            token = f"Bearer token-{len(refreshes) + 1}"
+            refreshes.append(token)
+            return {"Authorization": token}
+
+        def read_chunks_factory(url, headers):
+            calls.append((url, dict(headers)))
+            seq = len(calls)
+
+            async def chunks():
+                yield event(seq, f"message {seq}")
+                if seq >= 2:
+                    await asyncio.Event().wait()
+
+            return chunks()
+
+        transport = SDKSSEJsonlTransport(
+            "https://api.example.com/session/abc/worker/events/stream",
+            headers={"Authorization": "Bearer seed"},
+            refresh_headers=refresh_headers,
+            read_chunks_factory=read_chunks_factory,
+            reconnect_base_delay_seconds=0,
+            liveness_timeout_seconds=None,
+        )
+        first = await asyncio.wait_for(transport.read(), timeout=1)
+        second = await asyncio.wait_for(transport.read(), timeout=1)
+        await transport.close()
+        return json.loads(first), json.loads(second), calls, refreshes, transport.last_sequence_num
+
+    first, second, calls, refreshes, last_sequence_num = asyncio.run(execute())
+
+    assert first["message"]["content"][0]["text"] == "message 1"
+    assert second["message"]["content"][0]["text"] == "message 2"
+    assert calls[0][0] == "https://api.example.com/session/abc/worker/events/stream"
+    assert calls[1][0] == (
+        "https://api.example.com/session/abc/worker/events/stream?from_sequence_num=1"
+    )
+    assert "Last-Event-ID" not in calls[0][1]
+    assert calls[1][1]["Last-Event-ID"] == "1"
+    assert calls[0][1]["Authorization"] != calls[1][1]["Authorization"]
+    assert len(refreshes) >= 2
+    assert last_sequence_num == 2
+
+
+def test_sdk_sse_transport_liveness_timeout_reconnects():
+    def event(seq, text):
+        return (
+            f"id: {seq}\n"
+            "event: client_event\n"
+            "data: "
+            + json.dumps(
+                {
+                    "event_id": f"evt-{seq}",
+                    "sequence_num": seq,
+                    "event_type": "sdk",
+                    "source": "worker",
+                    "payload": {
+                        "type": "user",
+                        "session_id": "sse-liveness",
+                        "uuid": f"sse-liveness-{seq}",
+                        "message": {
+                            "role": "user",
+                            "content": [{"type": "text", "text": text}],
+                        },
+                        "isReplay": False,
+                    },
+                    "created_at": "2026-05-21T00:00:00Z",
+                },
+                separators=(",", ":"),
+            )
+            + "\n\n"
+        )
+
+    async def execute():
+        calls = []
+
+        def read_chunks_factory(url, headers):
+            calls.append((url, dict(headers)))
+            seq = len(calls)
+
+            async def chunks():
+                if seq == 1:
+                    await asyncio.sleep(0.05)
+                    yield event(seq, "stale")
+                else:
+                    yield event(seq, "after timeout")
+                    await asyncio.Event().wait()
+
+            return chunks()
+
+        transport = SDKSSEJsonlTransport(
+            "https://api.example.com/session/abc/worker/events/stream",
+            read_chunks_factory=read_chunks_factory,
+            reconnect_base_delay_seconds=0,
+            liveness_timeout_seconds=0.01,
+        )
+        line = await asyncio.wait_for(transport.read(), timeout=1)
+        await transport.close()
+        return json.loads(line), calls, transport.last_sequence_num
+
+    payload, calls, last_sequence_num = asyncio.run(execute())
+
+    assert payload["message"]["content"][0]["text"] == "after timeout"
+    assert len(calls) == 2
+    assert last_sequence_num == 2
+
+
+def test_sdk_sse_transport_closes_after_reconnect_budget_exhaustion():
+    async def execute():
+        calls = []
+        closed = []
+        ticks = iter([0.0, 601.0])
+
+        def read_chunks_factory(url, headers):
+            calls.append((url, dict(headers)))
+            raise RuntimeError("connection failed")
+
+        async def sleep(delay):
+            return None
+
+        transport = SDKSSEJsonlTransport(
+            "https://api.example.com/session/abc/worker/events/stream",
+            read_chunks_factory=read_chunks_factory,
+            reconnect_base_delay_seconds=0,
+            reconnect_give_up_seconds=600,
+            monotonic=lambda: next(ticks),
+            sleep=sleep,
+        )
+        transport.set_on_close(lambda close_code: closed.append(close_code))
+        line = await asyncio.wait_for(transport.read(), timeout=1)
+        return line, calls, closed, transport.is_closed_status()
+
+    line, calls, closed, is_closed = asyncio.run(execute())
+
+    assert line is None
+    assert len(calls) == 2
+    assert closed == [None]
+    assert is_closed is True
+
+
 def test_sdk_run_jsonl_transport_pumps_queue_transport():
     async def execute():
         client = AgentSDKClient(session_factory=_echo_prompt_session_factory)
