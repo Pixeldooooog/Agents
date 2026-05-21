@@ -12,6 +12,7 @@ from agents.kernel.capabilities.tools.builtin.file_safety import (
     preserve_existing_line_endings,
     read_current_file,
     record_file_read,
+    structured_text_patch,
 )
 
 
@@ -103,7 +104,7 @@ def apply_patch(
         "structuredPatches": [
             {
                 "filePath": item.path,
-                "hunks": _structured_patch(item.before, item.after),
+                "hunks": structured_text_patch(item.before, item.after),
             }
             for item in planned
         ],
@@ -129,7 +130,7 @@ def apply_patch(
                 "newString": edit.new_text,
                 "replaceAll": edit.replace_all,
                 "originalFile": edit.original_file,
-                "structuredPatch": _structured_patch(edit.original_file, planned[0].after),
+                "structuredPatch": structured_text_patch(edit.original_file, planned[0].after),
             }
         )
     return payload
@@ -268,41 +269,6 @@ def _combined_diff(files: list[_PlannedFile]) -> str:
             )
         )
     return "\n".join(chunks)
-
-
-def _structured_patch(before: str, after: str) -> list[dict[str, Any]]:
-    before_lines = before.splitlines()
-    after_lines = after.splitlines()
-    matcher = difflib.SequenceMatcher(a=before_lines, b=after_lines, autojunk=False)
-    hunks: list[dict[str, Any]] = []
-    for group in matcher.get_grouped_opcodes(n=3):
-        if not group:
-            continue
-        old_start = group[0][1] + 1
-        new_start = group[0][3] + 1
-        old_lines = group[-1][2] - group[0][1]
-        new_lines = group[-1][4] - group[0][3]
-        lines: list[str] = []
-        for tag, old_a, old_b, new_a, new_b in group:
-            if tag == "equal":
-                lines.extend(" " + line for line in before_lines[old_a:old_b])
-            elif tag == "delete":
-                lines.extend("-" + line for line in before_lines[old_a:old_b])
-            elif tag == "insert":
-                lines.extend("+" + line for line in after_lines[new_a:new_b])
-            elif tag == "replace":
-                lines.extend("-" + line for line in before_lines[old_a:old_b])
-                lines.extend("+" + line for line in after_lines[new_a:new_b])
-        hunks.append(
-            {
-                "oldStart": old_start,
-                "oldLines": old_lines,
-                "newStart": new_start,
-                "newLines": new_lines,
-                "lines": lines,
-            }
-        )
-    return hunks
 
 
 def _required_string(payload: dict[str, Any], key: str) -> str:

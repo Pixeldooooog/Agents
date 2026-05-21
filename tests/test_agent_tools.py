@@ -2310,6 +2310,11 @@ def test_filesystem_write_requires_read_before_overwriting_existing_file(tmp_pat
     assert "File has not been read yet" in blocked.content
     assert read.is_error is False
     assert written.is_error is False
+    assert written.raw["type"] == "update"
+    assert written.raw["filePath"] == "notes.txt"
+    assert written.raw["content"] == "new\n"
+    assert written.raw["originalFile"] == "old\n"
+    assert written.raw["structuredPatch"][0]["lines"] == ["-old", "+new"]
     assert written.raw["safety"]["required_prior_read"] is True
     assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "new\n"
 
@@ -2337,6 +2342,11 @@ def test_filesystem_write_strips_trailing_whitespace_for_non_markdown(tmp_path: 
     )
 
     assert written.is_error is False
+    assert written.raw["type"] == "create"
+    assert written.raw["filePath"] == "notes.txt"
+    assert written.raw["content"] == "alpha\nnext"
+    assert written.raw["originalFile"] is None
+    assert written.raw["structuredPatch"] == []
     assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "alpha\nnext"
 
 
@@ -2363,6 +2373,7 @@ def test_filesystem_write_preserves_markdown_trailing_whitespace(tmp_path: Path)
     )
 
     assert written.is_error is False
+    assert written.raw["content"] == "alpha  \nnext\t  "
     assert (tmp_path / "guide.md").read_text(encoding="utf-8") == "alpha  \nnext\t  "
 
 

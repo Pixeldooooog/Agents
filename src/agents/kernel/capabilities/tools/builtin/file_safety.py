@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import re
 from typing import Any
 
@@ -117,6 +118,15 @@ def write_text_safely(context: ToolRuntimeContext, path: str, content: str) -> d
     result = context.sandbox_client.write_text(path, output, encoding=encoding)
     record_file_read(context, result.path, output, encoding=result.encoding)
     payload = result.to_dict()
+    payload.update(
+        {
+            "type": "update" if existed else "create",
+            "filePath": result.path,
+            "content": output,
+            "structuredPatch": structured_text_patch(current, output) if existed else [],
+            "originalFile": current if existed else None,
+        }
+    )
     payload["safety"] = {
         "required_prior_read": existed,
         "stale_checked": existed,
@@ -125,6 +135,41 @@ def write_text_safely(context: ToolRuntimeContext, path: str, content: str) -> d
         "encoding": result.encoding,
     }
     return payload
+
+
+def structured_text_patch(before: str, after: str) -> list[dict[str, Any]]:
+    before_lines = str(before).splitlines()
+    after_lines = str(after).splitlines()
+    matcher = difflib.SequenceMatcher(a=before_lines, b=after_lines, autojunk=False)
+    hunks: list[dict[str, Any]] = []
+    for group in matcher.get_grouped_opcodes(n=3):
+        if not group:
+            continue
+        old_start = group[0][1] + 1
+        new_start = group[0][3] + 1
+        old_lines = group[-1][2] - group[0][1]
+        new_lines = group[-1][4] - group[0][3]
+        lines: list[str] = []
+        for tag, old_a, old_b, new_a, new_b in group:
+            if tag == "equal":
+                lines.extend(" " + line for line in before_lines[old_a:old_b])
+            elif tag == "delete":
+                lines.extend("-" + line for line in before_lines[old_a:old_b])
+            elif tag == "insert":
+                lines.extend("+" + line for line in after_lines[new_a:new_b])
+            elif tag == "replace":
+                lines.extend("-" + line for line in before_lines[old_a:old_b])
+                lines.extend("+" + line for line in after_lines[new_a:new_b])
+        hunks.append(
+            {
+                "oldStart": old_start,
+                "oldLines": old_lines,
+                "newStart": new_start,
+                "newLines": new_lines,
+                "lines": lines,
+            }
+        )
+    return hunks
 
 
 def normalize_text_write_content(path: str, content: str) -> str:
