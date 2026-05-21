@@ -621,6 +621,7 @@ def test_sdk_query_hides_store_wiring_and_streams_typed_messages():
     assert init.claude_code_version
     assert "protocol" not in init.model_dump()
     assert "metadata" not in init.model_dump()
+    assert "run_id" not in init.model_dump()
     assert validate_sdk_message(init.model_dump()) == init
     replay_init = next(message for message in replay_with_system if isinstance(message, SDKSystemMessage))
     assert replay_init.tools == ["echo"]
@@ -649,6 +650,7 @@ def test_sdk_query_hides_store_wiring_and_streams_typed_messages():
     assert result.is_error is False
     assert "content" not in result.model_dump()
     assert "status" not in result.model_dump()
+    assert "run_id" not in result.model_dump()
     assert [validate_sdk_message(message.model_dump()) for message in messages] == messages
 
 
@@ -712,6 +714,7 @@ def test_sdk_query_projects_assistant_message_shape():
     assert assistant.message["content"][0]["text"] == "assistant answer"
     assert assistant.content == "assistant answer"
     assert "content" not in assistant.model_dump()
+    assert "run_id" not in assistant.model_dump()
     assert validate_sdk_message(assistant.model_dump()) == assistant
     assert any(isinstance(message, SDKAssistantMessage) for message in replay)
 
@@ -1049,6 +1052,7 @@ def test_sdk_exports_json_schemas_and_rejects_invalid_messages():
     assistant_schema = message_schema["$defs"]["SDKAssistantMessage"]["properties"]
     user_schema = message_schema["$defs"]["SDKUserMessage"]["properties"]
     system_schema = message_schema["$defs"]["SDKSystemMessage"]["properties"]
+    result_message_schema = result_schema["properties"]
     assert "message" in assistant_schema
     assert "parent_tool_use_id" in assistant_schema
     assert "content" not in assistant_schema
@@ -1066,6 +1070,9 @@ def test_sdk_exports_json_schemas_and_rejects_invalid_messages():
     assert "uuid" in system_schema
     assert "protocol" not in system_schema
     assert "metadata" not in system_schema
+    for definition in message_schema["$defs"].values():
+        properties = definition.get("properties", {})
+        assert "run_id" not in properties
     assert "SDKSystemMessage" in message_schema["$defs"]
     assert "SDKAPIRetryMessage" in message_schema["$defs"]
     assert "SDKAuthStatusMessage" in message_schema["$defs"]
@@ -1087,15 +1094,16 @@ def test_sdk_exports_json_schemas_and_rejects_invalid_messages():
     assert "SDKToolUseSummaryMessage" in message_schema["$defs"]
     assert "SDKUserMessage" in message_schema["$defs"]
     assert "SDKToolProgressMessage" in message_schema["$defs"]
-    assert result_schema["properties"]["type"]["const"] == "result"
-    assert "result" in result_schema["properties"]
-    assert "is_error" in result_schema["properties"]
-    assert "duration_api_ms" in result_schema["properties"]
-    assert "total_cost_usd" in result_schema["properties"]
-    assert "modelUsage" in result_schema["properties"]
-    assert "permission_denials" in result_schema["properties"]
-    assert "content" not in result_schema["properties"]
-    assert "status" not in result_schema["properties"]
+    assert result_message_schema["type"]["const"] == "result"
+    assert "result" in result_message_schema
+    assert "is_error" in result_message_schema
+    assert "duration_api_ms" in result_message_schema
+    assert "total_cost_usd" in result_message_schema
+    assert "modelUsage" in result_message_schema
+    assert "permission_denials" in result_message_schema
+    assert "content" not in result_message_schema
+    assert "status" not in result_message_schema
+    assert "run_id" not in result_message_schema
     assert "sessionId" in session_schema["properties"]
     assert "lastModified" in session_schema["properties"]
     assert "customTitle" in session_schema["properties"]
@@ -1126,6 +1134,7 @@ def test_sdk_exports_json_schemas_and_rejects_invalid_messages():
         }
     )
     assert isinstance(valid, SDKResultMessage)
+    assert valid.run_id == "run-1"
     assert valid.status == "finished"
     assert valid.content == "done"
 

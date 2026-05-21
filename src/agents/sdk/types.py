@@ -134,7 +134,21 @@ class SDKBaseMessage(BaseModel):
 
     type: str
     session_id: str
-    run_id: str
+    _run_id: str = PrivateAttr(default="")
+
+    def __init__(self, **data: Any) -> None:
+        run_id = str(data.pop("run_id", "") or "")
+        super().__init__(**data)
+        self._run_id = run_id
+
+    @property
+    def run_id(self) -> str:
+        return self._run_id
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, SDKBaseMessage):
+            return self.model_dump() == other.model_dump()
+        return super().__eq__(other)
 
 
 class SDKSystemMessage(SDKBaseMessage):
