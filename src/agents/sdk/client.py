@@ -6,7 +6,7 @@ import inspect
 import json
 import time
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
@@ -58,7 +58,12 @@ from agents.sdk.control import (
     SDKControlStopTaskRequest,
     SDKControlSuccessResponse,
     SDKHookCallbackRequest,
+    SDKKeepAliveMessage,
+    SDKStdinMessage,
+    SDKStdoutMessage,
+    SDKUpdateEnvironmentVariablesMessage,
     validate_sdk_control_request,
+    validate_sdk_stdin_message,
 )
 from agents.sdk.types import (
     SDKAPIRetryMessage,
@@ -274,6 +279,27 @@ class AgentSDKClient:
             options = options.model_copy(update={"session_id": user_message.session_id})
         async for item in self._query_turn(user_message.content, options, user_message=user_message):
             yield item
+
+    async def run_stdin(
+        self,
+        messages: AsyncIterable[SDKStdinMessage | dict[str, Any]] | Iterable[SDKStdinMessage | dict[str, Any]],
+        options: SDKOptions | dict[str, Any] | None = None,
+    ) -> AsyncIterator[SDKStdoutMessage]:
+        session = self.create_sdk_session(_coerce_options(options))
+        async for raw_message in _aiter_stdin_messages(messages):
+            message = validate_sdk_stdin_message(raw_message)
+            if isinstance(message, SDKUserMessage):
+                session.enqueue_async_message(message)
+                async for output in session._drain_async_messages(session.options):
+                    yield output
+            elif isinstance(message, SDKControlRequest):
+                yield await session.handle_control_request(message)
+            elif isinstance(message, SDKUpdateEnvironmentVariablesMessage):
+                _apply_environment_variables_update(session.options, message)
+            elif isinstance(message, SDKKeepAliveMessage):
+                continue
+            elif isinstance(message, SDKControlResponse):
+                continue
 
     async def _query_turn(
         self,
@@ -1181,6 +1207,14 @@ async def handle_control_request(
     return await AgentSDKClient().handle_control_request(message, options)
 
 
+async def run_stdin(
+    messages: AsyncIterable[SDKStdinMessage | dict[str, Any]] | Iterable[SDKStdinMessage | dict[str, Any]],
+    options: SDKOptions | dict[str, Any] | None = None,
+) -> AsyncIterator[SDKStdoutMessage]:
+    async for message in AgentSDKClient().run_stdin(messages, options):
+        yield message
+
+
 def unstable_v2_create_session(options: SDKOptions | dict[str, Any] | None = None) -> SDKSession:
     return AgentSDKClient().create_sdk_session(options)
 
@@ -1205,6 +1239,24 @@ def _coerce_options(options: SDKOptions | dict[str, Any] | None) -> SDKOptions:
     if isinstance(options, SDKOptions):
         return options
     return SDKOptions.model_validate(options)
+
+
+async def _aiter_stdin_messages(
+    messages: AsyncIterable[SDKStdinMessage | dict[str, Any]] | Iterable[SDKStdinMessage | dict[str, Any]],
+) -> AsyncIterator[SDKStdinMessage | dict[str, Any]]:
+    if hasattr(messages, "__aiter__"):
+        async for message in messages:  # type: ignore[union-attr]
+            yield message
+        return
+    for message in messages:  # type: ignore[union-attr]
+        yield message
+
+
+def _apply_environment_variables_update(options: SDKOptions, message: SDKUpdateEnvironmentVariablesMessage) -> None:
+    current = options.metadata.get("environment_variables")
+    variables = dict(current) if isinstance(current, dict) else {}
+    variables.update(message.variables)
+    options.metadata["environment_variables"] = variables
 
 
 def _coerce_async_user_message(

@@ -61,6 +61,7 @@ from agents.sdk import (
     validate_sdk_message,
     validate_sdk_stdin_message,
     validate_sdk_stdout_message,
+    run_stdin,
 )
 from agents.sdk.client import _spec_from_options
 from agents.sdk.types import (
@@ -1941,6 +1942,57 @@ def test_sdk_now_priority_async_message_interrupts_and_drains():
     assert results == ["run canceled", "urgent"]
     assert replay_users == []
     assert urgent_uuid
+
+
+def test_sdk_run_stdin_processes_user_and_control_messages():
+    async def execute():
+        client = AgentSDKClient(session_factory=_echo_prompt_session_factory)
+        messages = [
+            {"type": "update_environment_variables", "variables": {"NEXUS_ENV": "test"}},
+            {
+                "type": "user",
+                "session_id": "stdin-session",
+                "uuid": "stdin-user-1",
+                "message": {"role": "user", "content": [{"type": "text", "text": "first"}]},
+                "isReplay": False,
+            },
+            {
+                "type": "control_request",
+                "request_id": "stdin-set-model",
+                "request": {"subtype": "set_model", "model": "claude-sonnet"},
+            },
+            {"type": "keep_alive"},
+            {
+                "type": "control_response",
+                "response": {
+                    "subtype": "success",
+                    "request_id": "host-response",
+                    "response": {"ignored": True},
+                },
+            },
+            {
+                "type": "user",
+                "session_id": "stdin-session",
+                "uuid": "stdin-user-2",
+                "message": {"role": "user", "content": [{"type": "text", "text": "second"}]},
+                "priority": "later",
+                "isReplay": False,
+            },
+        ]
+
+        outputs = [message async for message in client.run_stdin(messages, SDKOptions(session_id="stdin-session"))]
+        replay = await client.get_session_messages("stdin-session", {"include_system_messages": False})
+        return outputs, replay
+
+    outputs, replay = asyncio.run(execute())
+    results = [message.result for message in outputs if isinstance(message, SDKResultMessage)]
+    controls = [message for message in outputs if isinstance(message, SDKControlResponse)]
+    replay_users = [message for message in replay if isinstance(message, SDKUserMessage)]
+
+    assert callable(run_stdin)
+    assert results == ["first", "second"]
+    assert controls[0].response.response == {"model": "claude-sonnet"}
+    assert [message.uuid for message in replay_users] == ["stdin-user-1", "stdin-user-2"]
 
 
 def test_sdk_control_request_seeds_read_state_for_next_session(tmp_path):
