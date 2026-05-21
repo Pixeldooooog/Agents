@@ -321,6 +321,8 @@ def _is_notebook_path(path: str) -> bool:
 
 def _read_image_file(context: ToolRuntimeContext, path: str) -> dict[str, Any]:
     resolved, relative_path, data = _read_binary_file_bytes(context, path, max_bytes=BINARY_READ_MAX_BYTES, kind="Image")
+    if not data:
+        raise ValueError("Image file is empty: %s" % path)
     media_type = _detect_image_media_type(data, resolved)
     if media_type is None:
         raise ValueError("Unsupported or invalid image file: %s" % path)
@@ -533,11 +535,4 @@ def _detect_image_media_type(data: bytes, path: Path) -> str | None:
         return "image/gif"
     if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
         return "image/webp"
-    fallback = {
-        ".png": "image/png",
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".gif": "image/gif",
-        ".webp": "image/webp",
-    }.get(path.suffix.lower())
-    return fallback if data else None
+    return "image/png" if data else None

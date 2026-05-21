@@ -1958,6 +1958,37 @@ def test_filesystem_read_retries_macos_screenshot_thin_space_variant(tmp_path: P
     assert base64.b64decode(result.raw["file"]["base64"]) == png_bytes
 
 
+def test_filesystem_read_image_empty_and_unknown_format_follow_src_origin(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "empty.png").write_bytes(b"")
+    (tmp_path / "unknown.jpg").write_bytes(b"not really an image")
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    empty = asyncio.run(registry.execute("filesystem.read", {"path": "empty.png"}))
+    unknown = asyncio.run(registry.execute("filesystem.read", {"path": "unknown.jpg"}))
+
+    assert empty.is_error is True
+    assert empty.content == "Image file is empty: empty.png"
+    assert unknown.is_error is False
+    assert unknown.raw["mimeType"] == "image/png"
+    assert unknown.raw["file"]["type"] == "image/png"
+    assert base64.b64decode(unknown.raw["file"]["base64"]) == b"not really an image"
+
+
 def test_filesystem_read_returns_src_origin_style_pdf_payload(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="default",
