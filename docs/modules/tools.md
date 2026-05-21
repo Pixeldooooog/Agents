@@ -106,7 +106,7 @@ runtime 已经把这个契约写入工具事件：
 - `filesystem.write` 覆盖已有文件前要求该文件已被完整读取；如果读后文件内容发生变化，会返回 stale-write error，要求重新读取。
 - `notebook.edit` 提供第一层 `src-origin` `NotebookEdit` parity：按 `cell_id` 或 `cell-N` index 对 `.ipynb` cell 做 `replace`、`insert`、`delete`，要求先通过 `filesystem.read` 完整读取 notebook，拒绝 stale 外部修改，替换 code cell 时清空 `outputs` 并重置 `execution_count`，写回后刷新读状态并返回 `original_file` / `updated_file` 供 SDK/UI 使用。
 - `patch.apply` 对已有文件做 edit/overwrite 前使用同一份读状态；新文件 create 不要求预读。
-- `patch.apply` 的 edit 校验进一步贴近 `src-origin` FileEdit：`old_text == new_text` 会直接拒绝；多处命中但未设置 `replace_all=true` 会要求提供更具体上下文；直引号 `old_text` 可匹配文件中的弯引号，替换时会保持文件原有弯引号风格；`<fnr>` / `<r>` 等 `src-origin` 脱敏占位符可匹配真实标签并同步反解到 `new_text`；当 `new_text=""` 且匹配文本后紧跟换行时，会按 FileEdit 语义删除整行换行，避免留下空白行；成功结果会额外返回 `editSummary` 和 `structuredPatches`，单 edit 时还返回 `filePath`、`oldString`、`newString`、`originalFile`、`replaceAll` 和 `structuredPatch`。
+- `patch.apply` 的 edit 校验进一步贴近 `src-origin` FileEdit：`old_text == new_text` 会直接拒绝；多处命中但未设置 `replace_all=true` 会要求提供更具体上下文；直引号 `old_text` 可匹配文件中的弯引号，替换时会保持文件原有弯引号风格；非 Markdown 文件的 `new_text` 会按行去掉尾随空白，`.md` / `.mdx` 会保留 Markdown 硬换行空格；`<fnr>` / `<r>` 等 `src-origin` 脱敏占位符可匹配真实标签并同步反解到 `new_text`；当 `new_text=""` 且匹配文本后紧跟换行时，会按 FileEdit 语义删除整行换行，避免留下空白行；成功结果会额外返回 `editSummary` 和 `structuredPatches`，单 edit 时还返回 `filePath`、`oldString`、`newString`、`originalFile`、`replaceAll` 和 `structuredPatch`。
 - 工具成功写入后会刷新该文件的读状态，避免同一轮连续安全编辑被误判为 stale。
 - 覆盖已有 CRLF 文件时会保持 CRLF 行尾，避免把整文件行尾静默改成 LF。
 - sandbox text reads 会拒绝常见 binary 扩展、NUL 字节和高控制字符比例文件；`filesystem.read`、`filesystem.write` 覆盖已有文件、`patch.apply` 和 `search.grep` 都复用该 binary guard。

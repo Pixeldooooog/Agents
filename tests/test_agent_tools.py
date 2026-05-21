@@ -5049,6 +5049,73 @@ def test_patch_apply_desanitizes_file_edit_placeholders(tmp_path: Path):
     ).read_text(encoding="utf-8") == "<function_results><result>new</result></function_results>\n"
 
 
+def test_patch_apply_strips_trailing_whitespace_from_non_markdown_new_text(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "notes.txt").write_text("alpha\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+    result = asyncio.run(
+        registry.execute(
+            "patch.apply",
+            {"edits": [{"path": "notes.txt", "old_text": "alpha", "new_text": "beta   \nnext\t  "}]},
+        )
+    )
+
+    assert read.is_error is False
+    assert result.is_error is False
+    assert result.raw["newString"] == "beta\nnext"
+    assert result.raw["editSummary"][0]["newString"] == "beta\nnext"
+    assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "beta\nnext\n"
+
+
+def test_patch_apply_preserves_markdown_trailing_whitespace_in_new_text(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "guide.md").write_text("alpha\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "guide.md"}))
+    result = asyncio.run(
+        registry.execute(
+            "patch.apply",
+            {"edits": [{"path": "guide.md", "old_text": "alpha", "new_text": "beta  \nnext\t  "}]},
+        )
+    )
+
+    assert read.is_error is False
+    assert result.is_error is False
+    assert result.raw["newString"] == "beta  \nnext\t  "
+    assert (tmp_path / "guide.md").read_text(encoding="utf-8") == "beta  \nnext\t  \n"
+
+
 def test_patch_apply_empty_replacement_removes_trailing_newline_like_file_edit(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="default",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import difflib
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -163,7 +164,10 @@ def _plan_patch(
             ensure_existing_file_current(context, relative_path, before)
             verified_paths.add(relative_path)
             path = relative_path
+        new_text = _normalize_replacement_text(path, new_text)
         match_old_text, match_new_text = _normalize_edit_strings(before, old_text, new_text)
+        if match_old_text == match_new_text:
+            raise ValueError("No changes to make: old_text and new_text are exactly the same for %s" % path)
         actual_old_text = _find_actual_text(before, match_old_text)
         if actual_old_text is None:
             raise ValueError("String to replace not found in file.\nPath: %s\nString: %s" % (path, old_text))
@@ -376,6 +380,28 @@ def _desanitize_match_string(text: str) -> tuple[str, list[tuple[str, str]]]:
             replacements.append((source, target))
             result = updated
     return result, replacements
+
+
+def _normalize_replacement_text(path: str, new_text: str) -> str:
+    if _is_markdown_path(path):
+        return str(new_text)
+    return _strip_trailing_whitespace(new_text)
+
+
+def _is_markdown_path(path: str) -> bool:
+    normalized = str(path).lower()
+    return normalized.endswith(".md") or normalized.endswith(".mdx")
+
+
+def _strip_trailing_whitespace(text: str) -> str:
+    parts = re.split(r"(\r\n|\n|\r)", str(text))
+    output: list[str] = []
+    for index, part in enumerate(parts):
+        if index % 2 == 0:
+            output.append(re.sub(r"\s+$", "", part))
+        else:
+            output.append(part)
+    return "".join(output)
 
 
 def _preserve_quote_style(old_text: str, actual_old_text: str, new_text: str) -> str:
