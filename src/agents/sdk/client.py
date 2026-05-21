@@ -67,6 +67,7 @@ from agents.sdk.control import (
     validate_sdk_stdin_message,
 )
 from agents.sdk.structured_io import SDKStructuredIO, encode_stdout_message, iter_stdin_jsonl
+from agents.sdk.transports import SDKJsonlTransport
 from agents.sdk.types import (
     SDKAPIRetryMessage,
     SDKAssistantMessage,
@@ -367,6 +368,25 @@ class AgentSDKClient:
     ) -> AsyncIterator[str]:
         async for message in self.run_stdin(iter_stdin_jsonl(chunks), options, structured_io=structured_io):
             yield encode_stdout_message(message)
+
+    async def run_jsonl_transport(
+        self,
+        transport: SDKJsonlTransport,
+        options: SDKOptions | dict[str, Any] | None = None,
+        structured_io: SDKStructuredIO | None = None,
+        *,
+        close_transport: bool = True,
+    ) -> None:
+        try:
+            async for line in self.run_stdin_jsonl(
+                _iter_transport_chunks(transport),
+                options,
+                structured_io=structured_io,
+            ):
+                await transport.write(line)
+        finally:
+            if close_transport:
+                await _close_transport(transport)
 
     async def _query_turn(
         self,
@@ -1292,6 +1312,21 @@ async def run_stdin_jsonl(
         yield line
 
 
+async def run_jsonl_transport(
+    transport: SDKJsonlTransport,
+    options: SDKOptions | dict[str, Any] | None = None,
+    structured_io: SDKStructuredIO | None = None,
+    *,
+    close_transport: bool = True,
+) -> None:
+    await AgentSDKClient().run_jsonl_transport(
+        transport,
+        options,
+        structured_io=structured_io,
+        close_transport=close_transport,
+    )
+
+
 def unstable_v2_create_session(options: SDKOptions | dict[str, Any] | None = None) -> SDKSession:
     return AgentSDKClient().create_sdk_session(options)
 
@@ -1327,6 +1362,23 @@ async def _aiter_stdin_messages(
         return
     for message in messages:  # type: ignore[union-attr]
         yield message
+
+
+async def _iter_transport_chunks(transport: SDKJsonlTransport) -> AsyncIterator[str | bytes]:
+    while True:
+        chunk = await transport.read()
+        if chunk is None:
+            return
+        yield chunk
+
+
+async def _close_transport(transport: SDKJsonlTransport) -> None:
+    close = getattr(transport, "close", None)
+    if not callable(close):
+        return
+    result = close()
+    if inspect.isawaitable(result):
+        await result
 
 
 async def _anext(iterator: AsyncIterator[SDKStdinMessage | dict[str, Any]]) -> SDKStdinMessage | dict[str, Any]:

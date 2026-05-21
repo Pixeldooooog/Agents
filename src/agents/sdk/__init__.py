@@ -11,6 +11,7 @@ from agents.sdk.client import (
     prompt,
     query,
     rename_session,
+    run_jsonl_transport,
     run_stdin,
     run_stdin_jsonl,
     tag_session,
@@ -69,6 +70,11 @@ from agents.sdk.structured_io import (
     encode_stdout_message,
     iter_stdin_jsonl,
     ndjson_safe_dumps,
+)
+from agents.sdk.transports import (
+    SDKJsonlTransport,
+    SDKQueueJsonlTransport,
+    SDKWebSocketJsonlTransport,
 )
 from agents.sdk.types import (
     SDKAPIRetryMessage,
@@ -152,6 +158,7 @@ __all__ = [
     "SDKHookStartedMessage",
     "SDKHookCallbackRequest",
     "SDKKeepAliveMessage",
+    "SDKJsonlTransport",
     "SDKListSessionsOptions",
     "SDKLocalCommandOutputMessage",
     "SDKMessage",
@@ -178,6 +185,8 @@ __all__ = [
     "SDKToolUseSummaryMessage",
     "SDKUpdateEnvironmentVariablesMessage",
     "SDKUserMessage",
+    "SDKQueueJsonlTransport",
+    "SDKWebSocketJsonlTransport",
     "fork_session",
     "get_session_info",
     "get_session_messages",
@@ -189,6 +198,7 @@ __all__ = [
     "prompt",
     "query",
     "rename_session",
+    "run_jsonl_transport",
     "run_stdin",
     "run_stdin_jsonl",
     "sdk_control_cancel_request_json_schema",

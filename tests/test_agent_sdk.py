@@ -49,6 +49,7 @@ from agents.sdk import (
     SDKForkSessionResult,
     SDKListSessionsOptions,
     SDKOptions,
+    SDKQueueJsonlTransport,
     SDKSessionInfo,
     SDKSession,
     SDKStructuredIO,
@@ -59,6 +60,7 @@ from agents.sdk import (
     iter_stdin_jsonl,
     ndjson_safe_dumps,
     normalize_sdk_control_message_keys,
+    run_jsonl_transport,
     sdk_control_request_json_schema,
     sdk_control_response_json_schema,
     sdk_message_json_schema,
@@ -2308,6 +2310,76 @@ def test_sdk_run_stdin_jsonl_uses_structured_frame_codec():
     assert all(line.endswith("\n") for line in lines)
     assert results[0]["result"] == "hello jsonl"
     assert results[0]["session_id"] == "jsonl-session"
+
+
+def test_sdk_run_jsonl_transport_pumps_queue_transport():
+    async def execute():
+        client = AgentSDKClient(session_factory=_echo_prompt_session_factory)
+        transport = SDKQueueJsonlTransport()
+        runner = asyncio.create_task(
+            client.run_jsonl_transport(transport, SDKOptions(session_id="transport-session"))
+        )
+        await transport.send(
+            '{"type":"user","session_id":"transport-session","uuid":"transport-user",'
+            '"message":{"role":"user","content":[{"type":"text","text":"hello transport"}]},'
+            '"isReplay":false}\n'
+        )
+        await transport.close_input()
+        await asyncio.wait_for(runner, timeout=1)
+        return transport.drain_output(), transport.closed
+
+    lines, closed = asyncio.run(execute())
+    payloads = [json.loads(line) for line in lines]
+    results = [payload for payload in payloads if payload["type"] == "result"]
+
+    assert callable(run_jsonl_transport)
+    assert closed is True
+    assert results[0]["result"] == "hello transport"
+    assert results[0]["session_id"] == "transport-session"
+
+
+def test_sdk_jsonl_transport_drains_structured_io_outbound_and_responses():
+    async def execute():
+        client = AgentSDKClient(session_factory=_echo_prompt_session_factory)
+        transport = SDKQueueJsonlTransport()
+        structured_io = SDKStructuredIO(replay_user_messages=True)
+        runner = asyncio.create_task(
+            client.run_jsonl_transport(
+                transport,
+                SDKOptions(session_id="transport-control", replay_user_messages=True),
+                structured_io=structured_io,
+            )
+        )
+        request_task = asyncio.create_task(
+            structured_io.send_request(
+                SDKControlMcpMessageRequest(
+                    server_name="sdk-tools",
+                    message={"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+                ),
+                response_validator=lambda payload: payload["mcp_response"],
+                request_id="transport-mcp",
+            )
+        )
+        first_line = await asyncio.wait_for(transport.receive(), timeout=1)
+        await transport.send(
+            '{"type":"control_response","response":{"subtype":"success",'
+            '"request_id":"transport-mcp",'
+            '"response":{"mcp_response":{"jsonrpc":"2.0","id":2,"result":{"tools":[]}}}}}\n'
+        )
+        response = await asyncio.wait_for(request_task, timeout=1)
+        second_line = await asyncio.wait_for(transport.receive(), timeout=1)
+        await transport.close_input()
+        await asyncio.wait_for(runner, timeout=1)
+        return json.loads(first_line), json.loads(second_line), response
+
+    first, second, response = asyncio.run(execute())
+
+    assert first["type"] == "control_request"
+    assert first["request_id"] == "transport-mcp"
+    assert first["request"]["subtype"] == "mcp_message"
+    assert second["type"] == "control_response"
+    assert second["response"]["request_id"] == "transport-mcp"
+    assert response == {"jsonrpc": "2.0", "id": 2, "result": {"tools": []}}
 
 
 def test_sdk_control_request_seeds_read_state_for_next_session(tmp_path):
