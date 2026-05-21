@@ -100,6 +100,7 @@ runtime 已经把这个契约写入工具事件：
 
 - `filesystem.read` 完整读取文件后，会在 `ToolRuntimeContext.file_read_state` 记录该文件内容。
 - `filesystem.read` 现在支持 `offset`/`limit` 行范围读取，并返回 `type=text`、`file.filePath`、`file.content`、`file.numLines`、`file.startLine`、`file.totalLines`，同时保留原有顶层 `content`、`startLine`、`numLines`、`totalLines`、`isPartialView`；model-visible 输出使用 `cat -n` 风格行号。只有完整读取会满足后续 `filesystem.write`/`patch.apply` 的预读安全要求，局部读取不会被误当作全文件已读。
+- `filesystem.read` 读取缺失文件时会返回 `src-origin` 风格 cwd note，并在同目录存在同 basename、不同扩展名文件时提示 `Did you mean ...?`。
 - `filesystem.read` 对同一文件同一完整范围的重复读取会在 mtime 未变化时返回 `file_unchanged` stub，避免把同一份内容重复塞进模型上下文；该 stub 保留之前的完整读状态，后续安全写入仍可正常校验。
 - `filesystem.read` 读取 managed auto memory、team memory、agent memory、session memory 路径下超过 1 天的 markdown 记忆文件时，会在 model-visible 文本前加 `src-origin` 风格 freshness reminder，并在 `memoryFreshness` 里标注 `memoryKind` / `scope`；普通 markdown、`CLAUDE.md` / `.claude/rules` 指令文件和今天/昨天的记忆文件不会加噪音。
 - `filesystem.read` 现在有第一层 `src-origin` FileRead 多类型输出：PNG/JPEG/GIF/WebP 会返回 `type=image`，PDF 会返回 `type=pdf`，notebook 会返回 `type=notebook`；这些 payload 使用 `file.filePath`、`file.base64`、`file.type`、`file.originalSize` 或 `file.cells` 等 `src-origin` 字段。model-visible 图片/PDF 文本只给摘要，notebook 会输出 cells JSON；底层 `read_text` 仍保持二进制拒绝逻辑。PDF `pages` 支持 `1` / `1-5` 这类 1-indexed range、最多 20 页，并在本机有 `pdftoppm` 时返回 `type=parts`、`file.count` 和包含 page JPEG 的 `file.outputDir`；缺少 poppler 时会给出显式依赖错误。

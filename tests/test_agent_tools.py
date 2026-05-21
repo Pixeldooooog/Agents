@@ -1587,6 +1587,33 @@ def test_filesystem_read_formats_line_ranges_and_does_not_record_partial_read(tm
     assert "File has not been read yet" in write.content
 
 
+def test_filesystem_read_missing_file_reports_cwd_and_similar_file(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "README.md").write_text("notes\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    result = asyncio.run(registry.execute("filesystem.read", {"path": "README.txt"}))
+
+    assert result.is_error is True
+    assert "File does not exist" in result.content
+    assert "Note: your current working directory is %s" % tmp_path in result.content
+    assert "Did you mean README.md?" in result.content
+
+
 def test_filesystem_read_prefixes_stale_memory_freshness_note(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="default",

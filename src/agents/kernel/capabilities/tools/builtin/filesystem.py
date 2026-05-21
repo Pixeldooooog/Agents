@@ -18,6 +18,7 @@ FILE_UNCHANGED_STUB = (
     "File unchanged since last read. The content from the earlier filesystem.read tool result "
     "in this conversation is still current; refer to that instead of re-reading."
 )
+FILE_NOT_FOUND_CWD_NOTE = "Note: your current working directory is"
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 BINARY_READ_MAX_BYTES = 5 * 1024 * 1024
 NOTEBOOK_READ_MAX_BYTES = 2 * 1024 * 1024
@@ -77,6 +78,20 @@ MOVE_PATH_SCHEMA = {
 
 
 def read_file(
+    context: ToolRuntimeContext,
+    path: str,
+    max_bytes: int = 20000,
+    offset: int = 1,
+    limit: int | None = None,
+    pages: str | None = None,
+) -> dict[str, Any]:
+    try:
+        return _read_file(context, path, max_bytes=max_bytes, offset=offset, limit=limit, pages=pages)
+    except FileNotFoundError as exc:
+        raise ValueError(_file_not_found_message(context, path)) from exc
+
+
+def _read_file(
     context: ToolRuntimeContext,
     path: str,
     max_bytes: int = 20000,
@@ -204,6 +219,35 @@ def _text_read_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "totalLines": int(result.get("totalLines") or 0),
     }
     return result
+
+
+def _file_not_found_message(context: ToolRuntimeContext, path: str) -> str:
+    cwd = str(context.workspace.path or context.workspace.root or ".")
+    message = "File does not exist. %s %s." % (FILE_NOT_FOUND_CWD_NOTE, cwd)
+    suggestion = _similar_file(context, path)
+    if suggestion:
+        message += " Did you mean %s?" % suggestion
+    return message
+
+
+def _similar_file(context: ToolRuntimeContext, path: str) -> str:
+    try:
+        requested = context.sandbox.resolve_workspace_path(path)
+    except Exception:
+        return ""
+    directory = requested.parent
+    try:
+        entries = list(directory.iterdir())
+    except OSError:
+        return ""
+    requested_stem = requested.stem
+    requested_name = requested.name
+    for entry in sorted(entries, key=lambda item: item.name):
+        if entry.name == requested_name:
+            continue
+        if entry.stem == requested_stem and entry.is_file():
+            return context.sandbox.relative_workspace_path(entry)
+    return ""
 
 
 def _add_memory_freshness(context: ToolRuntimeContext, payload: dict[str, Any]) -> None:
