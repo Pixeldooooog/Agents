@@ -2356,10 +2356,12 @@ class _FakeWebSocketClosed(Exception):
 
 
 class _FakeWebSocket:
-    def __init__(self, *, recv_items=None, response_headers=None):
+    def __init__(self, *, recv_items=None, response_headers=None, ping_error=None):
         self.recv_items = list(recv_items or [])
         self.response_headers = dict(response_headers or {})
+        self.ping_error = ping_error
         self.sent = []
+        self.pings = 0
         self.closed = False
 
     async def recv(self):
@@ -2372,6 +2374,11 @@ class _FakeWebSocket:
 
     async def send(self, data):
         self.sent.append(data)
+
+    async def ping(self):
+        self.pings += 1
+        if self.ping_error is not None:
+            raise self.ping_error
 
     async def close(self):
         self.closed = True
@@ -2473,6 +2480,108 @@ def test_sdk_websocket_transport_refreshes_headers_for_unauthorized_close():
     assert line == '{"type":"keep_alive"}\n'
     assert calls[0][1]["Authorization"] == "Bearer old"
     assert calls[1][1]["Authorization"] == "Bearer new"
+
+
+def test_sdk_websocket_transport_sends_periodic_keepalive_frame():
+    async def execute():
+        socket = _FakeWebSocket()
+
+        async def connector(url, headers):
+            return socket
+
+        transport = SDKWebSocketJsonlTransport(
+            "wss://api.example.com/v2/session_ingress/ws/abc",
+            connector=connector,
+            ping_interval_seconds=None,
+            keepalive_interval_seconds=0.01,
+        )
+        await transport.connect()
+        for _ in range(20):
+            if socket.sent:
+                break
+            await asyncio.sleep(0.01)
+        await transport.close()
+        return socket.sent
+
+    sent = asyncio.run(execute())
+
+    assert sent == ['{"type":"keep_alive"}\n']
+
+
+def test_sdk_websocket_transport_reconnects_after_ping_failure():
+    async def execute():
+        sockets = [
+            _FakeWebSocket(ping_error=RuntimeError("no pong")),
+            _FakeWebSocket(),
+        ]
+        calls = []
+
+        async def connector(url, headers):
+            calls.append((url, dict(headers)))
+            return sockets[len(calls) - 1]
+
+        async def sleep(delay):
+            return None
+
+        transport = SDKWebSocketJsonlTransport(
+            "wss://api.example.com/v2/session_ingress/ws/abc",
+            connector=connector,
+            reconnect_base_delay_seconds=0,
+            ping_interval_seconds=0.01,
+            keepalive_interval_seconds=None,
+            sleep=sleep,
+        )
+        await transport.connect()
+        for _ in range(20):
+            if len(calls) >= 2:
+                break
+            await asyncio.sleep(0.01)
+        await transport.close()
+        return calls, sockets
+
+    calls, sockets = asyncio.run(execute())
+
+    assert len(calls) == 2
+    assert sockets[0].pings == 1
+    assert sockets[0].closed is True
+
+
+def test_sdk_websocket_transport_reconnects_after_sleep_gap_detection():
+    async def execute():
+        sockets = [_FakeWebSocket(), _FakeWebSocket()]
+        calls = []
+        ticks = [0.0, 61.0]
+
+        async def connector(url, headers):
+            calls.append((url, dict(headers)))
+            return sockets[len(calls) - 1]
+
+        async def sleep(delay):
+            return None
+
+        transport = SDKWebSocketJsonlTransport(
+            "wss://api.example.com/v2/session_ingress/ws/abc",
+            connector=connector,
+            reconnect_base_delay_seconds=0,
+            ping_interval_seconds=0.01,
+            keepalive_interval_seconds=None,
+            sleep_detection_threshold_seconds=60,
+            monotonic=lambda: ticks.pop(0) if ticks else 61.0,
+            sleep=sleep,
+        )
+        await transport.connect()
+        for _ in range(20):
+            if len(calls) >= 2:
+                break
+            await asyncio.sleep(0.01)
+        await transport.close()
+        return calls, sockets
+
+    calls, sockets = asyncio.run(execute())
+
+    assert len(calls) == 2
+    assert sockets[0].pings == 0
+    assert sockets[0].closed is True
 
 
 def test_sdk_sse_transport_unwraps_client_events_and_posts_stdout():

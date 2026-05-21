@@ -22,6 +22,11 @@ WEBSOCKET_RECONNECT_BASE_DELAY_SECONDS = 1.0
 WEBSOCKET_RECONNECT_MAX_DELAY_SECONDS = 30.0
 WEBSOCKET_RECONNECT_GIVE_UP_SECONDS = 600.0
 WEBSOCKET_PERMANENT_CLOSE_CODES = {1002, 4001, 4003}
+WEBSOCKET_PING_INTERVAL_SECONDS = 10.0
+WEBSOCKET_PING_TIMEOUT_SECONDS = 10.0
+WEBSOCKET_KEEPALIVE_INTERVAL_SECONDS = 300.0
+WEBSOCKET_SLEEP_DETECTION_THRESHOLD_SECONDS = WEBSOCKET_RECONNECT_MAX_DELAY_SECONDS * 2
+WEBSOCKET_KEEP_ALIVE_FRAME = '{"type":"keep_alive"}\n'
 SSE_POST_MAX_RETRIES = 10
 SSE_POST_BASE_DELAY_SECONDS = 0.5
 SSE_POST_MAX_DELAY_SECONDS = 8.0
@@ -468,6 +473,10 @@ class SDKWebSocketJsonlTransport:
         reconnect_base_delay_seconds: float = WEBSOCKET_RECONNECT_BASE_DELAY_SECONDS,
         reconnect_max_delay_seconds: float = WEBSOCKET_RECONNECT_MAX_DELAY_SECONDS,
         reconnect_give_up_seconds: float = WEBSOCKET_RECONNECT_GIVE_UP_SECONDS,
+        ping_interval_seconds: float | None = WEBSOCKET_PING_INTERVAL_SECONDS,
+        ping_timeout_seconds: float = WEBSOCKET_PING_TIMEOUT_SECONDS,
+        keepalive_interval_seconds: float | None = WEBSOCKET_KEEPALIVE_INTERVAL_SECONDS,
+        sleep_detection_threshold_seconds: float = WEBSOCKET_SLEEP_DETECTION_THRESHOLD_SECONDS,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -485,10 +494,16 @@ class SDKWebSocketJsonlTransport:
         self._reconnect_base_delay_seconds = reconnect_base_delay_seconds
         self._reconnect_max_delay_seconds = reconnect_max_delay_seconds
         self._reconnect_give_up_seconds = reconnect_give_up_seconds
+        self._ping_interval_seconds = ping_interval_seconds
+        self._ping_timeout_seconds = ping_timeout_seconds
+        self._keepalive_interval_seconds = keepalive_interval_seconds
+        self._sleep_detection_threshold_seconds = sleep_detection_threshold_seconds
         self._sleep = sleep
         self._monotonic = monotonic
         self._reconnect_attempts = 0
         self._reconnect_started_at: float | None = None
+        self._ping_task: asyncio.Task[None] | None = None
+        self._keepalive_task: asyncio.Task[None] | None = None
         self.state = "idle"
         self.closed = False
 
@@ -521,6 +536,7 @@ class SDKWebSocketJsonlTransport:
         if self._on_connect is not None:
             self._on_connect()
         await self._replay_buffered_messages(self._server_last_request_id(self._connection))
+        self._start_health_tasks()
 
     async def _open_connection(self, headers: Mapping[str, str]) -> Any:
         if self._connector is not None:
@@ -573,6 +589,7 @@ class SDKWebSocketJsonlTransport:
     async def close(self) -> None:
         self.closed = True
         self.state = "closing"
+        self._stop_health_tasks()
         if self._connection is not None:
             await _maybe_await(self._connection.close())
             self._connection = None
@@ -656,12 +673,86 @@ class SDKWebSocketJsonlTransport:
         return True
 
     async def _disconnect(self) -> None:
+        self._stop_health_tasks()
         if self._connection is not None:
             connection = self._connection
             self._connection = None
             close = getattr(connection, "close", None)
             if close is not None:
                 await _maybe_await(close())
+
+    def _start_health_tasks(self) -> None:
+        self._stop_health_tasks()
+        if self._ping_interval_seconds is not None and self._ping_interval_seconds > 0:
+            self._ping_task = asyncio.create_task(self._ping_loop())
+        if (
+            self._keepalive_interval_seconds is not None
+            and self._keepalive_interval_seconds > 0
+        ):
+            self._keepalive_task = asyncio.create_task(self._keepalive_loop())
+
+    def _stop_health_tasks(self) -> None:
+        current = asyncio.current_task()
+        for attr in ("_ping_task", "_keepalive_task"):
+            task = getattr(self, attr)
+            if task is None:
+                continue
+            if task is not current and not task.done():
+                task.cancel()
+            if task is not current:
+                setattr(self, attr, None)
+
+    async def _ping_loop(self) -> None:
+        last_tick = self._monotonic()
+        try:
+            while not self.closed:
+                await asyncio.sleep(self._ping_interval_seconds or 0)
+                if self.state != "connected" or self._connection is None:
+                    continue
+                now = self._monotonic()
+                gap = now - last_tick
+                last_tick = now
+                if gap > self._sleep_detection_threshold_seconds:
+                    if await self._handle_connection_error(None):
+                        await self.connect()
+                    return
+                try:
+                    await self._ping_connection()
+                except Exception:
+                    if await self._handle_connection_error(None):
+                        await self.connect()
+                    return
+        except asyncio.CancelledError:
+            pass
+        finally:
+            if asyncio.current_task() is self._ping_task:
+                self._ping_task = None
+
+    async def _keepalive_loop(self) -> None:
+        try:
+            while not self.closed:
+                await asyncio.sleep(self._keepalive_interval_seconds or 0)
+                if self.state != "connected":
+                    continue
+                if not await self._send_line(WEBSOCKET_KEEP_ALIVE_FRAME):
+                    if await self._handle_connection_error(None):
+                        await self.connect()
+                    return
+        except asyncio.CancelledError:
+            pass
+        finally:
+            if asyncio.current_task() is self._keepalive_task:
+                self._keepalive_task = None
+
+    async def _ping_connection(self) -> None:
+        if self._connection is None:
+            return
+        ping = getattr(self._connection, "ping", None)
+        if ping is None:
+            return
+        result = await _maybe_await(ping())
+        if hasattr(result, "__await__"):
+            await asyncio.wait_for(result, timeout=self._ping_timeout_seconds)
 
     async def _replay_buffered_messages(self, last_request_id: str | None) -> None:
         if not self._message_buffer:
