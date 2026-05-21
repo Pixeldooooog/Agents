@@ -33,6 +33,10 @@ from agents.sdk.types import (
     SDKHookResponseMessage,
     SDKHookStartedMessage,
     SDKLocalCommandOutputMessage,
+    SDKElicitationCompleteMessage,
+    SDKPostTurnSummaryMessage,
+    SDKPromptSuggestionMessage,
+    SDKRateLimitEventMessage,
     SDKResultMessage,
     SDKSessionStateChangedMessage,
     SDKSystemMessage,
@@ -412,6 +416,67 @@ async def _local_command_session_factory(settings, spec):
     return LocalCommandSession()
 
 
+async def _sdk_extension_event_session_factory(settings, spec):
+    extension_workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=".",
+        path=".",
+    )
+
+    class ExtensionEventSession:
+        runtime = SimpleNamespace(model="scripted", protocol="scripted", enabled_tools=[])
+        workspace = extension_workspace
+
+        async def stream(self, text, run_id=None):
+            yield RuntimeEvent(
+                type="rate_limit_event",
+                name="rate_limit",
+                payload={
+                    "uuid": "rate-limit-1",
+                    "rate_limit_info": {
+                        "isNearLimit": True,
+                        "resetsAt": "2026-05-21T10:00:00Z",
+                    },
+                },
+            )
+            yield RuntimeEvent(
+                type="elicitation_complete",
+                name="mcp",
+                payload={
+                    "uuid": "elicitation-1",
+                    "mcp_server_name": "docs",
+                    "elicitation_id": "elicit_123",
+                },
+            )
+            yield RuntimeEvent(
+                type="prompt_suggestion",
+                name="suggestion",
+                payload={"uuid": "suggestion-1", "suggestion": "Run the tests"},
+            )
+            yield RuntimeEvent(
+                type="post_turn_summary",
+                name="summary",
+                payload={
+                    "uuid": "summary-1",
+                    "summarizes_uuid": "assistant-1",
+                    "status_category": "review_ready",
+                    "status_detail": "tests passed",
+                    "is_noteworthy": True,
+                    "title": "Tests passed",
+                    "description": "The requested checks completed.",
+                    "recent_action": "Ran tests",
+                    "needs_action": "Review diff",
+                    "artifact_urls": ["artifact://report"],
+                },
+            )
+            yield RuntimeEvent(type="done", name="assistant", payload={"content": "", "status": "finished"})
+
+    return ExtensionEventSession()
+
+
 def test_sdk_query_hides_store_wiring_and_streams_typed_messages():
     client = AgentSDKClient(session_factory=_session_factory)
 
@@ -595,6 +660,34 @@ def test_sdk_query_projects_local_command_output_system_message():
     assert any(isinstance(message, SDKLocalCommandOutputMessage) for message in replay)
 
 
+def test_sdk_query_projects_extension_system_messages():
+    client = AgentSDKClient(session_factory=_sdk_extension_event_session_factory)
+
+    messages = asyncio.run(_collect(client.query("extensions", SDKOptions(session_id="session-extensions"))))
+    replay = asyncio.run(client.get_session_messages("session-extensions", {"include_system_messages": False}))
+
+    rate_limit = next(message for message in messages if isinstance(message, SDKRateLimitEventMessage))
+    elicitation = next(message for message in messages if isinstance(message, SDKElicitationCompleteMessage))
+    suggestion = next(message for message in messages if isinstance(message, SDKPromptSuggestionMessage))
+    summary = next(message for message in messages if isinstance(message, SDKPostTurnSummaryMessage))
+
+    assert rate_limit.type == "rate_limit_event"
+    assert rate_limit.rate_limit_info["isNearLimit"] is True
+    assert elicitation.subtype == "elicitation_complete"
+    assert elicitation.mcp_server_name == "docs"
+    assert elicitation.elicitation_id == "elicit_123"
+    assert suggestion.type == "prompt_suggestion"
+    assert suggestion.suggestion == "Run the tests"
+    assert summary.subtype == "post_turn_summary"
+    assert summary.summarizes_uuid == "assistant-1"
+    assert summary.status_category == "review_ready"
+    assert summary.artifact_urls == ["artifact://report"]
+    assert validate_sdk_message(rate_limit.model_dump()) == rate_limit
+    assert validate_sdk_message(summary.model_dump()) == summary
+    assert any(isinstance(message, SDKPromptSuggestionMessage) for message in replay)
+    assert any(isinstance(message, SDKPostTurnSummaryMessage) for message in replay)
+
+
 def test_sdk_prompt_returns_final_result():
     client = AgentSDKClient(session_factory=_session_factory)
 
@@ -747,6 +840,10 @@ def test_sdk_exports_json_schemas_and_rejects_invalid_messages():
     assert "SDKHookProgressMessage" in message_schema["$defs"]
     assert "SDKHookResponseMessage" in message_schema["$defs"]
     assert "SDKLocalCommandOutputMessage" in message_schema["$defs"]
+    assert "SDKRateLimitEventMessage" in message_schema["$defs"]
+    assert "SDKElicitationCompleteMessage" in message_schema["$defs"]
+    assert "SDKPromptSuggestionMessage" in message_schema["$defs"]
+    assert "SDKPostTurnSummaryMessage" in message_schema["$defs"]
     assert "SDKSessionStateChangedMessage" in message_schema["$defs"]
     assert "SDKTaskStartedMessage" in message_schema["$defs"]
     assert "SDKTaskProgressMessage" in message_schema["$defs"]

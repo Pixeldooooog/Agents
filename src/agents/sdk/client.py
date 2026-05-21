@@ -32,6 +32,10 @@ from agents.sdk.types import (
     SDKHookResponseMessage,
     SDKHookStartedMessage,
     SDKLocalCommandOutputMessage,
+    SDKElicitationCompleteMessage,
+    SDKPostTurnSummaryMessage,
+    SDKPromptSuggestionMessage,
+    SDKRateLimitEventMessage,
     SDKSessionStateChangedMessage,
     SDKSessionInfo,
     SDKStatusMessage,
@@ -1146,6 +1150,14 @@ def _project_runtime_event(
             error=_retry_error_payload(event.payload),
             metadata=dict(event.payload),
         )
+    if event.type == "rate_limit_event":
+        rate_limit_info = event.payload.get("rate_limit_info") or event.payload.get("rateLimitInfo") or {}
+        return SDKRateLimitEventMessage(
+            session_id=session_id,
+            run_id=run_id,
+            rate_limit_info=dict(rate_limit_info) if isinstance(rate_limit_info, dict) else {},
+            uuid=_text_field(event.payload, "uuid", "message_id", "messageId") or str(uuid.uuid4()),
+        )
     if event.type == "compact_boundary":
         return SDKCompactBoundaryMessage(
             session_id=session_id,
@@ -1176,6 +1188,37 @@ def _project_runtime_event(
             preceding_tool_use_ids=_string_list_field(
                 event.payload.get("preceding_tool_use_ids", event.payload.get("precedingToolUseIds"))
             ),
+            uuid=_text_field(event.payload, "uuid", "message_id", "messageId") or str(uuid.uuid4()),
+        )
+    if event.type == "elicitation_complete":
+        return SDKElicitationCompleteMessage(
+            session_id=session_id,
+            run_id=run_id,
+            mcp_server_name=_text_field(event.payload, "mcp_server_name", "mcpServerName", "server"),
+            elicitation_id=_text_field(event.payload, "elicitation_id", "elicitationId", "id"),
+            uuid=_text_field(event.payload, "uuid", "message_id", "messageId") or str(uuid.uuid4()),
+        )
+    if event.type == "prompt_suggestion":
+        return SDKPromptSuggestionMessage(
+            session_id=session_id,
+            run_id=run_id,
+            suggestion=str(event.payload.get("suggestion") or ""),
+            uuid=_text_field(event.payload, "uuid", "message_id", "messageId") or str(uuid.uuid4()),
+        )
+    if event.type == "post_turn_summary":
+        status_category = event.payload.get("status_category", event.payload.get("statusCategory"))
+        return SDKPostTurnSummaryMessage(
+            session_id=session_id,
+            run_id=run_id,
+            summarizes_uuid=_text_field(event.payload, "summarizes_uuid", "summarizesUuid"),
+            status_category=_post_turn_status_category(status_category),
+            status_detail=_text_field(event.payload, "status_detail", "statusDetail"),
+            is_noteworthy=bool(event.payload.get("is_noteworthy", event.payload.get("isNoteworthy", False))),
+            title=_text_field(event.payload, "title"),
+            description=_text_field(event.payload, "description"),
+            recent_action=_text_field(event.payload, "recent_action", "recentAction"),
+            needs_action=_text_field(event.payload, "needs_action", "needsAction"),
+            artifact_urls=_string_list_field(event.payload.get("artifact_urls", event.payload.get("artifactUrls"))),
             uuid=_text_field(event.payload, "uuid", "message_id", "messageId") or str(uuid.uuid4()),
         )
     if event.type == "hook_started":
@@ -1346,6 +1389,19 @@ def _hook_outcome(value: Any) -> Literal["success", "error", "cancelled"]:
     if text == "cancelled":
         return "cancelled"
     return "success"
+
+
+def _post_turn_status_category(value: Any) -> Literal["blocked", "waiting", "completed", "review_ready", "failed"]:
+    text = str(value or "")
+    if text == "blocked":
+        return "blocked"
+    if text == "waiting":
+        return "waiting"
+    if text == "review_ready":
+        return "review_ready"
+    if text == "failed":
+        return "failed"
+    return "completed"
 
 
 def _duration_ms(started_at: float) -> int:

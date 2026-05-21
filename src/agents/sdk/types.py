@@ -133,6 +133,12 @@ class SDKAuthStatusMessage(SDKBaseMessage):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class SDKRateLimitEventMessage(SDKBaseMessage):
+    type: Literal["rate_limit_event"] = "rate_limit_event"
+    rate_limit_info: dict[str, Any] = Field(default_factory=dict)
+    uuid: str = Field(default_factory=lambda: str(uuid4()))
+
+
 class SDKSessionStateChangedMessage(SDKBaseMessage):
     type: Literal["system"] = "system"
     subtype: Literal["session_state_changed"] = "session_state_changed"
@@ -229,6 +235,35 @@ class SDKToolUseSummaryMessage(SDKBaseMessage):
     uuid: str = Field(default_factory=lambda: str(uuid4()))
 
 
+class SDKElicitationCompleteMessage(SDKBaseMessage):
+    type: Literal["system"] = "system"
+    subtype: Literal["elicitation_complete"] = "elicitation_complete"
+    mcp_server_name: str
+    elicitation_id: str
+    uuid: str = Field(default_factory=lambda: str(uuid4()))
+
+
+class SDKPromptSuggestionMessage(SDKBaseMessage):
+    type: Literal["prompt_suggestion"] = "prompt_suggestion"
+    suggestion: str
+    uuid: str = Field(default_factory=lambda: str(uuid4()))
+
+
+class SDKPostTurnSummaryMessage(SDKBaseMessage):
+    type: Literal["system"] = "system"
+    subtype: Literal["post_turn_summary"] = "post_turn_summary"
+    summarizes_uuid: str
+    status_category: Literal["blocked", "waiting", "completed", "review_ready", "failed"]
+    status_detail: str = ""
+    is_noteworthy: bool = False
+    title: str = ""
+    description: str = ""
+    recent_action: str = ""
+    needs_action: str = ""
+    artifact_urls: list[str] = Field(default_factory=list)
+    uuid: str = Field(default_factory=lambda: str(uuid4()))
+
+
 class SDKAssistantMessage(SDKBaseMessage):
     type: Literal["assistant"] = "assistant"
     content: str = ""
@@ -287,6 +322,7 @@ SDKMessage = Union[
     SDKAPIRetryMessage,
     SDKCompactBoundaryMessage,
     SDKAuthStatusMessage,
+    SDKRateLimitEventMessage,
     SDKSessionStateChangedMessage,
     SDKTaskStartedMessage,
     SDKTaskProgressMessage,
@@ -297,6 +333,9 @@ SDKMessage = Union[
     SDKHookProgressMessage,
     SDKHookResponseMessage,
     SDKToolUseSummaryMessage,
+    SDKElicitationCompleteMessage,
+    SDKPromptSuggestionMessage,
+    SDKPostTurnSummaryMessage,
     SDKUserMessage,
     SDKAssistantMessage,
     SDKToolProgressMessage,
