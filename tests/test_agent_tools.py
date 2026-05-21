@@ -5001,6 +5001,54 @@ def test_patch_apply_matches_and_preserves_curly_quote_style(tmp_path: Path):
     assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "title = \u201cNew name\u201d\n"
 
 
+def test_patch_apply_desanitizes_file_edit_placeholders(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "transcript.xml").write_text(
+        "<function_results><result>old</result></function_results>\n",
+        encoding="utf-8",
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "transcript.xml"}))
+    result = asyncio.run(
+        registry.execute(
+            "patch.apply",
+            {
+                "edits": [
+                        {
+                            "path": "transcript.xml",
+                            "old_text": "<fnr><r>old</r></function_results>",
+                            "new_text": "<fnr><r>new</r></function_results>",
+                        }
+                ]
+            },
+        )
+    )
+
+    assert read.is_error is False
+    assert result.is_error is False
+    assert result.raw["oldString"] == "<function_results><result>old</result></function_results>"
+    assert result.raw["newString"] == "<function_results><result>new</result></function_results>"
+    assert result.raw["editSummary"][0]["newString"] == "<function_results><result>new</result></function_results>"
+    assert (
+        tmp_path / "transcript.xml"
+    ).read_text(encoding="utf-8") == "<function_results><result>new</result></function_results>\n"
+
+
 def test_patch_apply_empty_replacement_removes_trailing_newline_like_file_edit(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="default",

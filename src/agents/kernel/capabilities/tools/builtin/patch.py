@@ -163,10 +163,11 @@ def _plan_patch(
             ensure_existing_file_current(context, relative_path, before)
             verified_paths.add(relative_path)
             path = relative_path
-        actual_old_text = _find_actual_text(before, old_text)
+        match_old_text, match_new_text = _normalize_edit_strings(before, old_text, new_text)
+        actual_old_text = _find_actual_text(before, match_old_text)
         if actual_old_text is None:
             raise ValueError("String to replace not found in file.\nPath: %s\nString: %s" % (path, old_text))
-        actual_new_text = _preserve_quote_style(old_text, actual_old_text, new_text)
+        actual_new_text = _preserve_quote_style(match_old_text, actual_old_text, match_new_text)
         occurrences = before.count(actual_old_text)
         if occurrences == 0:
             raise ValueError("String to replace not found in file.\nPath: %s\nString: %s" % (path, old_text))
@@ -187,7 +188,7 @@ def _plan_patch(
             _PlannedEdit(
                 path=path,
                 old_text=actual_old_text,
-                new_text=new_text,
+                new_text=match_new_text,
                 replace_all=replace_all,
                 occurrences=count,
                 original_file=before,
@@ -328,6 +329,53 @@ def _find_actual_text(content: str, needle: str) -> str | None:
     if index < 0:
         return None
     return content[index : index + len(needle)]
+
+
+DESANITIZATIONS = {
+    "<fnr>": "<function_results>",
+    "<n>": "<name>",
+    "</n>": "</name>",
+    "<o>": "<output>",
+    "</o>": "</output>",
+    "<e>": "<error>",
+    "</e>": "</error>",
+    "<s>": "<system>",
+    "</s>": "</system>",
+    "<r>": "<result>",
+    "</r>": "</result>",
+    "< META_START >": "<META_START>",
+    "< META_END >": "<META_END>",
+    "< EOT >": "<EOT>",
+    "< META >": "<META>",
+    "< SOS >": "<SOS>",
+    "\n\nH:": "\n\nHuman:",
+    "\n\nA:": "\n\nAssistant:",
+}
+
+
+def _normalize_edit_strings(content: str, old_text: str, new_text: str) -> tuple[str, str]:
+    if _find_actual_text(content, old_text) is not None:
+        return old_text, new_text
+    desanitized_old_text, replacements = _desanitize_match_string(old_text)
+    if not replacements:
+        return old_text, new_text
+    if _find_actual_text(content, desanitized_old_text) is None:
+        return old_text, new_text
+    desanitized_new_text = new_text
+    for source, target in replacements:
+        desanitized_new_text = desanitized_new_text.replace(source, target)
+    return desanitized_old_text, desanitized_new_text
+
+
+def _desanitize_match_string(text: str) -> tuple[str, list[tuple[str, str]]]:
+    result = str(text)
+    replacements: list[tuple[str, str]] = []
+    for source, target in DESANITIZATIONS.items():
+        updated = result.replace(source, target)
+        if updated != result:
+            replacements.append((source, target))
+            result = updated
+    return result, replacements
 
 
 def _preserve_quote_style(old_text: str, actual_old_text: str, new_text: str) -> str:
