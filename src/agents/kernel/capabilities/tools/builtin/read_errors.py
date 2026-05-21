@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agents.kernel.capabilities.sandbox.text import BINARY_FILE_EXTENSIONS
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 
 
 FILE_NOT_FOUND_CWD_NOTE = "Note: your current working directory is"
+NATIVE_BINARY_READ_EXTENSIONS = {".gif", ".jpeg", ".jpg", ".pdf", ".png", ".webp"}
 BLOCKED_DEVICE_PATHS = {
     "/dev/zero",
     "/dev/random",
@@ -48,6 +50,11 @@ def is_blocked_device_path(path: str) -> bool:
 
 def is_binary_text_read_error(exc: ValueError) -> bool:
     return "cannot read binary files" in str(exc)
+
+
+def has_unsupported_binary_extension(path: str) -> bool:
+    suffix = Path(path).suffix.lower()
+    return suffix in BINARY_FILE_EXTENSIONS and suffix not in NATIVE_BINARY_READ_EXTENSIONS
 
 
 def binary_read_error_message(path: str) -> str:

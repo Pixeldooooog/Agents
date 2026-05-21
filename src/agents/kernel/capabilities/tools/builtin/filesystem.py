@@ -17,6 +17,7 @@ from agents.kernel.capabilities.tools.builtin.read_errors import (
     blocked_device_read_error,
     directory_read_error,
     file_not_found_message,
+    has_unsupported_binary_extension,
     is_binary_text_read_error,
     is_blocked_device_path,
 )
@@ -93,6 +94,8 @@ def read_file(
     limit: int | None = None,
     pages: str | None = None,
 ) -> dict[str, Any]:
+    if has_unsupported_binary_extension(path):
+        raise ValueError(binary_read_error_message(path))
     if is_blocked_device_path(path):
         raise ValueError(blocked_device_read_error(path))
     try:
