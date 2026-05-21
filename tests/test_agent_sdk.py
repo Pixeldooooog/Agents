@@ -5,7 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from agents.kernel.schema import Message, ModelResponse, RuntimeEvent, ToolCall
-from agents.kernel.models.protocol import message_event, retry_event, text_delta
+from agents.kernel.models.protocol import message_event, reasoning_delta, retry_event, text_delta
 from agents.kernel.runtime import AgentRuntime, AgentSession, ScriptedModelClient
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 from agents.kernel.context.workspace import WorkspaceContext
@@ -39,7 +39,9 @@ from agents.sdk.types import (
     SDKRateLimitEventMessage,
     SDKResultMessage,
     SDKSessionStateChangedMessage,
+    SDKStatusMessage,
     SDKSystemMessage,
+    SDKStreamEventMessage,
     SDKTaskNotificationMessage,
     SDKTaskProgressMessage,
     SDKTaskStartedMessage,
@@ -105,6 +107,33 @@ async def _retry_session_factory(settings, spec):
                     }
                 ),
                 text_delta("done"),
+                message_event(ModelResponse(message=Message.from_text("assistant", "done"))),
+            ],
+        ]
+    )
+    runtime = AgentRuntime(
+        model_client=llm,
+        tools=ToolRegistry(),
+        protocol=spec.model.protocol or "scripted",
+        model=spec.model.model or "scripted",
+        enabled_tools=[],
+    )
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=".",
+        path=".",
+    )
+    return AgentSession(runtime, system_prompt="", workspace=workspace)
+
+
+async def _reasoning_session_factory(settings, spec):
+    llm = ScriptedModelClient(
+        [
+            [
+                reasoning_delta("checking assumptions"),
                 message_event(ModelResponse(message=Message.from_text("assistant", "done"))),
             ],
         ]
@@ -457,6 +486,11 @@ async def _sdk_extension_event_session_factory(settings, spec):
                 payload={"uuid": "suggestion-1", "suggestion": "Run the tests"},
             )
             yield RuntimeEvent(
+                type="status",
+                name="status",
+                payload={"uuid": "status-1", "status": "compacting", "permissionMode": "ask"},
+            )
+            yield RuntimeEvent(
                 type="post_turn_summary",
                 name="summary",
                 payload={
@@ -488,8 +522,10 @@ def test_sdk_query_hides_store_wiring_and_streams_typed_messages():
     assert messages[0].tools == ["echo"]
     states = [message.state for message in messages if isinstance(message, SDKSessionStateChangedMessage)]
     assert states == ["running", "idle"]
+    stream_events = [message for message in messages if isinstance(message, SDKStreamEventMessage)]
     tool_messages = [message for message in messages if isinstance(message, SDKToolProgressMessage)]
     summaries = [message for message in messages if isinstance(message, SDKToolUseSummaryMessage)]
+    assert stream_events[0].event["delta"] == {"type": "text_delta", "text": "done"}
     assert len(tool_messages) == 2
     assert tool_messages[0].status == "started"
     assert tool_messages[0].activity == {"kind": "terminal", "title": "Echo text", "target_argument": "text"}
@@ -535,6 +571,21 @@ def test_sdk_query_projects_model_retry_as_system_api_retry_message():
     assert retry.error_status is None
     assert retry.error["message"] == "connect failed"
     assert validate_sdk_message(retry.model_dump()) == retry
+
+
+def test_sdk_query_projects_reasoning_delta_as_stream_event_message():
+    client = AgentSDKClient(session_factory=_reasoning_session_factory)
+
+    messages = asyncio.run(_collect(client.query("think", SDKOptions(session_id="session-reasoning"))))
+
+    stream = next(message for message in messages if isinstance(message, SDKStreamEventMessage))
+    assert stream.type == "stream_event"
+    assert stream.event == {
+        "type": "content_block_delta",
+        "delta": {"type": "thinking_delta", "thinking": "checking assumptions"},
+    }
+    assert stream.parent_tool_use_id is None
+    assert validate_sdk_message(stream.model_dump()) == stream
 
 
 def test_sdk_query_projects_context_fit_as_compact_boundary_message():
@@ -669,6 +720,7 @@ def test_sdk_query_projects_extension_system_messages():
     rate_limit = next(message for message in messages if isinstance(message, SDKRateLimitEventMessage))
     elicitation = next(message for message in messages if isinstance(message, SDKElicitationCompleteMessage))
     suggestion = next(message for message in messages if isinstance(message, SDKPromptSuggestionMessage))
+    status = next(message for message in messages if isinstance(message, SDKStatusMessage))
     summary = next(message for message in messages if isinstance(message, SDKPostTurnSummaryMessage))
 
     assert rate_limit.type == "rate_limit_event"
@@ -678,11 +730,16 @@ def test_sdk_query_projects_extension_system_messages():
     assert elicitation.elicitation_id == "elicit_123"
     assert suggestion.type == "prompt_suggestion"
     assert suggestion.suggestion == "Run the tests"
+    assert status.type == "system"
+    assert status.subtype == "status"
+    assert status.status == "compacting"
+    assert status.permissionMode == "ask"
     assert summary.subtype == "post_turn_summary"
     assert summary.summarizes_uuid == "assistant-1"
     assert summary.status_category == "review_ready"
     assert summary.artifact_urls == ["artifact://report"]
     assert validate_sdk_message(rate_limit.model_dump()) == rate_limit
+    assert validate_sdk_message(status.model_dump()) == status
     assert validate_sdk_message(summary.model_dump()) == summary
     assert any(isinstance(message, SDKPromptSuggestionMessage) for message in replay)
     assert any(isinstance(message, SDKPostTurnSummaryMessage) for message in replay)
@@ -845,6 +902,7 @@ def test_sdk_exports_json_schemas_and_rejects_invalid_messages():
     assert "SDKPromptSuggestionMessage" in message_schema["$defs"]
     assert "SDKPostTurnSummaryMessage" in message_schema["$defs"]
     assert "SDKSessionStateChangedMessage" in message_schema["$defs"]
+    assert "SDKStreamEventMessage" in message_schema["$defs"]
     assert "SDKTaskStartedMessage" in message_schema["$defs"]
     assert "SDKTaskProgressMessage" in message_schema["$defs"]
     assert "SDKTaskNotificationMessage" in message_schema["$defs"]

@@ -108,6 +108,13 @@ class SDKSystemMessage(SDKBaseMessage):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class SDKStreamEventMessage(SDKBaseMessage):
+    type: Literal["stream_event"] = "stream_event"
+    event: dict[str, Any] = Field(default_factory=dict)
+    parent_tool_use_id: str | None = None
+    uuid: str = Field(default_factory=lambda: str(uuid4()))
+
+
 class SDKAPIRetryMessage(SDKBaseMessage):
     type: Literal["system"] = "system"
     subtype: Literal["api_retry"] = "api_retry"
@@ -298,10 +305,11 @@ class SDKToolProgressMessage(SDKBaseMessage):
 
 
 class SDKStatusMessage(SDKBaseMessage):
-    type: Literal["status"] = "status"
-    status: str
-    message: str = ""
-    data: dict[str, Any] = Field(default_factory=dict)
+    type: Literal["system"] = "system"
+    subtype: Literal["status"] = "status"
+    status: Literal["compacting"] | None = None
+    permissionMode: str | None = None
+    uuid: str = Field(default_factory=lambda: str(uuid4()))
 
 
 class SDKResultMessage(SDKBaseMessage):
@@ -319,6 +327,7 @@ class SDKResultMessage(SDKBaseMessage):
 
 SDKMessage = Union[
     SDKSystemMessage,
+    SDKStreamEventMessage,
     SDKAPIRetryMessage,
     SDKCompactBoundaryMessage,
     SDKAuthStatusMessage,

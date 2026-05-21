@@ -39,6 +39,7 @@ from agents.sdk.types import (
     SDKSessionStateChangedMessage,
     SDKSessionInfo,
     SDKStatusMessage,
+    SDKStreamEventMessage,
     SDKSystemMessage,
     SDKTaskNotificationMessage,
     SDKTaskProgressMessage,
@@ -1125,19 +1126,18 @@ def _project_runtime_event(
             raw=dict(event.payload),
         )
     if event.type == "text_delta":
-        return SDKAssistantMessage(
+        return SDKStreamEventMessage(
             session_id=session_id,
             run_id=run_id,
-            content=str(event.payload.get("delta", "") or ""),
-            raw=dict(event.payload),
+            event=_stream_delta_event("text_delta", event.payload),
+            parent_tool_use_id=_nullable_text_field(event.payload, "parent_tool_use_id", "parentToolUseId"),
         )
     if event.type == "reasoning_delta":
-        return SDKStatusMessage(
+        return SDKStreamEventMessage(
             session_id=session_id,
             run_id=run_id,
-            status="reasoning_delta",
-            message=str(event.payload.get("delta", "") or ""),
-            data=dict(event.payload),
+            event=_stream_delta_event("reasoning_delta", event.payload),
+            parent_tool_use_id=_nullable_text_field(event.payload, "parent_tool_use_id", "parentToolUseId"),
         )
     if event.type == "model_retry":
         return SDKAPIRetryMessage(
@@ -1318,9 +1318,7 @@ def _project_runtime_event(
         return SDKStatusMessage(
             session_id=session_id,
             run_id=run_id,
-            status="error",
-            message=str(event.payload.get("message", "") or ""),
-            data=dict(event.payload),
+            status=None,
         )
     if event.type == "done":
         status = str(event.payload.get("status", "") or "finished")
@@ -1340,9 +1338,8 @@ def _project_runtime_event(
     return SDKStatusMessage(
         session_id=session_id,
         run_id=run_id,
-        status=event.type,
-        message=event.name,
-        data=dict(event.payload),
+        status=_sdk_status(event.payload.get("status")),
+        permissionMode=_nullable_text_field(event.payload, "permissionMode", "permission_mode"),
     )
 
 
@@ -1362,12 +1359,33 @@ def _local_command_output_content(payload: dict[str, Any]) -> str:
     return content.strip()
 
 
+def _stream_delta_event(event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+    delta = str(payload.get("delta") or "")
+    raw = payload.get("event") if isinstance(payload.get("event"), dict) else {}
+    if raw:
+        return dict(raw)
+    if event_type == "reasoning_delta":
+        return {
+            "type": "content_block_delta",
+            "delta": {"type": "thinking_delta", "thinking": delta},
+        }
+    return {
+        "type": "content_block_delta",
+        "delta": {"type": "text_delta", "text": delta},
+    }
+
+
 def _text_field(payload: dict[str, Any], *keys: str) -> str:
     for key in keys:
         value = payload.get(key)
         if value is not None:
             return str(value)
     return ""
+
+
+def _nullable_text_field(payload: dict[str, Any], *keys: str) -> str | None:
+    text = _text_field(payload, *keys)
+    return text or None
 
 
 def _string_list_field(value: Any) -> list[str]:
@@ -1402,6 +1420,10 @@ def _post_turn_status_category(value: Any) -> Literal["blocked", "waiting", "com
     if text == "failed":
         return "failed"
     return "completed"
+
+
+def _sdk_status(value: Any) -> Literal["compacting"] | None:
+    return "compacting" if str(value or "") == "compacting" else None
 
 
 def _duration_ms(started_at: float) -> int:
