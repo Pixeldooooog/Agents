@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import os
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -2301,6 +2302,71 @@ def test_sdk_records_file_history_snapshots_for_rewind(tmp_path):
         "insertions": 2,
         "deletions": 3,
     }
+    assert actual.response.response == {"canRewind": True}
+    assert notes_content == "old\n"
+    assert write_content == "old write\n"
+    assert created_exists is False
+
+
+def test_sdk_fork_session_migrates_file_history_backups_for_rewind(tmp_path):
+    async def execute():
+        config_dir = tmp_path / "claude-config"
+        notes = tmp_path / "notes.txt"
+        created = tmp_path / "created.txt"
+        write_note = tmp_path / "write.txt"
+        notes.write_text("old\n", encoding="utf-8")
+        write_note.write_text("old write\n", encoding="utf-8")
+        client = AgentSDKClient(session_factory=_rewind_patch_session_factory)
+        source = client.create_sdk_session(
+            SDKOptions(
+                session_id="fork-history-source",
+                tenant_id="tenant",
+                user_id="user",
+                agent_id="agent",
+                cwd=str(tmp_path),
+                metadata={"claude_config_dir": str(config_dir)},
+            )
+        )
+        await _collect(source.query("edit files"))
+        fork = await client.fork_session("fork-history-source", SDKForkSessionOptions(title="Fork history"))
+        forked = await client.resume_session(fork.session_id)
+        records = await client._runs_for_session(fork.session_id)
+        snapshots = [
+            event.payload
+            for record in records
+            for event in record.events
+            if event.type == "file-history-snapshot"
+        ]
+        backup_root = config_dir / "file-history" / fork.session_id
+        shutil.rmtree(config_dir / "file-history" / "fork-history-source")
+        replay = await forked.messages({"include_system_messages": False})
+        user_message = next(message for message in replay if isinstance(message, SDKUserMessage))
+        actual = await forked.handle_control_request(
+            SDKControlRequest(
+                request_id="rewind-fork-file-history",
+                request=SDKControlRewindFilesRequest(user_message_id=user_message.uuid),
+            )
+        )
+        return (
+            fork,
+            snapshots,
+            backup_root,
+            actual,
+            notes.read_text(encoding="utf-8"),
+            write_note.read_text(encoding="utf-8"),
+            created.exists(),
+        )
+
+    fork, snapshots, backup_root, actual, notes_content, write_content, created_exists = asyncio.run(execute())
+
+    assert fork.session_id != "fork-history-source"
+    assert backup_root.exists()
+    assert snapshots
+    assert {snapshot["sessionId"] for snapshot in snapshots} == {fork.session_id}
+    assert {Path(snapshot["backupRoot"]) for snapshot in snapshots} == {backup_root}
+    final_backups = snapshots[-1]["snapshot"]["trackedFileBackups"]
+    assert (backup_root / final_backups["notes.txt"]["backupFileName"]).read_text(encoding="utf-8") == "old\n"
+    assert (backup_root / final_backups["write.txt"]["backupFileName"]).read_text(encoding="utf-8") == "old write\n"
     assert actual.response.response == {"canRewind": True}
     assert notes_content == "old\n"
     assert write_content == "old write\n"
