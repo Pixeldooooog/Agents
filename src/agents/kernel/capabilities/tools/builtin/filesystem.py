@@ -20,6 +20,7 @@ from agents.kernel.capabilities.tools.builtin.read_errors import (
     is_binary_text_read_error,
     is_blocked_device_path,
 )
+from agents.kernel.capabilities.tools.builtin.read_paths import existing_alternate_screenshot_path
 
 
 FILE_UNCHANGED_STUB = (
@@ -97,6 +98,16 @@ def read_file(
     try:
         return _read_file(context, path, max_bytes=max_bytes, offset=offset, limit=limit, pages=pages)
     except FileNotFoundError as exc:
+        alternate_path = existing_alternate_screenshot_path(context, path)
+        if alternate_path:
+            return _read_file(
+                context,
+                alternate_path,
+                max_bytes=max_bytes,
+                offset=offset,
+                limit=limit,
+                pages=pages,
+            )
         raise ValueError(file_not_found_message(context, path)) from exc
     except IsADirectoryError as exc:
         raise ValueError(directory_read_error(path)) from exc
