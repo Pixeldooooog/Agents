@@ -964,6 +964,53 @@ def test_shell_run_background_returns_task_and_output_file(tmp_path: Path):
     assert (tmp_path / started.raw["output_path"]).read_text(encoding="utf-8") == "start\ndone\n"
 
 
+def test_shell_output_truncates_without_file_read_full_read_error(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(
+        workspace.path,
+        allow_process=True,
+        allowed_commands=(Path(sys.executable).name,),
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    async def execute():
+        started = await registry.execute(
+            "shell.run",
+            {
+                "command": "%s -c %s"
+                % (shlex.quote(sys.executable), shlex.quote("import sys; sys.stdout.write('0123456789abcdef')")),
+                "run_in_background": True,
+                "timeout": 5000,
+                "description": "Emit long output",
+            },
+        )
+        final = await registry.execute(
+            "shell.output",
+            {"task_id": started.raw["task_id"], "block": True, "timeout_seconds": 2.0, "max_bytes": 8},
+        )
+        return started, final
+
+    started, final = asyncio.run(execute())
+
+    assert started.is_error is False
+    assert final.is_error is False
+    assert final.raw["output"] == "01234567"
+    assert final.raw["truncated"] is True
+
+
 def test_shell_kill_stops_background_command(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="tenant",
@@ -1606,8 +1653,12 @@ def test_filesystem_read_rejects_oversized_full_text_but_allows_limited_range(tm
     registry = ToolRegistry()
     register_builtin_tools(registry, context)
 
+    (tmp_path / "medium.txt").write_text("x\n" * 11000, encoding="utf-8")
+    (tmp_path / "medium-alias.txt").write_text("y\n" * 11000, encoding="utf-8")
     full = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt", "max_bytes": 8}))
     limited = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt", "max_bytes": 8, "limit": 1}))
+    default_full = asyncio.run(registry.execute("filesystem.read", {"path": "medium.txt"}))
+    alias_default_full = asyncio.run(registry.execute("Read", {"file_path": "medium-alias.txt"}))
 
     assert full.is_error is True
     assert "File content" in full.content
@@ -1617,6 +1668,10 @@ def test_filesystem_read_rejects_oversized_full_text_but_allows_limited_range(tm
     assert limited.raw["content"] == "one\n"
     assert limited.raw["isPartialView"] is True
     assert limited.content.startswith("1\tone")
+    assert default_full.is_error is False
+    assert default_full.raw["bytes"] > 20000
+    assert alias_default_full.is_error is False
+    assert alias_default_full.raw["bytes"] > 20000
 
 
 def test_filesystem_read_missing_file_reports_cwd_and_similar_file(tmp_path: Path):

@@ -75,6 +75,7 @@ class LocalSandboxClient:
         max_bytes: int = DEFAULT_TEXT_READ_MAX_BYTES,
         offset: int = 1,
         limit: int | None = None,
+        require_full: bool = False,
     ) -> SandboxFileRead:
         decision = self.policy.authorize_file_read(path)
         if not decision.allowed:
@@ -92,7 +93,7 @@ class LocalSandboxClient:
             sample = handle.read(BINARY_SAMPLE_BYTES)
         encoding = detect_text_encoding(resolved, sample)
         size = resolved.stat().st_size
-        if line_limit is None and size > byte_limit:
+        if require_full and line_limit is None and size > byte_limit:
             raise ValueError(text_file_too_large_message(size, byte_limit))
         if range_requested:
             content = _read_text_line_range(

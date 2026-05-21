@@ -138,7 +138,7 @@ def _read_file(
     if cached is not None:
         return cached
     try:
-        result = context.sandbox_client.read_text(path, max_bytes=max_bytes, offset=offset, limit=limit)
+        result = context.sandbox_client.read_text(path, max_bytes=max_bytes, offset=offset, limit=limit, require_full=True)
     except ValueError as exc:
         if is_binary_text_read_error(exc):
             raise ValueError(binary_read_error_message(path)) from exc

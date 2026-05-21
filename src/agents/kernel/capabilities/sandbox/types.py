@@ -210,6 +210,7 @@ class SandboxClient(Protocol):
         max_bytes: int = DEFAULT_TEXT_READ_MAX_BYTES,
         offset: int = 1,
         limit: int | None = None,
+        require_full: bool = False,
     ) -> SandboxFileRead:
         raise NotImplementedError()
 

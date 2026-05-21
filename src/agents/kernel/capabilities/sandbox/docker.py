@@ -12,7 +12,7 @@ from pathlib import Path
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.governance import SandboxPolicy
 
-from .text import DEFAULT_TEXT_READ_MAX_BYTES, normalize_text_read_max_bytes
+from .text import DEFAULT_TEXT_READ_MAX_BYTES, normalize_text_read_max_bytes, text_file_too_large_message
 from .types import (
     SandboxClient,
     SandboxBackgroundCommand,
@@ -67,14 +67,20 @@ class DockerSandboxClient:
         max_bytes: int = DEFAULT_TEXT_READ_MAX_BYTES,
         offset: int = 1,
         limit: int | None = None,
+        require_full: bool = False,
     ) -> SandboxFileRead:
         decision = self.policy.authorize_file_read(path)
         if not decision.allowed:
             raise PermissionError(decision.reason)
-        relative = self.policy.relative_workspace_path(self.policy.resolve_workspace_path(path))
+        resolved = self.policy.resolve_workspace_path(path)
+        relative = self.policy.relative_workspace_path(resolved)
         byte_limit = normalize_text_read_max_bytes(max_bytes)
         line_offset = max(0, int(offset or 1) - 1)
         line_limit = "" if limit is None else str(max(1, int(limit)))
+        if require_full and limit is None and resolved.is_file():
+            size = resolved.stat().st_size
+            if size > byte_limit:
+                raise ValueError(text_file_too_large_message(size, byte_limit))
         script = """
 import json
 import pathlib
@@ -83,6 +89,7 @@ path = pathlib.Path(sys.argv[1])
 byte_limit = int(sys.argv[2])
 line_offset = int(sys.argv[3])
 line_limit = None if sys.argv[4] == "" else int(sys.argv[4])
+require_full = sys.argv[5] == "1"
 
 def format_file_size(size_in_bytes):
     size = float(max(0, int(size_in_bytes)))
@@ -121,7 +128,7 @@ if encoding == "utf-8" and sample:
     if control / len(sample) > 0.10:
         raise ValueError("This text tool cannot read binary files. The file appears to be a binary file. Use an appropriate binary analysis tool instead.")
 range_requested = line_offset > 0 or line_limit is not None
-if line_limit is None and len(data) > byte_limit:
+if require_full and line_limit is None and len(data) > byte_limit:
     raise ValueError(too_large_message(len(data), byte_limit))
 if range_requested:
     lines = data.decode(encoding, errors="replace").splitlines(keepends=True)
@@ -153,7 +160,10 @@ sys.stdout.write(json.dumps({
     "isPartialView": range_requested or truncated,
 }))
 """
-        payload = self._run_python_json(script, [relative, str(byte_limit), str(line_offset), line_limit])
+        payload = self._run_python_json(
+            script,
+            [relative, str(byte_limit), str(line_offset), line_limit, "1" if require_full else "0"],
+        )
         return SandboxFileRead(
             path=str(payload["path"]),
             content=str(payload["content"]),

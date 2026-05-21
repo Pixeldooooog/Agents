@@ -150,16 +150,20 @@ def test_local_sandbox_read_text_supports_line_ranges(tmp_path):
     assert result.is_partial_view is True
 
 
-def test_local_sandbox_read_text_rejects_oversized_full_reads(tmp_path):
+def test_local_sandbox_read_text_can_require_complete_reads(tmp_path):
     workspace = _workspace(tmp_path)
     (workspace.path / "notes.txt").write_text("one\ntwo\nthree\n", encoding="utf-8")
     policy = SandboxPolicy.for_workspace(workspace.path)
     client = LocalSandboxProvider().acquire(workspace, policy)
 
+    truncated = client.read_text("notes.txt", max_bytes=8)
     with pytest.raises(ValueError, match="Use offset and limit parameters"):
-        client.read_text("notes.txt", max_bytes=8)
+        client.read_text("notes.txt", max_bytes=8, require_full=True)
 
     limited = client.read_text("notes.txt", max_bytes=8, limit=1)
+    assert truncated.content == "one\ntwo\n"
+    assert truncated.truncated is True
+    assert truncated.is_partial_view is True
     assert limited.content == "one\n"
     assert limited.truncated is True
     assert limited.is_partial_view is True

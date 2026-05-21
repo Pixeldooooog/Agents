@@ -284,6 +284,7 @@ from agents.kernel.capabilities.tools.builtin.workflows import (
     workflow_templates,
     workflow_validate,
 )
+from agents.kernel.capabilities.sandbox.text import DEFAULT_TEXT_READ_MAX_BYTES
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.tools.registry import ToolActivity, ToolDefinition, ToolRegistry
 from agents.kernel.capabilities.web import NullWebSearchProvider, WebSearchProvider
@@ -550,7 +551,7 @@ def _register_filesystem(registry: ToolRegistry, context: ToolRuntimeContext) ->
         name="filesystem.read",
         description="Read a text file from the current workspace, optionally by line offset and limit.",
         parameters=READ_FILE_SCHEMA,
-        handler=lambda path, max_bytes=20000, offset=1, limit=None, pages=None: read_file(
+        handler=lambda path, max_bytes=DEFAULT_TEXT_READ_MAX_BYTES, offset=1, limit=None, pages=None: read_file(
             context,
             path,
             max_bytes=max_bytes,
@@ -860,7 +861,7 @@ SRC_ORIGIN_READ_SCHEMA = {
         "offset": {"type": "integer", "minimum": 0},
         "limit": {"type": "integer", "minimum": 1},
         "pages": {"type": "string", "description": "Page range for PDF files."},
-        "max_bytes": {"type": "integer", "minimum": 1, "maximum": 200000},
+        "max_bytes": {"type": "integer", "minimum": 1, "maximum": DEFAULT_TEXT_READ_MAX_BYTES},
     },
     "required": ["file_path"],
 }
@@ -1291,7 +1292,7 @@ def _register_src_origin_aliases(
         name="Read",
         description="Read a file from the current workspace. src-origin alias for filesystem.read.",
         parameters=SRC_ORIGIN_READ_SCHEMA,
-        handler=lambda file_path, offset=1, limit=None, pages=None, max_bytes=20000: read_file(
+        handler=lambda file_path, offset=1, limit=None, pages=None, max_bytes=DEFAULT_TEXT_READ_MAX_BYTES: read_file(
             context,
             file_path,
             max_bytes=max_bytes,
