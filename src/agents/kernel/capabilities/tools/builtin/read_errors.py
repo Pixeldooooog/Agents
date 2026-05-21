@@ -6,6 +6,20 @@ from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 
 
 FILE_NOT_FOUND_CWD_NOTE = "Note: your current working directory is"
+BLOCKED_DEVICE_PATHS = {
+    "/dev/zero",
+    "/dev/random",
+    "/dev/urandom",
+    "/dev/full",
+    "/dev/stdin",
+    "/dev/tty",
+    "/dev/console",
+    "/dev/stdout",
+    "/dev/stderr",
+    "/dev/fd/0",
+    "/dev/fd/1",
+    "/dev/fd/2",
+}
 
 
 def file_not_found_message(context: ToolRuntimeContext, path: str) -> str:
@@ -19,6 +33,17 @@ def file_not_found_message(context: ToolRuntimeContext, path: str) -> str:
 
 def directory_read_error(path: str) -> str:
     return "EISDIR: illegal operation on a directory, read '%s'" % path
+
+
+def blocked_device_read_error(path: str) -> str:
+    return "Cannot read '%s': this device file would block or produce infinite output." % path
+
+
+def is_blocked_device_path(path: str) -> bool:
+    if path in BLOCKED_DEVICE_PATHS:
+        return True
+    stdio_fd_alias = path.endswith("/fd/0") or path.endswith("/fd/1") or path.endswith("/fd/2")
+    return path.startswith("/proc/") and stdio_fd_alias
 
 
 def is_binary_text_read_error(exc: ValueError) -> bool:

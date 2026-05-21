@@ -14,9 +14,11 @@ from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.tools.builtin.file_safety import record_file_read, unchanged_read_stub, write_text_safely
 from agents.kernel.capabilities.tools.builtin.read_errors import (
     binary_read_error_message,
+    blocked_device_read_error,
     directory_read_error,
     file_not_found_message,
     is_binary_text_read_error,
+    is_blocked_device_path,
 )
 
 
@@ -90,6 +92,8 @@ def read_file(
     limit: int | None = None,
     pages: str | None = None,
 ) -> dict[str, Any]:
+    if is_blocked_device_path(path):
+        raise ValueError(blocked_device_read_error(path))
     try:
         return _read_file(context, path, max_bytes=max_bytes, offset=offset, limit=limit, pages=pages)
     except FileNotFoundError as exc:
