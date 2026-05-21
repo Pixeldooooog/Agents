@@ -89,6 +89,8 @@ def read_file(
         return _read_file(context, path, max_bytes=max_bytes, offset=offset, limit=limit, pages=pages)
     except FileNotFoundError as exc:
         raise ValueError(_file_not_found_message(context, path)) from exc
+    except IsADirectoryError as exc:
+        raise ValueError("EISDIR: illegal operation on a directory, read '%s'" % path) from exc
 
 
 def _read_file(
