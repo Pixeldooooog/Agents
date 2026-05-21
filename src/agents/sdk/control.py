@@ -314,20 +314,38 @@ def sdk_stdin_message_json_schema() -> dict[str, Any]:
 
 
 def validate_sdk_control_request(message: SDKControlRequest | dict[str, Any]) -> SDKControlRequest:
-    payload = message.model_dump() if isinstance(message, BaseModel) else message
+    payload = normalize_sdk_control_message_keys(message)
     return SDKControlRequestAdapter.validate_python(payload)
 
 
 def validate_sdk_control_response(message: SDKControlResponse | dict[str, Any]) -> SDKControlResponse:
-    payload = message.model_dump() if isinstance(message, BaseModel) else message
+    payload = normalize_sdk_control_message_keys(message)
     return SDKControlResponseAdapter.validate_python(payload)
 
 
 def validate_sdk_stdin_message(message: SDKStdinMessage | dict[str, Any]) -> SDKStdinMessage:
-    payload = message.model_dump() if isinstance(message, BaseModel) else message
+    payload = normalize_sdk_control_message_keys(message)
     return SDKStdinMessageAdapter.validate_python(payload)
 
 
 def validate_sdk_stdout_message(message: SDKStdoutMessage | dict[str, Any]) -> SDKStdoutMessage:
-    payload = message.model_dump() if isinstance(message, BaseModel) else message
+    payload = normalize_sdk_control_message_keys(message)
     return SDKStdoutMessageAdapter.validate_python(payload)
+
+
+def normalize_sdk_control_message_keys(message: BaseModel | dict[str, Any] | Any) -> Any:
+    """Accept src-origin's legacy camelCase control request ids on input."""
+
+    payload = message.model_dump() if isinstance(message, BaseModel) else message
+    if not isinstance(payload, dict):
+        return payload
+    normalized = dict(payload)
+    if "requestId" in normalized and "request_id" not in normalized:
+        normalized["request_id"] = normalized.pop("requestId")
+    response = normalized.get("response")
+    if isinstance(response, dict):
+        normalized_response = dict(response)
+        if "requestId" in normalized_response and "request_id" not in normalized_response:
+            normalized_response["request_id"] = normalized_response.pop("requestId")
+        normalized["response"] = normalized_response
+    return normalized

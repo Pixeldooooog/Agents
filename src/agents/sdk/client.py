@@ -4,6 +4,7 @@ import asyncio
 import difflib
 import inspect
 import json
+import os
 import time
 import uuid
 from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable
@@ -286,10 +287,18 @@ class AgentSDKClient:
         options: SDKOptions | dict[str, Any] | None = None,
     ) -> AsyncIterator[SDKStdoutMessage]:
         session = self.create_sdk_session(_coerce_options(options))
+        replay_user_messages = _replay_user_messages_enabled(session.options)
+        received_user_uuids: set[str] = set()
         async for raw_message in _aiter_stdin_messages(messages):
             message = validate_sdk_stdin_message(raw_message)
             if isinstance(message, SDKUserMessage):
-                session.enqueue_async_message(message)
+                user_message = _coerce_async_user_message(message, session_id=session.session_id)
+                if replay_user_messages:
+                    yield user_message.model_copy(update={"isReplay": True})
+                if user_message.uuid in received_user_uuids:
+                    continue
+                received_user_uuids.add(user_message.uuid)
+                session.enqueue_async_message(user_message)
                 async for output in session._drain_async_messages(session.options):
                     yield output
             elif isinstance(message, SDKControlRequest):
@@ -299,6 +308,8 @@ class AgentSDKClient:
             elif isinstance(message, SDKKeepAliveMessage):
                 continue
             elif isinstance(message, SDKControlResponse):
+                if replay_user_messages:
+                    yield message
                 continue
 
     async def _query_turn(
@@ -1257,6 +1268,15 @@ def _apply_environment_variables_update(options: SDKOptions, message: SDKUpdateE
     variables = dict(current) if isinstance(current, dict) else {}
     variables.update(message.variables)
     options.metadata["environment_variables"] = variables
+    os.environ.update(message.variables)
+
+
+def _replay_user_messages_enabled(options: SDKOptions) -> bool:
+    return bool(
+        options.replay_user_messages
+        or options.metadata.get("replay_user_messages")
+        or options.metadata.get("replayUserMessages")
+    )
 
 
 def _coerce_async_user_message(

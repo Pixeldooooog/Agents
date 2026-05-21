@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal, Union
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, TypeAdapter
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, PrivateAttr, TypeAdapter
 
 
 class SDKOptions(BaseModel):
@@ -25,6 +25,10 @@ class SDKOptions(BaseModel):
     tenant_id: str | None = None
     user_id: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    replay_user_messages: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("replay_user_messages", "replayUserMessages"),
+    )
 
 
 class SDKListSessionsOptions(BaseModel):

@@ -1,4 +1,5 @@
 import asyncio
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -48,6 +49,7 @@ from agents.sdk import (
     SDKSession,
     SDKUpdateEnvironmentVariablesMessage,
     handle_control_request,
+    normalize_sdk_control_message_keys,
     sdk_control_request_json_schema,
     sdk_control_response_json_schema,
     sdk_message_json_schema,
@@ -1421,6 +1423,31 @@ def test_sdk_exports_control_protocol_schemas_and_validators():
         )
 
 
+def test_sdk_control_validators_accept_camel_case_request_ids():
+    request = validate_sdk_control_request(
+        {
+            "type": "control_request",
+            "requestId": "camel-request",
+            "request": {"subtype": "set_model", "model": "claude-sonnet"},
+        }
+    )
+    response = validate_sdk_stdin_message(
+        {
+            "type": "control_response",
+            "response": {
+                "subtype": "success",
+                "requestId": "camel-response",
+                "response": {"ok": True},
+            },
+        }
+    )
+
+    assert request.request_id == "camel-request"
+    assert isinstance(response, SDKControlResponse)
+    assert response.response.request_id == "camel-response"
+    assert normalize_sdk_control_message_keys({"requestId": "legacy"}) == {"request_id": "legacy"}
+
+
 def test_sdk_control_request_handler_answers_initialize_and_permissions():
     initialize = asyncio.run(
         handle_control_request(
@@ -1993,6 +2020,61 @@ def test_sdk_run_stdin_processes_user_and_control_messages():
     assert results == ["first", "second"]
     assert controls[0].response.response == {"model": "claude-sonnet"}
     assert [message.uuid for message in replay_users] == ["stdin-user-1", "stdin-user-2"]
+
+
+def test_sdk_run_stdin_replays_acknowledgements_and_skips_runtime_duplicates(monkeypatch):
+    monkeypatch.delenv("NEXUS_SDK_ENV", raising=False)
+
+    async def execute():
+        client = AgentSDKClient(session_factory=_echo_prompt_session_factory)
+        messages = [
+            {"type": "update_environment_variables", "variables": {"NEXUS_SDK_ENV": "test"}},
+            {
+                "type": "user",
+                "session_id": "replay-session",
+                "uuid": "replay-user-1",
+                "message": {"role": "user", "content": [{"type": "text", "text": "first"}]},
+                "isReplay": False,
+            },
+            {
+                "type": "control_response",
+                "response": {
+                    "subtype": "success",
+                    "requestId": "host-camel-response",
+                    "response": {"ignored": True},
+                },
+            },
+            {
+                "type": "user",
+                "session_id": "replay-session",
+                "uuid": "replay-user-1",
+                "message": {"role": "user", "content": [{"type": "text", "text": "duplicate"}]},
+                "isReplay": False,
+            },
+        ]
+
+        outputs = [
+            message
+            async for message in client.run_stdin(
+                messages,
+                {"session_id": "replay-session", "replayUserMessages": True},
+            )
+        ]
+        replay = await client.get_session_messages("replay-session", {"include_system_messages": False})
+        return outputs, replay
+
+    outputs, replay = asyncio.run(execute())
+    acks = [message for message in outputs if isinstance(message, SDKUserMessage)]
+    results = [message.result for message in outputs if isinstance(message, SDKResultMessage)]
+    controls = [message for message in outputs if isinstance(message, SDKControlResponse)]
+    replay_users = [message for message in replay if isinstance(message, SDKUserMessage)]
+
+    assert os.environ["NEXUS_SDK_ENV"] == "test"
+    assert [message.uuid for message in acks] == ["replay-user-1", "replay-user-1"]
+    assert all(message.isReplay for message in acks)
+    assert results == ["first"]
+    assert controls[0].response.request_id == "host-camel-response"
+    assert [message.content for message in replay_users] == ["first"]
 
 
 def test_sdk_control_request_seeds_read_state_for_next_session(tmp_path):
