@@ -48,6 +48,7 @@ from agents.sdk.control import (
     SDKControlSetPermissionModeRequest,
     SDKControlStopTaskRequest,
     SDKControlSuccessResponse,
+    SDKHookCallbackRequest,
     validate_sdk_control_request,
 )
 from agents.sdk.types import (
@@ -87,6 +88,8 @@ from agents.sdk.types import (
 
 SessionFactory = Callable[[Any, AgentSpec], Any]
 SDKMcpMessageHandler = Callable[[Any], Any]
+SDKHookCallbackHandler = Callable[[SDKHookCallbackRequest], Any]
+SDKElicitationHandler = Callable[[SDKControlElicitationRequest], Any]
 
 try:
     _SDK_VERSION = version("agents")
@@ -103,6 +106,8 @@ class AgentSDKClient:
     run_service: RunService | None = None
     session_factory: SessionFactory | None = None
     sdk_mcp_handlers: dict[str, SDKMcpMessageHandler] = field(default_factory=dict)
+    hook_callback_handlers: dict[str, SDKHookCallbackHandler] = field(default_factory=dict)
+    elicitation_handler: SDKElicitationHandler | None = None
 
     def __post_init__(self) -> None:
         if self.settings is None:
@@ -156,6 +161,18 @@ class AgentSDKClient:
 
     def unregister_sdk_mcp_server(self, name: str) -> None:
         self.sdk_mcp_handlers.pop(str(name or "").strip(), None)
+
+    def register_hook_callback(self, callback_id: str, handler: SDKHookCallbackHandler) -> None:
+        resolved = str(callback_id or "").strip()
+        if not resolved:
+            raise ValueError("hook callback id is required")
+        self.hook_callback_handlers[resolved] = handler
+
+    def unregister_hook_callback(self, callback_id: str) -> None:
+        self.hook_callback_handlers.pop(str(callback_id or "").strip(), None)
+
+    def set_elicitation_handler(self, handler: SDKElicitationHandler | None) -> None:
+        self.elicitation_handler = handler
 
     async def resume_session(self, session_id: str, options: SDKOptions | dict[str, Any] | None = None) -> "SDKSession":
         info = await self.get_session_info(session_id)
@@ -413,6 +430,8 @@ class AgentSDKClient:
             return {"interrupted": False, "reason": "no active SDK turn is attached to this control handler"}
         if isinstance(request, SDKControlGetContextUsageRequest):
             return _empty_context_usage_payload(options)
+        if isinstance(request, SDKHookCallbackRequest):
+            return await self._hook_callback_control_response(request)
         if isinstance(request, SDKControlReloadPluginsRequest):
             return {"commands": _slash_command_infos(), "agents": [], "plugins": [], "mcpServers": [], "error_count": 0}
         if isinstance(request, SDKControlCancelAsyncMessageRequest):
@@ -426,7 +445,7 @@ class AgentSDKClient:
         if isinstance(request, SDKControlStopTaskRequest):
             return await self._stop_task_control_response(request, options)
         if isinstance(request, SDKControlElicitationRequest):
-            return {"action": "cancel"}
+            return await self._elicitation_control_response(request)
         return {}
 
     async def _mcp_statuses_for_options(self, options: SDKOptions) -> list[dict[str, Any]]:
@@ -538,6 +557,40 @@ class AgentSDKClient:
         if inspect.isawaitable(response):
             response = await response
         return {"mcp_response": response}
+
+    async def _hook_callback_control_response(self, request: SDKHookCallbackRequest) -> dict[str, Any]:
+        handler = self.hook_callback_handlers.get(request.callback_id)
+        if handler is None:
+            return {}
+        response = handler(request)
+        if inspect.isawaitable(response):
+            response = await response
+        if response is None:
+            return {}
+        if not isinstance(response, dict):
+            raise TypeError("hook callback handler must return a dict")
+        return dict(response)
+
+    async def _elicitation_control_response(self, request: SDKControlElicitationRequest) -> dict[str, Any]:
+        if self.elicitation_handler is None:
+            return {"action": "cancel"}
+        response = self.elicitation_handler(request)
+        if inspect.isawaitable(response):
+            response = await response
+        if response is None:
+            return {"action": "cancel"}
+        if not isinstance(response, dict):
+            raise TypeError("elicitation handler must return a dict")
+        action = str(response.get("action") or "cancel")
+        if action not in {"accept", "decline", "cancel"}:
+            raise ValueError("elicitation action must be accept, decline, or cancel")
+        payload: dict[str, Any] = {"action": action}
+        content = response.get("content")
+        if content is not None:
+            if not isinstance(content, dict):
+                raise TypeError("elicitation content must be a dict")
+            payload["content"] = dict(content)
+        return payload
 
     async def _sdk_mcp_server_enabled(self, name: str, options: SDKOptions) -> bool:
         assert self.persistence is not None

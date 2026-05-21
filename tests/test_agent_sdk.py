@@ -15,6 +15,7 @@ from agents.kernel.tasks import TaskStatus
 from agents.sdk import (
     AgentSDKClient,
     SDKControlApplyFlagSettingsRequest,
+    SDKControlElicitationRequest,
     SDKControlErrorResponse,
     SDKControlGetSettingsRequest,
     SDKControlInitializeRequest,
@@ -29,6 +30,7 @@ from agents.sdk import (
     SDKControlSetPermissionModeRequest,
     SDKControlStopTaskRequest,
     SDKControlSuccessResponse,
+    SDKHookCallbackRequest,
     SDKKeepAliveMessage,
     SDKForkSessionOptions,
     SDKForkSessionResult,
@@ -1467,6 +1469,79 @@ def test_sdk_control_request_handler_routes_sdk_mcp_messages():
     assert {"name": "sdk-tools", "status": "disabled"} in disabled_status.response.response["mcpServers"]
     assert isinstance(blocked.response, SDKControlErrorResponse)
     assert "disabled" in blocked.response.error
+
+
+def test_sdk_control_request_handler_routes_hook_callbacks_and_elicitations():
+    client = AgentSDKClient(session_factory=_session_factory)
+
+    async def hook_handler(request):
+        return {
+            "decision": "approve",
+            "hookEventName": request.input["hookEventName"],
+            "toolUseID": request.tool_use_id,
+        }
+
+    def elicitation_handler(request):
+        assert request.mode == "form"
+        return {"action": "accept", "content": {"channel": "#ops", "server": request.mcp_server_name}}
+
+    client.register_hook_callback("hook-1", hook_handler)
+    client.set_elicitation_handler(elicitation_handler)
+
+    hook = asyncio.run(
+        client.handle_control_request(
+            SDKControlRequest(
+                request_id="hook-callback",
+                request=SDKHookCallbackRequest(
+                    callback_id="hook-1",
+                    input={"hookEventName": "PreToolUse"},
+                    tool_use_id="toolu_hook",
+                ),
+            )
+        )
+    )
+    missing_hook = asyncio.run(
+        client.handle_control_request(
+            SDKControlRequest(
+                request_id="missing-hook-callback",
+                request=SDKHookCallbackRequest(callback_id="missing", input={"hookEventName": "PreToolUse"}),
+            )
+        )
+    )
+    elicitation = asyncio.run(
+        client.handle_control_request(
+            SDKControlRequest(
+                request_id="elicitation",
+                request=SDKControlElicitationRequest(
+                    mcp_server_name="slack",
+                    message="Choose a channel",
+                    mode="form",
+                    requested_schema={"type": "object"},
+                ),
+            )
+        )
+    )
+    client.set_elicitation_handler(None)
+    default_elicitation = asyncio.run(
+        client.handle_control_request(
+            SDKControlRequest(
+                request_id="default-elicitation",
+                request=SDKControlElicitationRequest(mcp_server_name="docs", message="Need input"),
+            )
+        )
+    )
+
+    assert hook.response.response == {
+        "decision": "approve",
+        "hookEventName": "PreToolUse",
+        "toolUseID": "toolu_hook",
+    }
+    assert missing_hook.response.response == {}
+    assert elicitation.response.response == {
+        "action": "accept",
+        "content": {"channel": "#ops", "server": "slack"},
+    }
+    assert default_elicitation.response.response == {"action": "cancel"}
 
 
 def test_sdk_control_request_handler_stops_tasks_from_store():
