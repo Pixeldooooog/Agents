@@ -47,6 +47,7 @@ from agents.sdk import (
     SDKKeepAliveMessage,
     SDKForkSessionOptions,
     SDKForkSessionResult,
+    SDKHybridJsonlTransport,
     SDKListSessionsOptions,
     SDKOptions,
     SDKQueueJsonlTransport,
@@ -57,6 +58,7 @@ from agents.sdk import (
     SDKStdinDecodeError,
     SDKUpdateEnvironmentVariablesMessage,
     encode_stdout_message,
+    derive_hybrid_post_url,
     derive_sse_post_url,
     derive_sse_stream_url,
     handle_control_request,
@@ -2340,6 +2342,12 @@ def test_sdk_sse_url_helpers_match_src_origin_remote_io_shape():
     assert derive_sse_post_url(stream_url) == "https://api.example.com/session/abc/worker/events"
 
 
+def test_sdk_hybrid_url_helper_matches_src_origin_shape():
+    assert derive_hybrid_post_url("wss://api.example.com/v2/session_ingress/ws/abc?token=1") == (
+        "https://api.example.com/v2/session_ingress/session/abc/events?token=1"
+    )
+
+
 def test_sdk_sse_transport_unwraps_client_events_and_posts_stdout():
     async def chunks():
         yield ":keepalive\n\n"
@@ -2576,6 +2584,79 @@ def test_sdk_sse_transport_closes_after_reconnect_budget_exhaustion():
     assert is_closed is True
 
 
+def test_sdk_hybrid_transport_reads_from_reader_and_batches_ordered_posts():
+    async def execute():
+        reader = SDKQueueJsonlTransport()
+        posted = []
+
+        async def post_message(url, headers, body):
+            posted.append((url, dict(headers), body))
+            return 200
+
+        transport = SDKHybridJsonlTransport(
+            "wss://api.example.com/v2/session_ingress/ws/abc?token=1",
+            headers={"Authorization": "Bearer token"},
+            reader=reader,
+            post_message=post_message,
+            stream_event_flush_interval_seconds=60,
+        )
+        await reader.send('{"type":"keep_alive"}\n')
+        inbound = await asyncio.wait_for(transport.read(), timeout=1)
+        await transport.write('{"type":"stream_event","delta":"a"}\n')
+        await transport.write('{"type":"result","result":"done"}\n')
+        await transport.close()
+        return inbound, posted
+
+    inbound, posted = asyncio.run(execute())
+
+    assert inbound == '{"type":"keep_alive"}\n'
+    assert posted[0][0] == "https://api.example.com/v2/session_ingress/session/abc/events?token=1"
+    assert posted[0][1]["Authorization"] == "Bearer token"
+    assert posted[0][1]["Content-Type"] == "application/json"
+    assert posted[0][2] == {
+        "events": [
+            {"type": "stream_event", "delta": "a"},
+            {"type": "result", "result": "done"},
+        ]
+    }
+
+
+def test_sdk_hybrid_transport_retries_retryable_posts_and_tracks_drops():
+    async def execute():
+        statuses = [500, 500]
+        dropped = []
+        posted = []
+
+        async def post_message(url, headers, body):
+            posted.append(body)
+            return statuses.pop(0)
+
+        async def sleep(delay):
+            return None
+
+        transport = SDKHybridJsonlTransport(
+            "wss://api.example.com/v2/session_ingress/ws/abc",
+            reader=SDKQueueJsonlTransport(),
+            post_message=post_message,
+            max_consecutive_failures=2,
+            on_batch_dropped=lambda batch_size, failures: dropped.append((batch_size, failures)),
+            post_base_delay_seconds=0,
+            sleep=sleep,
+        )
+        await transport.write('{"type":"result","result":"dropped"}\n')
+        await transport.close()
+        return posted, dropped, transport.dropped_batch_count
+
+    posted, dropped, dropped_batch_count = asyncio.run(execute())
+
+    assert posted == [
+        {"events": [{"type": "result", "result": "dropped"}]},
+        {"events": [{"type": "result", "result": "dropped"}]},
+    ]
+    assert dropped == [(1, 2)]
+    assert dropped_batch_count == 1
+
+
 def test_sdk_run_jsonl_transport_pumps_queue_transport():
     async def execute():
         client = AgentSDKClient(session_factory=_echo_prompt_session_factory)
@@ -2600,6 +2681,47 @@ def test_sdk_run_jsonl_transport_pumps_queue_transport():
     assert closed is True
     assert results[0]["result"] == "hello transport"
     assert results[0]["session_id"] == "transport-session"
+
+
+def test_sdk_run_jsonl_transport_pumps_hybrid_transport():
+    async def execute():
+        client = AgentSDKClient(session_factory=_echo_prompt_session_factory)
+        reader = SDKQueueJsonlTransport()
+        posted = []
+
+        async def post_message(url, headers, body):
+            posted.append(body)
+            return 200
+
+        transport = SDKHybridJsonlTransport(
+            "wss://api.example.com/v2/session_ingress/ws/abc",
+            reader=reader,
+            post_message=post_message,
+            stream_event_flush_interval_seconds=0,
+        )
+        runner = asyncio.create_task(
+            client.run_jsonl_transport(transport, SDKOptions(session_id="hybrid-runner"))
+        )
+        await reader.send(
+            '{"type":"user","session_id":"hybrid-runner","uuid":"hybrid-user",'
+            '"message":{"role":"user","content":[{"type":"text","text":"hello hybrid"}]},'
+            '"isReplay":false}\n'
+        )
+        await reader.close_input()
+        await asyncio.wait_for(runner, timeout=1)
+        return posted, transport.closed
+
+    posted, closed = asyncio.run(execute())
+    result_events = [
+        event
+        for body in posted
+        for event in body["events"]
+        if event["type"] == "result"
+    ]
+
+    assert closed is True
+    assert result_events[0]["result"] == "hello hybrid"
+    assert result_events[0]["session_id"] == "hybrid-runner"
 
 
 def test_sdk_run_jsonl_transport_pumps_sse_transport():
