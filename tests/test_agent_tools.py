@@ -24,8 +24,8 @@ import pytest
 
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.governance import SandboxPolicy, build_tool_permission_policy, describe_tool_impact
-from agents.kernel.runtime import AgentResult, AgentRuntime, AgentSession
-from agents.kernel.schema import Message, RuntimeEvent, ToolCall
+from agents.kernel.runtime import AgentResult, AgentRuntime, AgentSession, ScriptedModelClient
+from agents.kernel.schema import Message, ModelResponse, RuntimeEvent, ToolCall
 from agents.kernel.hooks import InMemoryHookStore
 from agents.kernel.mcp_config import InMemoryMCPConfigStore
 from agents.kernel.session_state import InMemorySessionStateStore
@@ -1789,7 +1789,78 @@ def test_filesystem_read_extracts_pdf_pages_with_poppler(monkeypatch, tmp_path: 
     assert result.raw["file"]["originalSize"] == len(pdf_bytes)
     assert result.raw["file"]["count"] == 2
     assert sorted(path.name for path in Path(result.raw["file"]["outputDir"]).glob("*.jpg")) == ["page-2.jpg", "page-3.jpg"]
+    image_blocks = result.raw["newMessages"][0]["content"]
+    assert [block["type"] for block in image_blocks] == ["image", "image"]
+    assert [block["source"]["media_type"] for block in image_blocks] == ["image/jpeg", "image/jpeg"]
+    assert base64.b64decode(image_blocks[0]["source"]["data"]) == b"\xff\xd8\xffpage2"
+    assert base64.b64decode(image_blocks[1]["source"]["data"]) == b"\xff\xd8\xffpage3"
     assert result.content == "PDF pages extracted: 2 page(s) from sample.pdf (%d bytes)" % len(pdf_bytes)
+
+
+def test_runtime_injects_pdf_page_image_messages_after_read_tool(monkeypatch, tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "sample.pdf").write_bytes(b"%PDF-1.4\n%%EOF\n")
+
+    def fake_run(command, text=True, capture_output=True, check=False):
+        prefix = Path(command[-1])
+        (prefix.parent / "page-1.jpg").write_bytes(b"\xff\xd8\xffpage1")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(filesystem_tools.shutil, "which", lambda name: "/usr/bin/pdftoppm" if name == "pdftoppm" else None)
+    monkeypatch.setattr(filesystem_tools.subprocess, "run", fake_run)
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+    model = ScriptedModelClient(
+        [
+            ModelResponse(
+                message=Message.from_text(
+                    "assistant",
+                    "",
+                    tool_calls=[
+                        ToolCall(
+                            id="toolu-read-pdf",
+                            name="filesystem.read",
+                            arguments={"path": "sample.pdf", "pages": "1"},
+                        )
+                    ],
+                ),
+                stop_reason="tool_calls",
+            ),
+            ModelResponse(message=Message.from_text("assistant", "done")),
+        ]
+    )
+    runtime = AgentRuntime(
+        model_client=model,
+        tools=registry,
+        protocol="scripted",
+        model="scripted",
+        enabled_tools=["filesystem.read"],
+    )
+
+    result = asyncio.run(runtime.run([Message.from_text("user", "read page")]))
+
+    assert result.content == "done"
+    assert [message.role for message in result.messages] == ["user", "assistant", "tool", "user", "assistant"]
+    supplemental = result.messages[3]
+    assert supplemental.raw["isMeta"] is True
+    assert supplemental.raw["source_tool_call_id"] == "toolu-read-pdf"
+    assert supplemental.content[0].type == "image"
+    assert supplemental.content[0].data["source"]["media_type"] == "image/jpeg"
+    assert base64.b64decode(supplemental.content[0].data["source"]["data"]) == b"\xff\xd8\xffpage1"
+    assert model.requests[1].messages[3].content[0].type == "image"
 
 
 def test_filesystem_read_returns_src_origin_style_notebook_payload(tmp_path: Path):

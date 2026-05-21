@@ -110,7 +110,7 @@ def _claude_messages(messages: List[Message]) -> List[Dict[str, Any]]:
             continue
         blocks = []
         while index < len(messages) and messages[index].role == "tool":
-            blocks.append(_claude_tool_result_block(messages[index]))
+            blocks.extend(_claude_tool_result_blocks(messages[index]))
             index += 1
         payload.append({"role": "user", "content": blocks})
     return payload
@@ -118,10 +118,8 @@ def _claude_messages(messages: List[Message]) -> List[Dict[str, Any]]:
 
 def _claude_message(message: Message) -> Dict[str, Any]:
     if message.role == "tool":
-        return {"role": "user", "content": [_claude_tool_result_block(message)]}
-    content: List[Dict[str, Any]] = []
-    if message.content_text():
-        content.append({"type": "text", "text": message.content_text()})
+        return {"role": "user", "content": _claude_tool_result_blocks(message)}
+    content = _claude_content_blocks(message)
     for call in message.tool_calls:
         content.append({"type": "tool_use", "id": call.id, "name": call.name, "input": call.arguments})
     return {"role": "assistant" if message.role == "assistant" else "user", "content": content}
@@ -129,6 +127,34 @@ def _claude_message(message: Message) -> Dict[str, Any]:
 
 def _claude_tool(tool) -> Dict[str, Any]:
     return {"name": tool.name, "description": tool.description, "input_schema": tool.parameters}
+
+
+def _claude_content_blocks(message: Message) -> List[Dict[str, Any]]:
+    blocks: List[Dict[str, Any]] = []
+    for block in message.content:
+        if block.type == "text":
+            if block.text:
+                blocks.append({"type": "text", "text": block.text})
+            continue
+        if block.type == "image":
+            image = _claude_image_block(block)
+            if image is not None:
+                blocks.append(image)
+    return blocks
+
+
+def _claude_image_block(block) -> Optional[Dict[str, Any]]:
+    raw = block.raw if isinstance(block.raw, dict) else {}
+    if raw.get("type") == "image" and isinstance(raw.get("source"), dict):
+        return {"type": "image", "source": dict(raw["source"])}
+    source = block.data.get("source") if isinstance(block.data, dict) else None
+    if isinstance(source, dict):
+        return {"type": "image", "source": dict(source)}
+    return None
+
+
+def _claude_tool_result_blocks(message: Message) -> List[Dict[str, Any]]:
+    return [_claude_tool_result_block(message)]
 
 
 def _claude_tool_result_block(message: Message) -> Dict[str, Any]:

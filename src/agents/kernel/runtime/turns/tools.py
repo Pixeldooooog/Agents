@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Iterable, List
+from typing import Any, Iterable, List
 from uuid import uuid4
 
 from agents.kernel.hooks import AgentHooks, ToolHookDenied
 from agents.kernel.governance.permissions import AllowAllToolPermissionPolicy, ToolPermissionDecision, ToolPermissionPolicy
 from agents.kernel.runtime.events import tool_result_event
-from agents.kernel.schema import Message, RuntimeEvent, ToolCall, ToolResult
+from agents.kernel.schema import ContentBlock, Message, RuntimeEvent, ToolCall, ToolResult
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 
 
@@ -153,7 +153,7 @@ class ToolOrchestrator:
         return ToolExecutionBatch(
             results=results,
             events=result_events,
-            messages=[self.hooks.format_tool_result(result) for result in results],
+            messages=_tool_result_messages(results, self.hooks),
             canceled=canceled,
         )
 
@@ -182,6 +182,58 @@ def _hook_denied_result(call: ToolCall, error: ToolHookDenied) -> ToolResult:
 def _is_user_interrupted_result(result: ToolResult) -> bool:
     raw = result.raw if isinstance(result.raw, dict) else {}
     return raw.get("error") == "tool_execution_canceled" and raw.get("cancel_reason") == "user_interrupted"
+
+
+def _tool_result_messages(results: List[ToolResult], hooks: AgentHooks) -> List[Message]:
+    messages: List[Message] = []
+    for result in results:
+        messages.append(hooks.format_tool_result(result))
+        messages.extend(_supplemental_tool_result_messages(result))
+    return messages
+
+
+def _supplemental_tool_result_messages(result: ToolResult) -> List[Message]:
+    raw = result.raw if isinstance(result.raw, dict) else {}
+    raw_messages = raw.get("newMessages") if isinstance(raw.get("newMessages"), list) else raw.get("new_messages")
+    if not isinstance(raw_messages, list):
+        return []
+    messages: List[Message] = []
+    for item in raw_messages:
+        if not isinstance(item, dict):
+            continue
+        blocks = [
+            block
+            for block in (_content_block_from_supplemental(raw_block) for raw_block in item.get("content") or [])
+            if block is not None
+        ]
+        if not blocks:
+            continue
+        messages.append(
+            Message(
+                role=str(item.get("role") or "user"),
+                content=blocks,
+                raw={
+                    "isMeta": bool(item.get("isMeta", item.get("is_meta", True))),
+                    "source_tool_call_id": result.tool_call_id,
+                    "source_tool": result.name,
+                },
+            )
+        )
+    return messages
+
+
+def _content_block_from_supplemental(raw_block: Any) -> ContentBlock | None:
+    if not isinstance(raw_block, dict):
+        return None
+    block_type = str(raw_block.get("type") or "")
+    if block_type == "text":
+        return ContentBlock.from_text(str(raw_block.get("text") or ""), raw=raw_block)
+    if block_type == "image":
+        source = raw_block.get("source") if isinstance(raw_block.get("source"), dict) else {}
+        if not source:
+            return None
+        return ContentBlock(type="image", data={"source": dict(source)}, raw=raw_block)
+    return None
 
 
 def _tool_use_summary_event(

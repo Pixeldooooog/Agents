@@ -357,7 +357,32 @@ def _extract_pdf_pages(
             "count": len(image_files),
             "outputDir": str(output_dir),
         },
+        "newMessages": [
+            {
+                "role": "user",
+                "isMeta": True,
+                "content": _pdf_page_image_blocks(image_files),
+            }
+        ],
     }
+
+
+def _pdf_page_image_blocks(image_files: list[Path]) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = []
+    for image_file in image_files:
+        data = image_file.read_bytes()
+        media_type = _detect_image_media_type(data, image_file) or "image/jpeg"
+        blocks.append(
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": media_type,
+                    "data": base64.b64encode(data).decode("ascii"),
+                },
+            }
+        )
+    return blocks
 
 
 def _read_notebook_file(context: ToolRuntimeContext, path: str, pages: str | None = None) -> dict[str, Any]:

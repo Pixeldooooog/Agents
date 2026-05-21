@@ -19,7 +19,7 @@ from agents.kernel.models.errors import ModelConnectionError
 from agents.kernel.models.protocol import ModelStreamEventType, ModelStreamState, reasoning_delta, text_delta, usage_event
 from agents.kernel.models.retry import RetryPolicy
 from agents.kernel.models.transports import HttpxModelTransport, parse_sse_json_line
-from agents.kernel.schema import Message, ModelRequest, ModelUsage, ToolCall, ToolSpec
+from agents.kernel.schema import ContentBlock, Message, ModelRequest, ModelUsage, ToolCall, ToolSpec
 
 
 class FakeTransport:
@@ -385,6 +385,72 @@ def test_claude_messages_groups_consecutive_tool_results():
             {"type": "tool_result", "tool_use_id": "toolu-2", "content": "two"},
         ],
     }
+
+
+def test_claude_messages_serializes_supplemental_image_blocks():
+    adapter = ClaudeMessagesAdapter()
+    request = ModelRequest(
+        protocol="claude-messages",
+        model="claude-test",
+        messages=[
+            Message.from_text("user", "read the first PDF page"),
+            Message.from_text(
+                "assistant",
+                "",
+                tool_calls=[ToolCall(id="toolu-read-pdf", name="filesystem.read", arguments={})],
+            ),
+            Message.from_text(
+                "tool",
+                "PDF pages extracted: 1 page(s) from sample.pdf (20 bytes)",
+                tool_call_id="toolu-read-pdf",
+                name="filesystem.read",
+            ),
+            Message(
+                role="user",
+                content=[
+                    ContentBlock(
+                        type="image",
+                        data={
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/jpeg",
+                                "data": "anBlZw==",
+                            }
+                        },
+                    )
+                ],
+                raw={"isMeta": True},
+            ),
+        ],
+    )
+
+    payload = adapter.request_payload(request)
+
+    assert payload["messages"][1]["content"] == [
+        {
+            "type": "tool_use",
+            "id": "toolu-read-pdf",
+            "name": "filesystem.read",
+            "input": {},
+        }
+    ]
+    assert payload["messages"][2]["content"] == [
+        {
+            "type": "tool_result",
+            "tool_use_id": "toolu-read-pdf",
+            "content": "PDF pages extracted: 1 page(s) from sample.pdf (20 bytes)",
+        }
+    ]
+    assert payload["messages"][3]["content"] == [
+        {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/jpeg",
+                "data": "anBlZw==",
+            },
+        }
+    ]
 
 
 def test_gemini_adapter_builds_payload_and_parses_function_call():
