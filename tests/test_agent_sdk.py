@@ -10,11 +10,15 @@ from agents.kernel.models.protocol import message_event, reasoning_delta, retry_
 from agents.kernel.runtime import AgentRuntime, AgentSession, ScriptedModelClient
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 from agents.kernel.context.workspace import WorkspaceContext
+from agents.kernel.specs import AgentSpec
+from agents.kernel.tasks import TaskStatus
 from agents.sdk import (
     AgentSDKClient,
     SDKControlApplyFlagSettingsRequest,
+    SDKControlErrorResponse,
     SDKControlGetSettingsRequest,
     SDKControlInitializeRequest,
+    SDKControlMcpMessageRequest,
     SDKControlMcpSetServersRequest,
     SDKControlMcpStatusRequest,
     SDKControlMcpToggleRequest,
@@ -23,6 +27,7 @@ from agents.sdk import (
     SDKControlResponse,
     SDKControlSetModelRequest,
     SDKControlSetPermissionModeRequest,
+    SDKControlStopTaskRequest,
     SDKControlSuccessResponse,
     SDKKeepAliveMessage,
     SDKForkSessionOptions,
@@ -1391,6 +1396,113 @@ def test_sdk_control_request_handler_applies_session_options_and_mcp_state():
     assert {"name": "docs", "status": "connected"} in mcp_status.response.response["mcpServers"]
     assert mcp_toggle.response.response == {"serverName": "docs", "enabled": False}
     assert {"name": "docs", "status": "disabled"} in mcp_status_after_toggle.response.response["mcpServers"]
+
+
+def test_sdk_control_request_handler_routes_sdk_mcp_messages():
+    client = AgentSDKClient(session_factory=_session_factory)
+
+    async def sdk_mcp_handler(message):
+        return {
+            "jsonrpc": "2.0",
+            "id": message["id"],
+            "result": {"echoed_method": message["method"]},
+        }
+
+    client.register_sdk_mcp_server("sdk-tools", sdk_mcp_handler)
+    session = client.create_sdk_session(
+        SDKOptions(
+            session_id="control-mcp-session",
+            tenant_id="tenant",
+            user_id="user",
+            agent_id="agent",
+        )
+    )
+
+    status = asyncio.run(
+        session.handle_control_request(
+            SDKControlRequest(request_id="mcp-status", request=SDKControlMcpStatusRequest())
+        )
+    )
+    message = asyncio.run(
+        session.handle_control_request(
+            SDKControlRequest(
+                request_id="mcp-message",
+                request=SDKControlMcpMessageRequest(
+                    server_name="sdk-tools",
+                    message={"jsonrpc": "2.0", "id": 7, "method": "tools/list"},
+                ),
+            )
+        )
+    )
+    disabled = asyncio.run(
+        session.handle_control_request(
+            SDKControlRequest(
+                request_id="disable-sdk-mcp",
+                request=SDKControlMcpToggleRequest(serverName="sdk-tools", enabled=False),
+            )
+        )
+    )
+    disabled_status = asyncio.run(
+        session.handle_control_request(
+            SDKControlRequest(request_id="mcp-status-disabled", request=SDKControlMcpStatusRequest())
+        )
+    )
+    blocked = asyncio.run(
+        session.handle_control_request(
+            SDKControlRequest(
+                request_id="mcp-message-disabled",
+                request=SDKControlMcpMessageRequest(
+                    server_name="sdk-tools",
+                    message={"jsonrpc": "2.0", "id": 8, "method": "tools/list"},
+                ),
+            )
+        )
+    )
+
+    assert {"name": "sdk-tools", "status": "connected"} in status.response.response["mcpServers"]
+    assert message.response.response == {
+        "mcp_response": {"jsonrpc": "2.0", "id": 7, "result": {"echoed_method": "tools/list"}}
+    }
+    assert disabled.response.response == {"serverName": "sdk-tools", "enabled": False}
+    assert {"name": "sdk-tools", "status": "disabled"} in disabled_status.response.response["mcpServers"]
+    assert isinstance(blocked.response, SDKControlErrorResponse)
+    assert "disabled" in blocked.response.error
+
+
+def test_sdk_control_request_handler_stops_tasks_from_store():
+    client = AgentSDKClient(session_factory=_session_factory)
+    spec = AgentSpec.from_overrides(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+    )
+    task = asyncio.run(client.persistence.tasks.create_task(spec, title="Long task", input="work"))
+    task = asyncio.run(client.persistence.tasks.set_task_status(task.task_id, TaskStatus.RUNNING))
+    session = client.create_sdk_session(
+        SDKOptions(
+            session_id="control-task-session",
+            tenant_id="tenant",
+            user_id="user",
+            agent_id="agent",
+        )
+    )
+
+    response = asyncio.run(
+        session.handle_control_request(
+            SDKControlRequest(
+                request_id="stop-task",
+                request=SDKControlStopTaskRequest(task_id=task.task_id.replace("task_", "", 1)[:12]),
+            )
+        )
+    )
+    stored = asyncio.run(client.persistence.tasks.load_task(task.task_id))
+
+    assert isinstance(response.response, SDKControlSuccessResponse)
+    assert response.response.response["stopped"] is True
+    assert response.response.response["task"]["task_id"] == task.task_id
+    assert response.response.response["task"]["status"] == "canceled"
+    assert stored.status == TaskStatus.CANCELED
 
 
 async def _collect(messages):

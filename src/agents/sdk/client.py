@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import inspect
 import json
 import time
 import uuid
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Literal
@@ -15,6 +16,7 @@ from agents.kernel.governance.factory import build_tool_permission_policy
 from agents.kernel.mcp_config import MCPServerRecord
 from agents.kernel.schema import RuntimeEvent, ToolCall
 from agents.kernel.specs import AgentSpec
+from agents.kernel.tasks import TaskEngine, TaskRecord
 from agents.platform.commands import COMMANDS, command_names
 from agents.kernel.state.runs import RunRecord
 from agents.platform.persistence import PlatformPersistence, create_ephemeral_persistence
@@ -84,6 +86,7 @@ from agents.sdk.types import (
 
 
 SessionFactory = Callable[[Any, AgentSpec], Any]
+SDKMcpMessageHandler = Callable[[Any], Any]
 
 try:
     _SDK_VERSION = version("agents")
@@ -99,6 +102,7 @@ class AgentSDKClient:
     persistence: PlatformPersistence | None = None
     run_service: RunService | None = None
     session_factory: SessionFactory | None = None
+    sdk_mcp_handlers: dict[str, SDKMcpMessageHandler] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.settings is None:
@@ -143,6 +147,15 @@ class AgentSDKClient:
             session_id=session_id,
             options=options.model_copy(update={"session_id": session_id}),
         )
+
+    def register_sdk_mcp_server(self, name: str, handler: SDKMcpMessageHandler) -> None:
+        server_name = str(name or "").strip()
+        if not server_name:
+            raise ValueError("SDK MCP server name is required")
+        self.sdk_mcp_handlers[server_name] = handler
+
+    def unregister_sdk_mcp_server(self, name: str) -> None:
+        self.sdk_mcp_handlers.pop(str(name or "").strip(), None)
 
     async def resume_session(self, session_id: str, options: SDKOptions | dict[str, Any] | None = None) -> "SDKSession":
         info = await self.get_session_info(session_id)
@@ -409,9 +422,9 @@ class AgentSDKClient:
         if isinstance(request, SDKControlSeedReadStateRequest):
             return {"seeded": False, "path": request.path, "mtime": request.mtime}
         if isinstance(request, SDKControlMcpMessageRequest):
-            return {"sent": False, "server_name": request.server_name}
+            return await self._mcp_message_control_response(request, options)
         if isinstance(request, SDKControlStopTaskRequest):
-            return {"stopped": False, "task_id": request.task_id}
+            return await self._stop_task_control_response(request, options)
         if isinstance(request, SDKControlElicitationRequest):
             return {"action": "cancel"}
         return {}
@@ -423,7 +436,8 @@ class AgentSDKClient:
             agent_id=options.agent_id or "",
             workspace_id="",
         )
-        return [dict(item) for item in statuses]
+        sdk_statuses = [{"name": name, "status": "connected"} for name in self.sdk_mcp_handlers]
+        return [dict(item) for item in _merge_mcp_server_statuses(sdk_statuses, statuses)]
 
     async def _mcp_set_servers_control_response(
         self,
@@ -494,7 +508,82 @@ class AgentSDKClient:
             if record.name == request.serverName:
                 await self.persistence.mcp_configs.save(replace(record, enabled=request.enabled))
                 return {"serverName": request.serverName, "enabled": request.enabled}
-        return {"serverName": request.serverName, "enabled": False, "error": "MCP server not found"}
+        if request.serverName in self.sdk_mcp_handlers:
+            await self.persistence.mcp_configs.save(
+                MCPServerRecord(
+                    name=request.serverName,
+                    command="",
+                    transport="sdk",
+                    enabled=request.enabled,
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    agent_id=agent_id,
+                    workspace_id=workspace_id,
+                )
+            )
+            return {"serverName": request.serverName, "enabled": request.enabled}
+        raise KeyError("MCP server not found: %s" % request.serverName)
+
+    async def _mcp_message_control_response(
+        self,
+        request: SDKControlMcpMessageRequest,
+        options: SDKOptions,
+    ) -> dict[str, Any]:
+        handler = self.sdk_mcp_handlers.get(request.server_name)
+        if handler is None:
+            raise KeyError("SDK MCP server not registered: %s" % request.server_name)
+        if not await self._sdk_mcp_server_enabled(request.server_name, options):
+            raise RuntimeError("SDK MCP server is disabled: %s" % request.server_name)
+        response = handler(request.message)
+        if inspect.isawaitable(response):
+            response = await response
+        return {"mcp_response": response}
+
+    async def _sdk_mcp_server_enabled(self, name: str, options: SDKOptions) -> bool:
+        assert self.persistence is not None
+        records = await self.persistence.mcp_configs.list_for_scope(
+            tenant_id=options.tenant_id or "",
+            user_id=options.user_id or "",
+            agent_id=options.agent_id or "",
+            workspace_id="",
+        )
+        for record in records:
+            if record.name == name:
+                return bool(record.enabled)
+        return True
+
+    async def _stop_task_control_response(
+        self,
+        request: SDKControlStopTaskRequest,
+        options: SDKOptions,
+    ) -> dict[str, Any]:
+        assert self.persistence is not None
+        task = await self._resolve_sdk_task(request.task_id, options)
+        updated = await TaskEngine(self.persistence.tasks).cancel_task(task.task_id)
+        return {"stopped": True, "task": _sdk_task_payload(updated)}
+
+    async def _resolve_sdk_task(self, task_id: str, options: SDKOptions) -> TaskRecord:
+        assert self.persistence is not None
+        target = str(task_id or "").strip()
+        if not target:
+            raise ValueError("task_id is required")
+        task = await self.persistence.tasks.load_task(target)
+        if task is not None and _task_in_sdk_scope(task, options):
+            return task
+        matches = [
+            task
+            for task in await self.persistence.tasks.list_tasks(
+                options.tenant_id or "",
+                user_id=options.user_id or "",
+                agent_id=options.agent_id or "",
+            )
+            if _task_id_matches(task.task_id, target)
+        ]
+        if not matches:
+            raise KeyError("task not found: %s" % target)
+        if len(matches) > 1:
+            raise ValueError("task id is ambiguous: %s" % target)
+        return matches[0]
 
     async def _system_message_from_session(
         self,
@@ -1097,6 +1186,33 @@ def _mcp_record_from_control_config(
         agent_id=agent_id,
         workspace_id=workspace_id,
     )
+
+
+def _task_in_sdk_scope(task: TaskRecord, options: SDKOptions) -> bool:
+    return (
+        task.tenant_id == (options.tenant_id or "")
+        and task.user_id in ("", options.user_id or "")
+        and task.agent_id in ("", options.agent_id or "")
+    )
+
+
+def _task_id_matches(task_id: str, target: str) -> bool:
+    return task_id == target or task_id.replace("task_", "", 1).startswith(target)
+
+
+def _sdk_task_payload(task: TaskRecord) -> dict[str, Any]:
+    return {
+        "task_id": task.task_id,
+        "short_id": task.task_id.replace("task_", "", 1)[:12],
+        "title": task.title,
+        "input": task.input,
+        "status": task.status.value,
+        "agent_id": task.agent_id,
+        "workspace_id": task.workspace_id,
+        "metadata": dict(task.metadata),
+        "created_at": task.created_at,
+        "updated_at": task.updated_at,
+    }
 
 
 def _sdk_system_message(
