@@ -50,16 +50,20 @@ from agents.sdk import (
     SDKListSessionsOptions,
     SDKOptions,
     SDKQueueJsonlTransport,
+    SDKSSEJsonlTransport,
     SDKSessionInfo,
     SDKSession,
     SDKStructuredIO,
     SDKStdinDecodeError,
     SDKUpdateEnvironmentVariablesMessage,
     encode_stdout_message,
+    derive_sse_post_url,
+    derive_sse_stream_url,
     handle_control_request,
     iter_stdin_jsonl,
     ndjson_safe_dumps,
     normalize_sdk_control_message_keys,
+    parse_sse_frames,
     run_jsonl_transport,
     sdk_control_request_json_schema,
     sdk_control_response_json_schema,
@@ -2312,6 +2316,93 @@ def test_sdk_run_stdin_jsonl_uses_structured_frame_codec():
     assert results[0]["session_id"] == "jsonl-session"
 
 
+def test_sdk_sse_frame_parser_handles_comments_partial_and_multiline_data():
+    frames, remaining = parse_sse_frames(
+        ":keepalive\n\n"
+        'id: 7\nevent: client_event\ndata: {"a":1}\ndata: {"b":2}\n\n'
+        'id: 8\nevent: client_event\ndata: {"partial":true}'
+    )
+
+    assert len(frames) == 2
+    assert frames[0].event is None
+    assert frames[0].id is None
+    assert frames[0].data is None
+    assert frames[1].id == "7"
+    assert frames[1].event == "client_event"
+    assert frames[1].data == '{"a":1}\n{"b":2}'
+    assert remaining == 'id: 8\nevent: client_event\ndata: {"partial":true}'
+
+
+def test_sdk_sse_url_helpers_match_src_origin_remote_io_shape():
+    stream_url = derive_sse_stream_url("wss://api.example.com/session/abc?token=1")
+
+    assert stream_url == "https://api.example.com/session/abc/worker/events/stream?token=1"
+    assert derive_sse_post_url(stream_url) == "https://api.example.com/session/abc/worker/events"
+
+
+def test_sdk_sse_transport_unwraps_client_events_and_posts_stdout():
+    async def chunks():
+        yield ":keepalive\n\n"
+        yield (
+            "id: 41\n"
+            "event: client_event\n"
+            "data: "
+            + json.dumps(
+                {
+                    "event_id": "evt-41",
+                    "sequence_num": 41,
+                    "event_type": "sdk",
+                    "source": "worker",
+                    "payload": {
+                        "type": "user",
+                        "session_id": "sse-session",
+                        "uuid": "sse-user",
+                        "message": {
+                            "role": "user",
+                            "content": [{"type": "text", "text": "hello sse"}],
+                        },
+                        "isReplay": False,
+                    },
+                    "created_at": "2026-05-21T00:00:00Z",
+                },
+                separators=(",", ":"),
+            )
+            + "\n\n"
+        )
+
+    async def execute():
+        posted = []
+
+        async def post_message(url, headers, message):
+            posted.append((url, dict(headers), message))
+            return 201
+
+        transport = SDKSSEJsonlTransport(
+            "https://api.example.com/session/abc/worker/events/stream",
+            headers={"Authorization": "Bearer token"},
+            read_chunks=chunks(),
+            post_message=post_message,
+        )
+        line = await asyncio.wait_for(transport.read(), timeout=1)
+        closed = await asyncio.wait_for(transport.read(), timeout=1)
+        await transport.write('{"type":"keep_alive"}\n')
+        await transport.close()
+        return line, closed, posted, transport.get_last_sequence_num()
+
+    line, closed, posted, last_sequence_num = asyncio.run(execute())
+    payload = json.loads(line)
+
+    assert payload["type"] == "user"
+    assert payload["session_id"] == "sse-session"
+    assert payload["message"]["content"][0]["text"] == "hello sse"
+    assert closed is None
+    assert last_sequence_num == 41
+    assert posted[0][0] == "https://api.example.com/session/abc/worker/events"
+    assert posted[0][1]["Content-Type"] == "application/json"
+    assert posted[0][1]["Authorization"] == "Bearer token"
+    assert posted[0][2] == {"type": "keep_alive"}
+
+
 def test_sdk_run_jsonl_transport_pumps_queue_transport():
     async def execute():
         client = AgentSDKClient(session_factory=_echo_prompt_session_factory)
@@ -2336,6 +2427,61 @@ def test_sdk_run_jsonl_transport_pumps_queue_transport():
     assert closed is True
     assert results[0]["result"] == "hello transport"
     assert results[0]["session_id"] == "transport-session"
+
+
+def test_sdk_run_jsonl_transport_pumps_sse_transport():
+    async def chunks():
+        yield (
+            "id: 9\n"
+            "event: client_event\n"
+            "data: "
+            + json.dumps(
+                {
+                    "event_id": "evt-9",
+                    "sequence_num": 9,
+                    "event_type": "sdk",
+                    "source": "worker",
+                    "payload": {
+                        "type": "user",
+                        "session_id": "sse-runner",
+                        "uuid": "sse-runner-user",
+                        "message": {
+                            "role": "user",
+                            "content": [{"type": "text", "text": "hello runner"}],
+                        },
+                        "isReplay": False,
+                    },
+                    "created_at": "2026-05-21T00:00:00Z",
+                },
+                separators=(",", ":"),
+            )
+            + "\n\n"
+        )
+
+    async def execute():
+        client = AgentSDKClient(session_factory=_echo_prompt_session_factory)
+        posted = []
+
+        async def post_message(url, headers, message):
+            posted.append(message)
+            return 200
+
+        transport = SDKSSEJsonlTransport(
+            "https://api.example.com/session/abc/worker/events/stream",
+            read_chunks=chunks(),
+            post_message=post_message,
+            post_base_delay_seconds=0,
+        )
+        await client.run_jsonl_transport(transport, SDKOptions(session_id="sse-runner"))
+        return posted, transport.closed, transport.last_sequence_num
+
+    posted, closed, last_sequence_num = asyncio.run(execute())
+    results = [message for message in posted if message["type"] == "result"]
+
+    assert closed is True
+    assert last_sequence_num == 9
+    assert results[0]["result"] == "hello runner"
+    assert results[0]["session_id"] == "sse-runner"
 
 
 def test_sdk_jsonl_transport_drains_structured_io_outbound_and_responses():

@@ -74,6 +74,12 @@ from agents.sdk.structured_io import (
 from agents.sdk.transports import (
     SDKJsonlTransport,
     SDKQueueJsonlTransport,
+    SDKSSEFrame,
+    SDKSSEJsonlTransport,
+    SDKSSEPostHandler,
+    derive_sse_post_url,
+    derive_sse_stream_url,
+    parse_sse_frames,
     SDKWebSocketJsonlTransport,
 )
 from agents.sdk.types import (
@@ -186,7 +192,12 @@ __all__ = [
     "SDKUpdateEnvironmentVariablesMessage",
     "SDKUserMessage",
     "SDKQueueJsonlTransport",
+    "SDKSSEFrame",
+    "SDKSSEJsonlTransport",
+    "SDKSSEPostHandler",
     "SDKWebSocketJsonlTransport",
+    "derive_sse_post_url",
+    "derive_sse_stream_url",
     "fork_session",
     "get_session_info",
     "get_session_messages",
@@ -195,6 +206,7 @@ __all__ = [
     "list_sessions",
     "normalize_sdk_control_message_keys",
     "ndjson_safe_dumps",
+    "parse_sse_frames",
     "prompt",
     "query",
     "rename_session",
