@@ -40,6 +40,7 @@ from agents.sdk.types import (
     SDKTaskProgressMessage,
     SDKTaskStartedMessage,
     SDKToolProgressMessage,
+    SDKToolUseSummaryMessage,
     SDKUserMessage,
 )
 
@@ -1167,6 +1168,16 @@ def _project_runtime_event(
             content=_local_command_output_content(event.payload),
             uuid=_text_field(event.payload, "uuid", "message_id", "messageId") or str(uuid.uuid4()),
         )
+    if event.type == "tool_use_summary":
+        return SDKToolUseSummaryMessage(
+            session_id=session_id,
+            run_id=run_id,
+            summary=str(event.payload.get("summary") or ""),
+            preceding_tool_use_ids=_string_list_field(
+                event.payload.get("preceding_tool_use_ids", event.payload.get("precedingToolUseIds"))
+            ),
+            uuid=_text_field(event.payload, "uuid", "message_id", "messageId") or str(uuid.uuid4()),
+        )
     if event.type == "hook_started":
         return SDKHookStartedMessage(
             session_id=session_id,
@@ -1314,6 +1325,12 @@ def _text_field(payload: dict[str, Any], *keys: str) -> str:
         if value is not None:
             return str(value)
     return ""
+
+
+def _string_list_field(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item or "")]
 
 
 def _optional_int(value: Any) -> int | None:

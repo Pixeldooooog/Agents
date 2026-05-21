@@ -222,6 +222,13 @@ class SDKHookResponseMessage(SDKBaseMessage):
     uuid: str = Field(default_factory=lambda: str(uuid4()))
 
 
+class SDKToolUseSummaryMessage(SDKBaseMessage):
+    type: Literal["tool_use_summary"] = "tool_use_summary"
+    summary: str
+    preceding_tool_use_ids: list[str] = Field(default_factory=list)
+    uuid: str = Field(default_factory=lambda: str(uuid4()))
+
+
 class SDKAssistantMessage(SDKBaseMessage):
     type: Literal["assistant"] = "assistant"
     content: str = ""
@@ -289,6 +296,7 @@ SDKMessage = Union[
     SDKHookStartedMessage,
     SDKHookProgressMessage,
     SDKHookResponseMessage,
+    SDKToolUseSummaryMessage,
     SDKUserMessage,
     SDKAssistantMessage,
     SDKToolProgressMessage,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from typing import Iterable, List
+from uuid import uuid4
 
 from agents.kernel.hooks import AgentHooks, ToolHookDenied
 from agents.kernel.governance.permissions import AllowAllToolPermissionPolicy, ToolPermissionDecision, ToolPermissionPolicy
@@ -142,6 +143,13 @@ class ToolOrchestrator:
         for index, result in enumerate(results):
             call = prepared.transformed_calls_by_index.get(index, prepared.calls[index])
             result_events.append(tool_result_event(result, contract=self.describe_call(call)))
+        summary_calls = [
+            prepared.transformed_calls_by_index.get(index, prepared.calls[index])
+            for index in range(len(prepared.calls))
+        ]
+        summary = _tool_use_summary_event(results, summary_calls, self.describe_call)
+        if summary is not None:
+            result_events.append(summary)
         return ToolExecutionBatch(
             results=results,
             events=result_events,
@@ -174,3 +182,46 @@ def _hook_denied_result(call: ToolCall, error: ToolHookDenied) -> ToolResult:
 def _is_user_interrupted_result(result: ToolResult) -> bool:
     raw = result.raw if isinstance(result.raw, dict) else {}
     return raw.get("error") == "tool_execution_canceled" and raw.get("cancel_reason") == "user_interrupted"
+
+
+def _tool_use_summary_event(
+    results: List[ToolResult],
+    calls: List[ToolCall],
+    contract_provider,
+) -> RuntimeEvent | None:
+    preceding_tool_use_ids = [result.tool_call_id for result in results if result.tool_call_id]
+    if not preceding_tool_use_ids:
+        return None
+    summary = _tool_batch_summary(results, calls, contract_provider)
+    if not summary:
+        return None
+    return RuntimeEvent(
+        type="tool_use_summary",
+        name="tools",
+        payload={
+            "summary": summary,
+            "preceding_tool_use_ids": preceding_tool_use_ids,
+            "uuid": str(uuid4()),
+        },
+    )
+
+
+def _tool_batch_summary(
+    results: List[ToolResult],
+    calls: List[ToolCall],
+    contract_provider,
+) -> str:
+    if len(results) == 1:
+        result = results[0]
+        call = calls[0] if calls else ToolCall(id=result.tool_call_id, name=result.name, arguments={})
+        contract = contract_provider(call)
+        activity = contract.get("activity") if isinstance(contract, dict) else {}
+        if isinstance(activity, dict) and activity.get("summary"):
+            return str(activity["summary"])
+        if result.is_error:
+            return "Failed %s" % result.name
+        return "Ran %s" % result.name
+    failures = sum(1 for result in results if result.is_error)
+    if failures:
+        return "Ran %d tools, %d failed" % (len(results), failures)
+    return "Ran %d tools" % len(results)

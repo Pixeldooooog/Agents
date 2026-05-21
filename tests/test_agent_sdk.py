@@ -40,6 +40,7 @@ from agents.sdk.types import (
     SDKTaskProgressMessage,
     SDKTaskStartedMessage,
     SDKToolProgressMessage,
+    SDKToolUseSummaryMessage,
     SDKUserMessage,
 )
 
@@ -415,6 +416,7 @@ def test_sdk_query_hides_store_wiring_and_streams_typed_messages():
     client = AgentSDKClient(session_factory=_session_factory)
 
     messages = asyncio.run(_collect(client.query("say hi", SDKOptions(session_id="session-1"))))
+    replay = asyncio.run(client.get_session_messages("session-1", {"include_system_messages": False}))
 
     assert isinstance(messages[0], SDKSystemMessage)
     assert messages[0].session_id == "session-1"
@@ -422,6 +424,7 @@ def test_sdk_query_hides_store_wiring_and_streams_typed_messages():
     states = [message.state for message in messages if isinstance(message, SDKSessionStateChangedMessage)]
     assert states == ["running", "idle"]
     tool_messages = [message for message in messages if isinstance(message, SDKToolProgressMessage)]
+    summaries = [message for message in messages if isinstance(message, SDKToolUseSummaryMessage)]
     assert len(tool_messages) == 2
     assert tool_messages[0].status == "started"
     assert tool_messages[0].activity == {"kind": "terminal", "title": "Echo text", "target_argument": "text"}
@@ -429,6 +432,9 @@ def test_sdk_query_hides_store_wiring_and_streams_typed_messages():
     assert tool_messages[1].status == "completed"
     assert tool_messages[1].activity["kind"] == "terminal"
     assert tool_messages[1].target == "hi"
+    assert summaries[0].summary == "Ran echo"
+    assert summaries[0].preceding_tool_use_ids == ["call-1"]
+    assert any(isinstance(message, SDKToolUseSummaryMessage) for message in replay)
     result = next(message for message in messages if isinstance(message, SDKResultMessage))
     assert result.content == "done"
     assert result.status == "finished"
@@ -745,6 +751,7 @@ def test_sdk_exports_json_schemas_and_rejects_invalid_messages():
     assert "SDKTaskStartedMessage" in message_schema["$defs"]
     assert "SDKTaskProgressMessage" in message_schema["$defs"]
     assert "SDKTaskNotificationMessage" in message_schema["$defs"]
+    assert "SDKToolUseSummaryMessage" in message_schema["$defs"]
     assert "SDKUserMessage" in message_schema["$defs"]
     assert "SDKToolProgressMessage" in message_schema["$defs"]
     assert result_schema["properties"]["type"]["const"] == "result"

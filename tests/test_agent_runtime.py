@@ -901,10 +901,12 @@ def test_agent_runtime_stream_continues_after_tool_error_result():
 
     events = asyncio.run(collect())
 
-    assert [event.type for event in events] == ["tool_start", "tool_result", "text_delta", "done"]
+    assert [event.type for event in events] == ["tool_start", "tool_result", "tool_use_summary", "text_delta", "done"]
     tool_result = events[1]
     assert tool_result.payload["is_error"] is True
     assert tool_result.payload["content"] == "tool exploded"
+    assert events[2].payload["summary"] == "Failed boom"
+    assert events[2].payload["preceding_tool_use_ids"] == ["call-1"]
     assert events[-1].payload["content"] == "handled tool failure"
 
 
@@ -991,8 +993,9 @@ def test_agent_runtime_returns_canceled_result_when_tool_execution_is_interrupte
     assert [item.tool_call_id for item in result.tool_results] == ["call-1"]
     assert result.tool_results[0].raw["error"] == "tool_execution_canceled"
     assert result.tool_results[0].raw["cancel_reason"] == "user_interrupted"
-    assert [event.type for event in result.events] == ["model_message", "tool_start", "tool_result"]
-    assert result.events[-1].payload["contract"]["activity"]["kind"] == "terminal"
+    assert [event.type for event in result.events] == ["model_message", "tool_start", "tool_result", "tool_use_summary"]
+    assert result.events[-2].payload["contract"]["activity"]["kind"] == "terminal"
+    assert result.events[-1].payload["preceding_tool_use_ids"] == ["call-1"]
     assert checkpoint.step == "canceled"
 
 
@@ -1030,8 +1033,9 @@ def test_agent_runtime_stream_returns_canceled_done_when_tool_execution_is_inter
 
     events = asyncio.run(collect_and_cancel())
 
-    assert [event.type for event in events] == ["tool_start", "tool_result", "done"]
+    assert [event.type for event in events] == ["tool_start", "tool_result", "tool_use_summary", "done"]
     assert events[1].payload["raw"]["cancel_reason"] == "user_interrupted"
+    assert events[2].payload["preceding_tool_use_ids"] == ["call-1"]
     assert events[-1].payload["status"] == "canceled"
     assert events[-1].payload["content"] == "run canceled"
 
@@ -1140,6 +1144,7 @@ def test_agent_runtime_stream_does_not_emit_tool_start_for_hook_denied_tool():
         "hook_progress",
         "hook_response",
         "tool_result",
+        "tool_use_summary",
         "text_delta",
         "done",
     ]
@@ -1149,6 +1154,7 @@ def test_agent_runtime_stream_does_not_emit_tool_start_for_hook_denied_tool():
     assert events[2].payload["output"] == "shell blocked"
     assert events[3].payload["is_error"] is True
     assert events[3].payload["content"] == "shell blocked"
+    assert events[4].payload["summary"] == "Failed shell.run"
 
 
 def test_agent_runtime_stream_done_uses_error_content_on_failure():
@@ -1230,9 +1236,11 @@ def test_agent_runtime_resume_stream_continues_after_tool_approval():
         "tool_approval_decision",
         "tool_start",
         "tool_result",
+        "tool_use_summary",
         "text_delta",
         "done",
     ]
+    assert resumed_events[3].payload["preceding_tool_use_ids"] == ["call-1"]
     assert resumed_events[-1].payload["status"] == "finished"
     assert resumed_events[-1].payload["event_count"] == len(checkpoint.events)
 
