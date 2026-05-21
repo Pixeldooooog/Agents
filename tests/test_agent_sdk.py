@@ -2691,6 +2691,113 @@ def test_sdk_ccr_client_writes_client_and_internal_events():
     }
 
 
+def test_sdk_ccr_client_coalesces_stream_event_text_deltas():
+    async def execute():
+        requests = []
+
+        async def request(method, path, headers, body):
+            requests.append((method, path, body))
+            return SDKCCRRequestResult(True)
+
+        client = SDKCCRClient(
+            "https://api.example.com/v1/code/sessions/session-3",
+            request=request,
+            get_auth_headers=lambda: {"Authorization": "Bearer token"},
+            heartbeat_interval_seconds=None,
+            stream_event_flush_interval_seconds=60,
+        )
+        await client.initialize(epoch=11)
+        await client.write_event(
+            {
+                "type": "stream_event",
+                "uuid": "start-1",
+                "session_id": "session-3",
+                "parent_tool_use_id": None,
+                "event": {
+                    "type": "message_start",
+                    "message": {"id": "msg-1"},
+                },
+            }
+        )
+        await client.write_event(
+            {
+                "type": "stream_event",
+                "uuid": "delta-1",
+                "session_id": "session-3",
+                "parent_tool_use_id": None,
+                "event": {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": "he"},
+                },
+            }
+        )
+        await client.flush()
+        await client.write_event(
+            {
+                "type": "stream_event",
+                "uuid": "delta-2",
+                "session_id": "session-3",
+                "parent_tool_use_id": None,
+                "event": {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": "llo"},
+                },
+            }
+        )
+        await client.flush()
+        await client.close()
+        return requests
+
+    requests = asyncio.run(execute())
+    first_batch = requests[1][2]["events"]
+    second_batch = requests[2][2]["events"]
+
+    assert first_batch == [
+        {
+            "payload": {
+                "type": "stream_event",
+                "uuid": "start-1",
+                "session_id": "session-3",
+                "parent_tool_use_id": None,
+                "event": {"type": "message_start", "message": {"id": "msg-1"}},
+            },
+            "ephemeral": True,
+        },
+        {
+            "payload": {
+                "type": "stream_event",
+                "uuid": "delta-1",
+                "session_id": "session-3",
+                "parent_tool_use_id": None,
+                "event": {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": "he"},
+                },
+            },
+            "ephemeral": True,
+        },
+    ]
+    assert second_batch == [
+        {
+            "payload": {
+                "type": "stream_event",
+                "uuid": "delta-2",
+                "session_id": "session-3",
+                "parent_tool_use_id": None,
+                "event": {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "text_delta", "text": "hello"},
+                },
+            },
+            "ephemeral": True,
+        }
+    ]
+
+
 def test_sdk_worker_state_uploader_coalesces_metadata_patches():
     async def execute():
         sent = []

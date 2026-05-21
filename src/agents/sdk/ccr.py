@@ -16,6 +16,7 @@ CCR_UPLOAD_BASE_DELAY_SECONDS = 0.5
 CCR_UPLOAD_MAX_DELAY_SECONDS = 30.0
 CCR_WORKER_STATE_BASE_DELAY_SECONDS = 0.5
 CCR_WORKER_STATE_MAX_DELAY_SECONDS = 30.0
+CCR_STREAM_EVENT_FLUSH_INTERVAL_SECONDS = 0.1
 
 
 SDKCCRDeliveryStatus = Literal["received", "processing", "processed"]
@@ -46,6 +47,12 @@ class SDKCCRRequestResult:
         self.status = status
         self.data = data
         self.retry_after_seconds = retry_after_seconds
+
+
+class _SDKCCRStreamAccumulator:
+    def __init__(self) -> None:
+        self.by_message: dict[str, dict[int, list[str]]] = {}
+        self.scope_to_message: dict[str, str] = {}
 
 
 class SDKWorkerStateUploader:
@@ -122,6 +129,7 @@ class SDKCCRClient:
         request: SDKCCRRequestHandler | None = None,
         get_auth_headers: Callable[[], Mapping[str, str]] | None = None,
         heartbeat_interval_seconds: float | None = CCR_HEARTBEAT_INTERVAL_SECONDS,
+        stream_event_flush_interval_seconds: float = CCR_STREAM_EVENT_FLUSH_INTERVAL_SECONDS,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self.session_base_url = _normalize_session_url(session_url)
@@ -132,10 +140,14 @@ class SDKCCRClient:
         self._request_handler = request
         self._get_auth_headers = get_auth_headers or (lambda: {})
         self._heartbeat_interval_seconds = heartbeat_interval_seconds
+        self._stream_event_flush_interval_seconds = stream_event_flush_interval_seconds
         self._sleep = sleep
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._delivery_enqueue_tasks: list[asyncio.Task[None]] = []
         self._http_client = None
+        self._stream_event_buffer: list[dict[str, Any]] = []
+        self._stream_event_task: asyncio.Task[None] | None = None
+        self._stream_text_accumulator = _SDKCCRStreamAccumulator()
         self.worker_state = SDKWorkerStateUploader(
             self._send_worker_state,
             sleep=sleep,
@@ -211,6 +223,14 @@ class SDKCCRClient:
         self._delivery_enqueue_tasks.append(task)
 
     async def write_event(self, message: dict[str, Any]) -> None:
+        if message.get("type") == "stream_event":
+            self._stream_event_buffer.append(dict(message))
+            if self._stream_event_task is None:
+                self._stream_event_task = asyncio.create_task(self._flush_stream_events_later())
+            return
+        await self._flush_stream_event_buffer()
+        if message.get("type") == "assistant":
+            _clear_stream_accumulator_for_message(self._stream_text_accumulator, message)
         await self.event_uploader.enqueue([self._client_event(message)])
 
     async def write_internal_event(
@@ -235,6 +255,7 @@ class SDKCCRClient:
         await self.internal_event_uploader.enqueue([event])
 
     async def flush(self) -> None:
+        await self._flush_stream_event_buffer()
         await self.event_uploader.flush()
 
     async def flush_internal_events(self) -> None:
@@ -259,6 +280,14 @@ class SDKCCRClient:
             except asyncio.CancelledError:
                 pass
             self._heartbeat_task = None
+        if self._stream_event_task is not None:
+            self._stream_event_task.cancel()
+            try:
+                await self._stream_event_task
+            except asyncio.CancelledError:
+                pass
+            self._stream_event_task = None
+        self._stream_event_buffer = []
         self.worker_state.close()
         self.event_uploader.close()
         self.internal_event_uploader.close()
@@ -337,6 +366,33 @@ class SDKCCRClient:
         except asyncio.CancelledError:
             pass
 
+    async def _flush_stream_events_later(self) -> None:
+        try:
+            if self._stream_event_flush_interval_seconds > 0:
+                await self._sleep(self._stream_event_flush_interval_seconds)
+            self._stream_event_task = None
+            await self._flush_stream_event_buffer(cancel_timer=False)
+        except asyncio.CancelledError:
+            pass
+
+    async def _flush_stream_event_buffer(self, *, cancel_timer: bool = True) -> None:
+        if cancel_timer and self._stream_event_task is not None:
+            task = self._stream_event_task
+            self._stream_event_task = None
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        if not self._stream_event_buffer:
+            return
+        buffered = self._stream_event_buffer
+        self._stream_event_buffer = []
+        payloads = _accumulate_stream_events(buffered, self._stream_text_accumulator)
+        await self.event_uploader.enqueue(
+            [{**self._client_event(payload), "ephemeral": True} for payload in payloads]
+        )
+
     def _client_event(self, message: dict[str, Any]) -> dict[str, Any]:
         payload = dict(message)
         if not isinstance(payload.get("uuid"), str):
@@ -400,6 +456,93 @@ def _coalesce_worker_state_patches(
         else:
             merged[key] = value
     return merged
+
+
+def _accumulate_stream_events(
+    buffer: list[dict[str, Any]],
+    state: _SDKCCRStreamAccumulator,
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    touched: dict[tuple[str, int], dict[str, Any]] = {}
+    for message in buffer:
+        event = message.get("event")
+        if not isinstance(event, dict):
+            out.append(message)
+            continue
+        event_type = event.get("type")
+        if event_type == "message_start":
+            event_message = event.get("message")
+            message_id = event_message.get("id") if isinstance(event_message, dict) else None
+            if not isinstance(message_id, str):
+                out.append(message)
+                continue
+            previous_id = state.scope_to_message.get(_stream_scope_key(message))
+            if previous_id:
+                state.by_message.pop(previous_id, None)
+            state.scope_to_message[_stream_scope_key(message)] = message_id
+            state.by_message[message_id] = {}
+            out.append(message)
+            continue
+        if event_type != "content_block_delta":
+            out.append(message)
+            continue
+        delta = event.get("delta")
+        if not isinstance(delta, dict) or delta.get("type") != "text_delta":
+            out.append(message)
+            continue
+        text = delta.get("text")
+        if not isinstance(text, str):
+            out.append(message)
+            continue
+        message_id = state.scope_to_message.get(_stream_scope_key(message))
+        blocks = state.by_message.get(message_id or "")
+        if blocks is None:
+            out.append(message)
+            continue
+        index = event.get("index")
+        if not isinstance(index, int):
+            out.append(message)
+            continue
+        chunks = blocks.setdefault(index, [])
+        chunks.append(text)
+        touched_key = (message_id or "", index)
+        existing = touched.get(touched_key)
+        if existing is not None:
+            existing_event = existing["event"]
+            existing_event["delta"]["text"] = "".join(chunks)
+            continue
+        snapshot = {
+            "type": "stream_event",
+            "uuid": message.get("uuid") if isinstance(message.get("uuid"), str) else str(uuid.uuid4()),
+            "session_id": message.get("session_id"),
+            "parent_tool_use_id": message.get("parent_tool_use_id"),
+            "event": {
+                "type": "content_block_delta",
+                "index": index,
+                "delta": {"type": "text_delta", "text": "".join(chunks)},
+            },
+        }
+        touched[touched_key] = snapshot
+        out.append(snapshot)
+    return out
+
+
+def _clear_stream_accumulator_for_message(
+    state: _SDKCCRStreamAccumulator,
+    assistant: dict[str, Any],
+) -> None:
+    message = assistant.get("message")
+    message_id = message.get("id") if isinstance(message, dict) else None
+    if not isinstance(message_id, str):
+        return
+    state.by_message.pop(message_id, None)
+    scope = _stream_scope_key(assistant)
+    if state.scope_to_message.get(scope) == message_id:
+        state.scope_to_message.pop(scope, None)
+
+
+def _stream_scope_key(message: Mapping[str, Any]) -> str:
+    return f"{message.get('session_id')}:{message.get('parent_tool_use_id') or ''}"
 
 
 def _normalize_session_url(session_url: str) -> str:
