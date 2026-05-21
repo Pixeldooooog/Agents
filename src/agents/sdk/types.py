@@ -171,6 +171,14 @@ class SDKTaskNotificationMessage(SDKBaseMessage):
     usage: dict[str, int] = Field(default_factory=dict)
 
 
+class SDKFilesPersistedMessage(SDKBaseMessage):
+    type: Literal["system"] = "system"
+    subtype: Literal["files_persisted"] = "files_persisted"
+    files: list[dict[str, str]] = Field(default_factory=list)
+    failed: list[dict[str, str]] = Field(default_factory=list)
+    processed_at: str = ""
+
+
 class SDKAssistantMessage(SDKBaseMessage):
     type: Literal["assistant"] = "assistant"
     content: str = ""
@@ -233,6 +241,7 @@ SDKMessage = Union[
     SDKTaskStartedMessage,
     SDKTaskProgressMessage,
     SDKTaskNotificationMessage,
+    SDKFilesPersistedMessage,
     SDKUserMessage,
     SDKAssistantMessage,
     SDKToolProgressMessage,
