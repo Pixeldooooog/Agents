@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import inspect
+import json
+import time
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Literal, Optional
@@ -18,9 +22,16 @@ CCR_STREAM_EVENT_FLUSH_INTERVAL_SECONDS = 0.1
 CCR_GET_MAX_ATTEMPTS = 10
 CCR_GET_BASE_DELAY_SECONDS = 0.5
 CCR_GET_MAX_DELAY_SECONDS = 30.0
+CCR_MAX_CONSECUTIVE_AUTH_FAILURES = 10
 
 
 SDKCCRDeliveryStatus = Literal["received", "processing", "processed"]
+SDKCCRShutdownReason = Literal[
+    "epoch_mismatch",
+    "auth_expired",
+    "auth_failures_exhausted",
+]
+SDKCCRShutdownHandler = Callable[[SDKCCRShutdownReason], Any]
 SDKCCRRequestHandler = Callable[
     [str, str, Mapping[str, str], Optional[dict[str, Any]]],
     Awaitable["SDKCCRRequestResult"],
@@ -31,8 +42,23 @@ class SDKCCRInitError(RuntimeError):
     """Raised when a CCR worker cannot be initialized."""
 
 
-class SDKCCREpochMismatchError(RuntimeError):
+class SDKCCRShutdownError(RuntimeError):
+    """Raised when CCR reports this worker must shut down."""
+
+    def __init__(self, reason: SDKCCRShutdownReason, message: str | None = None) -> None:
+        self.reason = reason
+        super().__init__(message or reason)
+
+
+class SDKCCREpochMismatchError(SDKCCRShutdownError):
     """Raised when CCR reports that this worker epoch was superseded."""
+
+    def __init__(self) -> None:
+        super().__init__("epoch_mismatch", "worker epoch mismatch")
+
+
+class SDKCCRAuthFailureError(SDKCCRShutdownError):
+    """Raised when CCR authentication is terminal for this worker."""
 
 
 class SDKCCRRequestResult:
@@ -129,24 +155,34 @@ class SDKCCRClient:
         transport: Any | None = None,
         request: SDKCCRRequestHandler | None = None,
         get_auth_headers: Callable[[], Mapping[str, str]] | None = None,
+        get_auth_token: Callable[[], str | None] | None = None,
+        on_shutdown: SDKCCRShutdownHandler | None = None,
+        max_consecutive_auth_failures: int = CCR_MAX_CONSECUTIVE_AUTH_FAILURES,
         heartbeat_interval_seconds: float | None = CCR_HEARTBEAT_INTERVAL_SECONDS,
         stream_event_flush_interval_seconds: float = CCR_STREAM_EVENT_FLUSH_INTERVAL_SECONDS,
         get_base_delay_seconds: float = CCR_GET_BASE_DELAY_SECONDS,
         get_max_delay_seconds: float = CCR_GET_MAX_DELAY_SECONDS,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        now: Callable[[], float] = time.time,
     ) -> None:
         self.session_base_url = _normalize_session_url(session_url)
         self.session_id = self.session_base_url.rstrip("/").split("/")[-1]
         self.worker_epoch = 0
         self.closed = False
         self.current_state: str | None = None
+        self.shutdown_reason: SDKCCRShutdownReason | None = None
         self._request_handler = request
         self._get_auth_headers = get_auth_headers or (lambda: {})
+        self._get_auth_token = get_auth_token
+        self._on_shutdown = on_shutdown
+        self._max_consecutive_auth_failures = max_consecutive_auth_failures
+        self._consecutive_auth_failures = 0
         self._heartbeat_interval_seconds = heartbeat_interval_seconds
         self._stream_event_flush_interval_seconds = stream_event_flush_interval_seconds
         self._get_base_delay_seconds = get_base_delay_seconds
         self._get_max_delay_seconds = get_max_delay_seconds
         self._sleep = sleep
+        self._now = now
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._delivery_enqueue_tasks: list[asyncio.Task[None]] = []
         self._http_client = None
@@ -444,8 +480,9 @@ class SDKCCRClient:
             return SDKCCRRequestResult(False)
         if self._request_handler is not None:
             result = await self._request_handler(method, path, headers, body)
-            if result.status == 409:
-                raise SDKCCREpochMismatchError("worker epoch mismatch")
+            await self._handle_status(result.status, headers)
+            if result.ok:
+                self._consecutive_auth_failures = 0
             return result
         client = await self._ensure_http_client()
         request_headers = {**headers}
@@ -457,8 +494,7 @@ class SDKCCRClient:
             headers=request_headers,
             **({"json": body} if body is not None else {}),
         )
-        if response.status_code == 409:
-            raise SDKCCREpochMismatchError("worker epoch mismatch")
+        await self._handle_status(response.status_code, headers)
         retry_after = response.headers.get("retry-after")
         retry_after_seconds = float(retry_after) if retry_after else None
         return SDKCCRRequestResult(
@@ -467,6 +503,61 @@ class SDKCCRClient:
             data=response.json() if response.content else None,
             retry_after_seconds=retry_after_seconds,
         )
+
+    async def _handle_status(
+        self,
+        status: int | None,
+        headers: Mapping[str, str],
+    ) -> None:
+        if status is None:
+            return
+        if 200 <= status < 300:
+            self._consecutive_auth_failures = 0
+            return
+        if status == 409:
+            await self._trigger_shutdown("epoch_mismatch")
+            raise SDKCCREpochMismatchError()
+        if status not in {401, 403}:
+            return
+        token = self._current_auth_token(headers)
+        expiry = _decode_jwt_expiry(token) if token else None
+        if expiry is not None and expiry < self._now():
+            await self._trigger_shutdown("auth_expired")
+            raise SDKCCRAuthFailureError(
+                "auth_expired",
+                "CCR auth token expired without refresh",
+            )
+        self._consecutive_auth_failures += 1
+        if self._consecutive_auth_failures >= self._max_consecutive_auth_failures:
+            await self._trigger_shutdown("auth_failures_exhausted")
+            raise SDKCCRAuthFailureError(
+                "auth_failures_exhausted",
+                "CCR auth failures exhausted",
+            )
+
+    def _current_auth_token(self, headers: Mapping[str, str]) -> str | None:
+        if self._get_auth_token is not None:
+            return self._get_auth_token()
+        return _extract_bearer_token(headers)
+
+    async def _trigger_shutdown(self, reason: SDKCCRShutdownReason) -> None:
+        if self.shutdown_reason is None:
+            self.shutdown_reason = reason
+        self._close_upload_queues()
+        if self._on_shutdown is not None:
+            result = self._on_shutdown(reason)
+            if inspect.isawaitable(result):
+                await result
+
+    def _close_upload_queues(self) -> None:
+        self.closed = True
+        self.worker_state.close()
+        self.event_uploader.close()
+        self.internal_event_uploader.close()
+        self.delivery_uploader.close()
+        for task in self._delivery_enqueue_tasks:
+            task.cancel()
+        self._delivery_enqueue_tasks = []
 
     async def _paginated_get(
         self,
@@ -495,6 +586,8 @@ class SDKCCRClient:
             try:
                 result = await self._request("get", path)
             except SDKCCREpochMismatchError:
+                raise
+            except SDKCCRAuthFailureError:
                 raise
             except Exception:
                 result = SDKCCRRequestResult(False)
@@ -635,6 +728,36 @@ def _path_with_query(
     if not query_params:
         return path
     return f"{path}?{urlencode(query_params)}"
+
+
+def _extract_bearer_token(headers: Mapping[str, str]) -> str | None:
+    for key, value in headers.items():
+        if key.lower() != "authorization" or not isinstance(value, str):
+            continue
+        prefix = "bearer "
+        if value.lower().startswith(prefix):
+            token = value[len(prefix) :].strip()
+            return token or None
+    return None
+
+
+def _decode_jwt_expiry(token: str | None) -> float | None:
+    if not token:
+        return None
+    parts = token.split(".")
+    if len(parts) < 2:
+        return None
+    payload = parts[1]
+    padding = "=" * (-len(payload) % 4)
+    try:
+        decoded = base64.urlsafe_b64decode(f"{payload}{padding}")
+        data = json.loads(decoded.decode("utf-8"))
+    except Exception:
+        return None
+    expiry = data.get("exp") if isinstance(data, dict) else None
+    if isinstance(expiry, (int, float)):
+        return float(expiry)
+    return None
 
 
 def _normalize_session_url(session_url: str) -> str:

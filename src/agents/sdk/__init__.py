@@ -20,11 +20,15 @@ from agents.sdk.client import (
     unstable_v2_resume_session,
 )
 from agents.sdk.ccr import (
+    SDKCCRAuthFailureError,
     SDKCCRClient,
     SDKCCREpochMismatchError,
     SDKCCRInitError,
     SDKCCRRequestHandler,
     SDKCCRRequestResult,
+    SDKCCRShutdownError,
+    SDKCCRShutdownHandler,
+    SDKCCRShutdownReason,
     SDKWorkerStateUploader,
 )
 from agents.sdk.control import (
@@ -145,11 +149,15 @@ __all__ = [
     "SDKAPIRetryMessage",
     "SDKAssistantMessage",
     "SDKAuthStatusMessage",
+    "SDKCCRAuthFailureError",
     "SDKCCRClient",
     "SDKCCREpochMismatchError",
     "SDKCCRInitError",
     "SDKCCRRequestHandler",
     "SDKCCRRequestResult",
+    "SDKCCRShutdownError",
+    "SDKCCRShutdownHandler",
+    "SDKCCRShutdownReason",
     "SDKCompactBoundaryMessage",
     "SDKControlApplyFlagSettingsRequest",
     "SDKControlCancelAsyncMessageRequest",

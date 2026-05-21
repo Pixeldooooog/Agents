@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import os
 from pathlib import Path
@@ -43,8 +44,10 @@ from agents.sdk import (
     SDKControlStopTaskRequest,
     SDKControlStreamClosedError,
     SDKControlSuccessResponse,
+    SDKCCRAuthFailureError,
     SDKCCRClient,
     SDKCCRRequestResult,
+    SDKCCREpochMismatchError,
     SDKWorkerStateUploader,
     SDKHookCallbackRequest,
     SDKKeepAliveMessage,
@@ -2595,6 +2598,14 @@ class _FakeCCRTransport:
         self.on_event = handler
 
 
+def _jwt_with_expiry(expiry: int) -> str:
+    def segment(payload):
+        encoded = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8"))
+        return encoded.decode("ascii").rstrip("=")
+
+    return f"{segment({'alg': 'none'})}.{segment({'exp': expiry})}."
+
+
 def test_sdk_ccr_client_initializes_and_acks_transport_events():
     async def execute():
         requests = []
@@ -2890,6 +2901,106 @@ def test_sdk_ccr_client_retries_internal_event_reads():
     assert attempts == 2
     assert sleeps == [0.25]
     assert events == [{"event_id": "evt-1"}]
+
+
+def test_sdk_ccr_client_triggers_shutdown_on_epoch_mismatch():
+    async def execute():
+        shutdowns = []
+
+        async def request(method, path, headers, body):
+            return SDKCCRRequestResult(False, status=409)
+
+        client = SDKCCRClient(
+            "https://api.example.com/v1/code/sessions/session-6",
+            request=request,
+            get_auth_headers=lambda: {"Authorization": "Bearer token"},
+            on_shutdown=shutdowns.append,
+            heartbeat_interval_seconds=None,
+            get_base_delay_seconds=0,
+        )
+        with pytest.raises(SDKCCREpochMismatchError) as exc_info:
+            await client.read_internal_events()
+        await client.close()
+        return exc_info.value.reason, shutdowns, client.shutdown_reason
+
+    reason, shutdowns, shutdown_reason = asyncio.run(execute())
+
+    assert reason == "epoch_mismatch"
+    assert shutdowns == ["epoch_mismatch"]
+    assert shutdown_reason == "epoch_mismatch"
+
+
+def test_sdk_ccr_client_shutdowns_immediately_for_expired_jwt():
+    async def execute():
+        shutdowns = []
+        attempts = 0
+
+        async def request(method, path, headers, body):
+            nonlocal attempts
+            attempts += 1
+            return SDKCCRRequestResult(False, status=401)
+
+        client = SDKCCRClient(
+            "https://api.example.com/v1/code/sessions/session-7",
+            request=request,
+            get_auth_headers=lambda: {
+                "Authorization": f"Bearer {_jwt_with_expiry(100)}"
+            },
+            on_shutdown=shutdowns.append,
+            heartbeat_interval_seconds=None,
+            get_base_delay_seconds=0,
+            now=lambda: 200.0,
+        )
+        with pytest.raises(SDKCCRAuthFailureError) as exc_info:
+            await client.read_internal_events()
+        await client.close()
+        return exc_info.value.reason, shutdowns, attempts
+
+    reason, shutdowns, attempts = asyncio.run(execute())
+
+    assert reason == "auth_expired"
+    assert shutdowns == ["auth_expired"]
+    assert attempts == 1
+
+
+def test_sdk_ccr_client_shutdowns_after_consecutive_auth_failures():
+    async def execute():
+        shutdowns = []
+        attempts = 0
+        sleeps = []
+
+        async def request(method, path, headers, body):
+            nonlocal attempts
+            attempts += 1
+            return SDKCCRRequestResult(False, status=403)
+
+        async def sleep(delay):
+            sleeps.append(delay)
+
+        client = SDKCCRClient(
+            "https://api.example.com/v1/code/sessions/session-8",
+            request=request,
+            get_auth_headers=lambda: {
+                "Authorization": f"Bearer {_jwt_with_expiry(1000)}"
+            },
+            on_shutdown=shutdowns.append,
+            max_consecutive_auth_failures=2,
+            heartbeat_interval_seconds=None,
+            get_base_delay_seconds=0.25,
+            sleep=sleep,
+            now=lambda: 200.0,
+        )
+        with pytest.raises(SDKCCRAuthFailureError) as exc_info:
+            await client.read_internal_events()
+        await client.close()
+        return exc_info.value.reason, shutdowns, attempts, sleeps
+
+    reason, shutdowns, attempts, sleeps = asyncio.run(execute())
+
+    assert reason == "auth_failures_exhausted"
+    assert shutdowns == ["auth_failures_exhausted"]
+    assert attempts == 2
+    assert sleeps == [0.25]
 
 
 def test_sdk_worker_state_uploader_coalesces_metadata_patches():
