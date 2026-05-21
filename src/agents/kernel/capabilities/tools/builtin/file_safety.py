@@ -9,6 +9,7 @@ from agents.kernel.capabilities.sandbox.types import SandboxFileRead
 MAX_SAFE_TEXT_READ_BYTES = 200000
 PRE_READ_REQUIRED_ERROR = "File has not been read yet. Read it first before writing to it."
 STALE_FILE_ERROR = "File has been modified since read, either by the user or by a linter. Read it again before attempting to write it."
+SPECIAL_FILE_READ_ERROR_PREFIX = "refusing to read special file"
 
 
 def read_current_file(context: ToolRuntimeContext, path: str) -> SandboxFileRead:
@@ -105,6 +106,11 @@ def write_text_safely(context: ToolRuntimeContext, path: str, content: str) -> d
         relative_path = _normalize_path(context, path)
         current = ""
         encoding = "utf-8"
+    except ValueError as exc:
+        message = str(exc)
+        if message.startswith(SPECIAL_FILE_READ_ERROR_PREFIX):
+            raise ValueError(message.replace("refusing to read", "refusing to write", 1)) from exc
+        raise
     if existed:
         ensure_existing_file_current(context, relative_path, current)
         output = preserve_existing_line_endings(current, output)

@@ -179,9 +179,14 @@ sys.stdout.write(json.dumps({"path": path.as_posix(), "entries": entries}))
         if not decision.allowed:
             raise PermissionError(decision.reason)
         relative = self.policy.relative_workspace_path(self.policy.resolve_workspace_path(path))
-        command = "mkdir -p -- %s && cat > %s" % (
+        target = shlex.quote(relative)
+        command = "if { test -e %s || test -L %s; } && ! test -f %s; then echo %s >&2; exit 1; fi; mkdir -p -- %s && cat > %s" % (
+            target,
+            target,
+            target,
+            shlex.quote("refusing to write non-regular file: %s" % relative),
             shlex.quote(_posix_parent(relative)),
-            shlex.quote(relative),
+            target,
         )
         result = subprocess.run(
             self._docker_run_args(["sh", "-lc", command]),

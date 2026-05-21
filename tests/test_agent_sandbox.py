@@ -96,6 +96,45 @@ def test_local_sandbox_text_read_rejects_binary_files(tmp_path):
         client.read_text("image.png")
 
 
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="mkfifo is not available on this platform")
+def test_local_sandbox_rejects_special_file_read_and_write_targets(tmp_path):
+    workspace = _workspace(tmp_path)
+    fifo_path = workspace.path / "pipe"
+    os.mkfifo(fifo_path)
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    client = LocalSandboxProvider().acquire(workspace, policy)
+
+    with pytest.raises(ValueError, match="special file \\(fifo\\): pipe"):
+        client.read_text("pipe")
+    with pytest.raises(ValueError, match="special file \\(fifo\\): pipe"):
+        client.write_text("pipe", "data")
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="mkfifo is not available on this platform")
+def test_local_sandbox_rejects_special_background_output_targets(tmp_path):
+    workspace = _workspace(tmp_path)
+    output_path = workspace.path / ".agents" / "task-output" / "shell_test.log"
+    output_path.parent.mkdir(parents=True)
+    os.mkfifo(output_path)
+    policy = SandboxPolicy.for_workspace(
+        workspace.path,
+        allow_process=True,
+        allowed_commands=(Path(sys.executable).name,),
+    )
+    client = LocalSandboxProvider().acquire(workspace, policy)
+
+    async def execute():
+        with pytest.raises(ValueError, match=r"special file \(fifo\): \.agents/task-output/shell_test\.log"):
+            await client.start_background_command(
+                "shell_test",
+                "%s -c %s" % (shlex.quote(sys.executable), shlex.quote("print('ok')")),
+                ".agents/task-output/shell_test.log",
+                timeout_seconds=5.0,
+            )
+
+    asyncio.run(execute())
+
+
 def test_local_sandbox_read_text_supports_line_ranges(tmp_path):
     workspace = _workspace(tmp_path)
     (workspace.path / "notes.txt").write_text("one\ntwo\nthree\nfour\n", encoding="utf-8")
@@ -251,6 +290,21 @@ def test_builtin_tools_route_through_sandbox_client(tmp_path):
     assert (workspace.path / "new.txt").read_text(encoding="utf-8") == "ok"
     assert test_run.is_error is False
     assert "tests ok" in test_run.content
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="mkfifo is not available on this platform")
+def test_builtin_write_rejects_special_files_instead_of_recreating_them(tmp_path):
+    workspace = _workspace(tmp_path)
+    os.mkfifo(workspace.path / "pipe")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(workspace=workspace, sandbox=policy)
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    result = asyncio.run(registry.execute("filesystem.write", {"path": "pipe", "content": "data"}))
+
+    assert result.is_error is True
+    assert "refusing to write special file (fifo): pipe" in result.content
 
 
 def test_sandbox_policy_blocks_escaped_workspace_paths(tmp_path):

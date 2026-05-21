@@ -5,6 +5,7 @@ import fnmatch
 import os
 import re
 import shutil
+import stat
 import time
 import uuid
 from pathlib import Path, PurePosixPath
@@ -76,6 +77,8 @@ class LocalSandboxClient:
         if not decision.allowed:
             raise PermissionError(decision.reason)
         resolved = self.policy.resolve_workspace_path(path)
+        relative = self.policy.relative_workspace_path(resolved)
+        _ensure_regular_file(resolved, relative, operation="read")
         if not resolved.is_file():
             raise FileNotFoundError(str(path))
         byte_limit = max(1, min(int(max_bytes or 20000), 200000))
@@ -109,7 +112,7 @@ class LocalSandboxClient:
                 total_lines = _count_text_lines(resolved, encoding)
             byte_count = len(data)
         return SandboxFileRead(
-            path=self.policy.relative_workspace_path(resolved),
+            path=relative,
             content=content,
             bytes=byte_count,
             truncated=truncated,
@@ -143,12 +146,14 @@ class LocalSandboxClient:
         if not decision.allowed:
             raise PermissionError(decision.reason)
         resolved = self.policy.resolve_workspace_path(path)
+        relative = self.policy.relative_workspace_path(resolved)
+        _ensure_regular_file(resolved, relative, operation="write")
         resolved.parent.mkdir(parents=True, exist_ok=True)
         text = str(content)
         write_encoding = _write_encoding(encoding)
         resolved.write_text(text, encoding=write_encoding)
         return SandboxFileWrite(
-            path=self.policy.relative_workspace_path(resolved),
+            path=relative,
             bytes=resolved.stat().st_size,
             encoding=public_encoding_name(write_encoding),
         )
@@ -237,6 +242,7 @@ class LocalSandboxClient:
         if not decision.allowed:
             raise PermissionError(decision.reason)
         output_file = self.policy.resolve_workspace_path(output_path)
+        _ensure_regular_file(output_file, self.policy.relative_workspace_path(output_file), operation="write")
         output_file.parent.mkdir(parents=True, exist_ok=True)
         output_file.write_bytes(b"")
         relative_output = self.policy.relative_workspace_path(output_file)
@@ -394,6 +400,33 @@ def _iter_text_lines(path: Path):
 
 def _should_skip_file(path: Path) -> bool:
     return any(part in {".git", "__pycache__", ".venv", "node_modules"} for part in path.parts)
+
+
+def _ensure_regular_file(path: Path, display_path: str, *, operation: str) -> None:
+    if not path.exists() and not path.is_symlink():
+        return
+    if path.is_file():
+        return
+    if path.is_dir():
+        raise IsADirectoryError("refusing to %s directory: %s" % (operation, display_path))
+    special_kind = _special_file_kind(path) or "non-regular file"
+    raise ValueError("refusing to %s special file (%s): %s" % (operation, special_kind, display_path))
+
+
+def _special_file_kind(path: Path) -> str | None:
+    try:
+        mode = path.lstat().st_mode
+    except OSError:
+        return None
+    if stat.S_ISFIFO(mode):
+        return "fifo"
+    if stat.S_ISSOCK(mode):
+        return "socket"
+    if stat.S_ISCHR(mode):
+        return "character device"
+    if stat.S_ISBLK(mode):
+        return "block device"
+    return None
 
 
 def _write_encoding(encoding: str) -> str:
