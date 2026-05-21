@@ -102,6 +102,7 @@ from agents.sdk.transports import (
     derive_sse_stream_url,
     parse_sse_frames,
     SDKWebSocketCloseHandler,
+    SDKWebSocketConnectOptions,
     SDKWebSocketConnector,
     SDKWebSocketJsonlTransport,
 )
@@ -236,6 +237,7 @@ __all__ = [
     "SDKSSEPostHandler",
     "SDKSSEReadChunksFactory",
     "SDKWebSocketCloseHandler",
+    "SDKWebSocketConnectOptions",
     "SDKWebSocketConnector",
     "SDKWebSocketJsonlTransport",
     "SDKWorkerStateUploader",

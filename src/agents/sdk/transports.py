@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
+import os
+import ssl
 import time
 from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional, Protocol, Union
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -47,7 +50,7 @@ SDKSSECloseHandler = Callable[[Optional[int]], Any]
 SDKHybridPostHandler = Callable[[str, Mapping[str, str], dict[str, Any]], Awaitable[int]]
 SDKBatchDropHandler = Callable[[int, int], Any]
 SDKBatchSendHandler = Callable[[list[dict[str, Any]]], Awaitable[None]]
-SDKWebSocketConnector = Callable[[str, Mapping[str, str]], Awaitable[Any]]
+SDKWebSocketConnector = Callable[..., Awaitable[Any]]
 SDKWebSocketCloseHandler = Callable[[Optional[int]], Any]
 
 
@@ -69,6 +72,14 @@ class SDKSSEFrame:
     event: str | None = None
     id: str | None = None
     data: str | None = None
+
+
+@dataclass
+class SDKWebSocketConnectOptions:
+    headers: dict[str, str]
+    proxy: str | None = None
+    ssl_context: Any | None = None
+    raw_options: dict[str, Any] = field(default_factory=dict)
 
 
 class SDKSSELivenessTimeoutError(TimeoutError):
@@ -468,6 +479,16 @@ class SDKWebSocketJsonlTransport:
         headers: Mapping[str, str] | None = None,
         refresh_headers: Callable[[], Mapping[str, str]] | None = None,
         connector: SDKWebSocketConnector | None = None,
+        proxy_url: str | None = None,
+        no_proxy: str | None = None,
+        trust_env_proxy: bool = True,
+        ssl_context: Any | None = None,
+        tls_ca_file: str | None = None,
+        tls_cert_file: str | None = None,
+        tls_key_file: str | None = None,
+        tls_key_password: str | None = None,
+        connect_options: Mapping[str, Any] | None = None,
+        env: Mapping[str, str | None] | None = None,
         auto_reconnect: bool = True,
         max_buffer_size: int = WEBSOCKET_MAX_BUFFER_SIZE,
         reconnect_base_delay_seconds: float = WEBSOCKET_RECONNECT_BASE_DELAY_SECONDS,
@@ -484,6 +505,16 @@ class SDKWebSocketJsonlTransport:
         self.headers = dict(headers or {})
         self.refresh_headers = refresh_headers
         self._connector = connector
+        self._proxy_url = proxy_url
+        self._no_proxy = no_proxy
+        self._trust_env_proxy = trust_env_proxy
+        self._ssl_context = ssl_context
+        self._tls_ca_file = tls_ca_file
+        self._tls_cert_file = tls_cert_file
+        self._tls_key_file = tls_key_file
+        self._tls_key_password = tls_key_password
+        self._connect_options = dict(connect_options or {})
+        self._env = env
         self._connection = None
         self._message_buffer: list[dict[str, Any]] = []
         self._last_sent_id: str | None = None
@@ -539,22 +570,104 @@ class SDKWebSocketJsonlTransport:
         self._start_health_tasks()
 
     async def _open_connection(self, headers: Mapping[str, str]) -> Any:
+        options = self._connection_options(headers)
         if self._connector is not None:
-            return await self._connector(self.url, headers)
+            return await self._call_connector(headers, options)
         try:
             import websockets
         except ImportError as exc:
             raise RuntimeError("SDKWebSocketJsonlTransport requires the websockets package") from exc
+        connect_kwargs = self._websocket_connect_kwargs(options)
         try:
             return await websockets.connect(
                 self.url,
                 additional_headers=dict(headers) or None,
+                **connect_kwargs,
             )
         except TypeError:
             return await websockets.connect(
                 self.url,
                 extra_headers=dict(headers) or None,
+                **connect_kwargs,
             )
+
+    async def _call_connector(
+        self,
+        headers: Mapping[str, str],
+        options: SDKWebSocketConnectOptions,
+    ) -> Any:
+        if _callable_accepts_options(self._connector):
+            return await self._connector(self.url, headers, options)
+        return await self._connector(self.url, headers)
+
+    def _connection_options(self, headers: Mapping[str, str]) -> SDKWebSocketConnectOptions:
+        return SDKWebSocketConnectOptions(
+            headers=dict(headers),
+            proxy=self._resolved_proxy_url(),
+            ssl_context=self._resolved_ssl_context(),
+            raw_options=dict(self._connect_options),
+        )
+
+    def _websocket_connect_kwargs(
+        self,
+        options: SDKWebSocketConnectOptions,
+    ) -> dict[str, Any]:
+        kwargs = dict(options.raw_options)
+        if options.proxy is not None:
+            kwargs.setdefault("proxy", options.proxy)
+        if options.ssl_context is not None:
+            kwargs.setdefault("ssl", options.ssl_context)
+        return kwargs
+
+    def _resolved_proxy_url(self) -> str | None:
+        proxy = self._proxy_url
+        if proxy is None and self._trust_env_proxy:
+            proxy = _env_proxy_url(self._effective_env())
+        if not proxy:
+            return None
+        no_proxy = self._no_proxy
+        if no_proxy is None:
+            no_proxy = _env_no_proxy(self._effective_env())
+        if _should_bypass_proxy(self.url, no_proxy):
+            return None
+        return proxy
+
+    def _resolved_ssl_context(self) -> Any | None:
+        if self._ssl_context is not None:
+            return self._ssl_context
+        ca_file = self._tls_ca_file or _first_env(
+            self._effective_env(),
+            "AGENTS_SDK_CA_CERTS",
+            "NODE_EXTRA_CA_CERTS",
+        )
+        cert_file = self._tls_cert_file or _first_env(
+            self._effective_env(),
+            "AGENTS_SDK_CLIENT_CERT",
+            "CLAUDE_CODE_CLIENT_CERT",
+        )
+        key_file = self._tls_key_file or _first_env(
+            self._effective_env(),
+            "AGENTS_SDK_CLIENT_KEY",
+            "CLAUDE_CODE_CLIENT_KEY",
+        )
+        password = self._tls_key_password or _first_env(
+            self._effective_env(),
+            "AGENTS_SDK_CLIENT_KEY_PASSPHRASE",
+            "CLAUDE_CODE_CLIENT_KEY_PASSPHRASE",
+        )
+        if not ca_file and not cert_file and not key_file:
+            return None
+        context = ssl.create_default_context(cafile=ca_file)
+        if cert_file or key_file:
+            context.load_cert_chain(
+                certfile=cert_file,
+                keyfile=key_file,
+                password=password,
+            )
+        return context
+
+    def _effective_env(self) -> Mapping[str, str | None]:
+        return self._env if self._env is not None else os.environ
 
     async def read(self) -> str | bytes | None:
         while not self.closed:
@@ -1160,6 +1273,67 @@ def derive_hybrid_post_url(ws_url: str) -> str:
     if not path.endswith("/events"):
         path = f"{path.rstrip('/')}/events"
     return urlunsplit((scheme, parts.netloc, path, parts.query, parts.fragment))
+
+
+def _callable_accepts_options(fn: Any) -> bool:
+    try:
+        signature = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return False
+    positional = 0
+    for parameter in signature.parameters.values():
+        if parameter.kind == inspect.Parameter.VAR_POSITIONAL:
+            return True
+        if parameter.kind in {
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        }:
+            positional += 1
+    return positional >= 3
+
+
+def _env_proxy_url(env: Mapping[str, str | None]) -> str | None:
+    return _first_env(env, "https_proxy", "HTTPS_PROXY", "http_proxy", "HTTP_PROXY")
+
+
+def _env_no_proxy(env: Mapping[str, str | None]) -> str | None:
+    return _first_env(env, "no_proxy", "NO_PROXY")
+
+
+def _first_env(env: Mapping[str, str | None], *names: str) -> str | None:
+    for name in names:
+        value = env.get(name)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _should_bypass_proxy(url: str, no_proxy: str | None) -> bool:
+    if not no_proxy:
+        return False
+    if no_proxy.strip() == "*":
+        return True
+    parts = urlsplit(url)
+    hostname = (parts.hostname or "").lower()
+    if not hostname:
+        return False
+    port = str(parts.port or (443 if parts.scheme in {"wss", "https"} else 80))
+    host_with_port = f"{hostname}:{port}"
+    for raw_pattern in no_proxy.replace(",", " ").split():
+        pattern = raw_pattern.strip().lower()
+        if not pattern:
+            continue
+        if ":" in pattern:
+            if host_with_port == pattern:
+                return True
+            continue
+        if pattern.startswith("."):
+            if hostname == pattern[1:] or hostname.endswith(pattern):
+                return True
+            continue
+        if hostname == pattern:
+            return True
+    return False
 
 
 def _find_sse_frame_delimiter(buffer: str, start: int) -> tuple[int, int] | None:

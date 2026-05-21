@@ -63,6 +63,7 @@ from agents.sdk import (
     SDKStructuredIO,
     SDKStdinDecodeError,
     SDKUpdateEnvironmentVariablesMessage,
+    SDKWebSocketConnectOptions,
     SDKWebSocketJsonlTransport,
     encode_stdout_message,
     derive_hybrid_post_url,
@@ -2388,6 +2389,64 @@ class _FakeWebSocket:
 
     async def close(self):
         self.closed = True
+
+
+def test_sdk_websocket_transport_resolves_proxy_and_tls_options():
+    async def execute():
+        captured = []
+        tls_context = object()
+
+        async def connector(url, headers, options):
+            captured.append((url, dict(headers), options))
+            return _FakeWebSocket()
+
+        transport = SDKWebSocketJsonlTransport(
+            "wss://api.example.com/v2/session_ingress/ws/abc",
+            headers={"Authorization": "Bearer token"},
+            connector=connector,
+            ssl_context=tls_context,
+            env={"https_proxy": "http://proxy.local:8080", "no_proxy": "localhost"},
+            ping_interval_seconds=None,
+            keepalive_interval_seconds=None,
+        )
+        await transport.connect()
+        await transport.close()
+        return captured, tls_context
+
+    captured, tls_context = asyncio.run(execute())
+    options = captured[0][2]
+
+    assert isinstance(options, SDKWebSocketConnectOptions)
+    assert captured[0][1]["Authorization"] == "Bearer token"
+    assert options.proxy == "http://proxy.local:8080"
+    assert options.ssl_context is tls_context
+
+
+def test_sdk_websocket_transport_honors_no_proxy_rules():
+    async def execute():
+        captured = []
+
+        async def connector(url, headers, options):
+            captured.append(options.proxy)
+            return _FakeWebSocket()
+
+        transport = SDKWebSocketJsonlTransport(
+            "wss://api.example.com/v2/session_ingress/ws/abc",
+            connector=connector,
+            env={
+                "HTTPS_PROXY": "http://proxy.local:8080",
+                "NO_PROXY": ".example.com",
+            },
+            ping_interval_seconds=None,
+            keepalive_interval_seconds=None,
+        )
+        await transport.connect()
+        await transport.close()
+        return captured
+
+    captured = asyncio.run(execute())
+
+    assert captured == [None]
 
 
 def test_sdk_websocket_transport_reconnects_and_replays_unconfirmed_messages():
