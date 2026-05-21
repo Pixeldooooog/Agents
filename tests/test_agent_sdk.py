@@ -12,17 +12,32 @@ from agents.kernel.capabilities.tools.registry import ToolRegistry
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.sdk import (
     AgentSDKClient,
+    SDKControlInitializeRequest,
+    SDKControlPermissionRequest,
+    SDKControlRequest,
+    SDKControlResponse,
+    SDKControlSuccessResponse,
+    SDKKeepAliveMessage,
     SDKForkSessionOptions,
     SDKForkSessionResult,
     SDKListSessionsOptions,
     SDKOptions,
     SDKSessionInfo,
     SDKSession,
+    SDKUpdateEnvironmentVariablesMessage,
+    sdk_control_request_json_schema,
+    sdk_control_response_json_schema,
     sdk_message_json_schema,
     sdk_options_json_schema,
     sdk_result_json_schema,
     sdk_session_info_json_schema,
+    sdk_stdin_message_json_schema,
+    sdk_stdout_message_json_schema,
+    validate_sdk_control_request,
+    validate_sdk_control_response,
     validate_sdk_message,
+    validate_sdk_stdin_message,
+    validate_sdk_stdout_message,
 )
 from agents.sdk.client import _spec_from_options
 from agents.sdk.types import (
@@ -1145,6 +1160,80 @@ def test_sdk_exports_json_schemas_and_rejects_invalid_messages():
                 "subtype": "success",
                 "session_id": "session-1",
                 "run_id": "run-1",
+                "unexpected": True,
+            }
+        )
+
+
+def test_sdk_exports_control_protocol_schemas_and_validators():
+    request_schema = sdk_control_request_json_schema()
+    response_schema = sdk_control_response_json_schema()
+    stdin_schema = sdk_stdin_message_json_schema()
+    stdout_schema = sdk_stdout_message_json_schema()
+
+    assert request_schema["properties"]["type"]["const"] == "control_request"
+    assert response_schema["properties"]["type"]["const"] == "control_response"
+    assert "SDKControlPermissionRequest" in request_schema["$defs"]
+    assert "SDKControlInitializeRequest" in request_schema["$defs"]
+    assert "SDKControlMcpSetServersRequest" in request_schema["$defs"]
+    assert "SDKControlCancelRequest" in stdout_schema["$defs"]
+    assert "SDKUpdateEnvironmentVariablesMessage" in stdin_schema["$defs"]
+
+    permission = validate_sdk_control_request(
+        {
+            "type": "control_request",
+            "request_id": "perm-1",
+            "request": {
+                "subtype": "can_use_tool",
+                "tool_name": "Read",
+                "input": {"file_path": "README.md"},
+                "tool_use_id": "toolu_1",
+                "decision_reason": "path requires approval",
+            },
+        }
+    )
+    assert isinstance(permission, SDKControlRequest)
+    assert isinstance(permission.request, SDKControlPermissionRequest)
+    assert permission.request.tool_name == "Read"
+    assert permission.request.tool_use_id == "toolu_1"
+
+    initialize = SDKControlRequest(
+        request_id="init-1",
+        request=SDKControlInitializeRequest(
+            sdkMcpServers=["docs"],
+            systemPrompt="Be concise.",
+            promptSuggestions=True,
+        ),
+    )
+    assert validate_sdk_stdout_message(initialize.model_dump()) == initialize
+
+    response = validate_sdk_control_response(
+        {
+            "type": "control_response",
+            "response": {
+                "subtype": "success",
+                "request_id": "init-1",
+                "response": {"output_style": "default"},
+            },
+        }
+    )
+    assert isinstance(response, SDKControlResponse)
+    assert isinstance(response.response, SDKControlSuccessResponse)
+    assert response.response.response == {"output_style": "default"}
+
+    keep_alive = validate_sdk_stdout_message({"type": "keep_alive"})
+    env_update = validate_sdk_stdin_message(
+        {"type": "update_environment_variables", "variables": {"NEXUS_ENV": "test"}}
+    )
+    assert isinstance(keep_alive, SDKKeepAliveMessage)
+    assert isinstance(env_update, SDKUpdateEnvironmentVariablesMessage)
+
+    with pytest.raises(ValidationError):
+        validate_sdk_control_request(
+            {
+                "type": "control_request",
+                "request_id": "bad-1",
+                "request": {"subtype": "can_use_tool", "tool_name": "Read"},
                 "unexpected": True,
             }
         )
