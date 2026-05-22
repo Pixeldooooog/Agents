@@ -26,7 +26,12 @@ WORKTREE_ENTER_SCHEMA = {
     "properties": {
         "name": {
             "type": "string",
-            "description": "Optional worktree name. Slash-separated segments are allowed and flattened for the actual branch/path.",
+            "description": "Optional worktree name or PR reference (#123 or a GitHub /pull/123 URL). Slash-separated name segments are flattened for the actual branch/path.",
+        },
+        "pr_number": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Optional pull request number. When provided, the worktree is created from origin pull/<number>/head.",
         },
     },
     "additionalProperties": False,
@@ -57,37 +62,40 @@ GIT_NO_PROMPT_ENV = {
 }
 
 
-def enter_worktree(context: ToolRuntimeContext, name: str = "") -> dict[str, Any]:
+def enter_worktree(context: ToolRuntimeContext, name: str = "", pr_number: int | None = None) -> dict[str, Any]:
     if context.active_worktree_session:
         session = context.active_worktree_session
         raise RuntimeError("Already in a worktree session at %s" % session.get("worktreePath", "unknown"))
 
     repo_root = _git_root(context.workspace.path)
-    slug = _worktree_slug(name)
+    slug, resolved_pr_number = _worktree_request(name, pr_number=pr_number)
     worktree_path = _worktree_path_for(repo_root, slug)
     branch = _worktree_branch_name(slug)
-    original_head = _git(repo_root, ["rev-parse", "HEAD"]).stdout.strip()
     settings = _worktree_settings(context)
     _ensure_worktrees_excluded(repo_root)
 
     post_create: dict[str, Any] = {}
     existed = _is_git_worktree(worktree_path)
+    base_ref = "HEAD"
     if not existed:
-        _create_git_worktree(repo_root, worktree_path, branch, sparse_paths=settings["sparse_paths"])
+        base_ref = _prepare_worktree_base_ref(repo_root, resolved_pr_number)
+        _create_git_worktree(repo_root, worktree_path, branch, base_ref=base_ref, sparse_paths=settings["sparse_paths"])
         post_create = _perform_post_creation_setup(
             repo_root,
             worktree_path,
             symlink_directories=settings["symlink_directories"],
         )
+    worktree_head = _git(worktree_path, ["rev-parse", "HEAD"]).stdout.strip()
 
     session = {
         "originalCwd": str(repo_root),
         "worktreePath": str(worktree_path),
         "worktreeName": slug,
         "worktreeBranch": branch,
-        "originalHeadCommit": original_head,
+        "originalHeadCommit": worktree_head,
         "sessionId": str(context.current_run_id or context.task_id or uuid.uuid4().hex),
         "usedSparsePaths": bool(settings["sparse_paths"] and not existed),
+        "prNumber": resolved_pr_number,
         **post_create,
     }
     context.active_worktree_session = session
@@ -103,6 +111,9 @@ def enter_worktree(context: ToolRuntimeContext, name: str = "") -> dict[str, Any
         "symlinkedDirectories": list(post_create.get("symlinkedDirectories") or []),
         "hooksPath": str(post_create.get("hooksPath") or ""),
         "usedSparsePaths": bool(settings["sparse_paths"] and not existed),
+        "prNumber": resolved_pr_number,
+        "baseRef": base_ref,
+        "headCommit": worktree_head,
         "message": "%s worktree at %s on branch %s. Session is now using that worktree." % (action, worktree_path, branch),
     }
 
@@ -214,6 +225,38 @@ def _worktree_slug(name: str) -> str:
     return value
 
 
+def _worktree_request(name: str, *, pr_number: int | None) -> tuple[str, int | None]:
+    value = str(name or "").strip()
+    parsed_pr_number = _parse_pr_reference(value) if value else None
+    explicit_pr_number = _positive_pr_number(pr_number)
+    if parsed_pr_number is not None and explicit_pr_number is not None and parsed_pr_number != explicit_pr_number:
+        raise ValueError("Conflicting pull request references: name=%s pr_number=%s" % (value, explicit_pr_number))
+    resolved_pr_number = explicit_pr_number if explicit_pr_number is not None else parsed_pr_number
+    if resolved_pr_number is not None:
+        return _worktree_slug("pr-%d" % resolved_pr_number), resolved_pr_number
+    return _worktree_slug(value), None
+
+
+def _positive_pr_number(value: int | None) -> int | None:
+    if value is None:
+        return None
+    number = int(value)
+    if number <= 0:
+        raise ValueError("pr_number must be a positive integer")
+    return number
+
+
+def _parse_pr_reference(value: str) -> int | None:
+    text = str(value or "").strip()
+    url_match = re.match(r"^https?://[^/]+/[^/]+/[^/]+/pull/(\d+)/?(?:[?#].*)?$", text, flags=re.IGNORECASE)
+    if url_match:
+        return int(url_match.group(1))
+    hash_match = re.match(r"^#(\d+)$", text)
+    if hash_match:
+        return int(hash_match.group(1))
+    return None
+
+
 def _flatten_slug(slug: str) -> str:
     return slug.replace("/", "+")
 
@@ -226,12 +269,21 @@ def _worktree_path_for(repo_root: Path, slug: str) -> Path:
     return (repo_root / ".agents" / "worktrees" / _flatten_slug(slug)).resolve()
 
 
-def _create_git_worktree(repo_root: Path, worktree_path: Path, branch: str, *, sparse_paths: list[str]) -> None:
+def _prepare_worktree_base_ref(repo_root: Path, pr_number: int | None) -> str:
+    if pr_number is None:
+        return "HEAD"
+    result = _git(repo_root, ["fetch", "origin", "pull/%d/head" % pr_number], check=False, timeout=60)
+    if result.returncode != 0:
+        raise RuntimeError(_git_error("Failed to fetch PR #%d" % pr_number, result))
+    return "FETCH_HEAD"
+
+
+def _create_git_worktree(repo_root: Path, worktree_path: Path, branch: str, *, base_ref: str, sparse_paths: list[str]) -> None:
     worktree_path.parent.mkdir(parents=True, exist_ok=True)
     args = ["worktree", "add"]
     if sparse_paths:
         args.append("--no-checkout")
-    args.extend(["-B", branch, str(worktree_path), "HEAD"])
+    args.extend(["-B", branch, str(worktree_path), base_ref])
     result = _git(repo_root, args, check=False, timeout=60)
     if result.returncode != 0:
         raise RuntimeError(_git_error("Failed to create worktree", result))

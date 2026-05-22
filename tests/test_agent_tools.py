@@ -519,6 +519,57 @@ def test_worktree_tools_enter_keep_resume_and_remove_git_worktrees(tmp_path: Pat
     assert remove_decision.requires_approval is True
 
 
+def test_worktree_enter_can_create_from_github_pr_reference(tmp_path: Path):
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+    repo = tmp_path / "repo"
+    origin = tmp_path / "origin.git"
+    repo.mkdir()
+    _run_git(repo, "init")
+    _run_git(repo, "config", "user.email", "agent@example.com")
+    _run_git(repo, "config", "user.name", "Agent Test")
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _run_git(repo, "add", "README.md")
+    _run_git(repo, "commit", "-m", "initial")
+    _run_git(tmp_path, "init", "--bare", str(origin))
+    branch = _run_git(repo, "branch", "--show-current").stdout.strip()
+    _run_git(repo, "remote", "add", "origin", str(origin))
+    _run_git(repo, "push", "origin", "HEAD:refs/heads/%s" % branch)
+    _run_git(repo, "checkout", "-b", "feature/pr-123")
+    (repo / "README.md").write_text("from pr\n", encoding="utf-8")
+    _run_git(repo, "commit", "-am", "pr change")
+    _run_git(repo, "push", "origin", "HEAD:refs/pull/123/head")
+    _run_git(repo, "checkout", branch)
+
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=repo,
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=SandboxPolicy.for_workspace(workspace.path, allow_file_write=True, allow_process=True),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    entered = asyncio.run(registry.execute("worktree.enter", {"name": "#123"}))
+    worktree_path = Path(entered.raw["worktreePath"])
+    content = (worktree_path / "README.md").read_text(encoding="utf-8")
+    removed = asyncio.run(registry.execute("worktree.exit", {"action": "remove"}))
+
+    assert entered.is_error is False
+    assert entered.raw["worktreeBranch"] == "worktree-pr-123"
+    assert entered.raw["prNumber"] == 123
+    assert entered.raw["baseRef"] == "FETCH_HEAD"
+    assert content == "from pr\n"
+    assert removed.is_error is False
+    assert not worktree_path.exists()
+
+
 def test_worktree_enter_runs_src_origin_style_post_creation_setup(tmp_path: Path):
     if shutil.which("git") is None:
         pytest.skip("git is not installed")
