@@ -16,7 +16,7 @@ from agents.kernel.capabilities.tools.builtin.file_safety import (
 )
 from agents.kernel.capabilities.tools.builtin.read_errors import file_not_found_message
 from agents.kernel.capabilities.tools.builtin.skill_discovery import discover_dynamic_skills_for_paths
-from agents.kernel.capabilities.sandbox.text import format_file_size
+from agents.kernel.capabilities.sandbox.text import encode_text_bytes, format_file_size
 
 
 SRC_ORIGIN_MAX_EDIT_FILE_SIZE_BYTES = 1024 * 1024 * 1024
@@ -100,7 +100,7 @@ def apply_patch(
         for item in planned:
             output = preserve_existing_line_endings(item.before, item.after)
             result = context.sandbox_client.write_text(item.path, output, encoding=item.encoding)
-            record_file_read(context, result.path, output, encoding=result.encoding)
+            record_file_read(context, result.path, output, encoding=result.encoding, write_encoding=result.write_encoding)
 
     return _patch_payload(
         planned,
@@ -218,7 +218,7 @@ def _plan_patch(
             current_read = read_current_file(context, path)
             relative_path = current_read.path
             before = current_read.content
-            encoding_by_path[relative_path] = current_read.encoding
+            encoding_by_path[relative_path] = current_read.write_encoding or current_read.encoding
             ensure_existing_file_current(context, relative_path, before)
             verified_paths.add(relative_path)
             path = relative_path
@@ -270,7 +270,7 @@ def _plan_patch(
                 ensure_existing_file_current(context, relative_path, before)
                 verified_paths.add(relative_path)
             path = relative_path
-            encoding_by_path[path] = current_read.encoding
+            encoding_by_path[path] = current_read.write_encoding or current_read.encoding
             action = "overwrite"
         except FileNotFoundError:
             before = ""
@@ -286,7 +286,7 @@ def _plan_patch(
         try:
             current_read = read_current_file(context, path)
             before = current_read.content
-            encoding = current_read.encoding
+            encoding = current_read.write_encoding or current_read.encoding
         except FileNotFoundError:
             before = ""
         if before == after:
@@ -321,7 +321,7 @@ def _apply_empty_src_origin_edit(
         current_read = read_current_file(context, path)
         path = current_read.path
         before = current_read.content
-        encoding = current_read.encoding
+        encoding = current_read.write_encoding or current_read.encoding
         action = "overwrite"
     except FileNotFoundError:
         path = context.sandbox.relative_workspace_path(context.sandbox.resolve_workspace_path(path))
@@ -334,7 +334,7 @@ def _apply_empty_src_origin_edit(
     discover_dynamic_skills_for_paths(context, [path])
     output = preserve_existing_line_endings(before, after)
     result = context.sandbox_client.write_text(path, output, encoding=encoding)
-    record_file_read(context, result.path, output, encoding=result.encoding)
+    record_file_read(context, result.path, output, encoding=result.encoding, write_encoding=result.write_encoding)
 
     planned = _PlannedFile(
         path=result.path,
@@ -615,9 +615,4 @@ def _truncate(text: str, limit: int = 20000) -> str:
 
 
 def _encoded_length(content: str, encoding: str) -> int:
-    normalized = str(encoding or "utf-8").lower().replace("_", "-")
-    if normalized in {"utf-16", "utf-16le", "utf-16-le"}:
-        return len(str(content).encode("utf-16"))
-    if normalized in {"utf-8-sig", "utf8-sig"}:
-        return len(str(content).encode("utf-8-sig"))
-    return len(str(content).encode("utf-8"))
+    return len(encode_text_bytes(str(content), encoding))

@@ -279,6 +279,43 @@ def test_local_sandbox_reads_and_greps_utf16le_text_files(tmp_path):
     ]
 
 
+def test_local_sandbox_reads_utf16_text_without_little_endian_bom(tmp_path):
+    workspace = _workspace(tmp_path)
+    (workspace.path / "utf16le.txt").write_bytes("needle\nsecond\n".encode("utf-16le"))
+    (workspace.path / "utf16be.txt").write_bytes("needle\nsecond\n".encode("utf-16be"))
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    client = LocalSandboxProvider().acquire(workspace, policy)
+
+    little = client.read_text("utf16le.txt")
+    big = client.read_text("utf16be.txt")
+    result = client.grep("second")
+
+    assert little.content == "needle\nsecond\n"
+    assert little.encoding == "utf-16le"
+    assert big.content == "needle\nsecond\n"
+    assert big.encoding == "utf-16be"
+    assert sorted((match.path, match.line_number, match.line) for match in result.matches) == [
+        ("utf16be.txt", 2, "second"),
+        ("utf16le.txt", 2, "second"),
+    ]
+
+
+def test_local_sandbox_reads_utf16be_bom_text_files(tmp_path):
+    workspace = _workspace(tmp_path)
+    (workspace.path / "utf16be.txt").write_bytes(b"\xfe\xff" + "needle\nsecond\n".encode("utf-16be"))
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    client = LocalSandboxProvider().acquire(workspace, policy)
+
+    read = client.read_text("utf16be.txt")
+    result = client.grep("second")
+
+    assert read.content == "needle\nsecond\n"
+    assert read.encoding == "utf-16be"
+    assert [(match.path, match.line_number, match.line) for match in result.matches] == [
+        ("utf16be.txt", 2, "second")
+    ]
+
+
 def test_builtin_tools_route_through_sandbox_client(tmp_path):
     workspace = _workspace(tmp_path)
     (workspace.path / "note.txt").write_text("alpha\nbeta\n", encoding="utf-8")

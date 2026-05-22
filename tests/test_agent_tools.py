@@ -2937,6 +2937,68 @@ def test_filesystem_write_preserves_utf16le_for_existing_file(tmp_path: Path):
     assert (tmp_path / "notes.txt").read_text(encoding="utf-16") == "new\n"
 
 
+def test_filesystem_write_preserves_utf16_without_bom_for_existing_file(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "notes.txt").write_bytes("old\n".encode("utf-16le"))
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+    written = asyncio.run(registry.execute("filesystem.write", {"path": "notes.txt", "content": "new\n"}))
+    payload = (tmp_path / "notes.txt").read_bytes()
+
+    assert read.is_error is False
+    assert read.raw["encoding"] == "utf-16le"
+    assert written.is_error is False
+    assert written.raw["encoding"] == "utf-16le"
+    assert not payload.startswith(b"\xff\xfe")
+    assert payload.decode("utf-16le") == "new\n"
+
+
+def test_filesystem_write_preserves_utf16be_bom_for_existing_file(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "notes.txt").write_bytes(b"\xfe\xff" + "old\n".encode("utf-16be"))
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+    written = asyncio.run(registry.execute("filesystem.write", {"path": "notes.txt", "content": "new\n"}))
+    payload = (tmp_path / "notes.txt").read_bytes()
+
+    assert read.is_error is False
+    assert read.raw["encoding"] == "utf-16be"
+    assert written.is_error is False
+    assert written.raw["encoding"] == "utf-16be"
+    assert payload.startswith(b"\xfe\xff")
+    assert payload[2:].decode("utf-16be") == "new\n"
+
+
 def test_text_edit_tools_reject_binary_files(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="default",
@@ -5843,6 +5905,40 @@ def test_patch_apply_preserves_utf16le_for_existing_file(tmp_path: Path):
     assert result.is_error is False
     assert (tmp_path / "notes.txt").read_bytes().startswith(b"\xff\xfe")
     assert (tmp_path / "notes.txt").read_text(encoding="utf-16") == "hello new world\n"
+
+
+def test_patch_apply_preserves_utf16_without_bom_for_existing_file(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "notes.txt").write_bytes("hello old world\n".encode("utf-16le"))
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+    result = asyncio.run(
+        registry.execute(
+            "patch.apply",
+            {"edits": [{"path": "notes.txt", "old_text": "old", "new_text": "new"}]},
+        )
+    )
+    payload = (tmp_path / "notes.txt").read_bytes()
+
+    assert read.is_error is False
+    assert result.is_error is False
+    assert not payload.startswith(b"\xff\xfe")
+    assert payload.decode("utf-16le") == "hello new world\n"
 
 
 def test_filesystem_move_and_delete_are_native_workspace_tools(tmp_path: Path):

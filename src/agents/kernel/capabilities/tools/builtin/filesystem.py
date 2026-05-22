@@ -164,6 +164,7 @@ def _read_file(
             result.path,
             result.content,
             encoding=result.encoding,
+            write_encoding=result.write_encoding,
             source="read",
             offset=max(1, int(offset or 1)),
             limit=limit,

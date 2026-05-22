@@ -71,7 +71,14 @@ def notebook_edit(
     updated_content = json.dumps(notebook, ensure_ascii=False, indent=IPYNB_INDENT)
     updated_content = preserve_existing_line_endings(original_content, updated_content)
     result = context.sandbox_client.write_text(relative_path, updated_content, encoding=encoding)
-    record_file_read(context, result.path, updated_content, encoding=result.encoding, source="write")
+    record_file_read(
+        context,
+        result.path,
+        updated_content,
+        encoding=result.encoding,
+        write_encoding=result.write_encoding,
+        source="write",
+    )
     return {
         "new_source": str(new_source),
         "cell_id": output_cell_id,
@@ -115,7 +122,7 @@ def _read_current_notebook_for_edit(context: ToolRuntimeContext, notebook_path: 
         raise ValueError("File must be a Jupyter notebook (.ipynb file). For editing other file types, use patch.apply.")
     current = read_current_file(context, path)
     ensure_existing_file_current(context, current.path, current.content)
-    return current.path, current.content, current.encoding
+    return current.path, current.content, current.write_encoding or current.encoding
 
 
 def _parse_notebook(content: str, path: str) -> dict[str, Any]:

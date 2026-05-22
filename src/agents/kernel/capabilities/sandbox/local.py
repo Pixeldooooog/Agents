@@ -19,10 +19,13 @@ from .text import (
     decode_text_bytes,
     detect_line_endings,
     detect_text_encoding,
+    encode_text_bytes,
     looks_like_binary_file,
     normalize_text_read_max_bytes,
+    python_text_codec,
     public_encoding_name,
     text_file_too_large_message,
+    write_encoding_name,
 )
 from .types import (
     SandboxClient,
@@ -108,6 +111,7 @@ class LocalSandboxClient:
         with resolved.open("rb") as handle:
             sample = handle.read(BINARY_SAMPLE_BYTES)
         encoding = detect_text_encoding(resolved, sample)
+        write_encoding = write_encoding_name(encoding)
         size = resolved.stat().st_size
         if require_full and line_limit is None and size > byte_limit:
             raise ValueError(text_file_too_large_message(size, byte_limit))
@@ -119,7 +123,7 @@ class LocalSandboxClient:
                 line_limit=line_limit,
             )
             total_lines = _count_text_lines(resolved, encoding)
-            data = content.encode(_write_encoding(public_encoding_name(encoding)), errors="replace")
+            data = encode_text_bytes(content, write_encoding)
             byte_count = len(data)
             truncated = line_offset + _line_count(content) < total_lines
             num_lines = _line_count(content)
@@ -144,6 +148,7 @@ class LocalSandboxClient:
             num_lines=num_lines,
             total_lines=total_lines,
             is_partial_view=range_requested or truncated,
+            write_encoding=write_encoding,
         )
 
     def list_dir(self, path: str = ".") -> SandboxDirectoryListing:
@@ -173,11 +178,13 @@ class LocalSandboxClient:
         resolved.parent.mkdir(parents=True, exist_ok=True)
         text = str(content)
         write_encoding = _write_encoding(encoding)
-        resolved.write_text(text, encoding=write_encoding)
+        data = encode_text_bytes(text, write_encoding)
+        resolved.write_bytes(data)
         return SandboxFileWrite(
             path=relative,
-            bytes=resolved.stat().st_size,
+            bytes=len(data),
             encoding=public_encoding_name(write_encoding),
+            write_encoding=write_encoding,
         )
 
     def delete_path(self, path: str, recursive: bool = False) -> dict:
@@ -454,12 +461,7 @@ def _special_file_kind(path: Path) -> str | None:
 
 
 def _write_encoding(encoding: str) -> str:
-    normalized = str(encoding or "utf-8").lower().replace("_", "-")
-    if normalized in {"utf-16", "utf-16le", "utf-16-le"}:
-        return "utf-16"
-    if normalized in {"utf-8-sig", "utf8-sig"}:
-        return "utf-8-sig"
-    return "utf-8"
+    return write_encoding_name(encoding)
 
 
 def _optional_positive_int(value: int | None) -> int | None:
@@ -470,7 +472,7 @@ def _optional_positive_int(value: int | None) -> int | None:
 
 def _read_text_line_range(path: Path, *, encoding: str, line_offset: int, line_limit: int | None) -> str:
     selected: list[str] = []
-    with path.open("r", encoding=encoding, errors="replace", newline="") as handle:
+    with path.open("r", encoding=python_text_codec(encoding), errors="replace", newline="") as handle:
         for index, line in enumerate(handle):
             if index < line_offset:
                 continue
@@ -482,7 +484,7 @@ def _read_text_line_range(path: Path, *, encoding: str, line_offset: int, line_l
 
 def _count_text_lines(path: Path, encoding: str) -> int:
     count = 0
-    with path.open("r", encoding=encoding, errors="replace", newline="") as handle:
+    with path.open("r", encoding=python_text_codec(encoding), errors="replace", newline="") as handle:
         for count, _ in enumerate(handle, start=1):
             pass
     return count

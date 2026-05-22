@@ -31,6 +31,7 @@ def record_file_read(
     path: str,
     content: str,
     encoding: str = "utf-8",
+    write_encoding: str = "",
     *,
     source: str = "write",
     offset: int | None = None,
@@ -42,6 +43,7 @@ def record_file_read(
         "path": relative_path,
         "content": str(content),
         "encoding": str(encoding or "utf-8"),
+        "write_encoding": str(write_encoding or ""),
         "timestamp": _mtime(context, relative_path),
         "full_read": True,
         "source": str(source or ""),
@@ -101,7 +103,7 @@ def write_text_safely(context: ToolRuntimeContext, path: str, content: str) -> d
         current_read = read_current_file(context, path)
         relative_path = current_read.path
         current = current_read.content
-        encoding = current_read.encoding
+        encoding = current_read.write_encoding or current_read.encoding
     except FileNotFoundError:
         existed = False
         relative_path = _normalize_path(context, path)
@@ -116,7 +118,7 @@ def write_text_safely(context: ToolRuntimeContext, path: str, content: str) -> d
     if existed:
         ensure_existing_file_current(context, relative_path, current)
     result = context.sandbox_client.write_text(path, output, encoding=encoding)
-    record_file_read(context, result.path, output, encoding=result.encoding)
+    record_file_read(context, result.path, output, encoding=result.encoding, write_encoding=result.write_encoding)
     payload = result.to_dict()
     payload.update(
         {

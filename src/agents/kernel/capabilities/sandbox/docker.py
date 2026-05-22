@@ -12,7 +12,14 @@ from pathlib import Path
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.governance import SandboxPolicy
 
-from .text import DEFAULT_TEXT_READ_MAX_BYTES, normalize_text_read_max_bytes, text_file_too_large_message
+from .text import (
+    DEFAULT_TEXT_READ_MAX_BYTES,
+    encode_text_bytes,
+    normalize_text_read_max_bytes,
+    public_encoding_name,
+    text_file_too_large_message,
+    write_encoding_name,
+)
 from .types import (
     SandboxClient,
     SandboxBackgroundCommand,
@@ -107,20 +114,74 @@ def too_large_message(size_in_bytes, max_size_bytes):
         "or search for specific content instead of reading the whole file."
     ) % (format_file_size(size_in_bytes), format_file_size(max_size_bytes))
 
+def detect_utf16_without_bom(sample):
+    pair_count = len(sample) // 2
+    if pair_count < 2:
+        return ""
+    even_nuls = sum(1 for index in range(0, pair_count * 2, 2) if sample[index] == 0)
+    odd_nuls = sum(1 for index in range(1, pair_count * 2, 2) if sample[index] == 0)
+    even_ratio = even_nuls / pair_count
+    odd_ratio = odd_nuls / pair_count
+    if odd_ratio >= 0.25 and even_ratio <= 0.05:
+        return "utf-16le-no-bom"
+    if even_ratio >= 0.25 and odd_ratio <= 0.05:
+        return "utf-16be-no-bom"
+    return ""
+
+def detect_encoding(sample, path):
+    if sample.startswith(b"\\xff\\xfe"):
+        return "utf-16"
+    if sample.startswith(b"\\xfe\\xff"):
+        return "utf-16be-bom"
+    if sample.startswith(b"\\xef\\xbb\\xbf"):
+        return "utf-8-sig"
+    if path.suffix.lower() in {".7z",".avi",".bin",".bmp",".class",".dmg",".doc",".docx",".exe",".gif",".gz",".ico",".jar",".jpeg",".jpg",".mov",".mp3",".mp4",".o",".pdf",".png",".pyc",".so",".tar",".wasm",".webp",".xls",".xlsx",".zip"}:
+        return "utf-8"
+    utf16 = detect_utf16_without_bom(sample)
+    if utf16:
+        return utf16
+    return "utf-8"
+
+def public_encoding_name(encoding):
+    if encoding in {"utf-16", "utf-16le-no-bom"}:
+        return "utf-16le"
+    if encoding in {"utf-16be-bom", "utf-16be-no-bom"}:
+        return "utf-16be"
+    if encoding == "utf-8-sig":
+        return "utf-8-sig"
+    return "utf-8"
+
+def python_codec(encoding):
+    if encoding == "utf-16be-bom":
+        return "utf-16"
+    if encoding == "utf-16le-no-bom":
+        return "utf-16le"
+    if encoding == "utf-16be-no-bom":
+        return "utf-16be"
+    return encoding
+
+def strip_leading_bom(text):
+    return text[1:] if text.startswith("\\ufeff") else text
+
+def decode_text(data, encoding):
+    return data.decode(python_codec(encoding), errors="replace")
+
+def encode_text(text, encoding):
+    if encoding == "utf-16be-bom":
+        return b"\\xfe\\xff" + strip_leading_bom(str(text)).encode("utf-16be", errors="replace")
+    if encoding == "utf-16le-no-bom":
+        return str(text).encode("utf-16le", errors="replace")
+    if encoding == "utf-16be-no-bom":
+        return str(text).encode("utf-16be", errors="replace")
+    return str(text).encode(encoding, errors="replace")
+
 if not path.is_file():
     raise FileNotFoundError(sys.argv[1])
 data = path.read_bytes()
 sample = data[:8192]
 binary_exts = {".7z",".avi",".bin",".bmp",".class",".dmg",".doc",".docx",".exe",".gif",".gz",".ico",".jar",".jpeg",".jpg",".mov",".mp3",".mp4",".o",".pdf",".png",".pyc",".so",".tar",".wasm",".webp",".xls",".xlsx",".zip"}
-if sample.startswith(b"\\xff\\xfe") or sample.startswith(b"\\xfe\\xff"):
-    encoding = "utf-16"
-    public_encoding = "utf-16le"
-elif sample.startswith(b"\\xef\\xbb\\xbf"):
-    encoding = "utf-8-sig"
-    public_encoding = "utf-8-sig"
-else:
-    encoding = "utf-8"
-    public_encoding = "utf-8"
+encoding = detect_encoding(sample, path)
+public_encoding = public_encoding_name(encoding)
 if encoding == "utf-8" and (path.suffix.lower() in binary_exts or b"\\x00" in sample):
     raise ValueError("This text tool cannot read binary files. The file appears to be a binary file. Use an appropriate binary analysis tool instead.")
 if encoding == "utf-8" and sample:
@@ -131,16 +192,16 @@ range_requested = line_offset > 0 or line_limit is not None
 if require_full and line_limit is None and len(data) > byte_limit:
     raise ValueError(too_large_message(len(data), byte_limit))
 if range_requested:
-    lines = data.decode(encoding, errors="replace").splitlines(keepends=True)
+    lines = decode_text(data, encoding).splitlines(keepends=True)
     selected = lines[line_offset:] if line_limit is None else lines[line_offset:line_offset + line_limit]
     content = "".join(selected)
     total_lines = len(lines)
     num_lines = len(content.splitlines()) if content else 0
-    read_bytes = len(content.encode(encoding, errors="replace"))
+    read_bytes = len(encode_text(content, encoding))
     truncated = line_offset + num_lines < total_lines
 else:
-    content = data[:byte_limit].decode(encoding, errors="replace")
-    total_lines = len(data.decode(encoding, errors="replace").splitlines()) if len(data) <= byte_limit else len(content.splitlines())
+    content = decode_text(data[:byte_limit], encoding)
+    total_lines = len(decode_text(data, encoding).splitlines()) if len(data) <= byte_limit else len(content.splitlines())
     num_lines = len(content.splitlines()) if content else 0
     read_bytes = min(len(data), byte_limit)
     truncated = len(data) > byte_limit
@@ -158,6 +219,7 @@ sys.stdout.write(json.dumps({
     "numLines": num_lines,
     "totalLines": total_lines,
     "isPartialView": range_requested or truncated,
+    "write_encoding": encoding,
 }))
 """
         payload = self._run_python_json(
@@ -175,6 +237,7 @@ sys.stdout.write(json.dumps({
             num_lines=int(payload.get("numLines") or 0),
             total_lines=int(payload.get("totalLines") or 0),
             is_partial_view=bool(payload.get("isPartialView", False)),
+            write_encoding=str(payload.get("write_encoding") or ""),
         )
 
     def list_dir(self, path: str = ".") -> SandboxDirectoryListing:
@@ -218,16 +281,23 @@ sys.stdout.write(json.dumps({"path": path.as_posix(), "entries": entries}))
             shlex.quote(_posix_parent(relative)),
             target,
         )
+        write_encoding = _write_encoding(encoding)
+        data = encode_text_bytes(str(content), write_encoding)
         result = subprocess.run(
             self._docker_run_args(["sh", "-lc", command]),
-            input=str(content).encode(_write_encoding(encoding)),
+            input=data,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=False,
         )
         if result.returncode != 0:
             raise RuntimeError(result.stderr.decode("utf-8", errors="replace") or "docker write failed")
-        return SandboxFileWrite(path=relative, bytes=len(str(content).encode(_write_encoding(encoding))), encoding=_public_encoding_name(encoding))
+        return SandboxFileWrite(
+            path=relative,
+            bytes=len(data),
+            encoding=public_encoding_name(write_encoding),
+            write_encoding=write_encoding,
+        )
 
     def delete_path(self, path: str, recursive: bool = False) -> dict:
         decision = self.policy.authorize_file_write(path)
@@ -473,6 +543,41 @@ def file_matches_type(file_path, file_type):
     suffixes = TYPE_SUFFIXES.get(value, {"." + value.lstrip(".")})
     return file_path.suffix.lower() in suffixes
 
+def detect_utf16_without_bom(sample):
+    pair_count = len(sample) // 2
+    if pair_count < 2:
+        return ""
+    even_nuls = sum(1 for index in range(0, pair_count * 2, 2) if sample[index] == 0)
+    odd_nuls = sum(1 for index in range(1, pair_count * 2, 2) if sample[index] == 0)
+    even_ratio = even_nuls / pair_count
+    odd_ratio = odd_nuls / pair_count
+    if odd_ratio >= 0.25 and even_ratio <= 0.05:
+        return "utf-16le-no-bom"
+    if even_ratio >= 0.25 and odd_ratio <= 0.05:
+        return "utf-16be-no-bom"
+    return ""
+
+def detect_encoding(sample):
+    if sample.startswith(b"\\xff\\xfe"):
+        return "utf-16"
+    if sample.startswith(b"\\xfe\\xff"):
+        return "utf-16be-bom"
+    if sample.startswith(b"\\xef\\xbb\\xbf"):
+        return "utf-8-sig"
+    utf16 = detect_utf16_without_bom(sample)
+    if utf16:
+        return utf16
+    return "utf-8"
+
+def python_codec(encoding):
+    if encoding == "utf-16be-bom":
+        return "utf-16"
+    if encoding == "utf-16le-no-bom":
+        return "utf-16le"
+    if encoding == "utf-16be-no-bom":
+        return "utf-16be"
+    return encoding
+
 def multiline_match_indexes(lines, matcher):
     if not lines:
         return set(), {}
@@ -525,19 +630,14 @@ for file_path in files:
         if file_path.suffix.lower() in {".7z",".avi",".bin",".bmp",".class",".dmg",".doc",".docx",".exe",".gif",".gz",".ico",".jar",".jpeg",".jpg",".mov",".mp3",".mp4",".o",".pdf",".png",".pyc",".so",".tar",".wasm",".webp",".xls",".xlsx",".zip"}:
             continue
         sample = file_path.read_bytes()[:8192]
-        if sample.startswith(b"\\xff\\xfe") or sample.startswith(b"\\xfe\\xff"):
-            encoding = "utf-16"
-        elif sample.startswith(b"\\xef\\xbb\\xbf"):
-            encoding = "utf-8-sig"
-        else:
-            encoding = "utf-8"
+        encoding = detect_encoding(sample)
         if encoding == "utf-8" and b"\\x00" in sample:
             continue
         if encoding == "utf-8" and sample:
             control = sum(1 for byte in sample if byte < 32 and byte not in {9, 10, 12, 13})
             if control / len(sample) > 0.10:
                 continue
-        handle = file_path.open("r", encoding=encoding, errors="replace")
+        handle = file_path.open("r", encoding=python_codec(encoding), errors="replace")
     except OSError:
         continue
     with handle:
@@ -731,12 +831,7 @@ def _posix_parent(path: str) -> str:
 
 
 def _write_encoding(encoding: str) -> str:
-    normalized = str(encoding or "utf-8").lower().replace("_", "-")
-    if normalized in {"utf-16", "utf-16le", "utf-16-le"}:
-        return "utf-16"
-    if normalized in {"utf-8-sig", "utf8-sig"}:
-        return "utf-8-sig"
-    return "utf-8"
+    return write_encoding_name(encoding)
 
 
 def _docker_glob_pattern(pattern: str, policy: SandboxPolicy) -> str:
@@ -752,12 +847,7 @@ def _docker_glob_pattern(pattern: str, policy: SandboxPolicy) -> str:
 
 
 def _public_encoding_name(encoding: str) -> str:
-    write_encoding = _write_encoding(encoding)
-    if write_encoding == "utf-16":
-        return "utf-16le"
-    if write_encoding == "utf-8-sig":
-        return "utf-8-sig"
-    return "utf-8"
+    return public_encoding_name(_write_encoding(encoding))
 
 
 def _terminate_process(process: asyncio.subprocess.Process) -> None:

@@ -45,6 +45,7 @@ class SandboxFileRead:
     num_lines: int = 0
     total_lines: int = 0
     is_partial_view: bool = False
+    write_encoding: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -66,6 +67,7 @@ class SandboxFileWrite:
     path: str
     bytes: int
     encoding: str = "utf-8"
+    write_encoding: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {"path": self.path, "bytes": self.bytes, "encoding": self.encoding}
