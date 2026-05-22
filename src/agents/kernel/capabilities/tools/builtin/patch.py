@@ -108,6 +108,7 @@ def apply_src_origin_edit(
     replace_all: bool = False,
 ) -> dict[str, Any]:
     if old_string != "":
+        _reject_src_origin_notebook_edit(context, file_path)
         return apply_patch(
             context,
             edits=[
@@ -125,6 +126,12 @@ def apply_src_origin_edit(
         new_string=new_string,
         replace_all=replace_all,
     )
+
+
+def _reject_src_origin_notebook_edit(context: ToolRuntimeContext, file_path: str) -> None:
+    resolved = context.sandbox.resolve_workspace_path(file_path)
+    if resolved.exists() and resolved.suffix.lower() == ".ipynb":
+        raise ValueError("File is a Jupyter Notebook. Use the NotebookEdit tool to edit this file.")
 
 
 def _plan_patch(

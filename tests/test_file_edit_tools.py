@@ -1,4 +1,5 @@
 import asyncio
+import json
 from pathlib import Path
 
 from agents.kernel.capabilities.sandbox.local import LocalSandboxProvider
@@ -82,6 +83,31 @@ def test_src_origin_edit_empty_old_string_replaces_blank_file(tmp_path: Path):
     assert (tmp_path / "blank.txt").read_text(encoding="utf-8") == "created\n"
     assert result.raw["files"][0]["action"] == "overwrite"
     assert result.raw["originalFile"] == "  \n"
+
+
+def test_src_origin_edit_rejects_notebooks_before_prior_read(tmp_path: Path):
+    notebook = {
+        "cells": [{"cell_type": "markdown", "source": "old\n", "metadata": {}}],
+        "metadata": {},
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    }
+    (tmp_path / "analysis.ipynb").write_text(json.dumps(notebook), encoding="utf-8")
+    registry = _registry(tmp_path)
+
+    result = asyncio.run(
+        registry.execute(
+            "Edit",
+            {
+                "file_path": "analysis.ipynb",
+                "old_string": "old",
+                "new_string": "new",
+            },
+        )
+    )
+
+    assert result.is_error is True
+    assert result.content == "File is a Jupyter Notebook. Use the NotebookEdit tool to edit this file."
 
 
 def test_patch_apply_keeps_empty_old_text_rejected(tmp_path: Path):
