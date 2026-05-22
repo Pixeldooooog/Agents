@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from agents.kernel.capabilities.skills import coerce_path_patterns
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 
@@ -126,6 +127,7 @@ def _skill_manifests(context: ToolRuntimeContext, *, include_prompt: bool) -> li
             "enabled": name in enabled,
             "dependencies": list(raw.get("dependencies", raw.get("requires", [])) or []),
             "tools": list(raw.get("tools") or []),
+            "paths": _manifest_path_patterns(raw),
             "metadata": dict(raw.get("metadata") or {}),
         }
         if include_prompt:
@@ -142,6 +144,7 @@ def _skill_manifests(context: ToolRuntimeContext, *, include_prompt: bool) -> li
                 "enabled": True,
                 "dependencies": list(skill.dependencies),
                 "tools": list(skill.tools),
+                "paths": list(getattr(skill, "path_patterns", []) or []),
                 "metadata": dict(skill.metadata),
             }
         )
@@ -173,6 +176,11 @@ def _metadata(spec: Any) -> dict[str, Any]:
     if isinstance(raw, dict) and isinstance(raw.get("metadata"), dict):
         return dict(raw["metadata"])
     return {}
+
+
+def _manifest_path_patterns(raw: dict[str, Any]) -> list[str]:
+    metadata = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
+    return coerce_path_patterns(raw.get("paths", metadata.get("paths")))
 
 
 def _score(name: str, haystack: str, terms: list[str], exact: str) -> int:

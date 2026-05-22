@@ -5892,6 +5892,7 @@ def test_skill_registry_loads_prompt_fragments_and_tool_names(tmp_path: Path):
             {
                 "name": "focus",
                 "version": "1.0.0",
+                "paths": ["src/**/*.py"],
                 "prompt_fragments": ["prompts/focus.md"],
                 "tools": ["echo"],
             }
@@ -5904,3 +5905,5 @@ def test_skill_registry_loads_prompt_fragments_and_tool_names(tmp_path: Path):
     assert registry.names() == ["focus"]
     assert registry.prompt_text() == "Focus on agents."
     assert registry.tool_names() == ["echo"]
+    assert registry.skills[0].path_patterns == ["src/**/*.py"]
+    assert registry.skills[0].metadata["paths"] == ["src/**/*.py"]

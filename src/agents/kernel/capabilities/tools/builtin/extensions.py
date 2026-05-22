@@ -332,6 +332,7 @@ def _skill_payload(skill: SkillManifest) -> dict[str, Any]:
         "version": skill.version,
         "description": skill.description,
         "tools": list(skill.tools),
+        "paths": list(getattr(skill, "path_patterns", []) or []),
         "prompt_fragments": len(skill.prompt_fragments),
     }
 

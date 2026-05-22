@@ -74,6 +74,8 @@ class ToolRuntimeContext:
     dynamic_skill_dirs_checked: set[str] = field(default_factory=set)
     dynamic_skill_dirs: set[str] = field(default_factory=set)
     dynamic_skill_dir_triggers: set[str] = field(default_factory=set)
+    conditional_skill_names_activated: set[str] = field(default_factory=set)
+    conditional_skill_triggers: dict[str, str] = field(default_factory=dict)
     scheduled_tasks: dict[str, dict[str, Any]] = field(default_factory=dict)
     hook_registry: SessionHookRegistry = field(default_factory=SessionHookRegistry)
     teams: dict[str, Any] = field(default_factory=dict)

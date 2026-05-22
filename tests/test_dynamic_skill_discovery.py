@@ -51,6 +51,24 @@ def _write_nested_skill(root: Path, relative_parent: str, name: str, prompt: str
     return skill_root
 
 
+def _write_root_skill(root: Path, name: str, prompt: str, paths: list[str]) -> Path:
+    skill_dir = root / "skills" / name
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "prompt.md").write_text(prompt, encoding="utf-8")
+    (skill_dir / "skill.json").write_text(
+        json.dumps(
+            {
+                "name": name,
+                "description": "Conditional skill",
+                "paths": paths,
+                "prompt_fragments": ["prompt.md"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return skill_dir
+
+
 def test_filesystem_read_discovers_nested_skill_dirs_and_skill_invocation(tmp_path: Path):
     (tmp_path / "src" / "feature").mkdir(parents=True)
     (tmp_path / "src" / "feature" / "notes.txt").write_text("notes\n", encoding="utf-8")
@@ -140,3 +158,40 @@ def test_filesystem_read_skips_gitignored_nested_skill_dirs(tmp_path: Path):
     assert str(skill_root) in context.dynamic_skill_dirs_checked
     assert getattr(context, "skill_registry", None) is None
     assert invoked.is_error is True
+
+
+def test_filesystem_read_activates_matching_root_conditional_skill(tmp_path: Path):
+    (tmp_path / "src" / "ui").mkdir(parents=True)
+    (tmp_path / "src" / "ui" / "view.ts").write_text("export const view = true;\n", encoding="utf-8")
+    _write_root_skill(tmp_path, "frontend", "Review UI changes for {arguments}.", ["src/**/*.ts"])
+    context, registry = _context_and_registry(tmp_path)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "src/ui/view.ts"}))
+    discovered = asyncio.run(registry.execute("skill.discover", {"query": "frontend"}))
+    invoked = asyncio.run(registry.execute("Skill", {"skill": "frontend", "args": "accessibility"}))
+
+    assert read.is_error is False
+    assert context.conditional_skill_names_activated == {"frontend"}
+    assert context.conditional_skill_triggers == {"frontend": "src/ui/view.ts"}
+    assert context.skill_registry.names() == ["frontend"]
+    assert discovered.raw["skills"][0]["enabled"] is True
+    assert discovered.raw["skills"][0]["paths"] == ["src/**/*.ts"]
+    assert invoked.is_error is False
+    assert invoked.raw["prompt"].startswith("Review UI changes for accessibility.")
+
+
+def test_filesystem_read_leaves_nonmatching_root_conditional_skill_disabled(tmp_path: Path):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "readme.md").write_text("# Notes\n", encoding="utf-8")
+    _write_root_skill(tmp_path, "frontend", "Review UI changes.", ["src/**/*.ts"])
+    context, registry = _context_and_registry(tmp_path)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "docs/readme.md"}))
+    discovered = asyncio.run(registry.execute("skill.discover", {"query": "frontend"}))
+
+    assert read.is_error is False
+    assert context.conditional_skill_names_activated == set()
+    assert context.conditional_skill_triggers == {}
+    assert getattr(context, "skill_registry", None) is None
+    assert discovered.raw["skills"][0]["enabled"] is False
+    assert discovered.raw["skills"][0]["paths"] == ["src/**/*.ts"]

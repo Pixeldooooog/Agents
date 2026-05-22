@@ -24,6 +24,7 @@ class SkillManifest:
     dependencies: List[str] = field(default_factory=list)
     prompt_fragments: List[str] = field(default_factory=list)
     tools: List[str] = field(default_factory=list)
+    path_patterns: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -48,6 +49,10 @@ class SkillLoader:
         for relative_path in raw.get("prompt_fragments", []):
             text = (fragment_root / relative_path).read_text(encoding="utf-8")
             fragments.append(text.format(**render_context).strip())
+        metadata = dict(raw.get("metadata", {}))
+        path_patterns = coerce_path_patterns(raw.get("paths", metadata.get("paths")))
+        if path_patterns:
+            metadata.setdefault("paths", list(path_patterns))
         return SkillManifest(
             name=raw["name"],
             version=raw.get("version", "0.1.0"),
@@ -55,7 +60,8 @@ class SkillLoader:
             dependencies=list(raw.get("dependencies", raw.get("requires", []))),
             prompt_fragments=fragments,
             tools=list(raw.get("tools", [])),
-            metadata=dict(raw.get("metadata", {})),
+            path_patterns=path_patterns,
+            metadata=metadata,
         )
 
     def _manifest_path(self, name: str) -> Path:
@@ -114,3 +120,31 @@ class SkillRegistry:
                     seen.add(tool_name)
                     names.append(tool_name)
         return names
+
+
+def coerce_path_patterns(raw: Any) -> List[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        values: list[Any] = []
+        for line in raw.splitlines():
+            values.extend(line.split(","))
+    elif isinstance(raw, (list, tuple, set)):
+        values = list(raw)
+    else:
+        values = [raw]
+
+    patterns: list[str] = []
+    for value in values:
+        pattern = str(value or "").strip().replace("\\", "/")
+        if not pattern:
+            continue
+        if pattern.startswith("./"):
+            pattern = pattern[2:]
+        if pattern.endswith("/**"):
+            pattern = pattern[:-3]
+        if pattern:
+            patterns.append(pattern)
+    if not patterns or all(pattern == "**" for pattern in patterns):
+        return []
+    return patterns
