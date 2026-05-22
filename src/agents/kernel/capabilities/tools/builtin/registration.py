@@ -464,6 +464,7 @@ def register_builtin_tools(
     context: ToolRuntimeContext,
     web_provider: WebSearchProvider | None = None,
 ) -> list[str]:
+    context.runtime_event_sink = registry.emit_runtime_event
     active_web_provider = web_provider or NullWebSearchProvider()
     _register_filesystem(registry, context)
     _register_notebooks(registry, context)

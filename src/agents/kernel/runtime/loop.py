@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import AsyncIterable, List, Mapping, Optional
+import asyncio
+from typing import AsyncIterable, Callable, List, Mapping, Optional
 
 from agents.kernel.hooks import AgentHooks
 from agents.kernel.models.errors import ModelClientError
@@ -186,9 +187,10 @@ class AgentRuntime:
         terminal_content = ""
         try:
             if state.pending_tool_calls:
-                outcome = await self._execute_pending_tools(state, run_id, task_id)
-                for event in outcome.events:
+                outcome_holder: dict[str, ToolExecutionOutcome] = {}
+                async for event in self._stream_pending_tool_events(state, run_id, task_id, outcome_holder):
                     yield event
+                outcome = outcome_holder["outcome"]
                 if outcome.approval_required:
                     terminal_status = "awaiting_approval"
                     terminal_content = "tool approval required"
@@ -213,9 +215,10 @@ class AgentRuntime:
                 if not calls:
                     terminal_content = final_response.content_text()
                     return
-                outcome = await self._execute_pending_tools(state, run_id, task_id)
-                for event in outcome.events:
+                outcome_holder = {}
+                async for event in self._stream_pending_tool_events(state, run_id, task_id, outcome_holder):
                     yield event
+                outcome = outcome_holder["outcome"]
                 if outcome.approval_required:
                     terminal_status = "awaiting_approval"
                     terminal_content = "tool approval required"
@@ -273,6 +276,7 @@ class AgentRuntime:
         state: RuntimeState,
         run_id: str | None,
         task_id: str | None = None,
+        event_sink: Callable[[RuntimeEvent], None] | None = None,
     ) -> ToolExecutionOutcome:
         if not state.pending_tool_calls:
             return ToolExecutionOutcome([])
@@ -284,7 +288,7 @@ class AgentRuntime:
             contract_provider=self.tool_orchestrator.describe_call,
         )
         if approval_events:
-            state.events.extend(approval_events)
+            self._record_runtime_events(state, emitted, approval_events, event_sink=event_sink)
             await self._save_checkpoint(run_id, "approval_required", state)
             return ToolExecutionOutcome(approval_events, approval_required=True)
 
@@ -293,27 +297,28 @@ class AgentRuntime:
             authorizations,
             contract_provider=self.tool_orchestrator.describe_call,
         )
-        state.events.extend(approval_resolution.events)
-        emitted.extend(approval_resolution.events)
+        self._record_runtime_events(state, emitted, approval_resolution.events, event_sink=event_sink)
         decisions = approval_resolution.decisions
 
         prepared = await self.tool_orchestrator.prepare_with_decisions(state.pending_tool_calls, decisions)
-        state.events.extend(prepared.events)
-        emitted.extend(prepared.events)
+        self._record_runtime_events(state, emitted, prepared.events, event_sink=event_sink)
 
         for call in prepared.executable_calls:
             event = tool_start_event(call, contract=self.tool_orchestrator.describe_call(call))
-            state.events.append(event)
-            emitted.append(event)
-        batch = await self.tool_orchestrator.execute_prepared(
-            prepared,
-            run_id=run_id or "",
-            task_id=task_id or "",
-            include_preparation_events=False,
-        )
+            self._record_runtime_events(state, emitted, [event], event_sink=event_sink)
+
+        def progress_sink(event: RuntimeEvent) -> None:
+            self._record_runtime_events(state, emitted, [event], event_sink=event_sink)
+
+        with self.tools.runtime_event_sink(progress_sink):
+            batch = await self.tool_orchestrator.execute_prepared(
+                prepared,
+                run_id=run_id or "",
+                task_id=task_id or "",
+                include_preparation_events=False,
+            )
         state.tool_results.extend(batch.results)
-        state.events.extend(batch.events)
-        emitted.extend(batch.events)
+        self._record_runtime_events(state, emitted, batch.events, event_sink=event_sink)
         state.messages.extend(batch.messages)
         for approval_id in approval_resolution.decided_call_ids:
             state.tool_approvals.pop(approval_id, None)
@@ -321,6 +326,57 @@ class AgentRuntime:
         state.pending_tool_calls = []
         await self._save_checkpoint(run_id, "canceled" if batch.canceled else "tool_results", state)
         return ToolExecutionOutcome(emitted, canceled=batch.canceled)
+
+    async def _stream_pending_tool_events(
+        self,
+        state: RuntimeState,
+        run_id: str | None,
+        task_id: str | None,
+        outcome_holder: dict[str, ToolExecutionOutcome],
+    ) -> AsyncIterable[RuntimeEvent]:
+        queue: asyncio.Queue[RuntimeEvent] = asyncio.Queue()
+
+        def enqueue(event: RuntimeEvent) -> None:
+            queue.put_nowait(event)
+
+        task = asyncio.create_task(self._execute_pending_tools(state, run_id, task_id, event_sink=enqueue))
+        next_event: asyncio.Task[RuntimeEvent] | None = None
+        try:
+            while True:
+                next_event = asyncio.create_task(queue.get())
+                done, _ = await asyncio.wait({task, next_event}, return_when=asyncio.FIRST_COMPLETED)
+                if next_event in done:
+                    yield next_event.result()
+                else:
+                    next_event.cancel()
+                if task in done:
+                    break
+        except asyncio.CancelledError:
+            if next_event is not None and not next_event.done():
+                next_event.cancel()
+            if not task.done():
+                task.cancel()
+            outcome_holder["outcome"] = await task
+            while not queue.empty():
+                yield queue.get_nowait()
+            return
+        while not queue.empty():
+            yield queue.get_nowait()
+        outcome_holder["outcome"] = await task
+
+    def _record_runtime_events(
+        self,
+        state: RuntimeState,
+        emitted: List[RuntimeEvent],
+        events: List[RuntimeEvent],
+        *,
+        event_sink: Callable[[RuntimeEvent], None] | None = None,
+    ) -> None:
+        for event in events:
+            state.events.append(event)
+            emitted.append(event)
+            if event_sink is not None:
+                event_sink(event)
 
     async def _record_error(
         self,

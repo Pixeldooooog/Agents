@@ -386,7 +386,7 @@ class SDKToolProgressMessage(SDKBaseMessage):
     type: Literal["tool_progress"] = "tool_progress"
     tool_call_id: str = ""
     name: str
-    status: Literal["started", "completed", "failed", "awaiting_approval", "denied"]
+    status: Literal["started", "running", "stalled", "completed", "failed", "awaiting_approval", "denied"]
     input: dict[str, Any] = Field(default_factory=dict)
     result: dict[str, Any] = Field(default_factory=dict)
     activity: dict[str, Any] = Field(default_factory=dict)
@@ -394,6 +394,13 @@ class SDKToolProgressMessage(SDKBaseMessage):
     paths: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
     error: str = ""
+    output: str = ""
+    full_output: str = ""
+    elapsed_time_seconds: float = 0.0
+    total_lines: int = 0
+    total_bytes: int = 0
+    task_id: str = ""
+    timeout_ms: int = 0
 
 
 class SDKStatusMessage(SDKBaseMessage):

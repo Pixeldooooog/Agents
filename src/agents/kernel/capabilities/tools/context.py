@@ -16,6 +16,7 @@ from agents.kernel.capabilities.sandbox.types import SandboxClient, SandboxProfi
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.governance import SandboxPolicy
 from agents.kernel.hooks import SessionHookRegistry
+from agents.kernel.schema import RuntimeEvent
 from agents.kernel.state.artifacts import ArtifactBlobLocation, ArtifactBlobStore, ArtifactStore, InMemoryArtifactStore, LocalArtifactBlobStore
 
 
@@ -87,6 +88,7 @@ class ToolRuntimeContext:
     current_task_id: str = ""
     current_tool_call_id: str = ""
     current_tool_name: str = ""
+    runtime_event_sink: Callable[[RuntimeEvent], None] | None = None
 
     def __post_init__(self) -> None:
         if self.artifact_store is None:
@@ -219,6 +221,12 @@ class ToolRuntimeContext:
             category=category,
             filename=filename,
         )
+
+    def emit_runtime_event(self, event_type: str, *, name: str = "", payload: dict[str, Any] | None = None) -> None:
+        sink = self.runtime_event_sink
+        if sink is None:
+            return
+        sink(RuntimeEvent(type=str(event_type or ""), name=str(name or ""), payload=dict(payload or {})))
 
     def artifact_destination_path(self, location: ArtifactBlobLocation) -> str:
         provider = getattr(getattr(self.sandbox_client, "lease", None), "provider", "")

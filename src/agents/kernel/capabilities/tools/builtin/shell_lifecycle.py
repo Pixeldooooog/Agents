@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import math
+import time
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from agents.kernel.capabilities.sandbox.types import SandboxBackgroundCommand
@@ -13,11 +15,21 @@ from agents.kernel.capabilities.tools.registry import ToolExecutionError
 
 ASSISTANT_AUTO_BACKGROUND_SECONDS = 15.0
 DISALLOWED_AUTO_BACKGROUND_COMMANDS = {"sleep"}
+SHELL_PROGRESS_AFTER_SECONDS = 2.0
+SHELL_PROGRESS_INTERVAL_SECONDS = 1.0
+SHELL_STALL_AFTER_SECONDS = 10.0
 
 ShellContractFormatter = Callable[..., None]
 ShellResultInterpreter = Callable[[str, int, str, str], dict[str, Any]]
 ShellFailureFormatter = Callable[[dict[str, Any]], str]
 ShellTokenParser = Callable[[str], list[str]]
+
+
+@dataclass(frozen=True)
+class ShellProgressSettings:
+    after_seconds: float = SHELL_PROGRESS_AFTER_SECONDS
+    interval_seconds: float = SHELL_PROGRESS_INTERVAL_SECONDS
+    stall_after_seconds: float = SHELL_STALL_AFTER_SECONDS
 
 
 async def run_with_assistant_auto_background(
@@ -42,19 +54,24 @@ async def run_with_assistant_auto_background(
     )
     context.background_commands[task_id] = handle
     try:
-        task = handle._task
-        if task is not None:
-            await asyncio.wait_for(asyncio.shield(task), timeout=max(0.0, auto_background_after_seconds))
-    except asyncio.TimeoutError:
-        return background_shell_payload(
+        completed = await _wait_for_background_completion(
+            context,
             handle,
             command=command,
             description=description,
             timeout_seconds=timeout_seconds,
-            dangerously_disable_sandbox=dangerously_disable_sandbox,
-            assistant_auto_backgrounded=True,
-            apply_contract=apply_contract,
+            auto_background_after_seconds=auto_background_after_seconds,
         )
+        if not completed:
+            return background_shell_payload(
+                handle,
+                command=command,
+                description=description,
+                timeout_seconds=timeout_seconds,
+                dangerously_disable_sandbox=dangerously_disable_sandbox,
+                assistant_auto_backgrounded=True,
+                apply_contract=apply_contract,
+            )
     except asyncio.CancelledError:
         await _kill_and_wait(handle)
         context.background_commands.pop(task_id, None)
@@ -130,6 +147,33 @@ def assistant_auto_background_after_seconds(
     if not math.isfinite(seconds) or seconds <= 0:
         return None
     return min(seconds, max_timeout_seconds)
+
+
+def shell_progress_settings(context: ToolRuntimeContext) -> ShellProgressSettings:
+    metadata = dict(getattr(getattr(context, "agent_spec", None), "metadata", None) or {})
+    return ShellProgressSettings(
+        after_seconds=_metadata_seconds(
+            metadata,
+            "shellProgressAfterSeconds",
+            "shell_progress_after_seconds",
+            default=SHELL_PROGRESS_AFTER_SECONDS,
+        ),
+        interval_seconds=max(
+            0.05,
+            _metadata_seconds(
+                metadata,
+                "shellProgressIntervalSeconds",
+                "shell_progress_interval_seconds",
+                default=SHELL_PROGRESS_INTERVAL_SECONDS,
+            ),
+        ),
+        stall_after_seconds=_metadata_seconds(
+            metadata,
+            "shellStallAfterSeconds",
+            "shell_stall_after_seconds",
+            default=SHELL_STALL_AFTER_SECONDS,
+        ),
+    )
 
 
 def new_shell_task_id(context: ToolRuntimeContext) -> str:
@@ -216,6 +260,145 @@ async def _kill_and_wait(handle: SandboxBackgroundCommand) -> None:
             await asyncio.wait_for(asyncio.shield(task), timeout=2.0)
         except asyncio.TimeoutError:
             pass
+
+
+async def _wait_for_background_completion(
+    context: ToolRuntimeContext,
+    handle: SandboxBackgroundCommand,
+    *,
+    command: str,
+    description: str,
+    timeout_seconds: float,
+    auto_background_after_seconds: float,
+) -> bool:
+    task = handle._task
+    if task is None:
+        return True
+    settings = shell_progress_settings(context)
+    started_at = time.monotonic()
+    auto_background_deadline = started_at + max(0.0, auto_background_after_seconds)
+    next_progress_at = started_at + settings.after_seconds
+    last_output_bytes = int(handle.output_bytes or 0)
+    last_output_change_at = started_at
+    stalled_emitted = False
+    while True:
+        if task.done():
+            return True
+        now = time.monotonic()
+        if now >= auto_background_deadline:
+            return False
+        wait_until = min(auto_background_deadline, next_progress_at)
+        wait_seconds = max(0.0, wait_until - now)
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=wait_seconds)
+            return True
+        except asyncio.TimeoutError:
+            pass
+        if task.done():
+            return True
+        now = time.monotonic()
+        if now >= auto_background_deadline:
+            return False
+        if now < next_progress_at:
+            continue
+        output = read_background_output(context, handle, max_bytes=context.sandbox.max_output_bytes)
+        total_bytes = int(handle.output_bytes or output["bytes"] or 0)
+        if total_bytes != last_output_bytes:
+            last_output_bytes = total_bytes
+            last_output_change_at = now
+            stalled_emitted = False
+        elapsed_seconds = int(now - started_at)
+        _emit_shell_progress(
+            context,
+            handle,
+            command=command,
+            description=description,
+            timeout_seconds=timeout_seconds,
+            output=output,
+            elapsed_seconds=elapsed_seconds,
+            status="running",
+        )
+        if (
+            settings.stall_after_seconds > 0
+            and not stalled_emitted
+            and now - last_output_change_at >= settings.stall_after_seconds
+        ):
+            _emit_shell_progress(
+                context,
+                handle,
+                command=command,
+                description=description,
+                timeout_seconds=timeout_seconds,
+                output=output,
+                elapsed_seconds=elapsed_seconds,
+                status="stalled",
+            )
+            stalled_emitted = True
+        next_progress_at = now + settings.interval_seconds
+
+
+def _emit_shell_progress(
+    context: ToolRuntimeContext,
+    handle: SandboxBackgroundCommand,
+    *,
+    command: str,
+    description: str,
+    timeout_seconds: float,
+    output: dict[str, Any],
+    elapsed_seconds: int,
+    status: str,
+) -> None:
+    content = str(output.get("content") or "")
+    context.emit_runtime_event(
+        "tool_progress",
+        name=getattr(context, "current_tool_name", "") or "shell.run",
+        payload={
+            "status": status,
+            "input": {
+                "command": command,
+                "description": description,
+                "timeout_seconds": timeout_seconds,
+            },
+            "output": _last_output_lines(content),
+            "full_output": content,
+            "elapsed_time_seconds": elapsed_seconds,
+            "total_lines": _line_count(content),
+            "total_bytes": int(handle.output_bytes or output.get("bytes") or 0),
+            "task_id": handle.task_id,
+            "timeout_ms": int(float(timeout_seconds or 0) * 1000),
+            "metadata": {
+                "progress_type": "bash_progress",
+                "stalled": status == "stalled",
+                "output_path": handle.output_path,
+            },
+        },
+    )
+
+
+def _last_output_lines(content: str, limit: int = 5) -> str:
+    if not content:
+        return ""
+    lines = content.splitlines()
+    selected = lines[-max(1, int(limit or 5)) :]
+    suffix = "\n" if content.endswith("\n") and selected else ""
+    return "\n".join(selected) + suffix
+
+
+def _line_count(content: str) -> int:
+    if not content:
+        return 0
+    return content.count("\n") + (0 if content.endswith("\n") else 1)
+
+
+def _metadata_seconds(metadata: dict[str, Any], camel_key: str, snake_key: str, *, default: float) -> float:
+    value = metadata.get(camel_key, metadata.get(snake_key, default))
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        seconds = default
+    if not math.isfinite(seconds) or seconds < 0:
+        return default
+    return seconds
 
 
 def _is_auto_background_allowed(command: str, *, shell_tokens: ShellTokenParser) -> bool:

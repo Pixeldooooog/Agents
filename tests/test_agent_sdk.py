@@ -93,7 +93,7 @@ from agents.sdk import (
     run_stdin,
     run_stdin_jsonl,
 )
-from agents.sdk.client import _spec_from_options
+from agents.sdk.client import _project_runtime_event_messages, _spec_from_options
 from agents.sdk.types import (
     SDKAPIRetryMessage,
     SDKAssistantMessage,
@@ -1103,6 +1103,46 @@ def test_sdk_query_emits_requires_action_state_for_approval_pause():
         for message in messages
     )
     assert [message.state for message in replay if isinstance(message, SDKSessionStateChangedMessage)] == states
+
+
+def test_sdk_projects_runtime_tool_progress_details():
+    [message] = _project_runtime_event_messages(
+        RuntimeEvent(
+            type="tool_progress",
+            name="shell.run",
+            payload={
+                "tool_call_id": "call-shell",
+                "tool_name": "shell.run",
+                "status": "stalled",
+                "input": {"command": "pytest -q"},
+                "output": "still running",
+                "full_output": "still running\n",
+                "elapsed_time_seconds": 12,
+                "total_lines": 1,
+                "total_bytes": 14,
+                "task_id": "shell_123",
+                "timeout_ms": 20000,
+                "metadata": {"progress_type": "bash_progress", "stalled": True},
+            },
+        ),
+        session_id="session-1",
+        run_id="run-1",
+        duration_ms=0,
+        num_turns=1,
+    )
+
+    assert isinstance(message, SDKToolProgressMessage)
+    assert message.status == "stalled"
+    assert message.tool_call_id == "call-shell"
+    assert message.output == "still running"
+    assert message.full_output == "still running\n"
+    assert message.elapsed_time_seconds == 12
+    assert message.total_lines == 1
+    assert message.total_bytes == 14
+    assert message.task_id == "shell_123"
+    assert message.timeout_ms == 20000
+    assert message.metadata["progress_type"] == "bash_progress"
+    assert validate_sdk_message(message.model_dump()) == message
 
 
 def test_sdk_query_projects_model_retry_as_system_api_retry_message():

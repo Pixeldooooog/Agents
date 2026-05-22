@@ -3623,6 +3623,13 @@ def _int(value: Any) -> int:
         return 0
 
 
+def _tool_progress_status(value: Any) -> str:
+    status = str(value or "running")
+    if status in {"started", "running", "stalled", "completed", "failed", "awaiting_approval", "denied"}:
+        return status
+    return "running"
+
+
 def _float(value: Any) -> float:
     try:
         return float(value)
@@ -3782,6 +3789,33 @@ def _project_runtime_event(
                 event.payload.get("preceding_tool_use_ids", event.payload.get("precedingToolUseIds"))
             ),
             uuid=_text_field(event.payload, "uuid", "message_id", "messageId") or str(uuid.uuid4()),
+        )
+    if event.type == "tool_progress":
+        contract = _tool_contract(event.payload)
+        metadata = dict(contract.get("metadata") or {})
+        metadata.update(_dict_field(event.payload.get("metadata")))
+        return SDKToolProgressMessage(
+            session_id=session_id,
+            run_id=run_id,
+            tool_call_id=_text_field(event.payload, "tool_call_id", "tool_use_id", "toolUseId"),
+            name=_text_field(event.payload, "tool_name", "toolName") or event.name,
+            status=_tool_progress_status(event.payload.get("status")),
+            input=_dict_field(event.payload.get("input")),
+            result=_dict_field(event.payload.get("result")),
+            activity=dict(contract.get("activity") or _dict_field(event.payload.get("activity"))),
+            target=str(contract.get("target") or event.payload.get("target") or ""),
+            paths=list(contract.get("paths") or _string_list_field(event.payload.get("paths"))),
+            metadata=metadata,
+            error=_text_field(event.payload, "error"),
+            output=_text_field(event.payload, "output"),
+            full_output=_text_field(event.payload, "full_output", "fullOutput"),
+            elapsed_time_seconds=_float(
+                event.payload.get("elapsed_time_seconds", event.payload.get("elapsedTimeSeconds"))
+            ),
+            total_lines=_int(event.payload.get("total_lines", event.payload.get("totalLines"))),
+            total_bytes=_int(event.payload.get("total_bytes", event.payload.get("totalBytes"))),
+            task_id=_text_field(event.payload, "task_id", "taskId"),
+            timeout_ms=_int(event.payload.get("timeout_ms", event.payload.get("timeoutMs"))),
         )
     if event.type == "elicitation_complete":
         return SDKElicitationCompleteMessage(

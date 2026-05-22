@@ -11,13 +11,15 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import inspect
 import json
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional
 
-from agents.kernel.schema import ToolCall, ToolResult, ToolSpec
+from agents.kernel.schema import RuntimeEvent, ToolCall, ToolResult, ToolSpec
 from agents.kernel.capabilities.tools.recording import ToolExecutionObserver, ToolExecutionScope
 
 ToolHandler = Callable[..., Any]
@@ -156,9 +158,45 @@ class ToolRegistry:
         self._semaphores: Dict[int, asyncio.Semaphore] = {}
         self._tool_timeout = tool_timeout
         self._execution_observer = execution_observer
+        self._runtime_event_sink: contextvars.ContextVar[Callable[[RuntimeEvent], None] | None] = contextvars.ContextVar(
+            "tool_runtime_event_sink_%s" % id(self),
+            default=None,
+        )
+        self._runtime_event_scope: contextvars.ContextVar[ToolExecutionScope | None] = contextvars.ContextVar(
+            "tool_runtime_event_scope_%s" % id(self),
+            default=None,
+        )
 
     def set_execution_observer(self, observer: ToolExecutionObserver | None) -> None:
         self._execution_observer = observer
+
+    @contextmanager
+    def runtime_event_sink(self, sink: Callable[[RuntimeEvent], None] | None) -> Iterator[None]:
+        token = self._runtime_event_sink.set(sink)
+        try:
+            yield
+        finally:
+            self._runtime_event_sink.reset(token)
+
+    def emit_runtime_event(self, event: RuntimeEvent) -> None:
+        sink = self._runtime_event_sink.get()
+        if sink is None:
+            return
+        scope = self._runtime_event_scope.get()
+        if scope is None:
+            sink(event)
+            return
+        payload = dict(event.payload or {})
+        payload.setdefault("tool_call_id", scope.tool_call_id)
+        payload.setdefault("tool_name", scope.tool_name)
+        sink(
+            RuntimeEvent(
+                type=event.type,
+                name=event.name or scope.tool_name,
+                payload=payload,
+                raw=event.raw,
+            )
+        )
 
     def register(
         self,
@@ -235,6 +273,7 @@ class ToolRegistry:
         )
         started_at = time.perf_counter()
         await self._before_tool(scope, arguments)
+        scope_token = self._runtime_event_scope.set(scope)
         try:
             async with self._semaphore_for_running_loop():
                 result = await asyncio.wait_for(
@@ -304,6 +343,8 @@ class ToolRegistry:
                 is_error=True,
                 raw=_with_metadata(None, metadata),
             )
+        finally:
+            self._runtime_event_scope.reset(scope_token)
 
     async def execute_many(
         self,
