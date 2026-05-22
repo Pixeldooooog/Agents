@@ -1,5 +1,6 @@
 import type { OperationEvent, OperationFile, OperationPhase, OperationSceneKind, OperationSource, RunTraceResponse } from "../types";
 import { operationFromFrame } from "./operationFrames";
+import { fileHistoryOperation } from "./operationSpecialEvents";
 import { createId } from "./sessionUtils";
 
 type RuntimeEvent = {
@@ -12,6 +13,7 @@ export function projectRuntimeEvent(event: RuntimeEvent, runId = ""): OperationE
   if (event.type === "operation_frame") return [operationFromFrame(event.payload || {}, runId)];
   if (event.type === "tool_start") return [operationFromToolEvent(event, "opening", runId)];
   if (event.type === "tool_result") return [operationFromToolEvent(event, event.payload?.is_error ? "error" : "done", runId)];
+  if (event.type === "file_history_write") return [fileHistoryOperation(event, runId)];
   if (event.type === "web_search") return [genericOperation(event, "web", "web.search", "opening", runId)];
   if (event.type === "browser_action") return [genericOperation(event, "browser", "browser.action", "opening", runId)];
   if (event.type === "code_start") return [genericOperation(event, "terminal", "code.run", "opening", runId)];

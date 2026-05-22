@@ -53,6 +53,38 @@ def test_operation_frames_project_runtime_contract_events():
     assert frames[1]["resultPreview"] == {"path": "notes.md", "bytes": 5}
 
 
+def test_operation_frames_project_file_history_write_events():
+    frames = build_operation_frames(
+        run_id="run-1",
+        runtime_events=[
+            RuntimeEvent(
+                type="file_history_write",
+                name="filesystem.write",
+                payload={
+                    "path": "notes.md",
+                    "operation": "update",
+                    "tool_name": "Write",
+                    "canonical_tool": "filesystem.write",
+                    "checkpoint_pending": True,
+                    "source": "tool_result",
+                },
+            )
+        ],
+        sandbox_events=[],
+        sandbox_snapshots=[],
+        artifacts=[],
+    )
+
+    assert len(frames) == 1
+    assert frames[0]["source"] == "file_history"
+    assert frames[0]["scene"] == "edit"
+    assert frames[0]["phase"] == "done"
+    assert frames[0]["target"] == "notes.md"
+    assert frames[0]["files"] == [{"path": "notes.md", "status": "update"}]
+    assert frames[0]["stats"]["checkpoint_pending"] is True
+    assert frames[0]["step"] == {"label": "queue file checkpoint", "detail": "notes.md"}
+
+
 def test_operation_frames_expand_sandbox_tool_events():
     started = SandboxEventRecord(
         lease_id="lease-1",

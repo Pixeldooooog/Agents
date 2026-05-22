@@ -17,6 +17,8 @@ def build_runtime_operation_frames(run_id: str, events: list[RuntimeEvent]) -> l
 
 
 def _frame_from_event(run_id: str, event: RuntimeEvent, sequence: int) -> dict[str, Any]:
+    if event.type == "file_history_write":
+        return _file_history_frame(run_id, event, sequence)
     if event.type not in {"tool_start", "tool_result", "tool_approval_required", "tool_approval_decision"}:
         return {}
     payload = dict(event.payload or {})
@@ -49,6 +51,35 @@ def _frame_from_event(run_id: str, event: RuntimeEvent, sequence: int) -> dict[s
         "sources": _sources_from_result(result),
         "stats": {"contract": contract} if contract else {},
         "step": _step_for_event(event, target, contract),
+    }
+    return {key: value for key, value in frame.items() if value not in ("", None, [], {})}
+
+
+def _file_history_frame(run_id: str, event: RuntimeEvent, sequence: int) -> dict[str, Any]:
+    payload = dict(event.payload or {})
+    path = str(payload.get("path") or "")
+    operation = str(payload.get("operation") or "write")
+    tool_name = str(payload.get("canonical_tool") or event.name or payload.get("tool_name") or "file_history")
+    frame = {
+        "id": "runtime:file-history:%s:%s" % (sequence, _stable_frame_path(path)),
+        "runId": str(payload.get("run_id") or run_id),
+        "toolCallId": "",
+        "toolName": tool_name,
+        "scene": "edit",
+        "phase": "done",
+        "sequence": sequence,
+        "source": "file_history",
+        "title": "File history checkpoint pending",
+        "target": path,
+        "detail": "%s recorded for file-history checkpointing" % operation,
+        "files": [{"path": path, "status": operation}] if path else [],
+        "stats": {
+            "checkpoint_pending": bool(payload.get("checkpoint_pending", True)),
+            "operation": operation,
+            "source": payload.get("source") or "tool_result",
+            "tool_name": payload.get("tool_name") or tool_name,
+        },
+        "step": {"label": "queue file checkpoint", "detail": path},
     }
     return {key: value for key, value in frame.items() if value not in ("", None, [], {})}
 
@@ -188,3 +219,7 @@ def _sources_from_result(result: Any) -> list[dict[str, Any]]:
         for source in result["sources"][:6]
         if isinstance(source, dict)
     ]
+
+
+def _stable_frame_path(path: str) -> str:
+    return path.replace("/", "_").replace("\\", "_") or "unknown"
