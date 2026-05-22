@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import html
 import time
 from typing import Any
 
@@ -61,6 +64,7 @@ def emit_shell_task_notification(
     if status is None:
         return False
     metadata = _shell_background_metadata(context, handle)
+    metadata["task_notification_observed"] = True
     if metadata.get("task_notification_emitted") or not context.has_runtime_event_sink():
         return False
     metadata["task_notification_emitted"] = True
@@ -84,8 +88,125 @@ def emit_shell_task_notification(
     return True
 
 
+def claim_shell_task_notification(context: ToolRuntimeContext, handle: SandboxBackgroundCommand) -> None:
+    _shell_background_metadata(context, handle)["task_notification_claimed"] = True
+
+
+def release_shell_task_notification_claim(context: ToolRuntimeContext, handle: SandboxBackgroundCommand) -> None:
+    _shell_background_metadata(context, handle).pop("task_notification_claimed", None)
+
+
+def watch_shell_task_completion(context: ToolRuntimeContext, handle: SandboxBackgroundCommand) -> bool:
+    metadata = _shell_background_metadata(context, handle)
+    if metadata.get("task_notification_watcher_started"):
+        return False
+    task = handle._task
+    if task is None:
+        return False
+    metadata["task_notification_watcher_started"] = True
+
+    def enqueue_when_done(completed: Any) -> None:
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            completed.exception()
+        _enqueue_shell_task_completion(context, handle)
+
+    task.add_done_callback(enqueue_when_done)
+    return True
+
+
 def _shell_background_metadata(context: ToolRuntimeContext, handle: SandboxBackgroundCommand) -> dict[str, Any]:
     return context.background_command_metadata.setdefault(handle.task_id, {})
+
+
+def _enqueue_shell_task_completion(context: ToolRuntimeContext, handle: SandboxBackgroundCommand) -> bool:
+    status = _shell_task_notification_status(handle.status)
+    if status is None:
+        return False
+    metadata = _shell_background_metadata(context, handle)
+    if (
+        metadata.get("task_notification_observed")
+        or metadata.get("task_notification_enqueued")
+        or metadata.get("task_notification_claimed")
+    ):
+        return False
+    enqueue = context.async_message_enqueue
+    if enqueue is None:
+        return False
+    output = _read_notification_output(context, handle)
+    metadata["task_notification_enqueued"] = True
+    enqueue(
+        {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": _shell_task_notification_text(handle, output=output, metadata=metadata),
+                    }
+                ],
+            },
+            "priority": "later",
+            "isReplay": False,
+            "isSynthetic": True,
+        }
+    )
+    return True
+
+
+def _read_notification_output(context: ToolRuntimeContext, handle: SandboxBackgroundCommand) -> dict[str, Any]:
+    try:
+        result = context.sandbox_client.read_text(handle.output_path, max_bytes=context.sandbox.max_output_bytes)
+    except Exception:  # noqa: BLE001 - notification delivery must not fail the completed task.
+        return {"content": "", "bytes": 0, "truncated": False}
+    return {"content": result.content, "bytes": result.bytes, "truncated": result.truncated}
+
+
+def _shell_task_notification_text(
+    handle: SandboxBackgroundCommand,
+    *,
+    output: dict[str, Any],
+    metadata: dict[str, Any],
+) -> str:
+    status = _shell_task_xml_status(handle.status)
+    summary = _shell_task_model_summary(handle, metadata=metadata)
+    parts = [
+        "<task_notification>",
+        "<task_id>%s</task_id>" % html.escape(handle.task_id),
+        "<output_file>%s</output_file>" % html.escape(str(metadata.get("output_file") or handle.output_path)),
+        "<status>%s</status>" % html.escape(status),
+        "<summary>%s</summary>" % html.escape(summary),
+        "</task_notification>",
+    ]
+    content = str(output.get("content") or "").strip()
+    if content:
+        parts.extend(["", "Last output:", _truncate_summary(content)])
+    return "\n".join(parts)
+
+
+def _shell_task_model_summary(handle: SandboxBackgroundCommand, *, metadata: dict[str, Any]) -> str:
+    description = str(metadata.get("description") or handle.command or handle.task_id)
+    exit_code = handle.exit_code
+    if handle.status == "completed":
+        suffix = " (exit code %s)" % exit_code if exit_code is not None else ""
+        return 'Background Bash command "%s" completed%s' % (description, suffix)
+    if handle.status in {"failed", "timed_out", "error"}:
+        suffix = " with exit code %s" % exit_code if exit_code is not None else ""
+        return 'Background Bash command "%s" failed%s' % (description, suffix)
+    if handle.status == "killed":
+        return 'Background Bash command "%s" was stopped' % description
+    return "%s: %s" % (str(handle.status or "completed"), description)
+
+
+def _shell_task_xml_status(status: str) -> str:
+    value = str(status or "").lower()
+    if value == "completed":
+        return "completed"
+    if value == "killed":
+        return "killed"
+    if value in {"failed", "timed_out", "error"}:
+        return "failed"
+    return value or "completed"
 
 
 def _shell_task_notification_status(status: str) -> str | None:

@@ -8,9 +8,12 @@ from typing import Any
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.tools.registry import ToolExecutionError
 from agents.kernel.capabilities.tools.builtin.shell_notifications import (
+    claim_shell_task_notification,
     emit_shell_task_notification,
     emit_shell_task_started,
     record_shell_background_command,
+    release_shell_task_notification_claim,
+    watch_shell_task_completion,
 )
 from agents.kernel.capabilities.tools.builtin.shell_lifecycle import (
     assistant_auto_background_after_seconds,
@@ -207,6 +210,7 @@ async def shell_run_background(
         assistant_auto_backgrounded=False,
     )
     emit_shell_task_started(context, handle)
+    watch_shell_task_completion(context, handle)
     return background_shell_payload(
         handle,
         command=command,
@@ -269,10 +273,14 @@ async def shell_output(
     if bool(block) and not handle.done():
         task = handle._task
         if task is not None:
+            claim_shell_task_notification(context, handle)
             try:
                 await asyncio.wait_for(asyncio.shield(task), timeout=max(0.0, float(timeout_seconds or 0.0)))
             except asyncio.TimeoutError:
                 retrieval_status = "timeout"
+            finally:
+                if not handle.done():
+                    release_shell_task_notification_claim(context, handle)
     if handle.done():
         retrieval_status = "success"
     elif not bool(block):

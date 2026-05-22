@@ -126,6 +126,72 @@ def test_shell_background_task_emits_started_and_terminal_runtime_events(tmp_pat
     assert task_events[1].payload["summary"] == "start\ndone"
 
 
+def test_shell_background_completion_enqueues_async_notification(tmp_path: Path):
+    context, registry = _context_and_registry(tmp_path)
+    queued = []
+    context.async_message_enqueue = queued.append
+
+    async def execute():
+        script = "import time; print('start', flush=True); time.sleep(0.05); print('done', flush=True)"
+        started = await registry.execute(
+            "shell.run",
+            {
+                "command": "%s -c %s" % (shlex.quote(sys.executable), shlex.quote(script)),
+                "run_in_background": True,
+                "timeout_seconds": 2,
+                "description": "Run async notification script",
+            },
+        )
+        handle = context.background_commands[started.raw["task_id"]]
+        await handle._task
+        await asyncio.sleep(0)
+        return started
+
+    started = asyncio.run(execute())
+
+    assert started.is_error is False
+    assert len(queued) == 1
+    assert queued[0]["priority"] == "later"
+    assert queued[0]["isSynthetic"] is True
+    text = queued[0]["message"]["content"][0]["text"]
+    assert "<task_notification>" in text
+    assert "<task_id>%s</task_id>" % started.raw["task_id"] in text
+    assert "<output_file>%s</output_file>" % started.raw["output_path"] in text
+    assert "<status>completed</status>" in text
+    assert "Background Bash command &quot;Run async notification script&quot; completed" in text
+    assert "Last output:\nstart\ndone" in text
+
+
+def test_shell_output_block_claim_suppresses_async_completion_notification(tmp_path: Path):
+    context, registry = _context_and_registry(tmp_path)
+    queued = []
+    context.async_message_enqueue = queued.append
+
+    async def execute():
+        script = "import time; print('start', flush=True); time.sleep(0.05); print('done', flush=True)"
+        started = await registry.execute(
+            "shell.run",
+            {
+                "command": "%s -c %s" % (shlex.quote(sys.executable), shlex.quote(script)),
+                "run_in_background": True,
+                "timeout_seconds": 2,
+            },
+        )
+        final = await registry.execute(
+            "shell.output",
+            {"task_id": started.raw["task_id"], "block": True, "timeout_seconds": 2},
+        )
+        await asyncio.sleep(0)
+        return started, final
+
+    started, final = asyncio.run(execute())
+
+    assert started.is_error is False
+    assert final.is_error is False
+    assert final.raw["retrieval_status"] == "success"
+    assert queued == []
+
+
 def test_shell_run_assistant_auto_background_keeps_fast_command_foreground(tmp_path: Path):
     registry = _registry(tmp_path, metadata={"shellAssistantAutoBackgroundAfterSeconds": 1.0})
 

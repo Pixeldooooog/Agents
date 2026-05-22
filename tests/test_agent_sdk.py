@@ -2,7 +2,10 @@ import asyncio
 import base64
 import json
 import os
+import shlex
 import shutil
+import sys
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,7 +16,9 @@ from agents.kernel.mcp_config import MCPServerRecord
 from agents.kernel.schema import Message, ModelResponse, RuntimeEvent, ToolCall
 from agents.kernel.models.protocol import message_event, reasoning_delta, retry_event, text_delta
 from agents.kernel.runtime import AgentRuntime, AgentSession, ScriptedModelClient
+from agents.kernel.capabilities.sandbox.local import LocalSandboxProvider
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
+from agents.kernel.capabilities.tools.builtin import register_builtin_tools
 from agents.kernel.capabilities.tools.builtin.file_safety import write_text_safely
 from agents.kernel.capabilities.tools.builtin.sleep import sleep_wait
 from agents.kernel.capabilities.tools.registry import ToolRegistry
@@ -497,6 +502,78 @@ async def _shell_task_session_factory(settings, spec):
             yield RuntimeEvent(type="done", name="assistant", payload={"content": "shell done", "status": "finished"})
 
     return ShellTaskSession()
+
+
+async def _shell_background_notification_session_factory(settings, spec):
+    workspace_dir = tempfile.TemporaryDirectory()
+    workspace_path = Path(workspace_dir.name)
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=workspace_path,
+        path=workspace_path,
+    )
+    policy = SandboxPolicy.for_workspace(
+        workspace.path,
+        allow_process=True,
+        allowed_commands=(Path(sys.executable).name,),
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    class ShellBackgroundNotificationSession:
+        runtime = SimpleNamespace(model="scripted", protocol="scripted", enabled_tools=["shell.run"])
+        tool_context = context
+
+        def __init__(self):
+            self.workspace = workspace
+
+        async def stream(self, text, run_id=None):
+            if "<task_notification>" in str(text):
+                yield RuntimeEvent(
+                    type="done",
+                    name="assistant",
+                    payload={"content": "notification drained", "status": "finished"},
+                )
+                return
+
+            script = "import time; print('start', flush=True); time.sleep(0.05); print('done', flush=True)"
+            result = await registry.execute(
+                "shell.run",
+                {
+                    "command": "%s -c %s" % (shlex.quote(sys.executable), shlex.quote(script)),
+                    "run_in_background": True,
+                    "timeout_seconds": 2,
+                    "description": "Run SDK notification script",
+                },
+                run_id=run_id or "",
+                tool_call_id="call-shell-bg",
+            )
+            yield RuntimeEvent(
+                type="tool_result",
+                name="shell.run",
+                payload={"tool_call_id": "call-shell-bg", "raw": result.raw},
+            )
+            handle = context.background_commands[result.raw["task_id"]]
+            await handle._task
+            await asyncio.sleep(0)
+            yield RuntimeEvent(
+                type="done",
+                name="assistant",
+                payload={"content": "started background", "status": "finished"},
+            )
+
+        async def aclose(self):
+            workspace_dir.cleanup()
+
+    return ShellBackgroundNotificationSession()
 
 
 async def _artifact_session_factory(settings, spec):
@@ -1320,6 +1397,29 @@ def test_sdk_query_emits_task_messages_from_shell_lifecycle_events():
     assert notification.usage == {"total_tokens": 0, "tool_uses": 0, "duration_ms": 42}
     assert any(isinstance(message, SDKTaskStartedMessage) for message in replay)
     assert any(isinstance(message, SDKTaskNotificationMessage) for message in replay)
+
+
+def test_sdk_session_drains_shell_background_completion_notification():
+    client = AgentSDKClient(session_factory=_shell_background_notification_session_factory)
+    session = client.create_sdk_session(SDKOptions(session_id="shell-background-drain"))
+
+    async def execute():
+        messages = await _collect(session.query("start shell background"))
+        replay = await client.get_session_messages("shell-background-drain", {"include_system_messages": False})
+        return messages, replay
+
+    messages, replay = asyncio.run(execute())
+
+    results = [message for message in messages if isinstance(message, SDKResultMessage)]
+    user_messages = [message for message in replay if isinstance(message, SDKUserMessage)]
+    notification_user = next(message for message in user_messages if "<task_notification>" in message.content)
+
+    assert [message.result for message in results] == ["started background", "notification drained"]
+    assert notification_user.priority == "later"
+    assert notification_user.isSynthetic is True
+    assert "<status>completed</status>" in notification_user.content
+    assert "<output_file>.agents/task-output/shell_" in notification_user.content
+    assert "Background Bash command &quot;Run SDK notification script&quot; completed" in notification_user.content
 
 
 def test_sdk_query_emits_files_persisted_from_artifact_results():

@@ -1089,6 +1089,11 @@ class AgentSDKClient:
         event = asyncio.Event()
         context.sleep_wake_event = event
         context.sleep_wake_check = lambda: self._has_async_messages(session_id=session_id, max_priority="later")
+        context.async_message_enqueue = lambda message: self.enqueue_async_message(
+            message,
+            session_id=session_id,
+            priority=_async_message_priority_value(message),
+        )
         self.active_sleep_wake_events[session_id] = event
         self.active_sleep_wake_events[run_id] = event
 
@@ -1742,6 +1747,11 @@ def _coerce_async_user_message(
 
 def _sorted_async_message_items(items: list[_SDKAsyncMessageQueueItem]) -> list[_SDKAsyncMessageQueueItem]:
     return sorted(items, key=lambda item: (_async_message_priority(item.message.priority), item.sequence))
+
+
+def _async_message_priority_value(message: dict[str, Any]) -> Literal["now", "next", "later"] | None:
+    value = str(message.get("priority") or "")
+    return value if value in {"now", "next", "later"} else None
 
 
 def _async_message_priority(value: str | None) -> int:

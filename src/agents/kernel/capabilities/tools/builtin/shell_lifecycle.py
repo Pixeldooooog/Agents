@@ -14,6 +14,7 @@ from agents.kernel.capabilities.tools.registry import ToolExecutionError
 from agents.kernel.capabilities.tools.builtin.shell_notifications import (
     emit_shell_task_started,
     record_shell_background_command,
+    watch_shell_task_completion,
 )
 
 
@@ -105,6 +106,7 @@ async def run_foreground_with_shell_progress(
         )
         if not completed:
             emit_shell_task_started(context, handle)
+            watch_shell_task_completion(context, handle)
             return background_shell_payload(
                 handle,
                 command=command,
