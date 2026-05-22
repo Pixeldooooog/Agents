@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 from agents.kernel.capabilities.skills import SkillLoader, SkillRegistry
@@ -11,7 +12,11 @@ def discover_dynamic_skills_for_paths(context: ToolRuntimeContext, paths: list[s
     discovered: list[str] = []
     root = Path(context.workspace.path).resolve()
     for raw_path in paths:
-        for skills_dir in _candidate_skill_dirs(context, root, raw_path):
+        for skills_dir, containing_dir in _candidate_skill_dirs(
+            context,
+            root,
+            raw_path,
+        ):
             skills_dir_key = str(skills_dir)
             checked = getattr(context, "dynamic_skill_dirs_checked", set())
             if skills_dir_key in checked:
@@ -19,6 +24,8 @@ def discover_dynamic_skills_for_paths(context: ToolRuntimeContext, paths: list[s
             checked.add(skills_dir_key)
             context.dynamic_skill_dirs_checked = checked
             if not skills_dir.is_dir():
+                continue
+            if _is_path_gitignored(root, containing_dir):
                 continue
             context.dynamic_skill_dirs.add(skills_dir_key)
             context.dynamic_skill_dir_triggers.add(skills_dir_key)
@@ -34,7 +41,7 @@ def _candidate_skill_dirs(context: ToolRuntimeContext, root: Path, raw_path: str
         return
     current = resolved if resolved.is_dir() else resolved.parent
     while _is_strictly_inside(current, root):
-        yield current / ".claude" / "skills"
+        yield current / ".claude" / "skills", current
         parent = current.parent
         if parent == current:
             break
@@ -47,6 +54,29 @@ def _is_strictly_inside(path: Path, root: Path) -> bool:
     except ValueError:
         return False
     return bool(relative.parts)
+
+
+def _is_path_gitignored(root: Path, path: Path) -> bool:
+    try:
+        relative = path.resolve().relative_to(root)
+    except ValueError:
+        return False
+    if not relative.parts:
+        return False
+
+    check_path = relative.as_posix()
+    if path.is_dir():
+        check_path = f"{check_path}/"
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "check-ignore", "-q", "--", check_path],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0
 
 
 def _load_dynamic_skill_dir(context: ToolRuntimeContext, skills_dir: Path) -> None:

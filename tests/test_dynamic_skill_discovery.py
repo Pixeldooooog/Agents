@@ -1,6 +1,10 @@
 import asyncio
 import json
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from agents.kernel.capabilities.sandbox.local import LocalSandboxProvider
 from agents.kernel.capabilities.tools import ToolRuntimeContext, register_builtin_tools
@@ -99,3 +103,40 @@ def test_patch_apply_create_discovers_nested_skill_dirs(tmp_path: Path):
     assert patched.is_error is False
     assert context.dynamic_skill_dir_triggers == {str(skill_root)}
     assert context.skill_registry.names() == ["editor"]
+
+
+def test_filesystem_read_skips_gitignored_nested_skill_dirs(tmp_path: Path):
+    if shutil.which("git") is None:
+        pytest.skip("git is unavailable")
+
+    subprocess.run(
+        ["git", "init"],
+        cwd=tmp_path,
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    (tmp_path / ".gitignore").write_text("ignored/\n", encoding="utf-8")
+    (tmp_path / "ignored").mkdir()
+    (tmp_path / "ignored" / "notes.txt").write_text("notes\n", encoding="utf-8")
+    skill_root = _write_nested_skill(
+        tmp_path,
+        "ignored",
+        "ignored-helper",
+        "Ignore {arguments}.",
+    )
+    context, registry = _context_and_registry(tmp_path)
+
+    read = asyncio.run(
+        registry.execute("filesystem.read", {"path": "ignored/notes.txt"})
+    )
+    invoked = asyncio.run(
+        registry.execute("Skill", {"skill": "ignored-helper", "args": "agent core"})
+    )
+
+    assert read.is_error is False
+    assert context.dynamic_skill_dir_triggers == set()
+    assert context.dynamic_skill_dirs == set()
+    assert str(skill_root) in context.dynamic_skill_dirs_checked
+    assert getattr(context, "skill_registry", None) is None
+    assert invoked.is_error is True
