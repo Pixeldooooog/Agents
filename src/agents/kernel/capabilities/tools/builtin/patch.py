@@ -108,6 +108,8 @@ def apply_src_origin_edit(
     new_string: str,
     replace_all: bool = False,
 ) -> dict[str, Any]:
+    if old_string == new_string:
+        raise ValueError("No changes to make: old_string and new_string are exactly the same.")
     if old_string != "":
         _reject_missing_src_origin_edit_file(context, file_path)
         _reject_src_origin_notebook_edit(context, file_path)

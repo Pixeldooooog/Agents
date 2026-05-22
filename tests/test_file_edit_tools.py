@@ -131,6 +131,26 @@ def test_src_origin_edit_missing_file_reports_cwd_and_similar_file(tmp_path: Pat
     assert "Did you mean README.md?" in result.content
 
 
+def test_src_origin_edit_rejects_noop_before_prior_read(tmp_path: Path):
+    (tmp_path / "notes.txt").write_text("old\n", encoding="utf-8")
+    registry = _registry(tmp_path)
+
+    result = asyncio.run(
+        registry.execute(
+            "Edit",
+            {
+                "file_path": "notes.txt",
+                "old_string": "old",
+                "new_string": "old",
+            },
+        )
+    )
+
+    assert result.is_error is True
+    assert result.content == "No changes to make: old_string and new_string are exactly the same."
+    assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "old\n"
+
+
 def test_patch_apply_keeps_empty_old_text_rejected(tmp_path: Path):
     registry = _registry(tmp_path)
 
