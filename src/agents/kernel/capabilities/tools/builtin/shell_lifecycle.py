@@ -44,6 +44,34 @@ async def run_with_assistant_auto_background(
     interpret_result: ShellResultInterpreter,
     failure_content: ShellFailureFormatter,
 ) -> dict[str, Any]:
+    payload = await run_foreground_with_shell_progress(
+        context,
+        command=command,
+        timeout_seconds=timeout_seconds,
+        description=description,
+        dangerously_disable_sandbox=dangerously_disable_sandbox,
+        auto_background_after_seconds=auto_background_after_seconds,
+        assistant_auto_backgrounded=True,
+        apply_contract=apply_contract,
+        interpret_result=interpret_result,
+        failure_content=failure_content,
+    )
+    return payload
+
+
+async def run_foreground_with_shell_progress(
+    context: ToolRuntimeContext,
+    *,
+    command: str,
+    timeout_seconds: float,
+    description: str,
+    dangerously_disable_sandbox: bool,
+    auto_background_after_seconds: float | None,
+    assistant_auto_backgrounded: bool,
+    apply_contract: ShellContractFormatter,
+    interpret_result: ShellResultInterpreter,
+    failure_content: ShellFailureFormatter,
+) -> dict[str, Any]:
     task_id = new_shell_task_id(context)
     output_path = shell_output_path(task_id)
     handle = await context.sandbox_client.start_background_command(
@@ -69,7 +97,7 @@ async def run_with_assistant_auto_background(
                 description=description,
                 timeout_seconds=timeout_seconds,
                 dangerously_disable_sandbox=dangerously_disable_sandbox,
-                assistant_auto_backgrounded=True,
+                assistant_auto_backgrounded=assistant_auto_backgrounded,
                 apply_contract=apply_contract,
             )
     except asyncio.CancelledError:
@@ -147,6 +175,17 @@ def assistant_auto_background_after_seconds(
     if not math.isfinite(seconds) or seconds <= 0:
         return None
     return min(seconds, max_timeout_seconds)
+
+
+def should_stream_shell_progress(
+    context: ToolRuntimeContext,
+    command: str,
+    *,
+    shell_tokens: ShellTokenParser,
+) -> bool:
+    if not context.has_runtime_event_sink():
+        return False
+    return _is_auto_background_allowed(command, shell_tokens=shell_tokens)
 
 
 def shell_progress_settings(context: ToolRuntimeContext) -> ShellProgressSettings:
@@ -269,14 +308,16 @@ async def _wait_for_background_completion(
     command: str,
     description: str,
     timeout_seconds: float,
-    auto_background_after_seconds: float,
+    auto_background_after_seconds: float | None,
 ) -> bool:
     task = handle._task
     if task is None:
         return True
     settings = shell_progress_settings(context)
     started_at = time.monotonic()
-    auto_background_deadline = started_at + max(0.0, auto_background_after_seconds)
+    auto_background_deadline = math.inf
+    if auto_background_after_seconds is not None:
+        auto_background_deadline = started_at + max(0.0, auto_background_after_seconds)
     next_progress_at = started_at + settings.after_seconds
     last_output_bytes = int(handle.output_bytes or 0)
     last_output_change_at = started_at

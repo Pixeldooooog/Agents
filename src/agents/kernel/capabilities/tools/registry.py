@@ -170,6 +170,9 @@ class ToolRegistry:
     def set_execution_observer(self, observer: ToolExecutionObserver | None) -> None:
         self._execution_observer = observer
 
+    def has_runtime_event_sink(self) -> bool:
+        return self._runtime_event_sink.get() is not None
+
     @contextmanager
     def runtime_event_sink(self, sink: Callable[[RuntimeEvent], None] | None) -> Iterator[None]:
         token = self._runtime_event_sink.set(sink)

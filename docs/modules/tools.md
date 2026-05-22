@@ -136,7 +136,7 @@ runtime 已经把这个契约写入工具事件：
 
 `shell.run` 同时接受现有的 `timeout_seconds` 和 `src-origin` BashTool 风格的 `timeout` 毫秒字段；前台和后台命令都会在 raw payload 中返回 `description`、`background`、`timeout_seconds`、`timeout_ms`、`interrupted`、`isImage` 和 `dangerouslyDisableSandbox`，方便 SDK/UI 用同一套契约投影命令生命周期。后台启动结果还会返回 `backgroundTaskId`、`backgroundedByUser=false`、`assistantAutoBackgrounded=false` 这些 `src-origin` output schema 字段；当前 runtime 没有无沙箱执行策略，因此 `dangerouslyDisableSandbox=true` 会被显式拒绝，而不是静默忽略。
 
-main-agent 的长前台 `shell.run` 在 assistant auto-background watcher 内会按 `src-origin` BashTool 的节奏发出运行中进度：默认 2 秒后开始、之后周期性投影 `tool_progress`，payload 包含最近输出、完整截断输出、elapsed seconds、line/byte 计数、task id 和 timeout；如果命令长时间没有新输出，会额外发 `status=stalled`，让 SDK/UI 区分“仍在运行但暂时无输出”和普通完成结果。
+streaming runtime 中的长前台 `shell.run` 会按 `src-origin` BashTool 的节奏发出运行中进度：默认 2 秒后开始、之后周期性投影 `tool_progress`，payload 包含最近输出、完整截断输出、elapsed seconds、line/byte 计数、task id 和 timeout；如果命令长时间没有新输出，会额外发 `status=stalled`，让 SDK/UI 区分“仍在运行但暂时无输出”和普通完成结果。main-agent 仍会在 assistant blocking budget 后自动转后台；禁用 auto-background 时，progress 仍保持前台命令可观测。
 
 `sleep.wait` 提供 `src-origin` Sleep 工具的基础能力：模型需要等待时可使用专用 wait tool，而不是用 `shell.run` 执行 `sleep` 占住 shell 进程。该工具是只读、并发安全、可被 interrupt 取消的低风险工具；SDK session 会把同 session 的 async user/task notifications 绑定为 Sleep wake signal，`next` / `later` 消息到达时可提前唤醒 Sleep 并在本次 session query 后继续 drain。
 

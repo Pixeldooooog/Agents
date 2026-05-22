@@ -13,7 +13,9 @@ from agents.kernel.capabilities.tools.builtin.shell_lifecycle import (
     new_shell_task_id,
     read_background_output,
     resolve_background_command,
+    run_foreground_with_shell_progress,
     run_with_assistant_auto_background,
+    should_stream_shell_progress,
     shell_output_path,
 )
 
@@ -132,6 +134,19 @@ async def run_command(
             description=description,
             dangerously_disable_sandbox=bool(dangerouslyDisableSandbox),
             auto_background_after_seconds=auto_background_after,
+            apply_contract=_apply_shell_contract_fields,
+            interpret_result=interpret_command_result,
+            failure_content=_shell_failure_content,
+        )
+    if should_stream_shell_progress(context, command, shell_tokens=_shell_tokens):
+        return await run_foreground_with_shell_progress(
+            context,
+            command=command,
+            timeout_seconds=resolved_timeout_seconds,
+            description=description,
+            dangerously_disable_sandbox=bool(dangerouslyDisableSandbox),
+            auto_background_after_seconds=None,
+            assistant_auto_backgrounded=False,
             apply_contract=_apply_shell_contract_fields,
             interpret_result=interpret_command_result,
             failure_content=_shell_failure_content,

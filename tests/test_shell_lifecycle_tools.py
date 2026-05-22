@@ -125,7 +125,7 @@ def test_shell_run_streams_progress_and_stall_runtime_events(tmp_path: Path):
     _, registry = _context_and_registry(
         tmp_path,
         metadata={
-            "shellAssistantAutoBackgroundAfterSeconds": 1.0,
+            "shellAssistantAutoBackground": False,
             "shellProgressAfterSeconds": 0.02,
             "shellProgressIntervalSeconds": 0.05,
             "shellStallAfterSeconds": 0.05,
@@ -173,6 +173,7 @@ def test_shell_run_streams_progress_and_stall_runtime_events(tmp_path: Path):
     events, progress_seen_before_completion = asyncio.run(collect())
     event_types = [event.type for event in events]
     progress_events = [event for event in events if event.type == "tool_progress"]
+    tool_result = next(event for event in events if event.type == "tool_result")
 
     assert progress_seen_before_completion is True
     assert event_types.index("tool_start") < event_types.index("tool_progress") < event_types.index("tool_result")
@@ -181,3 +182,5 @@ def test_shell_run_streams_progress_and_stall_runtime_events(tmp_path: Path):
     assert progress_events[0].payload["tool_call_id"] == "call-shell"
     assert progress_events[0].payload["task_id"].startswith("shell_")
     assert progress_events[0].payload["metadata"]["progress_type"] == "bash_progress"
+    assert tool_result.payload["raw"]["background"] is False
+    assert "backgroundTaskId" not in tool_result.payload["raw"]

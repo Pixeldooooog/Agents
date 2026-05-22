@@ -89,6 +89,7 @@ class ToolRuntimeContext:
     current_tool_call_id: str = ""
     current_tool_name: str = ""
     runtime_event_sink: Callable[[RuntimeEvent], None] | None = None
+    runtime_event_active: Callable[[], bool] | None = None
 
     def __post_init__(self) -> None:
         if self.artifact_store is None:
@@ -227,6 +228,10 @@ class ToolRuntimeContext:
         if sink is None:
             return
         sink(RuntimeEvent(type=str(event_type or ""), name=str(name or ""), payload=dict(payload or {})))
+
+    def has_runtime_event_sink(self) -> bool:
+        active = self.runtime_event_active
+        return bool(active and active())
 
     def artifact_destination_path(self, location: ArtifactBlobLocation) -> str:
         provider = getattr(getattr(self.sandbox_client, "lease", None), "provider", "")
