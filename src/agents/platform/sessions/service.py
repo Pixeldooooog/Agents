@@ -5,6 +5,10 @@ from agents.kernel.capabilities.sandbox import InMemorySandboxStore, SandboxStor
 from agents.kernel.state.runs import InMemoryRunStore, RunRecord, RunStatus, RunStore
 from agents.kernel.schema import RuntimeEvent
 from agents.kernel.governance.tracing import InMemoryTraceStore, RuntimeTraceRecorder
+from agents.platform.sessions.file_history import (
+    file_history_events_after_record,
+    file_history_events_before_record,
+)
 
 
 class RunService:
@@ -26,12 +30,22 @@ class RunService:
         return record
 
     async def record_event(self, run_id: str, event: RuntimeEvent) -> None:
+        record = await self.store.load_run(run_id)
+        for generated in file_history_events_before_record(record, event):
+            await self._append_event(run_id, generated)
         await self.store.append_event(run_id, event)
         await self.trace_recorder.record_runtime_event(run_id, event)
+        record = await self.store.load_run(run_id)
+        for generated in file_history_events_after_record(record, event):
+            await self._append_event(run_id, generated)
 
     async def record_events(self, run_id: str, events: list[RuntimeEvent]) -> None:
         for event in events:
             await self.record_event(run_id, event)
+
+    async def _append_event(self, run_id: str, event: RuntimeEvent) -> None:
+        await self.store.append_event(run_id, event)
+        await self.trace_recorder.record_runtime_event(run_id, event)
 
     async def mark_running(self, run_id: str) -> None:
         await self.store.set_status(run_id, RunStatus.RUNNING)

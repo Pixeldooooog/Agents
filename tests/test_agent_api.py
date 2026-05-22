@@ -325,6 +325,18 @@ def test_agent_run_approval_api_resumes_checkpoint(monkeypatch):
         )
         record = await agent_routes.run_service.store.create_run(AgentSpec.from_overrides(agent_id="agent-1"), run_id="run-approval")
         await agent_routes.run_service.record_event(record.run_id, RuntimeEvent(type="tool_approval_required", name="echo", payload={"approval_id": "call-1"}))
+        await agent_routes.run_service.record_event(
+            record.run_id,
+            RuntimeEvent(
+                type="file-history-snapshot",
+                name="file-history",
+                payload={
+                    "type": "file-history-snapshot",
+                    "messageId": "run-approval",
+                    "snapshot": {"messageId": "run-approval", "trackedFileBackups": {}},
+                },
+            ),
+        )
         await agent_routes.run_service.pause_for_approval(record.run_id)
         task = await agent_routes.persistence.tasks.create_task(record.to_agent_spec(), title="Approval task", input="approve")
         await agent_routes.persistence.tasks.add_step(

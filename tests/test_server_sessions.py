@@ -1,4 +1,6 @@
 import asyncio
+from dataclasses import replace
+from pathlib import Path
 
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.specs import AgentSpec
@@ -35,6 +37,86 @@ def test_server_run_service_records_lifecycle_events():
     assert record.status == RunStatus.FINISHED
     assert [event.type for event in record.events] == ["run_created", "text_delta"]
     assert record.events[0].payload["run_id"] == record.run_id
+
+
+def test_server_run_service_records_non_sdk_file_history_snapshots(tmp_path):
+    service = RunService()
+    spec = replace(
+        AgentSpec.from_overrides(agent_id="agent-1", workspace_path=str(tmp_path)),
+        metadata={"claude_config_dir": str(tmp_path / ".claude")},
+    )
+
+    async def execute():
+        run = await service.start(spec)
+        await service.record_event(
+            run.run_id,
+            RuntimeEvent(
+                type="file_history_write",
+                name="filesystem.write",
+                payload={
+                    "path": "notes.md",
+                    "operation": "update",
+                    "tool_name": "Write",
+                    "canonical_tool": "filesystem.write",
+                    "checkpoint_pending": True,
+                },
+            ),
+        )
+        await service.record_event(
+            run.run_id,
+            RuntimeEvent(
+                type="tool_result",
+                name="Write",
+                payload={
+                    "tool_call_id": "call-1",
+                    "raw": {
+                        "filePath": "notes.md",
+                        "type": "update",
+                        "originalFile": "old content\n",
+                        "content": "new content\n",
+                    },
+                },
+            ),
+        )
+        return await service.store.load_run(run.run_id)
+
+    record = asyncio.run(execute())
+    snapshots = [event for event in record.events if event.type == "file-history-snapshot"]
+
+    assert [event.payload["isSnapshotUpdate"] for event in snapshots] == [False, True]
+    assert snapshots[0].payload["messageId"] == record.run_id
+    tracked = snapshots[-1].payload["snapshot"]["trackedFileBackups"]
+    backup = tracked["notes.md"]
+    assert backup["backupFileName"]
+    backup_path = Path(snapshots[-1].payload["backupRoot"]) / backup["backupFileName"]
+    assert backup_path.read_text(encoding="utf-8") == "old content\n"
+
+
+def test_server_run_service_skips_sdk_file_history_snapshots(tmp_path):
+    service = RunService()
+    spec = replace(
+        AgentSpec.from_overrides(agent_id="agent-1", workspace_path=str(tmp_path)),
+        metadata={"sdk_session_id": "sdk-session", "claude_config_dir": str(tmp_path / ".claude")},
+    )
+
+    async def execute():
+        run = await service.start(spec)
+        await service.record_event(
+            run.run_id,
+            RuntimeEvent(
+                type="tool_result",
+                name="Write",
+                payload={
+                    "tool_call_id": "call-1",
+                    "raw": {"filePath": "notes.md", "type": "update", "originalFile": "old"},
+                },
+            ),
+        )
+        return await service.store.load_run(run.run_id)
+
+    record = asyncio.run(execute())
+
+    assert [event.type for event in record.events] == ["run_created", "tool_result"]
 
 
 def test_server_run_service_marks_error_status():

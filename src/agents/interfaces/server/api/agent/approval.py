@@ -8,6 +8,7 @@ from agents.kernel.governance.approval_grants import (
 )
 from agents.kernel.schema import RuntimeEvent
 from agents.interfaces.server.api.agent.schemas import RunApprovalRequest
+from agents.platform.sessions.file_history import is_persisted_file_history_event
 
 
 def decision_map_from_request(request_data: RunApprovalRequest, pending_calls) -> dict[str, str]:
@@ -35,5 +36,9 @@ def approval_grant_map(pending_calls, approvals: dict[str, bool], decisions: dic
 
 
 def new_runtime_events(record_events, result_events) -> list[RuntimeEvent]:
-    recorded_runtime_events = [event for event in record_events if event.type != "run_created"]
+    recorded_runtime_events = [
+        event
+        for event in record_events
+        if event.type != "run_created" and not is_persisted_file_history_event(event)
+    ]
     return list(result_events)[len(recorded_runtime_events):]
