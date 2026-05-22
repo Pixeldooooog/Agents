@@ -40,6 +40,21 @@ from .types import (
 )
 
 
+GREP_SKIP_DIRECTORIES = frozenset(
+    {
+        ".bzr",
+        ".git",
+        ".hg",
+        ".jj",
+        ".sl",
+        ".svn",
+        ".venv",
+        "__pycache__",
+        "node_modules",
+    }
+)
+
+
 class LocalSandboxProvider:
     name = "local"
 
@@ -405,7 +420,7 @@ def _iter_text_lines(path: Path):
 
 
 def _should_skip_file(path: Path) -> bool:
-    return any(part in {".git", "__pycache__", ".venv", "node_modules"} for part in path.parts)
+    return any(part in GREP_SKIP_DIRECTORIES for part in path.parts)
 
 
 def _ensure_regular_file(path: Path, display_path: str, *, operation: str) -> None:
@@ -593,7 +608,10 @@ def _grep_type_matches(file_path: Path, file_type: str) -> bool:
     return file_path.suffix.lower() in suffixes
 
 
-def _multiline_match_indexes(lines: list[tuple[int, str]], matcher: re.Pattern) -> tuple[set[int], dict[int, tuple[int, int]]]:
+def _multiline_match_indexes(
+    lines: list[tuple[int, str]],
+    matcher: re.Pattern,
+) -> tuple[set[int], dict[int, tuple[int, int]]]:
     if not lines:
         return set(), {}
     content = "\n".join(line for _, line in lines)

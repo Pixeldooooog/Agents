@@ -60,3 +60,18 @@ def test_glob_validates_search_directory(tmp_path: Path):
     assert file_path.is_error is True
     assert file_path.content == "Path is not a directory: src.py"
     assert file_path.raw["reason"] == "path_not_directory"
+
+
+def test_grep_skips_src_origin_vcs_directories(tmp_path: Path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / ".hg").mkdir()
+    (tmp_path / "src" / "app.py").write_text("needle\n", encoding="utf-8")
+    (tmp_path / ".hg" / "store.txt").write_text("needle\n", encoding="utf-8")
+    registry = _registry(tmp_path)
+
+    result = asyncio.run(registry.execute("search.grep", {"pattern": "needle", "path": "."}))
+
+    assert result.is_error is False
+    assert result.content == "Found 1 file\nsrc/app.py"
+    assert result.raw["filenames"] == ["src/app.py"]
+    assert all(not match["path"].startswith(".hg/") for match in result.raw["matches"])

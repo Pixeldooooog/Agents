@@ -500,7 +500,17 @@ file_type = sys.argv[8]
 multiline = sys.argv[9] == "1"
 files = [root] if root.is_file() else sorted(item for item in root.rglob("*") if item.is_file())
 matches = []
-skip = {".git", "__pycache__", ".venv", "node_modules"}
+skip = {
+    ".bzr",
+    ".git",
+    ".hg",
+    ".jj",
+    ".sl",
+    ".svn",
+    ".venv",
+    "__pycache__",
+    "node_modules",
+}
 for file_path in files:
     if any(part in skip for part in file_path.parts):
         continue
