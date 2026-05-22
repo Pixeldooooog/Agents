@@ -331,7 +331,8 @@ def test_src_origin_alias_tools_execute_against_canonical_implementations(tmp_pa
     assert grepped.content == "notes.txt:2:needle"
     assert bashed.raw["stdout"] == "ok\n"
     assert bash_output.raw["retrieval_status"] == "success"
-    assert bash_output.raw["output"].strip() == "later"
+    assert bash_output.raw["task"]["task_type"] == "local_bash"
+    assert bash_output.raw["task"]["output"].strip() == "later"
     assert context.todos[0]["content"] == "Check aliases"
     assert todos.raw["newTodos"][0]["activeForm"] == "Checking aliases"
     assert slept.raw["reason"] == "alias test"
@@ -1155,6 +1156,52 @@ def test_shell_kill_stops_background_command(tmp_path: Path):
     assert killed.raw["task"]["status"] == "killed"
     assert output.raw["task"]["status"] == "killed"
     assert "start" in output.raw["output"]
+
+
+def test_kill_shell_alias_returns_src_origin_stop_shape(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(
+        workspace.path,
+        allow_process=True,
+        allowed_commands=(Path(sys.executable).name,),
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    async def execute():
+        script = "import time; print('start', flush=True); time.sleep(5)"
+        started = await registry.execute(
+            "Bash",
+            {
+                "command": "%s -c %s" % (shlex.quote(sys.executable), shlex.quote(script)),
+                "run_in_background": True,
+                "timeout_seconds": 30.0,
+            },
+        )
+        await asyncio.sleep(0.1)
+        killed = await registry.execute("KillShell", {"shell_id": started.raw["task_id"]})
+        return started, killed
+
+    started, killed = asyncio.run(execute())
+
+    assert started.is_error is False
+    assert killed.is_error is False
+    assert killed.raw["task_id"] == started.raw["task_id"]
+    assert killed.raw["task_type"] == "local_bash"
+    assert killed.raw["command"].startswith(shlex.quote(sys.executable))
+    assert killed.raw["message"].startswith("Successfully stopped task: %s" % started.raw["task_id"])
 
 
 def test_sleep_wait_is_dedicated_cancelable_wait_tool(tmp_path: Path):
