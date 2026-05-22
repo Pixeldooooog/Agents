@@ -14,6 +14,7 @@ from agents.kernel.capabilities.tools.builtin.file_safety import (
     record_file_read,
     structured_text_patch,
 )
+from agents.kernel.capabilities.tools.builtin.skill_discovery import discover_dynamic_skills_for_paths
 
 
 PATCH_APPLY_SCHEMA = {
@@ -83,6 +84,7 @@ def apply_patch(
     planned, planned_edits = _plan_patch(context, edit_list, create_list)
     diff = _combined_diff(planned)
     if not dry_run:
+        discover_dynamic_skills_for_paths(context, [item.path for item in planned])
         for item in planned:
             output = preserve_existing_line_endings(item.before, item.after)
             result = context.sandbox_client.write_text(item.path, output, encoding=item.encoding)

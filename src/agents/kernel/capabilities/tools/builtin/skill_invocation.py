@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -61,8 +62,14 @@ def _load_skill(context: ToolRuntimeContext, name: str, *, args: str = "") -> Sk
     normalized = _skill_name(name)
     try:
         return SkillLoader(root).load(normalized, context={"arguments": str(args or "")})
-    except FileNotFoundError as exc:
-        raise FileNotFoundError("unknown skill: %s" % normalized) from exc
+    except FileNotFoundError:
+        pass
+    for skills_dir in sorted(getattr(context, "dynamic_skill_dirs", set()) or set()):
+        try:
+            return SkillLoader(Path(skills_dir).parent).load(normalized, context={"arguments": str(args or "")})
+        except FileNotFoundError:
+            continue
+    raise FileNotFoundError("unknown skill: %s" % normalized)
 
 
 def _render_skill_prompt(skill: SkillManifest, args: str) -> str:

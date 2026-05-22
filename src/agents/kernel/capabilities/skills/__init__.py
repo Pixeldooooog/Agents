@@ -37,6 +37,10 @@ class SkillLoader:
 
     def load(self, name: str, context: Optional[Dict[str, Any]] = None) -> SkillManifest:
         manifest_path = self._manifest_path(name)
+        return self.load_manifest(manifest_path, context=context)
+
+    def load_manifest(self, manifest_path: Path, context: Optional[Dict[str, Any]] = None) -> SkillManifest:
+        manifest_path = Path(manifest_path)
         raw = json.loads(manifest_path.read_text(encoding="utf-8"))
         fragment_root = self.root if manifest_path.parent == self.root / "skills" else manifest_path.parent
         render_context = context or {}
@@ -94,6 +98,9 @@ class SkillRegistry:
 
     def names(self) -> List[str]:
         return [skill.name for skill in self.skills]
+
+    def add_or_replace(self, skill: SkillManifest) -> None:
+        self.skills = [item for item in self.skills if item.name != skill.name] + [skill]
 
     def prompt_text(self) -> str:
         return "\n\n".join(fragment for skill in self.skills for fragment in skill.prompt_fragments if fragment)

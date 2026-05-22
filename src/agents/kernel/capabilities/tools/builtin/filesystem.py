@@ -31,6 +31,7 @@ from agents.kernel.capabilities.tools.builtin.read_errors import (
     is_blocked_device_path,
 )
 from agents.kernel.capabilities.tools.builtin.read_paths import existing_alternate_screenshot_path
+from agents.kernel.capabilities.tools.builtin.skill_discovery import discover_dynamic_skills_for_paths
 
 
 FILE_UNCHANGED_STUB = (
@@ -135,15 +136,20 @@ def _read_file(
 ) -> dict[str, Any]:
     if pages and not _is_pdf_path(path):
         raise ValueError("pages is only supported for PDF files")
-    if _is_notebook_path(path):
+    is_notebook = _is_notebook_path(path)
+    is_pdf = _is_pdf_path(path)
+    is_image = _is_image_path(path)
+    if not (is_notebook or is_pdf or is_image):
+        cached = unchanged_read_stub(context, path, offset=offset, limit=limit)
+        if cached is not None:
+            return cached
+    discover_dynamic_skills_for_paths(context, [path])
+    if is_notebook:
         return _read_notebook_file(context, path, pages=pages, max_bytes=max_bytes)
-    if _is_pdf_path(path):
+    if is_pdf:
         return _read_pdf_file(context, path, pages=pages)
-    if _is_image_path(path):
+    if is_image:
         return _read_image_file(context, path)
-    cached = unchanged_read_stub(context, path, offset=offset, limit=limit)
-    if cached is not None:
-        return cached
     max_bytes = _effective_text_read_max_bytes(context, max_bytes)
     try:
         result = context.sandbox_client.read_text(path, max_bytes=max_bytes, offset=offset, limit=limit, require_full=True)
@@ -229,6 +235,7 @@ def list_dir(context: ToolRuntimeContext, path: str = ".") -> dict[str, Any]:
 
 
 def write_file(context: ToolRuntimeContext, path: str, content: str) -> dict[str, Any]:
+    discover_dynamic_skills_for_paths(context, [path])
     return write_text_safely(context, path, content)
 
 
