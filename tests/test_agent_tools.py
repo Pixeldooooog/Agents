@@ -399,6 +399,20 @@ class _FakeLspProvider:
         return {"result": "Hover info", "resultCount": 1, "fileCount": 1}
 
 
+class _FakeLspNotificationProvider:
+    def __init__(self) -> None:
+        self.events: list[tuple[str, object, object, object]] = []
+
+    def clear_diagnostics(self, *, file_uri: str) -> None:
+        self.events.append(("clear", file_uri, "", ""))
+
+    def change_file(self, *, file_path: str, absolute_path: Path, content: str) -> None:
+        self.events.append(("change", file_path, absolute_path, content))
+
+    def save_file(self, *, file_path: str, absolute_path: Path) -> None:
+        self.events.append(("save", file_path, absolute_path, ""))
+
+
 def test_lsp_tool_uses_context_provider(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="tenant",
@@ -483,6 +497,48 @@ def test_lsp_tool_validates_src_origin_path_guards(tmp_path: Path):
     assert bad_line.content == "line must be a positive integer"
     assert large.is_error is False
     assert large.content == "File too large for LSP analysis (11MB exceeds 10MB limit)"
+
+
+def test_file_write_and_patch_notify_lsp_provider_after_success(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "edit.py").write_text("value = 1\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    provider = _FakeLspNotificationProvider()
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+        lsp_provider=provider,
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    written = asyncio.run(registry.execute("filesystem.write", {"path": "created.py", "content": "print(1)\n"}))
+    asyncio.run(registry.execute("filesystem.read", {"path": "edit.py"}))
+    patched = asyncio.run(
+        registry.execute(
+            "patch.apply",
+            {"edits": [{"path": "edit.py", "old_text": "value = 1\n", "new_text": "value = 2\n"}]},
+        )
+    )
+
+    assert written.is_error is False
+    assert patched.is_error is False
+    assert provider.events == [
+        ("clear", "file://%s" % (tmp_path / "created.py").resolve(), "", ""),
+        ("change", "created.py", (tmp_path / "created.py").resolve(), "print(1)\n"),
+        ("save", "created.py", (tmp_path / "created.py").resolve(), ""),
+        ("clear", "file://%s" % (tmp_path / "edit.py").resolve(), "", ""),
+        ("change", "edit.py", (tmp_path / "edit.py").resolve(), "value = 2\n"),
+        ("save", "edit.py", (tmp_path / "edit.py").resolve(), ""),
+    ]
 
 
 def test_config_manage_and_src_origin_alias_update_session_config(tmp_path: Path):

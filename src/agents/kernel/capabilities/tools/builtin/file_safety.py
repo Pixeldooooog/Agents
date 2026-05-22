@@ -7,6 +7,7 @@ from typing import Any
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.sandbox.types import SandboxFileRead
 from agents.kernel.capabilities.tools.builtin.file_diff import single_file_git_diff
+from agents.kernel.capabilities.tools.builtin.lsp import notify_lsp_file_saved
 from agents.kernel.capabilities.tools.builtin.team_memory_safety import check_team_memory_secrets
 
 
@@ -124,6 +125,7 @@ def write_text_safely(context: ToolRuntimeContext, path: str, content: str) -> d
         ensure_existing_file_current(context, relative_path, current)
     result = context.sandbox_client.write_text(path, output, encoding=encoding)
     record_file_read(context, result.path, output, encoding=result.encoding, write_encoding=result.write_encoding)
+    notify_lsp_file_saved(context, result.path, output)
     payload = result.to_dict()
     payload.update(
         {

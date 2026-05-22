@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import math
@@ -83,6 +84,30 @@ def format_lsp_result(result: Any) -> str:
     return str(result or "")
 
 
+def notify_lsp_file_saved(context: ToolRuntimeContext, file_path: str, content: str) -> None:
+    provider = context.lsp_provider
+    if provider is None:
+        return
+    try:
+        absolute_path = context.sandbox.resolve_workspace_path(file_path)
+    except (OSError, PermissionError):
+        return
+    file_uri = "file://%s" % absolute_path
+    base_request = {
+        "filePath": str(absolute_path),
+        "path": str(absolute_path),
+        "absolutePath": str(absolute_path),
+        "absolute_path": absolute_path,
+        "file_path": str(file_path),
+        "workspace_path": str(file_path),
+        "uri": file_uri,
+        "file_uri": file_uri,
+    }
+    _notify_provider(provider, ("clear_diagnostics", "clearDeliveredDiagnosticsForFile"), base_request)
+    _notify_provider(provider, ("change_file", "changeFile"), {**base_request, "content": str(content)})
+    _notify_provider(provider, ("save_file", "saveFile"), base_request)
+
+
 def _validate_positive_position(*, line: int, character: int) -> None:
     if line < 1:
         raise ValueError("line must be a positive integer")
@@ -135,12 +160,48 @@ async def _query_provider(
 
 
 def _provider_callback(provider: Any) -> Callable[..., Any]:
-    query = getattr(provider, "query", None)
-    if callable(query):
-        return query
-    if callable(provider):
+    callback = _first_provider_callback(provider, ("query",))
+    if callback is None:
+        raise TypeError("LSP provider must expose query(...) or be callable")
+    return callback
+
+
+def _first_provider_callback(provider: Any, names: tuple[str, ...]) -> Callable[..., Any] | None:
+    for name in names:
+        callback = getattr(provider, name, None)
+        if callable(callback):
+            return callback
+    if len(names) == 1 and names[0] == "query" and callable(provider):
         return provider
-    raise TypeError("LSP provider must expose query(...) or be callable")
+    return None
+
+
+def _notify_provider(provider: Any, names: tuple[str, ...], request: dict[str, Any]) -> None:
+    callback = _first_provider_callback(provider, names)
+    if callback is None:
+        return
+    try:
+        result = callback(**_provider_kwargs(callback, request))
+    except Exception:
+        return
+    if inspect.isawaitable(result):
+        _schedule_notification(result)
+
+
+def _schedule_notification(awaitable: Any) -> None:
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.run(_consume_notification(awaitable))
+        return
+    loop.create_task(_consume_notification(awaitable))
+
+
+async def _consume_notification(awaitable: Any) -> None:
+    try:
+        await awaitable
+    except Exception:
+        return
 
 
 def _provider_kwargs(callback: Callable[..., Any], request: dict[str, Any]) -> dict[str, Any]:

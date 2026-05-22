@@ -15,6 +15,7 @@ from agents.kernel.capabilities.tools.builtin.file_safety import (
     structured_text_patch,
 )
 from agents.kernel.capabilities.tools.builtin.file_diff import single_file_git_diff
+from agents.kernel.capabilities.tools.builtin.lsp import notify_lsp_file_saved
 from agents.kernel.capabilities.tools.builtin.read_errors import file_not_found_message
 from agents.kernel.capabilities.tools.builtin.skill_discovery import discover_dynamic_skills_for_paths
 from agents.kernel.capabilities.tools.builtin.team_memory_safety import check_team_memory_secrets
@@ -104,6 +105,7 @@ def apply_patch(
             output = preserve_existing_line_endings(item.before, item.after)
             result = context.sandbox_client.write_text(item.path, output, encoding=item.encoding)
             record_file_read(context, result.path, output, encoding=result.encoding, write_encoding=result.write_encoding)
+            notify_lsp_file_saved(context, result.path, output)
             git_diff = single_file_git_diff(context, result.path)
             if git_diff is not None:
                 git_diffs[result.path] = git_diff
@@ -345,6 +347,7 @@ def _apply_empty_src_origin_edit(
     output = preserve_existing_line_endings(before, after)
     result = context.sandbox_client.write_text(path, output, encoding=encoding)
     record_file_read(context, result.path, output, encoding=result.encoding, write_encoding=result.write_encoding)
+    notify_lsp_file_saved(context, result.path, output)
     git_diff = single_file_git_diff(context, result.path)
 
     planned = _PlannedFile(

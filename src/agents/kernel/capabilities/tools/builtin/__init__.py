@@ -73,7 +73,7 @@ from agents.kernel.capabilities.tools.builtin.hooks import (
     hook_events,
     hook_list,
 )
-from agents.kernel.capabilities.tools.builtin.lsp import LSP_QUERY_SCHEMA, format_lsp_result, lsp_query
+from agents.kernel.capabilities.tools.builtin.lsp import LSP_QUERY_SCHEMA, format_lsp_result, lsp_query, notify_lsp_file_saved
 from agents.kernel.capabilities.tools.builtin.meta import SKILL_DISCOVER_SCHEMA, TOOL_SEARCH_SCHEMA, skill_discover, tool_search
 from agents.kernel.capabilities.tools.builtin.memory import (
     MEMORY_ADD_SCHEMA,
@@ -435,6 +435,7 @@ __all__ = [
     "format_lsp_result",
     "list_dir",
     "lsp_query",
+    "notify_lsp_file_saved",
     "memory_add",
     "memory_edit",
     "memory_forget",

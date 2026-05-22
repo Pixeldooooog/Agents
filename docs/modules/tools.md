@@ -36,7 +36,7 @@
 | `git.commit` | 创建 Git commit |
 | `git.log` | 查看 Git history |
 | `git.show` | 查看 Git revision / patch |
-| `lsp.query` | 对 workspace 源文件执行只读 language-server 查询；无 provider 时返回明确的不可用结果 |
+| `lsp.query` | 对 workspace 源文件执行只读 language-server 查询；无 provider 时返回明确的不可用结果。文件写入成功后会通过同一个 provider 边界发送 LSP change/save 通知 |
 | `test.discover` | 根据项目标记推断测试命令，不执行 |
 | `test.run` | 运行测试命令 |
 | `shell.run` | 运行 shell 命令；支持 `run_in_background` 后台执行 |
