@@ -117,7 +117,11 @@ from agents.kernel.capabilities.tools.builtin.mcp_management import (
     mcp_remove,
     mcp_servers,
 )
-from agents.kernel.capabilities.tools.builtin.patch import PATCH_APPLY_SCHEMA, apply_patch
+from agents.kernel.capabilities.tools.builtin.patch import (
+    PATCH_APPLY_SCHEMA,
+    apply_patch,
+    apply_src_origin_edit,
+)
 from agents.kernel.capabilities.tools.builtin.planning import (
     PLAN_ENTER_SCHEMA,
     PLAN_EXIT_SCHEMA,
@@ -1328,18 +1332,19 @@ def _register_src_origin_aliases(
         name="Edit",
         description="Replace text in a file. src-origin alias for patch.apply single-file edit.",
         parameters=SRC_ORIGIN_EDIT_SCHEMA,
-        handler=lambda file_path, old_string, new_string, replace_all=False: apply_patch(
+        handler=lambda file_path, old_string, new_string, replace_all=False: apply_src_origin_edit(
             context,
-            edits=[
-                {
-                    "path": file_path,
-                    "old_text": old_string,
-                    "new_text": new_string,
-                    "replace_all": bool(replace_all),
-                }
-            ],
+            file_path=file_path,
+            old_string=old_string,
+            new_string=new_string,
+            replace_all=replace_all,
         ),
-        metadata={"risk": "medium", "writes_files": True, "alias_of": "patch.apply", "src_origin_tool": "Edit"},
+        metadata={
+            "risk": "medium",
+            "writes_files": True,
+            "alias_of": "patch.apply",
+            "src_origin_tool": "Edit",
+        },
         writes_state=True,
         concurrency_safe=False,
         max_result_size_chars=100000,

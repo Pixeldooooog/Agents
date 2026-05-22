@@ -28,7 +28,10 @@ PATCH_APPLY_SCHEMA = {
                     "path": {"type": "string", "description": "Workspace-relative file path."},
                     "old_text": {"type": "string", "description": "Exact text to replace."},
                     "new_text": {"type": "string", "description": "Replacement text."},
-                    "replace_all": {"type": "boolean", "description": "Replace all occurrences instead of requiring exactly one."},
+                    "replace_all": {
+                        "type": "boolean",
+                        "description": "Replace all occurrences instead of requiring exactly one.",
+                    },
                 },
                 "required": ["path", "old_text", "new_text"],
             },
@@ -82,7 +85,6 @@ def apply_patch(
         raise ValueError("patch.apply requires at least one edit or create operation")
 
     planned, planned_edits = _plan_patch(context, edit_list, create_list)
-    diff = _combined_diff(planned)
     if not dry_run:
         discover_dynamic_skills_for_paths(context, [item.path for item in planned])
         for item in planned:
@@ -90,52 +92,39 @@ def apply_patch(
             result = context.sandbox_client.write_text(item.path, output, encoding=item.encoding)
             record_file_read(context, result.path, output, encoding=result.encoding)
 
-    files = [
-        {
-            "path": item.path,
-            "action": item.action,
-            "edits": item.edit_count,
-            "bytes": _encoded_length(item.after, item.encoding),
-        }
-        for item in planned
-    ]
-    payload = {
-        "dry_run": bool(dry_run),
-        "changed": not bool(dry_run),
-        "files": files,
-        "structuredPatches": [
-            {
-                "filePath": item.path,
-                "hunks": structured_text_patch(item.before, item.after),
-            }
-            for item in planned
-        ],
-        "editSummary": [
-            {
-                "filePath": item.path,
-                "oldString": item.old_text,
-                "newString": item.new_text,
-                "replaceAll": item.replace_all,
-                "occurrences": item.occurrences,
-            }
-            for item in planned_edits
-        ],
-        "diff": _truncate(diff),
-        "truncated": len(diff) > 20000,
-    }
-    if len(planned_edits) == 1 and not create_list:
-        edit = planned_edits[0]
-        payload.update(
-            {
-                "filePath": edit.path,
-                "oldString": edit.old_text,
-                "newString": edit.new_text,
-                "replaceAll": edit.replace_all,
-                "originalFile": edit.original_file,
-                "structuredPatch": structured_text_patch(edit.original_file, planned[0].after),
-            }
+    return _patch_payload(
+        planned,
+        planned_edits,
+        dry_run=dry_run,
+        include_single_edit_metadata=len(planned_edits) == 1 and not create_list,
+    )
+
+
+def apply_src_origin_edit(
+    context: ToolRuntimeContext,
+    file_path: str,
+    old_string: str,
+    new_string: str,
+    replace_all: bool = False,
+) -> dict[str, Any]:
+    if old_string != "":
+        return apply_patch(
+            context,
+            edits=[
+                {
+                    "path": file_path,
+                    "old_text": old_string,
+                    "new_text": new_string,
+                    "replace_all": bool(replace_all),
+                }
+            ],
         )
-    return payload
+    return _apply_empty_src_origin_edit(
+        context,
+        file_path=file_path,
+        new_string=new_string,
+        replace_all=replace_all,
+    )
 
 
 def _plan_patch(
@@ -258,6 +247,116 @@ def _plan_patch(
     return planned, planned_edits
 
 
+def _apply_empty_src_origin_edit(
+    context: ToolRuntimeContext,
+    *,
+    file_path: str,
+    new_string: str,
+    replace_all: bool,
+) -> dict[str, Any]:
+    path = _required_text(file_path, "file_path")
+    before = ""
+    encoding = "utf-8"
+    action = "create"
+    try:
+        current_read = read_current_file(context, path)
+        path = current_read.path
+        before = current_read.content
+        encoding = current_read.encoding
+        action = "overwrite"
+    except FileNotFoundError:
+        path = context.sandbox.relative_workspace_path(context.sandbox.resolve_workspace_path(path))
+    if before.strip():
+        raise ValueError("Cannot create new file - file already exists.")
+
+    after = normalize_text_write_content(path, str(new_string or ""))
+    if before == after:
+        raise ValueError("Original and edited file match exactly. Failed to apply edit.")
+    discover_dynamic_skills_for_paths(context, [path])
+    output = preserve_existing_line_endings(before, after)
+    result = context.sandbox_client.write_text(path, output, encoding=encoding)
+    record_file_read(context, result.path, output, encoding=result.encoding)
+
+    planned = _PlannedFile(
+        path=result.path,
+        before=before,
+        after=output,
+        action=action,
+        encoding=result.encoding,
+        edit_count=1,
+    )
+    planned_edit = _PlannedEdit(
+        path=result.path,
+        old_text="",
+        new_text=after,
+        replace_all=bool(replace_all),
+        occurrences=1,
+        original_file=before,
+    )
+    return _patch_payload(
+        [planned],
+        [planned_edit],
+        dry_run=False,
+        include_single_edit_metadata=True,
+    )
+
+
+def _patch_payload(
+    planned: list[_PlannedFile],
+    planned_edits: list[_PlannedEdit],
+    *,
+    dry_run: bool,
+    include_single_edit_metadata: bool,
+) -> dict[str, Any]:
+    diff = _combined_diff(planned)
+    payload = {
+        "dry_run": bool(dry_run),
+        "changed": not bool(dry_run),
+        "files": [
+            {
+                "path": item.path,
+                "action": item.action,
+                "edits": item.edit_count,
+                "bytes": _encoded_length(item.after, item.encoding),
+            }
+            for item in planned
+        ],
+        "structuredPatches": [
+            {
+                "filePath": item.path,
+                "hunks": structured_text_patch(item.before, item.after),
+            }
+            for item in planned
+        ],
+        "editSummary": [
+            {
+                "filePath": item.path,
+                "oldString": item.old_text,
+                "newString": item.new_text,
+                "replaceAll": item.replace_all,
+                "occurrences": item.occurrences,
+            }
+            for item in planned_edits
+        ],
+        "diff": _truncate(diff),
+        "truncated": len(diff) > 20000,
+    }
+    if include_single_edit_metadata and len(planned_edits) == 1 and len(planned) == 1:
+        edit = planned_edits[0]
+        payload.update(
+            {
+                "filePath": edit.path,
+                "oldString": edit.old_text,
+                "newString": edit.new_text,
+                "replaceAll": edit.replace_all,
+                "originalFile": edit.original_file,
+                "structuredPatch": structured_text_patch(edit.original_file, planned[0].after),
+                "userModified": False,
+            }
+        )
+    return payload
+
+
 def _combined_diff(files: list[_PlannedFile]) -> str:
     chunks: list[str] = []
     for item in files:
@@ -278,6 +377,13 @@ def _required_string(payload: dict[str, Any], key: str) -> str:
     if not value:
         raise ValueError("%s is required" % key)
     return value
+
+
+def _required_text(value: Any, key: str) -> str:
+    text = str(value or "")
+    if not text:
+        raise ValueError("%s is required" % key)
+    return text
 
 
 LEFT_SINGLE_CURLY_QUOTE = "\u2018"
@@ -389,7 +495,11 @@ def _apply_curly_double_quotes(text: str) -> str:
     result: list[str] = []
     for index, char in enumerate(chars):
         if char == '"':
-            result.append(LEFT_DOUBLE_CURLY_QUOTE if _is_opening_quote_context(chars, index) else RIGHT_DOUBLE_CURLY_QUOTE)
+            result.append(
+                LEFT_DOUBLE_CURLY_QUOTE
+                if _is_opening_quote_context(chars, index)
+                else RIGHT_DOUBLE_CURLY_QUOTE
+            )
         else:
             result.append(char)
     return "".join(result)
@@ -407,7 +517,11 @@ def _apply_curly_single_quotes(text: str) -> str:
         if previous.isalpha() and next_char.isalpha():
             result.append(RIGHT_SINGLE_CURLY_QUOTE)
         else:
-            result.append(LEFT_SINGLE_CURLY_QUOTE if _is_opening_quote_context(chars, index) else RIGHT_SINGLE_CURLY_QUOTE)
+            result.append(
+                LEFT_SINGLE_CURLY_QUOTE
+                if _is_opening_quote_context(chars, index)
+                else RIGHT_SINGLE_CURLY_QUOTE
+            )
     return "".join(result)
 
 
