@@ -33,6 +33,11 @@ WORKTREE_ENTER_SCHEMA = {
             "minimum": 1,
             "description": "Optional pull request number. When provided, the worktree is created from origin pull/<number>/head.",
         },
+        "prNumber": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "CamelCase alias for pr_number.",
+        },
     },
     "additionalProperties": False,
 }
@@ -62,13 +67,18 @@ GIT_NO_PROMPT_ENV = {
 }
 
 
-def enter_worktree(context: ToolRuntimeContext, name: str = "", pr_number: int | None = None) -> dict[str, Any]:
+def enter_worktree(
+    context: ToolRuntimeContext,
+    name: str = "",
+    pr_number: int | None = None,
+    pr_number_alias: int | None = None,
+) -> dict[str, Any]:
     if context.active_worktree_session:
         session = context.active_worktree_session
         raise RuntimeError("Already in a worktree session at %s" % session.get("worktreePath", "unknown"))
 
     repo_root = _git_root(context.workspace.path)
-    slug, resolved_pr_number = _worktree_request(name, pr_number=pr_number)
+    slug, resolved_pr_number = _worktree_request(name, pr_number=pr_number, pr_number_alias=pr_number_alias)
     worktree_path = _worktree_path_for(repo_root, slug)
     branch = _worktree_branch_name(slug)
     settings = _worktree_settings(context)
@@ -225,10 +235,15 @@ def _worktree_slug(name: str) -> str:
     return value
 
 
-def _worktree_request(name: str, *, pr_number: int | None) -> tuple[str, int | None]:
+def _worktree_request(
+    name: str,
+    *,
+    pr_number: int | None,
+    pr_number_alias: int | None = None,
+) -> tuple[str, int | None]:
     value = str(name or "").strip()
     parsed_pr_number = _parse_pr_reference(value) if value else None
-    explicit_pr_number = _positive_pr_number(pr_number)
+    explicit_pr_number = _explicit_pr_number(pr_number, pr_number_alias)
     if parsed_pr_number is not None and explicit_pr_number is not None and parsed_pr_number != explicit_pr_number:
         raise ValueError("Conflicting pull request references: name=%s pr_number=%s" % (value, explicit_pr_number))
     resolved_pr_number = explicit_pr_number if explicit_pr_number is not None else parsed_pr_number
@@ -244,6 +259,14 @@ def _positive_pr_number(value: int | None) -> int | None:
     if number <= 0:
         raise ValueError("pr_number must be a positive integer")
     return number
+
+
+def _explicit_pr_number(pr_number: int | None, pr_number_alias: int | None) -> int | None:
+    snake = _positive_pr_number(pr_number)
+    camel = _positive_pr_number(pr_number_alias)
+    if snake is not None and camel is not None and snake != camel:
+        raise ValueError("Conflicting pull request numbers: pr_number=%s prNumber=%s" % (snake, camel))
+    return snake if snake is not None else camel
 
 
 def _parse_pr_reference(value: str) -> int | None:

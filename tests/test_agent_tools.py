@@ -556,18 +556,33 @@ def test_worktree_enter_can_create_from_github_pr_reference(tmp_path: Path):
     registry = ToolRegistry()
     register_builtin_tools(registry, context)
 
-    entered = asyncio.run(registry.execute("worktree.enter", {"name": "#123"}))
-    worktree_path = Path(entered.raw["worktreePath"])
-    content = (worktree_path / "README.md").read_text(encoding="utf-8")
-    removed = asyncio.run(registry.execute("worktree.exit", {"action": "remove"}))
+    url_entered = asyncio.run(
+        registry.execute("worktree.enter", {"name": "https://github.com/acme/repo/pull/123?view=files"})
+    )
+    url_worktree_path = Path(url_entered.raw["worktreePath"])
+    url_content = (url_worktree_path / "README.md").read_text(encoding="utf-8")
+    url_removed = asyncio.run(registry.execute("worktree.exit", {"action": "remove"}))
+    camel_entered = asyncio.run(registry.execute("EnterWorktree", {"prNumber": 123}))
+    camel_worktree_path = Path(camel_entered.raw["worktreePath"])
+    camel_content = (camel_worktree_path / "README.md").read_text(encoding="utf-8")
+    camel_removed = asyncio.run(registry.execute("worktree.exit", {"action": "remove"}))
+    conflict = asyncio.run(registry.execute("worktree.enter", {"name": "#123", "prNumber": 456}))
 
-    assert entered.is_error is False
-    assert entered.raw["worktreeBranch"] == "worktree-pr-123"
-    assert entered.raw["prNumber"] == 123
-    assert entered.raw["baseRef"] == "FETCH_HEAD"
-    assert content == "from pr\n"
-    assert removed.is_error is False
-    assert not worktree_path.exists()
+    assert url_entered.is_error is False
+    assert url_entered.raw["worktreeBranch"] == "worktree-pr-123"
+    assert url_entered.raw["prNumber"] == 123
+    assert url_entered.raw["baseRef"] == "FETCH_HEAD"
+    assert url_content == "from pr\n"
+    assert url_removed.is_error is False
+    assert not url_worktree_path.exists()
+    assert camel_entered.is_error is False
+    assert camel_entered.raw["worktreeBranch"] == "worktree-pr-123"
+    assert camel_entered.raw["prNumber"] == 123
+    assert camel_content == "from pr\n"
+    assert camel_removed.is_error is False
+    assert not camel_worktree_path.exists()
+    assert conflict.is_error is True
+    assert "Conflicting pull request references" in conflict.content
 
 
 def test_worktree_enter_runs_src_origin_style_post_creation_setup(tmp_path: Path):
