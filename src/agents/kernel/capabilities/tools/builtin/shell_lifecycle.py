@@ -11,6 +11,10 @@ from typing import Any
 from agents.kernel.capabilities.sandbox.types import SandboxBackgroundCommand
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.tools.registry import ToolExecutionError
+from agents.kernel.capabilities.tools.builtin.shell_notifications import (
+    emit_shell_task_started,
+    record_shell_background_command,
+)
 
 
 ASSISTANT_AUTO_BACKGROUND_SECONDS = 15.0
@@ -81,6 +85,15 @@ async def run_foreground_with_shell_progress(
         timeout_seconds=timeout_seconds,
     )
     context.background_commands[task_id] = handle
+    record_shell_background_command(
+        context,
+        handle,
+        command=command,
+        description=description,
+        timeout_seconds=timeout_seconds,
+        dangerously_disable_sandbox=dangerously_disable_sandbox,
+        assistant_auto_backgrounded=assistant_auto_backgrounded,
+    )
     try:
         completed = await _wait_for_background_completion(
             context,
@@ -91,6 +104,7 @@ async def run_foreground_with_shell_progress(
             auto_background_after_seconds=auto_background_after_seconds,
         )
         if not completed:
+            emit_shell_task_started(context, handle)
             return background_shell_payload(
                 handle,
                 command=command,
@@ -103,8 +117,10 @@ async def run_foreground_with_shell_progress(
     except asyncio.CancelledError:
         await _kill_and_wait(handle)
         context.background_commands.pop(task_id, None)
+        context.background_command_metadata.pop(task_id, None)
         raise
     context.background_commands.pop(task_id, None)
+    context.background_command_metadata.pop(task_id, None)
     output = read_background_output(context, handle, max_bytes=context.sandbox.max_output_bytes)
     payload = _foreground_payload_from_background(
         handle,

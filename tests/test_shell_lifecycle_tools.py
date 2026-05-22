@@ -80,6 +80,52 @@ def test_shell_run_assistant_auto_backgrounds_long_main_agent_command(tmp_path: 
     assert final.raw["output"] == "start\ndone\n"
 
 
+def test_shell_background_task_emits_started_and_terminal_runtime_events(tmp_path: Path):
+    _, registry = _context_and_registry(tmp_path)
+
+    async def execute():
+        events = []
+        script = "import time; print('start', flush=True); time.sleep(0.05); print('done', flush=True)"
+        with registry.runtime_event_sink(events.append):
+            started = await registry.execute(
+                "shell.run",
+                {
+                    "command": "%s -c %s" % (shlex.quote(sys.executable), shlex.quote(script)),
+                    "run_in_background": True,
+                    "timeout_seconds": 2,
+                    "description": "Run background notifier",
+                },
+                tool_call_id="call-shell-run",
+            )
+            final = await registry.execute(
+                "shell.output",
+                {"task_id": started.raw["backgroundTaskId"], "block": True, "timeout_seconds": 2},
+                tool_call_id="call-shell-output",
+            )
+            repeated = await registry.execute(
+                "shell.output",
+                {"task_id": started.raw["backgroundTaskId"], "block": False},
+                tool_call_id="call-shell-output-repeat",
+            )
+        return events, started, final, repeated
+
+    events, started, final, repeated = asyncio.run(execute())
+    task_events = [event for event in events if event.type in {"task_started", "task_notification"}]
+
+    assert started.is_error is False
+    assert final.is_error is False
+    assert repeated.is_error is False
+    assert [event.type for event in task_events] == ["task_started", "task_notification"]
+    assert task_events[0].payload["task_id"] == started.raw["backgroundTaskId"]
+    assert task_events[0].payload["tool_call_id"] == "call-shell-run"
+    assert task_events[0].payload["task_type"] == "shell"
+    assert task_events[1].payload["task_id"] == started.raw["backgroundTaskId"]
+    assert task_events[1].payload["tool_call_id"] == "call-shell-output"
+    assert task_events[1].payload["status"] == "completed"
+    assert task_events[1].payload["output_file"] == started.raw["output_path"]
+    assert task_events[1].payload["summary"] == "start\ndone"
+
+
 def test_shell_run_assistant_auto_background_keeps_fast_command_foreground(tmp_path: Path):
     registry = _registry(tmp_path, metadata={"shellAssistantAutoBackgroundAfterSeconds": 1.0})
 

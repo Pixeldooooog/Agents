@@ -7,6 +7,11 @@ from typing import Any
 
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.tools.registry import ToolExecutionError
+from agents.kernel.capabilities.tools.builtin.shell_notifications import (
+    emit_shell_task_notification,
+    emit_shell_task_started,
+    record_shell_background_command,
+)
 from agents.kernel.capabilities.tools.builtin.shell_lifecycle import (
     assistant_auto_background_after_seconds,
     background_shell_payload,
@@ -192,6 +197,16 @@ async def shell_run_background(
         timeout_seconds=timeout_seconds,
     )
     context.background_commands[task_id] = handle
+    record_shell_background_command(
+        context,
+        handle,
+        command=command,
+        description=description,
+        timeout_seconds=timeout_seconds,
+        dangerously_disable_sandbox=dangerously_disable_sandbox,
+        assistant_auto_backgrounded=False,
+    )
+    emit_shell_task_started(context, handle)
     return background_shell_payload(
         handle,
         command=command,
@@ -263,6 +278,8 @@ async def shell_output(
     elif not bool(block):
         retrieval_status = "not_ready"
     output = read_background_output(context, handle, max_bytes=max_bytes)
+    if handle.done():
+        emit_shell_task_notification(context, handle, output=output)
     return {
         "retrieval_status": retrieval_status,
         "task": handle.to_dict(),
@@ -273,7 +290,12 @@ async def shell_output(
 
 
 async def shell_backgrounds(context: ToolRuntimeContext) -> dict[str, Any]:
-    tasks = [handle.to_dict() for handle in context.background_commands.values()]
+    tasks = []
+    for handle in context.background_commands.values():
+        if handle.done():
+            output = read_background_output(context, handle, max_bytes=context.sandbox.max_output_bytes)
+            emit_shell_task_notification(context, handle, output=output)
+        tasks.append(handle.to_dict())
     return {"background_commands": tasks, "count": len(tasks)}
 
 
@@ -289,6 +311,8 @@ async def shell_kill(context: ToolRuntimeContext, task_id: str) -> dict[str, Any
                 pass
     if not handle.done():
         handle.status = "killed"
+    output = read_background_output(context, handle, max_bytes=context.sandbox.max_output_bytes)
+    emit_shell_task_notification(context, handle, output=output)
     return {"task": handle.to_dict(), "killed": handle.status == "killed"}
 
 

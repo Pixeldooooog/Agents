@@ -3462,6 +3462,49 @@ def _background_task_notification(
     )
 
 
+def _task_started_event_message(
+    event: RuntimeEvent,
+    *,
+    session_id: str,
+    run_id: str,
+) -> SDKTaskStartedMessage:
+    payload = dict(event.payload or {})
+    metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
+    return SDKTaskStartedMessage(
+        session_id=session_id,
+        run_id=run_id,
+        task_id=_text_field(payload, "task_id", "taskId"),
+        tool_use_id=_text_field(payload, "tool_use_id", "toolUseId", "tool_call_id", "toolCallId"),
+        description=_text_field(payload, "description", "summary"),
+        task_type=_text_field(payload, "task_type", "taskType") or str(metadata.get("task_type") or metadata.get("type") or ""),
+        workflow_name=_text_field(payload, "workflow_name", "workflowName")
+        or str(metadata.get("workflow_name") or metadata.get("workflow") or ""),
+        prompt=_text_field(payload, "prompt", "input"),
+    )
+
+
+def _task_notification_event_message(
+    event: RuntimeEvent,
+    *,
+    session_id: str,
+    run_id: str,
+) -> SDKTaskNotificationMessage | None:
+    payload = dict(event.payload or {})
+    status = _task_notification_status(_text_field(payload, "status"))
+    if status is None:
+        return None
+    return SDKTaskNotificationMessage(
+        session_id=session_id,
+        run_id=run_id,
+        task_id=_text_field(payload, "task_id", "taskId"),
+        tool_use_id=_text_field(payload, "tool_use_id", "toolUseId", "tool_call_id", "toolCallId"),
+        status=status,
+        output_file=_text_field(payload, "output_file", "outputFile"),
+        summary=_text_field(payload, "summary"),
+        usage=_task_usage(payload),
+    )
+
+
 def _is_task_start_tool(name: str) -> bool:
     return name in {"task.create", "TaskCreate", "task.background", "task.run", "Agent", "Task"}
 
@@ -3475,11 +3518,12 @@ def _is_task_run_tool(name: str) -> bool:
 
 
 def _task_notification_status(status: str) -> str | None:
-    if status == "finished":
+    normalized = str(status or "").lower()
+    if normalized in {"completed", "finished", "succeeded", "success"}:
         return "completed"
-    if status == "error":
+    if normalized in {"failed", "error", "timed_out", "timeout"}:
         return "failed"
-    if status == "canceled":
+    if normalized in {"stopped", "canceled", "cancelled", "killed"}:
         return "stopped"
     return None
 
@@ -3773,6 +3817,10 @@ def _project_runtime_event(
         )
     if event.type == "session_state_changed":
         return _project_session_state_event(event, session_id=session_id, run_id=run_id)
+    if event.type == "task_started":
+        return _task_started_event_message(event, session_id=session_id, run_id=run_id)
+    if event.type == "task_notification":
+        return _task_notification_event_message(event, session_id=session_id, run_id=run_id)
     if event.type == "local_command_output":
         return SDKLocalCommandOutputMessage(
             session_id=session_id,

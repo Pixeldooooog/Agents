@@ -456,6 +456,49 @@ async def _task_session_factory(settings, spec):
     return TaskSession()
 
 
+async def _shell_task_session_factory(settings, spec):
+    shell_workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=".",
+        path=".",
+    )
+
+    class ShellTaskSession:
+        runtime = SimpleNamespace(model="scripted", protocol="scripted", enabled_tools=["shell.run", "shell.output"])
+        workspace = shell_workspace
+
+        async def stream(self, text, run_id=None):
+            yield RuntimeEvent(
+                type="task_started",
+                name="shell.run",
+                payload={
+                    "task_id": "shell_123",
+                    "tool_call_id": "shell-run-call",
+                    "description": "Run background shell",
+                    "task_type": "shell",
+                    "prompt": "python -m pytest",
+                },
+            )
+            yield RuntimeEvent(
+                type="task_notification",
+                name="shell.output",
+                payload={
+                    "task_id": "shell_123",
+                    "tool_call_id": "shell-output-call",
+                    "status": "completed",
+                    "output_file": ".agents/task-output/shell_123.log",
+                    "summary": "tests passed",
+                    "usage": {"total_tokens": 0, "tool_uses": 0, "duration_ms": 42},
+                },
+            )
+            yield RuntimeEvent(type="done", name="assistant", payload={"content": "shell done", "status": "finished"})
+
+    return ShellTaskSession()
+
+
 async def _artifact_session_factory(settings, spec):
     artifact_workspace = WorkspaceContext(
         tenant_id="tenant",
@@ -1251,6 +1294,30 @@ def test_sdk_query_emits_task_messages_from_task_tool_results():
     assert notification.summary == "executed child"
     assert notification.usage == {"total_tokens": 0, "tool_uses": 2, "duration_ms": 0}
     assert validate_sdk_message(started.model_dump()) == started
+    assert any(isinstance(message, SDKTaskStartedMessage) for message in replay)
+    assert any(isinstance(message, SDKTaskNotificationMessage) for message in replay)
+
+
+def test_sdk_query_emits_task_messages_from_shell_lifecycle_events():
+    client = AgentSDKClient(session_factory=_shell_task_session_factory)
+
+    messages = asyncio.run(_collect(client.query("run shell", SDKOptions(session_id="session-shell-task"))))
+    replay = asyncio.run(client.get_session_messages("session-shell-task", {"include_system_messages": False}))
+
+    started = next(message for message in messages if isinstance(message, SDKTaskStartedMessage))
+    notification = next(message for message in messages if isinstance(message, SDKTaskNotificationMessage))
+
+    assert started.task_id == "shell_123"
+    assert started.tool_use_id == "shell-run-call"
+    assert started.description == "Run background shell"
+    assert started.task_type == "shell"
+    assert started.prompt == "python -m pytest"
+    assert notification.task_id == "shell_123"
+    assert notification.tool_use_id == "shell-output-call"
+    assert notification.status == "completed"
+    assert notification.output_file == ".agents/task-output/shell_123.log"
+    assert notification.summary == "tests passed"
+    assert notification.usage == {"total_tokens": 0, "tool_uses": 0, "duration_ms": 42}
     assert any(isinstance(message, SDKTaskStartedMessage) for message in replay)
     assert any(isinstance(message, SDKTaskNotificationMessage) for message in replay)
 

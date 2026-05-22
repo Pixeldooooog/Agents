@@ -69,6 +69,7 @@ class ToolRuntimeContext:
     background_tasks: dict[str, Any] = field(default_factory=dict)
     background_task_results: dict[str, Any] = field(default_factory=dict)
     background_commands: dict[str, Any] = field(default_factory=dict)
+    background_command_metadata: dict[str, dict[str, Any]] = field(default_factory=dict)
     active_worktree_session: dict[str, Any] = field(default_factory=dict)
     file_read_state: dict[str, dict[str, Any]] = field(default_factory=dict)
     file_read_listeners: list[Callable[[str, str], None]] = field(default_factory=list)
