@@ -75,3 +75,20 @@ def test_grep_skips_src_origin_vcs_directories(tmp_path: Path):
     assert result.content == "Found 1 file\nsrc/app.py"
     assert result.raw["filenames"] == ["src/app.py"]
     assert all(not match["path"].startswith(".hg/") for match in result.raw["matches"])
+
+
+def test_grep_truncates_long_match_lines_to_src_origin_column_limit(tmp_path: Path):
+    line = "needle" + ("x" * 600)
+    (tmp_path / "large.txt").write_text(line + "\n", encoding="utf-8")
+    registry = _registry(tmp_path)
+
+    result = asyncio.run(
+        registry.execute(
+            "search.grep",
+            {"pattern": "needle", "path": ".", "output_mode": "content"},
+        )
+    )
+
+    assert result.is_error is False
+    assert result.raw["matches"][0]["line"] == line[:500]
+    assert result.content == "large.txt:1:%s" % line[:500]

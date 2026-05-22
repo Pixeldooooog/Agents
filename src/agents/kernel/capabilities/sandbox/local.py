@@ -53,6 +53,7 @@ GREP_SKIP_DIRECTORIES = frozenset(
         "node_modules",
     }
 )
+GREP_MAX_LINE_CHARS = 500
 
 
 class LocalSandboxProvider:
@@ -349,7 +350,7 @@ class LocalSandboxClient:
                         SandboxGrepMatch(
                             path=self.policy.relative_workspace_path(file_path),
                             line_number=line_number,
-                            line=line[:1000],
+                            line=line[:GREP_MAX_LINE_CHARS],
                             is_match=output_index in matching_indexes,
                         )
                     )

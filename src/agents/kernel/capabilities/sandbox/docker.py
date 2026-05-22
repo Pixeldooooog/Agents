@@ -511,6 +511,7 @@ skip = {
     "__pycache__",
     "node_modules",
 }
+max_line_chars = 500
 for file_path in files:
     if any(part in skip for part in file_path.parts):
         continue
@@ -557,7 +558,7 @@ for file_path in files:
                 matches.append({
                     "path": file_path.as_posix(),
                     "line_number": line_number,
-                    "line": line[:1000],
+                    "line": line[:max_line_chars],
                     "is_match": output_index in matching_indexes,
                 })
                 if len(matches) >= limit:
