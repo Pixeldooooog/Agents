@@ -23,6 +23,7 @@ _TOOL_ALIASES = {
     "Edit": "patch.apply",
     "MultiEdit": "patch.apply",
     "NotebookEdit": "notebook.edit",
+    "LSP": "lsp.query",
     "Grep": "search.grep",
     "Glob": "search.glob",
     "TodoWrite": "todo.write",
@@ -231,6 +232,8 @@ def _tool_rule_targets(call: ToolCall) -> tuple[str, ...]:
         return _argument_values(arguments, "source_path", "sourcePath", "destination_path", "destinationPath")
     if name == "notebook.edit":
         return _argument_values(arguments, "notebook_path", "notebookPath", "path", "file_path", "filePath")
+    if name == "lsp.query":
+        return _argument_values(arguments, "filePath", "file_path", "path")
     if name == "patch.apply":
         return _unique_values((*_patch_paths(arguments), *_argument_values(arguments, "path", "file_path", "filePath")))
     if name == "search.grep":

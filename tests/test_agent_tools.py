@@ -115,6 +115,7 @@ def test_builtin_coding_tools_expose_contract_metadata(tmp_path: Path):
                 "filesystem.read",
                 "filesystem.write",
                 "notebook.edit",
+                "lsp.query",
                 "search.glob",
                 "shell.run",
                 "shell.output",
@@ -147,6 +148,13 @@ def test_builtin_coding_tools_expose_contract_metadata(tmp_path: Path):
         "kind": "edit",
         "title": "Edit notebook",
         "target_argument": "notebook_path",
+    }
+    assert metadata["lsp.query"]["read_only"] is True
+    assert metadata["lsp.query"]["path_parameters"] == ["filePath"]
+    assert metadata["lsp.query"]["activity"] == {
+        "kind": "workspace",
+        "title": "Query language server",
+        "target_argument": "filePath",
     }
     assert metadata["search.glob"]["read_only"] is True
     assert metadata["search.glob"]["path_parameters"] == ["path"]
@@ -275,6 +283,7 @@ def test_src_origin_alias_tools_execute_against_canonical_implementations(tmp_pa
                 "Grep",
                 "TodoWrite",
                 "NotebookEdit",
+                "LSP",
                 "Sleep",
                 "EnterWorktree",
                 "ExitWorktree",
@@ -311,12 +320,14 @@ def test_src_origin_alias_tools_execute_against_canonical_implementations(tmp_pa
             {"notebook_path": "analysis.ipynb", "cell_id": "intro", "new_source": "Updated title\n"},
         )
     )
+    lsp = asyncio.run(registry.execute("LSP", {"operation": "hover", "filePath": "notes.txt", "line": 1, "character": 1}))
 
     assert alias_specs["Read"].raw["metadata"]["alias_of"] == "filesystem.read"
     assert alias_specs["Edit"].raw["metadata"]["alias_of"] == "patch.apply"
     assert alias_specs["Bash"].raw["metadata"]["alias_of"] == "shell.run"
     assert alias_specs["BashOutputTool"].raw["metadata"]["alias_of"] == "shell.output"
     assert alias_specs["NotebookEdit"].raw["metadata"]["alias_of"] == "notebook.edit"
+    assert alias_specs["LSP"].raw["metadata"]["alias_of"] == "lsp.query"
     assert alias_specs["EnterWorktree"].raw["metadata"]["alias_of"] == "worktree.enter"
     assert alias_specs["ExitWorktree"].raw["metadata"]["alias_of"] == "worktree.exit"
     assert read.is_error is False
@@ -339,6 +350,10 @@ def test_src_origin_alias_tools_execute_against_canonical_implementations(tmp_pa
     assert notebook_edit.is_error is False
     assert notebook_edit.raw["cell_id"] == "intro"
     assert json.loads((tmp_path / "analysis.ipynb").read_text(encoding="utf-8"))["cells"][0]["source"] == "Updated title\n"
+    assert lsp.is_error is False
+    assert lsp.content == "No LSP server available for file type: .txt"
+    assert lsp.raw["operation"] == "hover"
+    assert lsp.raw["filePath"] == "notes.txt"
 
     impact = describe_tool_impact(
         ToolCall(
@@ -350,6 +365,124 @@ def test_src_origin_alias_tools_execute_against_canonical_implementations(tmp_pa
     assert impact.risk == "medium"
     assert impact.operations == ["file_patch"]
     assert impact.paths == ["draft.txt"]
+
+    lsp_impact = describe_tool_impact(
+        ToolCall(id="call-lsp", name="LSP", arguments={"operation": "hover", "filePath": "notes.txt", "line": 1, "character": 1})
+    )
+    assert lsp_impact.risk == "low"
+    assert lsp_impact.operations == ["file_read", "lsp_query"]
+    assert lsp_impact.paths == ["notes.txt"]
+
+
+class _FakeLspProvider:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def query(
+        self,
+        *,
+        operation: str,
+        filePath: str,
+        absolute_path: Path,
+        line: int,
+        character: int,
+    ) -> dict[str, object]:
+        self.calls.append(
+            {
+                "operation": operation,
+                "filePath": filePath,
+                "absolute_path": absolute_path,
+                "line": line,
+                "character": character,
+            }
+        )
+        return {"result": "Hover info", "resultCount": 1, "fileCount": 1}
+
+
+def test_lsp_tool_uses_context_provider(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("def app():\n    return 1\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    provider = _FakeLspProvider()
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+        lsp_provider=provider,
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    result = asyncio.run(
+        registry.execute("lsp.query", {"operation": "hover", "filePath": "src/app.py", "line": 1, "character": 5})
+    )
+
+    assert result.is_error is False
+    assert result.content == "Hover info"
+    assert result.raw["operation"] == "hover"
+    assert result.raw["filePath"] == "src/app.py"
+    assert result.raw["resultCount"] == 1
+    assert result.raw["fileCount"] == 1
+    assert provider.calls == [
+        {
+            "operation": "hover",
+            "filePath": "src/app.py",
+            "absolute_path": (tmp_path / "src" / "app.py").resolve(),
+            "line": 1,
+            "character": 5,
+        }
+    ]
+
+
+def test_lsp_tool_validates_src_origin_path_guards(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    (tmp_path / "src").mkdir()
+    (tmp_path / "large.py").write_bytes(b"x" * (10 * 1024 * 1024 + 1))
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    missing = asyncio.run(
+        registry.execute("LSP", {"operation": "hover", "filePath": "missing.py", "line": 1, "character": 1})
+    )
+    directory = asyncio.run(
+        registry.execute("LSP", {"operation": "hover", "filePath": "src", "line": 1, "character": 1})
+    )
+    bad_line = asyncio.run(
+        registry.execute("LSP", {"operation": "hover", "filePath": "missing.py", "line": 0, "character": 1})
+    )
+    large = asyncio.run(
+        registry.execute("LSP", {"operation": "hover", "filePath": "large.py", "line": 1, "character": 1})
+    )
+
+    assert missing.is_error is True
+    assert missing.content == "File does not exist: missing.py"
+    assert directory.is_error is True
+    assert directory.content == "Path is not a file: src"
+    assert bad_line.is_error is True
+    assert bad_line.content == "line must be a positive integer"
+    assert large.is_error is False
+    assert large.content == "File too large for LSP analysis (11MB exceeds 10MB limit)"
 
 
 def test_config_manage_and_src_origin_alias_update_session_config(tmp_path: Path):
@@ -4876,6 +5009,7 @@ def test_permission_rules_match_src_origin_state_tool_targets():
             "Write(secrets/**)",
             "Edit(secrets/**)",
             "NotebookEdit(notebooks/**)",
+            "LSP(src/**)",
             "TaskUpdate(task-*)",
             "TaskOutput(shell-*)",
             "CronDelete(nightly*)",
@@ -4907,6 +5041,7 @@ def test_permission_rules_match_src_origin_state_tool_targets():
             "NotebookEdit(notebooks/**)",
             False,
         ),
+        ("LSP", {"operation": "hover", "filePath": "src/app.py", "line": 1, "character": 1}, "LSP(src/**)", False),
         ("TaskUpdate", {"taskId": "task-123", "status": "finished"}, "TaskUpdate(task-*)", False),
         ("TaskOutput", {"task_id": "shell-abc"}, "TaskOutput(shell-*)", False),
         ("CronDelete", {"id": "nightly-build"}, "CronDelete(nightly*)", False),

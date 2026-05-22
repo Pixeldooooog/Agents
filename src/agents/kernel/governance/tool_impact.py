@@ -63,6 +63,17 @@ def describe_tool_impact(call: ToolCall) -> ToolImpact:
         return _impact(name, risk, operations=["file_read"], paths=[_string(arguments.get("path") or ".")])
     if name == "search.glob":
         return _impact(name, risk, operations=["file_read"], paths=[_string(arguments.get("path") or ".")], query=_string(arguments.get("pattern")))
+    if name == "lsp.query":
+        path = _string(arguments.get("filePath") or arguments.get("file_path") or arguments.get("path"))
+        operation = _string(arguments.get("operation"))
+        return _impact(
+            name,
+            risk,
+            operations=["file_read", "lsp_query"],
+            paths=[path],
+            query=operation,
+            summary="LSP %s %s" % (operation, path) if operation and path else "LSP query",
+        )
     if name.startswith("command."):
         command_name = _string(arguments.get("name") or arguments.get("query"))
         if name in {"command.save", "command.delete"}:

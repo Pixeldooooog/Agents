@@ -235,6 +235,7 @@ def test_create_session_accepts_src_origin_tool_aliases(tmp_path, monkeypatch):
                 "TeamDelete",
                 "StructuredOutput",
                 "Skill",
+                "LSP",
                 "Config",
                 "AskUserQuestion",
                 "SendUserMessage",
@@ -267,6 +268,7 @@ def test_create_session_accepts_src_origin_tool_aliases(tmp_path, monkeypatch):
         "TeamDelete",
         "StructuredOutput",
         "Skill",
+        "LSP",
         "Config",
         "AskUserQuestion",
         "SendUserMessage",
@@ -296,6 +298,7 @@ def test_create_session_accepts_src_origin_tool_aliases(tmp_path, monkeypatch):
     assert specs["TeamDelete"].raw["metadata"]["alias_of"] == "team.delete"
     assert specs["StructuredOutput"].raw["metadata"]["alias_of"] == "structured.output"
     assert specs["Skill"].raw["metadata"]["alias_of"] == "skill.invoke"
+    assert specs["LSP"].raw["metadata"]["alias_of"] == "lsp.query"
     assert specs["Config"].raw["metadata"]["alias_of"] == "config.manage"
     assert specs["AskUserQuestion"].raw["metadata"]["alias_of"] == "user.ask"
     assert specs["SendUserMessage"].raw["metadata"]["alias_of"] == "user.message"

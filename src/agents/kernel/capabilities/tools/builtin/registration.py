@@ -77,6 +77,7 @@ from agents.kernel.capabilities.tools.builtin.hooks import (
     hook_events,
     hook_list,
 )
+from agents.kernel.capabilities.tools.builtin.lsp import LSP_QUERY_SCHEMA, format_lsp_result, lsp_query
 from agents.kernel.capabilities.tools.builtin.meta import SKILL_DISCOVER_SCHEMA, TOOL_SEARCH_SCHEMA, skill_discover, tool_search
 from agents.kernel.capabilities.tools.builtin.memory import (
     MEMORY_ADD_SCHEMA,
@@ -302,6 +303,7 @@ BUILTIN_TOOL_NAMES = [
     "filesystem.delete",
     "filesystem.move",
     "notebook.edit",
+    "lsp.query",
     "patch.apply",
     "search.grep",
     "search.glob",
@@ -319,6 +321,7 @@ BUILTIN_TOOL_NAMES = [
     "Grep",
     "TodoWrite",
     "NotebookEdit",
+    "LSP",
     "Sleep",
     "WebSearch",
     "WebFetch",
@@ -469,6 +472,7 @@ def register_builtin_tools(
     active_web_provider = web_provider or NullWebSearchProvider()
     _register_filesystem(registry, context)
     _register_notebooks(registry, context)
+    _register_lsp(registry, context)
     _register_patch_and_search(registry, context)
     _register_structured_output(registry, context)
     _register_skill_invocation(registry, context)
@@ -662,6 +666,28 @@ def _register_notebooks(registry: ToolRegistry, context: ToolRuntimeContext) -> 
         activity_title="Edit notebook",
         activity_target_argument="notebook_path",
         result_formatter=format_notebook_edit_result,
+    )
+
+
+def _register_lsp(registry: ToolRegistry, context: ToolRuntimeContext) -> None:
+    _register_builtin_tool(
+        registry,
+        name="lsp.query",
+        description="Run a read-only language-server query for a source file in the current workspace.",
+        parameters=LSP_QUERY_SCHEMA,
+        handler=lambda operation, filePath, line, character: lsp_query(
+            context,
+            operation=operation,
+            filePath=filePath,
+            line=line,
+            character=character,
+        ),
+        read_only=True,
+        path_parameters=("filePath",),
+        activity_kind="workspace",
+        activity_title="Query language server",
+        activity_target_argument="filePath",
+        result_formatter=format_lsp_result,
     )
 
 
@@ -1411,6 +1437,26 @@ def _register_src_origin_aliases(
         activity_title="Edit file",
         activity_target_argument="file_path",
         result_formatter=format_src_origin_edit_result,
+    )
+    _register_builtin_tool(
+        registry,
+        name="LSP",
+        description="Run a src-origin style language-server query for a workspace source file.",
+        parameters=LSP_QUERY_SCHEMA,
+        handler=lambda operation, filePath, line, character: lsp_query(
+            context,
+            operation=operation,
+            filePath=filePath,
+            line=line,
+            character=character,
+        ),
+        metadata={"alias_of": "lsp.query", "src_origin_tool": "LSP"},
+        read_only=True,
+        path_parameters=("filePath",),
+        activity_kind="workspace",
+        activity_title="Query language server",
+        activity_target_argument="filePath",
+        result_formatter=format_lsp_result,
     )
     _register_builtin_tool(
         registry,

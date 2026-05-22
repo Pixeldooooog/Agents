@@ -40,6 +40,7 @@ class ToolRuntimeContext:
     session_state_store: Any | None = None
     skill_registry: Any | None = None
     mcp_providers: list[Any] = field(default_factory=list)
+    lsp_provider: Any | None = None
     settings: Any | None = None
     enabled_tools: list[str] = field(default_factory=list)
     agent_spec: Any | None = None

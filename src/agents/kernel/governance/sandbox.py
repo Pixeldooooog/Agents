@@ -138,6 +138,8 @@ def classify_tool_risk(name: str) -> ToolRisk:
         return ToolRisk.LOW
     if name.startswith("search."):
         return ToolRisk.LOW
+    if name == "lsp.query":
+        return ToolRisk.LOW
     if name in {"command.save", "command.delete"}:
         return ToolRisk.MEDIUM
     if name.startswith("command."):

@@ -36,6 +36,7 @@
 | `git.commit` | 创建 Git commit |
 | `git.log` | 查看 Git history |
 | `git.show` | 查看 Git revision / patch |
+| `lsp.query` | 对 workspace 源文件执行只读 language-server 查询；无 provider 时返回明确的不可用结果 |
 | `test.discover` | 根据项目标记推断测试命令，不执行 |
 | `test.run` | 运行测试命令 |
 | `shell.run` | 运行 shell 命令；支持 `run_in_background` 后台执行 |
@@ -46,7 +47,7 @@
 | `browser.open` | 在 sandbox 内抓取 HTTP(S) 页面，默认写入 run artifact store |
 | `browser.download` | 在 sandbox 内下载 HTTP(S) 资源；无 path 时写 artifact store，有 path 时写 workspace |
 
-同时注册第一层 `src-origin` tool-name aliases：`Read`、`Write`、`Edit`、`Bash`、`Glob`、`Grep`、`TodoWrite`、`NotebookEdit`、`Sleep`、`WebSearch`、`WebFetch`、`ListMcpResourcesTool`、`ReadMcpResourceTool`、`TaskOutput`、`AgentOutputTool`、`BashOutputTool`、`TaskStop`、`KillShell`、`TaskCreate`、`TaskList`、`TaskGet`、`TaskUpdate`、`CronCreate`、`CronList`、`CronDelete`、`ToolSearch`、`EnterPlanMode`、`ExitPlanMode`、`Agent`、`Task`、`SendMessage`、`TeamCreate`、`TeamDelete`、`StructuredOutput`、`Skill`、`Config`、`AskUserQuestion`、`SendUserMessage`、`Brief`、`EnterWorktree`、`ExitWorktree`。这些 alias 暴露 `src-origin` 风格参数名，例如 `Read.file_path`、`Write.file_path`、`Edit.old_string/new_string`、`WebSearch.allowed_domains`、`WebFetch.prompt`、`TaskUpdate.taskId`、`CronCreate.cron`、`Agent.subagent_type`、`SendMessage.to`、`TeamCreate.team_name`、`Skill.skill/args`、`Config.setting/value`、`AskUserQuestion.questions/answers`、`SendUserMessage.message/attachments/status`、`EnterWorktree.name`、`ExitWorktree.action/discard_changes`，内部仍路由到解耦后的 Python-native canonical tools。
+同时注册第一层 `src-origin` tool-name aliases：`Read`、`Write`、`Edit`、`Bash`、`Glob`、`Grep`、`TodoWrite`、`NotebookEdit`、`LSP`、`Sleep`、`WebSearch`、`WebFetch`、`ListMcpResourcesTool`、`ReadMcpResourceTool`、`TaskOutput`、`AgentOutputTool`、`BashOutputTool`、`TaskStop`、`KillShell`、`TaskCreate`、`TaskList`、`TaskGet`、`TaskUpdate`、`CronCreate`、`CronList`、`CronDelete`、`ToolSearch`、`EnterPlanMode`、`ExitPlanMode`、`Agent`、`Task`、`SendMessage`、`TeamCreate`、`TeamDelete`、`StructuredOutput`、`Skill`、`Config`、`AskUserQuestion`、`SendUserMessage`、`Brief`、`EnterWorktree`、`ExitWorktree`。这些 alias 暴露 `src-origin` 风格参数名，例如 `Read.file_path`、`Write.file_path`、`Edit.old_string/new_string`、`LSP.operation/filePath/line/character`、`WebSearch.allowed_domains`、`WebFetch.prompt`、`TaskUpdate.taskId`、`CronCreate.cron`、`Agent.subagent_type`、`SendMessage.to`、`TeamCreate.team_name`、`Skill.skill/args`、`Config.setting/value`、`AskUserQuestion.questions/answers`、`SendUserMessage.message/attachments/status`、`EnterWorktree.name`、`ExitWorktree.action/discard_changes`，内部仍路由到解耦后的 Python-native canonical tools。
 
 ## Tool Impact
 
@@ -155,7 +156,7 @@ Agent/team alias 层覆盖 `Agent`、旧名 `Task`、`SendMessage`、`TeamCreate
 - `Bash(git:*)` 保留 legacy prefix 语义，匹配 bare `git` 和 `git ...`。
 - 复合命令按 subcommand 匹配，例如 `npm test && git status` 会命中 `Bash(git *)`。
 - pre/post tool hooks 对复杂 shell 解析 fail-safe：无法可靠解析时会运行匹配到 `Bash(...)` 的 hook，避免安全 hook 被绕过。
-- `Read(src/**)`、`Write(secrets/**)`、`Edit(src/**)`、`NotebookEdit(notebooks/**)` 兼容 `src-origin` 的路径 wildcard 规则，分别映射到 `filesystem.read`、`filesystem.write`、`patch.apply`、`notebook.edit`。非文件类 alias 也会从 `src-origin` 参数中抽取匹配目标，例如 `TaskUpdate(task-*)` 匹配 `taskId`，`CronDelete(nightly*)` 匹配 `id`，`Agent(research*)` 匹配 `subagent_type` / `description`，`SendMessage(teammate*)` 匹配 `to`，MCP/Web 规则匹配 `server` / `uri` / `url`。
+- `Read(src/**)`、`Write(secrets/**)`、`Edit(src/**)`、`NotebookEdit(notebooks/**)`、`LSP(src/**)` 兼容 `src-origin` 的路径 wildcard 规则，分别映射到 `filesystem.read`、`filesystem.write`、`patch.apply`、`notebook.edit`、`lsp.query`。非文件类 alias 也会从 `src-origin` 参数中抽取匹配目标，例如 `TaskUpdate(task-*)` 匹配 `taskId`，`CronDelete(nightly*)` 匹配 `id`，`Agent(research*)` 匹配 `subagent_type` / `description`，`SendMessage(teammate*)` 匹配 `to`，MCP/Web 规则匹配 `server` / `uri` / `url`。
 - `Grep(TODO*)` / `Glob(*.py)` 使用工具的搜索 pattern 做 wildcard 匹配；`Glob` 已映射到 `search.glob`。
 - `search.grep` 的 model-visible result 开始对齐 `src-origin` Grep：默认输出 `Found N files` 加文件列表，`output_mode=content` 输出 `path:line:match`，`output_mode=count` 输出每文件计数和汇总；`glob` 参数可按文件名过滤搜索范围，支持空格/逗号拆分、`*.{py,tsx}` 这类 brace pattern 和 `!*.test.py` 排除规则；`type` 提供常见文件类型过滤，`multiline=true` 支持跨行正则；`head_limit`、`offset`、`context`、`-A`、`-B`、`-C`、`-n` 和 `-i` 覆盖 GrepTool 的第一层分页、上下文、行号和大小写控制。
 - `search.glob` 的 model-visible result 和 `src-origin` 对齐为逐行文件名；无结果时返回 `No files found`，截断时追加明确提示。

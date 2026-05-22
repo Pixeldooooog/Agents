@@ -73,6 +73,7 @@ from agents.kernel.capabilities.tools.builtin.hooks import (
     hook_events,
     hook_list,
 )
+from agents.kernel.capabilities.tools.builtin.lsp import LSP_QUERY_SCHEMA, format_lsp_result, lsp_query
 from agents.kernel.capabilities.tools.builtin.meta import SKILL_DISCOVER_SCHEMA, TOOL_SEARCH_SCHEMA, skill_discover, tool_search
 from agents.kernel.capabilities.tools.builtin.memory import (
     MEMORY_ADD_SCHEMA,
@@ -300,6 +301,7 @@ __all__ = [
     "GIT_ADD_SCHEMA",
     "GIT_COMMIT_SCHEMA",
     "LIST_DIR_SCHEMA",
+    "LSP_QUERY_SCHEMA",
     "BROWSER_DOWNLOAD_SCHEMA",
     "BROWSER_OPEN_SCHEMA",
     "MOVE_PATH_SCHEMA",
@@ -430,7 +432,9 @@ __all__ = [
     "hook_delete",
     "hook_events",
     "hook_list",
+    "format_lsp_result",
     "list_dir",
+    "lsp_query",
     "memory_add",
     "memory_edit",
     "memory_forget",
