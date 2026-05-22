@@ -106,7 +106,7 @@ def text_file_too_large_message(size_in_bytes: int, max_size_bytes: int) -> str:
         "File content (%s) exceeds maximum allowed size (%s). "
         "Use offset and limit parameters to read specific portions of the file, "
         "or search for specific content instead of reading the whole file."
-    ) % (_format_file_size(size_in_bytes), _format_file_size(max_size_bytes))
+    ) % (format_file_size(size_in_bytes), format_file_size(max_size_bytes))
 
 
 def text_file_too_many_tokens_message(token_count: int, max_tokens: int) -> str:
@@ -138,7 +138,7 @@ def _has_utf8_bom(data: bytes) -> bool:
     return data.startswith(b"\xef\xbb\xbf")
 
 
-def _format_file_size(size_in_bytes: int) -> str:
+def format_file_size(size_in_bytes: int) -> str:
     size = float(max(0, int(size_in_bytes)))
     for unit in ("B", "KB", "MB", "GB"):
         if size < 1024 or unit == "GB":

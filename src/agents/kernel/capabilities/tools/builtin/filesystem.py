@@ -15,6 +15,8 @@ from agents.kernel.capabilities.sandbox.text import (
     DEFAULT_TEXT_READ_MAX_BYTES,
     DEFAULT_TEXT_READ_MAX_TOKENS,
     estimate_text_read_tokens,
+    format_file_size,
+    normalize_text_read_max_bytes,
     normalize_text_read_max_tokens,
     text_file_too_many_tokens_message,
 )
@@ -97,7 +99,7 @@ MOVE_PATH_SCHEMA = {
 def read_file(
     context: ToolRuntimeContext,
     path: str,
-    max_bytes: int = DEFAULT_TEXT_READ_MAX_BYTES,
+    max_bytes: int | None = None,
     offset: int = 1,
     limit: int | None = None,
     pages: str | None = None,
@@ -127,7 +129,7 @@ def read_file(
 def _read_file(
     context: ToolRuntimeContext,
     path: str,
-    max_bytes: int = DEFAULT_TEXT_READ_MAX_BYTES,
+    max_bytes: int | None = None,
     offset: int = 1,
     limit: int | None = None,
     pages: str | None = None,
@@ -135,7 +137,7 @@ def _read_file(
     if pages and not _is_pdf_path(path):
         raise ValueError("pages is only supported for PDF files")
     if _is_notebook_path(path):
-        return _read_notebook_file(context, path, pages=pages)
+        return _read_notebook_file(context, path, pages=pages, max_bytes=max_bytes)
     if _is_pdf_path(path):
         return _read_pdf_file(context, path, pages=pages)
     if _is_image_path(path):
@@ -143,6 +145,7 @@ def _read_file(
     cached = unchanged_read_stub(context, path, offset=offset, limit=limit)
     if cached is not None:
         return cached
+    max_bytes = _effective_text_read_max_bytes(context, max_bytes)
     try:
         result = context.sandbox_client.read_text(path, max_bytes=max_bytes, offset=offset, limit=limit, require_full=True)
     except ValueError as exc:
@@ -250,13 +253,23 @@ def _validate_text_read_tokens(context: ToolRuntimeContext, content: str, path: 
 
 
 def _effective_text_read_max_tokens(context: ToolRuntimeContext) -> int:
+    return normalize_text_read_max_tokens(_effective_file_reading_limit(context, "maxTokens") or DEFAULT_TEXT_READ_MAX_TOKENS)
+
+
+def _effective_text_read_max_bytes(context: ToolRuntimeContext, explicit_max_bytes: int | None) -> int:
+    if explicit_max_bytes is not None:
+        return normalize_text_read_max_bytes(explicit_max_bytes)
+    return normalize_text_read_max_bytes(_effective_file_reading_limit(context, "maxSizeBytes") or DEFAULT_TEXT_READ_MAX_BYTES)
+
+
+def _effective_file_reading_limit(context: ToolRuntimeContext, key: str) -> int | None:
     direct_limits = getattr(context, "file_reading_limits", None)
-    value = _limit_value(direct_limits, "maxTokens")
+    value = _limit_value(direct_limits, key)
     if value is None:
         metadata = getattr(getattr(context, "agent_spec", None), "metadata", None)
         spec_limits = metadata.get("fileReadingLimits") if isinstance(metadata, dict) else None
-        value = _limit_value(spec_limits, "maxTokens")
-    return normalize_text_read_max_tokens(value or DEFAULT_TEXT_READ_MAX_TOKENS)
+        value = _limit_value(spec_limits, key)
+    return value
 
 
 def _limit_value(limits: Any, key: str) -> int | None:
@@ -519,7 +532,12 @@ def _pdf_page_image_blocks(image_files: list[Path]) -> list[dict[str, Any]]:
     return blocks
 
 
-def _read_notebook_file(context: ToolRuntimeContext, path: str, pages: str | None = None) -> dict[str, Any]:
+def _read_notebook_file(
+    context: ToolRuntimeContext,
+    path: str,
+    pages: str | None = None,
+    max_bytes: int | None = None,
+) -> dict[str, Any]:
     if pages:
         raise ValueError("pages is only supported for PDF files")
     decision = context.sandbox.authorize_file_read(path)
@@ -529,6 +547,7 @@ def _read_notebook_file(context: ToolRuntimeContext, path: str, pages: str | Non
     if not resolved.is_file():
         raise FileNotFoundError(str(path))
     size = resolved.stat().st_size
+    hard_max_bytes = min(NOTEBOOK_READ_MAX_BYTES, _effective_text_read_max_bytes(context, max_bytes))
     if size > NOTEBOOK_READ_MAX_BYTES:
         raise ValueError("Notebook file is too large to read inline: %s (%d bytes)" % (path, size))
     raw = resolved.read_text(encoding="utf-8")
@@ -537,7 +556,11 @@ def _read_notebook_file(context: ToolRuntimeContext, path: str, pages: str | Non
     if not isinstance(cells, list):
         raise ValueError("Invalid notebook file: %s" % path)
     relative_path = context.sandbox.relative_workspace_path(resolved)
-    _validate_text_read_tokens(context, json.dumps(cells, ensure_ascii=False), path)
+    cells_json = json.dumps(cells, ensure_ascii=False)
+    cells_size = len(cells_json.encode("utf-8"))
+    if cells_size > hard_max_bytes:
+        raise ValueError(_notebook_content_too_large_message(path, cells_size, hard_max_bytes))
+    _validate_text_read_tokens(context, cells_json, path)
     record_file_read(
         context,
         relative_path,
@@ -557,6 +580,23 @@ def _read_notebook_file(context: ToolRuntimeContext, path: str, pages: str | Non
             "cells": cells,
         },
     }
+
+
+def _notebook_content_too_large_message(path: str, size_in_bytes: int, max_size_bytes: int) -> str:
+    return (
+        "Notebook content (%s) exceeds maximum allowed size (%s). Use shell.run with jq to read specific portions:\n"
+        '  cat "%s" | jq \'.cells[:20]\' # First 20 cells\n'
+        '  cat "%s" | jq \'.cells[100:120]\' # Cells 100-120\n'
+        '  cat "%s" | jq \'.cells | length\' # Count total cells\n'
+        '  cat "%s" | jq \'.cells[] | select(.cell_type=="code") | .source\' # All code sources'
+    ) % (
+        format_file_size(size_in_bytes),
+        format_file_size(max_size_bytes),
+        path,
+        path,
+        path,
+        path,
+    )
 
 
 def _read_binary_file_bytes(context: ToolRuntimeContext, path: str, *, max_bytes: int, kind: str) -> tuple[Path, str, bytes]:

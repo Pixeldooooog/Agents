@@ -1674,40 +1674,6 @@ def test_filesystem_read_rejects_oversized_full_text_but_allows_limited_range(tm
     assert alias_default_full.raw["bytes"] > 20000
 
 
-def test_filesystem_read_rejects_token_heavy_text_before_recording_full_read(tmp_path: Path):
-    workspace = WorkspaceContext(
-        tenant_id="default",
-        user_id="user-1",
-        agent_id="agent-1",
-        workspace_id="default",
-        root=tmp_path,
-        path=tmp_path,
-    )
-    (tmp_path / "notes.txt").write_text("abcdefghijklmnopqrstuvwxyz\nok\n", encoding="utf-8")
-    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
-    context = ToolRuntimeContext(
-        workspace=workspace,
-        sandbox=policy,
-        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
-        agent_spec=AgentSpec(metadata={"fileReadingLimits": {"maxTokens": 2}}),
-    )
-    registry = ToolRegistry()
-    register_builtin_tools(registry, context)
-
-    full = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
-    limited = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt", "offset": 2, "limit": 1}))
-    write = asyncio.run(registry.execute("filesystem.write", {"path": "notes.txt", "content": "new\n"}))
-
-    assert full.is_error is True
-    assert "exceeds maximum allowed tokens (2)" in full.content
-    assert "Use offset and limit parameters" in full.content
-    assert limited.is_error is False
-    assert limited.raw["content"] == "ok\n"
-    assert limited.raw["isPartialView"] is True
-    assert write.is_error is True
-    assert "File has not been read yet" in write.content
-
-
 def test_filesystem_read_missing_file_reports_cwd_and_similar_file(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="default",

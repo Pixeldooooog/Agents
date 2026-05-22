@@ -551,7 +551,7 @@ def _register_filesystem(registry: ToolRegistry, context: ToolRuntimeContext) ->
         name="filesystem.read",
         description="Read a text file from the current workspace, optionally by line offset and limit.",
         parameters=READ_FILE_SCHEMA,
-        handler=lambda path, max_bytes=DEFAULT_TEXT_READ_MAX_BYTES, offset=1, limit=None, pages=None: read_file(
+        handler=lambda path, max_bytes=None, offset=1, limit=None, pages=None: read_file(
             context,
             path,
             max_bytes=max_bytes,
@@ -1292,7 +1292,7 @@ def _register_src_origin_aliases(
         name="Read",
         description="Read a file from the current workspace. src-origin alias for filesystem.read.",
         parameters=SRC_ORIGIN_READ_SCHEMA,
-        handler=lambda file_path, offset=1, limit=None, pages=None, max_bytes=DEFAULT_TEXT_READ_MAX_BYTES: read_file(
+        handler=lambda file_path, offset=1, limit=None, pages=None, max_bytes=None: read_file(
             context,
             file_path,
             max_bytes=max_bytes,
