@@ -15,6 +15,12 @@ from agents.kernel.capabilities.sandbox.types import SandboxProfile
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext, _scoped_lease_id
 
 
+NO_ACTIVE_WORKTREE_SESSION_MESSAGE = (
+    "No-op: there is no active EnterWorktree session to exit. "
+    "This tool only operates on worktrees created by EnterWorktree in the current session. "
+    "No filesystem changes were made."
+)
+
 WORKTREE_ENTER_SCHEMA = {
     "type": "object",
     "properties": {
@@ -107,7 +113,16 @@ def exit_worktree(context: ToolRuntimeContext, action: str, discard_changes: boo
         raise ValueError("action must be keep or remove")
     session = dict(context.active_worktree_session or {})
     if not session:
-        raise RuntimeError("Not in a worktree session")
+        original_cwd = Path(context.workspace.path).expanduser().resolve()
+        return {
+            "action": normalized_action,
+            "noop": True,
+            "reason": "no_active_worktree_session",
+            "originalCwd": str(original_cwd),
+            "worktreePath": "",
+            "worktreeBranch": "",
+            "message": NO_ACTIVE_WORKTREE_SESSION_MESSAGE,
+        }
 
     original_cwd = Path(str(session.get("originalCwd") or "")).expanduser().resolve()
     worktree_path = Path(str(session.get("worktreePath") or "")).expanduser().resolve()

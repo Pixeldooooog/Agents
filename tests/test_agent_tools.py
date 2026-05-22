@@ -417,6 +417,39 @@ def test_config_manage_and_src_origin_alias_update_session_config(tmp_path: Path
     assert write_decision.requires_approval is True
 
 
+def test_exit_worktree_noops_without_active_session(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=SandboxPolicy.for_workspace(workspace.path, allow_file_write=True, allow_process=True),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    kept = asyncio.run(registry.execute("ExitWorktree", {"action": "keep"}))
+    removed = asyncio.run(registry.execute("worktree.exit", {"action": "remove", "discard_changes": True}))
+
+    for result, action in ((kept, "keep"), (removed, "remove")):
+        assert result.is_error is False
+        assert result.raw["action"] == action
+        assert result.raw["noop"] is True
+        assert result.raw["reason"] == "no_active_worktree_session"
+        assert result.raw["originalCwd"] == str(tmp_path.resolve())
+        assert result.raw["worktreePath"] == ""
+        assert result.raw["worktreeBranch"] == ""
+        assert "No filesystem changes were made." in result.content
+
+    assert context.workspace.path == tmp_path.resolve()
+    assert context.active_worktree_session == {}
+
+
 def test_worktree_tools_enter_keep_resume_and_remove_git_worktrees(tmp_path: Path):
     if shutil.which("git") is None:
         pytest.skip("git is not installed")
