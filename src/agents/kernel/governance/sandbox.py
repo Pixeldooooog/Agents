@@ -80,9 +80,27 @@ class SandboxPolicy:
             raise PermissionError("path escapes workspace: %s" % path) from exc
         return resolved
 
+    def resolve_workspace_entry_path(self, path: str | Path) -> Path:
+        root = self.workspace_root.resolve()
+        candidate = Path(path)
+        absolute = candidate if candidate.is_absolute() else root / candidate
+        resolved_parent = absolute.parent.resolve()
+        resolved = resolved_parent / absolute.name
+        try:
+            resolved.relative_to(root)
+        except ValueError as exc:
+            raise PermissionError("path escapes workspace: %s" % path) from exc
+        return resolved
+
     def relative_workspace_path(self, path: str | Path) -> str:
         root = self.workspace_root.resolve()
         resolved = self.resolve_workspace_path(path)
+        relative = resolved.relative_to(root)
+        return relative.as_posix() or "."
+
+    def relative_workspace_entry_path(self, path: str | Path) -> str:
+        root = self.workspace_root.resolve()
+        resolved = self.resolve_workspace_entry_path(path)
         relative = resolved.relative_to(root)
         return relative.as_posix() or "."
 

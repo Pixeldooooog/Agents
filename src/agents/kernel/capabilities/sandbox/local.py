@@ -191,8 +191,8 @@ class LocalSandboxClient:
         decision = self.policy.authorize_file_write(path)
         if not decision.allowed:
             raise PermissionError(decision.reason)
-        resolved = self.policy.resolve_workspace_path(path)
-        relative = self.policy.relative_workspace_path(resolved)
+        resolved = self.policy.resolve_workspace_entry_path(path)
+        relative = self.policy.relative_workspace_entry_path(resolved)
         if relative == ".":
             raise PermissionError("refusing to delete workspace root")
         if not resolved.exists() and not resolved.is_symlink():
@@ -213,10 +213,10 @@ class LocalSandboxClient:
         write_decision = self.policy.authorize_file_write(destination_path)
         if not write_decision.allowed:
             raise PermissionError(write_decision.reason)
-        source = self.policy.resolve_workspace_path(source_path)
-        destination = self.policy.resolve_workspace_path(destination_path)
-        source_relative = self.policy.relative_workspace_path(source)
-        destination_relative = self.policy.relative_workspace_path(destination)
+        source = self.policy.resolve_workspace_entry_path(source_path)
+        destination = self.policy.resolve_workspace_entry_path(destination_path)
+        source_relative = self.policy.relative_workspace_entry_path(source)
+        destination_relative = self.policy.relative_workspace_entry_path(destination)
         if source_relative == "." or destination_relative == ".":
             raise PermissionError("refusing to move workspace root")
         if not source.exists() and not source.is_symlink():

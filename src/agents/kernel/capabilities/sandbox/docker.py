@@ -303,7 +303,7 @@ sys.stdout.write(json.dumps({"path": path.as_posix(), "entries": entries}))
         decision = self.policy.authorize_file_write(path)
         if not decision.allowed:
             raise PermissionError(decision.reason)
-        relative = self.policy.relative_workspace_path(self.policy.resolve_workspace_path(path))
+        relative = self.policy.relative_workspace_entry_path(path)
         if relative == ".":
             raise PermissionError("refusing to delete workspace root")
         script = """
@@ -334,8 +334,8 @@ print(json.dumps({"path": path.as_posix(), "type": kind, "deleted": True, "recur
         write_decision = self.policy.authorize_file_write(destination_path)
         if not write_decision.allowed:
             raise PermissionError(write_decision.reason)
-        source = self.policy.relative_workspace_path(self.policy.resolve_workspace_path(source_path))
-        destination = self.policy.relative_workspace_path(self.policy.resolve_workspace_path(destination_path))
+        source = self.policy.relative_workspace_entry_path(source_path)
+        destination = self.policy.relative_workspace_entry_path(destination_path)
         if source == "." or destination == ".":
             raise PermissionError("refusing to move workspace root")
         script = """

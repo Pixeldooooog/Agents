@@ -376,6 +376,87 @@ def test_sandbox_policy_blocks_escaped_workspace_paths(tmp_path):
         raise AssertionError("escaped write was not blocked")
 
 
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlink is not available on this platform")
+def test_local_sandbox_delete_unlinks_symlink_instead_of_target(tmp_path):
+    workspace = _workspace(tmp_path)
+    target = workspace.path / "target.txt"
+    link = workspace.path / "link.txt"
+    target.write_text("target\n", encoding="utf-8")
+    link.symlink_to(target.name)
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    client = LocalSandboxProvider().acquire(workspace, policy)
+
+    result = client.delete_path("link.txt")
+
+    assert result["path"] == "link.txt"
+    assert result["deleted"] is True
+    assert not link.exists()
+    assert target.read_text(encoding="utf-8") == "target\n"
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlink is not available on this platform")
+def test_local_sandbox_file_write_ops_still_block_symlink_targets_outside_workspace(tmp_path):
+    workspace = _workspace(tmp_path)
+    outside = tmp_path / "outside.txt"
+    link = workspace.path / "outside-link.txt"
+    outside.write_text("outside\n", encoding="utf-8")
+    link.symlink_to(outside)
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    client = LocalSandboxProvider().acquire(workspace, policy)
+
+    with pytest.raises(PermissionError, match="escapes workspace"):
+        client.read_text("outside-link.txt")
+    with pytest.raises(PermissionError, match="escapes workspace"):
+        client.write_text("outside-link.txt", "changed\n")
+    with pytest.raises(PermissionError, match="escapes workspace"):
+        client.delete_path("outside-link.txt")
+
+    assert link.is_symlink()
+    assert outside.read_text(encoding="utf-8") == "outside\n"
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlink is not available on this platform")
+def test_local_sandbox_move_moves_symlink_instead_of_target(tmp_path):
+    workspace = _workspace(tmp_path)
+    target = workspace.path / "target.txt"
+    link = workspace.path / "link.txt"
+    moved = workspace.path / "moved-link.txt"
+    target.write_text("target\n", encoding="utf-8")
+    link.symlink_to(target.name)
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    client = LocalSandboxProvider().acquire(workspace, policy)
+
+    result = client.move_path("link.txt", "moved-link.txt")
+
+    assert result["source_path"] == "link.txt"
+    assert result["destination_path"] == "moved-link.txt"
+    assert not link.exists()
+    assert moved.is_symlink()
+    assert moved.resolve() == target
+    assert target.read_text(encoding="utf-8") == "target\n"
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlink is not available on this platform")
+def test_local_sandbox_move_overwrite_replaces_symlink_not_target(tmp_path):
+    workspace = _workspace(tmp_path)
+    source = workspace.path / "source.txt"
+    target = workspace.path / "target.txt"
+    destination = workspace.path / "destination.txt"
+    source.write_text("source\n", encoding="utf-8")
+    target.write_text("target\n", encoding="utf-8")
+    destination.symlink_to(target.name)
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    client = LocalSandboxProvider().acquire(workspace, policy)
+
+    result = client.move_path("source.txt", "destination.txt", overwrite=True)
+
+    assert result["destination_path"] == "destination.txt"
+    assert not source.exists()
+    assert not destination.is_symlink()
+    assert destination.read_text(encoding="utf-8") == "source\n"
+    assert target.read_text(encoding="utf-8") == "target\n"
+
+
 def test_sandbox_store_records_leases_and_events(tmp_path):
     database = SQLiteDatabase(tmp_path / "agents.db")
     store = SQLiteSandboxStore(database)
