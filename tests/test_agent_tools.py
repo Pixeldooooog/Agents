@@ -23,7 +23,7 @@ from types import SimpleNamespace
 import pytest
 
 from agents.kernel.context.workspace import WorkspaceContext
-from agents.kernel.governance import SandboxPolicy, build_tool_permission_policy, describe_tool_impact
+from agents.kernel.governance import SandboxPolicy, StaticToolPermissionPolicy, build_tool_permission_policy, describe_tool_impact
 from agents.kernel.runtime import AgentResult, AgentRuntime, AgentSession, ScriptedModelClient
 from agents.kernel.schema import Message, ModelResponse, RuntimeEvent, ToolCall
 from agents.kernel.hooks import InMemoryHookStore
@@ -4519,6 +4519,46 @@ def test_builtin_permission_rules_match_legacy_path_and_pattern_rules(tmp_path: 
     assert glob_allowed.raw["decision"]["metadata"]["matched_rule"] == "Glob(*.py)"
     assert notebook_denied.raw["decision"]["allowed"] is False
     assert notebook_denied.raw["decision"]["metadata"]["matched_rule"] == "NotebookEdit(secrets/**)"
+
+
+def test_permission_rules_match_src_origin_state_tool_targets():
+    policy = StaticToolPermissionPolicy(
+        denied_tools=[
+            "TaskUpdate(task-*)",
+            "TaskOutput(shell-*)",
+            "CronDelete(nightly*)",
+            "Agent(research*)",
+            "SendMessage(teammate*)",
+            "TeamCreate(platform*)",
+            "WebFetch(https://docs.example/*)",
+            "ReadMcpResourceTool(file://docs/*)",
+        ],
+        approval_required_tools=[
+            "ToolSearch(worktree*)",
+            "ListMcpResourcesTool(docs)",
+            "ExitWorktree(remove)",
+        ],
+    )
+
+    cases = [
+        ("TaskUpdate", {"taskId": "task-123", "status": "finished"}, "TaskUpdate(task-*)", False),
+        ("TaskOutput", {"task_id": "shell-abc"}, "TaskOutput(shell-*)", False),
+        ("CronDelete", {"id": "nightly-build"}, "CronDelete(nightly*)", False),
+        ("Agent", {"subagent_type": "researcher", "description": "Investigate"}, "Agent(research*)", False),
+        ("SendMessage", {"to": "teammate-a", "message": "status"}, "SendMessage(teammate*)", False),
+        ("TeamCreate", {"team_name": "platform-core"}, "TeamCreate(platform*)", False),
+        ("WebFetch", {"url": "https://docs.example/page", "prompt": "extract"}, "WebFetch(https://docs.example/*)", False),
+        ("ReadMcpResourceTool", {"server": "docs", "uri": "file://docs/readme"}, "ReadMcpResourceTool(file://docs/*)", False),
+        ("ToolSearch", {"query": "worktree tools"}, "ToolSearch(worktree*)", True),
+        ("ListMcpResourcesTool", {"server": "docs"}, "ListMcpResourcesTool(docs)", True),
+        ("ExitWorktree", {"action": "remove"}, "ExitWorktree(remove)", True),
+    ]
+
+    for tool_name, arguments, matched_rule, requires_approval in cases:
+        decision = asyncio.run(policy.authorize(ToolCall(id="call-%s" % tool_name, name=tool_name, arguments=arguments)))
+        assert decision.requires_approval is requires_approval
+        assert decision.allowed is False
+        assert decision.metadata["matched_rule"] == matched_rule
 
 
 def test_builtin_hook_tools_manage_session_hooks(tmp_path: Path):

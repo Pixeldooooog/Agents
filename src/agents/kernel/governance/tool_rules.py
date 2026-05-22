@@ -237,6 +237,26 @@ def _tool_rule_targets(call: ToolCall) -> tuple[str, ...]:
         return _argument_values(arguments, "pattern")
     if name == "search.glob":
         return _argument_values(arguments, "pattern")
+    if name in {"web.search", "web.extract"}:
+        return _argument_values(arguments, "query", "url", "prompt")
+    if name in {"mcp.resources", "mcp.read_resource", "mcp.get_prompt"}:
+        return _argument_values(arguments, "server", "uri", "uri_prefix", "name")
+    if name in {"task.create", "task.run", "task.background"}:
+        return _argument_values(arguments, "task_id", "taskId", "title", "subject", "input", "description")
+    if name in {"task.get", "task.update", "task.stop", "task.output", "shell.output", "shell.kill"}:
+        return _argument_values(arguments, "task_id", "taskId", "shell_id", "shellId", "title", "subject")
+    if name in {"schedule.create", "schedule.run", "schedule.delete"}:
+        return _argument_values(arguments, "schedule_id", "scheduleId", "id", "schedule", "cron", "title", "prompt", "input")
+    if name == "tool.search":
+        return _argument_values(arguments, "query")
+    if name == "plan.exit":
+        return _argument_values(arguments, "plan")
+    if name == "agent.run":
+        return _argument_values(arguments, "agent_id", "subagent_type", "description", "prompt", "name", "team_name", "cwd")
+    if name in {"team.create", "team.delete", "team.members", "team.inbox", "team.run_member"}:
+        return _argument_values(arguments, "team_id", "team_name", "name", "agent_id", "agent_type", "description", "prompt")
+    if name == "team.send":
+        return _argument_values(arguments, "to", "team_id", "team_name", "message")
     if name == "skill.invoke":
         return _argument_values(arguments, "skill", "name")
     if name == "config.manage":
