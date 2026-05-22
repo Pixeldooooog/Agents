@@ -11,7 +11,13 @@ from pathlib import Path
 from typing import Any
 
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
-from agents.kernel.capabilities.sandbox.text import DEFAULT_TEXT_READ_MAX_BYTES
+from agents.kernel.capabilities.sandbox.text import (
+    DEFAULT_TEXT_READ_MAX_BYTES,
+    DEFAULT_TEXT_READ_MAX_TOKENS,
+    estimate_text_read_tokens,
+    normalize_text_read_max_tokens,
+    text_file_too_many_tokens_message,
+)
 from agents.kernel.capabilities.tools.builtin.file_safety import record_file_read, unchanged_read_stub, write_text_safely
 from agents.kernel.capabilities.tools.builtin.image_metadata import detect_image_media_type, image_dimensions
 from agents.kernel.capabilities.tools.builtin.read_errors import (
@@ -143,6 +149,7 @@ def _read_file(
         if is_binary_text_read_error(exc):
             raise ValueError(binary_read_error_message(path)) from exc
         raise
+    _validate_text_read_tokens(context, result.content, path)
     if not result.truncated and not result.is_partial_view:
         record_file_read(
             context,
@@ -233,6 +240,38 @@ def move_path(
     overwrite: bool = False,
 ) -> dict[str, Any]:
     return context.sandbox_client.move_path(source_path, destination_path, overwrite=overwrite)
+
+
+def _validate_text_read_tokens(context: ToolRuntimeContext, content: str, path: str) -> None:
+    max_tokens = _effective_text_read_max_tokens(context)
+    token_count = estimate_text_read_tokens(content, Path(path).suffix)
+    if token_count > max_tokens:
+        raise ValueError(text_file_too_many_tokens_message(token_count, max_tokens))
+
+
+def _effective_text_read_max_tokens(context: ToolRuntimeContext) -> int:
+    direct_limits = getattr(context, "file_reading_limits", None)
+    value = _limit_value(direct_limits, "maxTokens")
+    if value is None:
+        metadata = getattr(getattr(context, "agent_spec", None), "metadata", None)
+        spec_limits = metadata.get("fileReadingLimits") if isinstance(metadata, dict) else None
+        value = _limit_value(spec_limits, "maxTokens")
+    return normalize_text_read_max_tokens(value or DEFAULT_TEXT_READ_MAX_TOKENS)
+
+
+def _limit_value(limits: Any, key: str) -> int | None:
+    if not isinstance(limits, dict):
+        return None
+    value = limits.get(key) if key in limits else limits.get(_camel_to_snake(key))
+    try:
+        normalized = int(value)
+    except (TypeError, ValueError):
+        return None
+    return normalized if normalized > 0 else None
+
+
+def _camel_to_snake(value: str) -> str:
+    return re.sub(r"(?<!^)([A-Z])", r"_\1", value).lower()
 
 
 def _format_numbered_lines(content: str, start_line: int) -> str:
@@ -498,6 +537,7 @@ def _read_notebook_file(context: ToolRuntimeContext, path: str, pages: str | Non
     if not isinstance(cells, list):
         raise ValueError("Invalid notebook file: %s" % path)
     relative_path = context.sandbox.relative_workspace_path(resolved)
+    _validate_text_read_tokens(context, json.dumps(cells, ensure_ascii=False), path)
     record_file_read(
         context,
         relative_path,

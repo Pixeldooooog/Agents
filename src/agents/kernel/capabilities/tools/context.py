@@ -41,6 +41,7 @@ class ToolRuntimeContext:
     settings: Any | None = None
     enabled_tools: list[str] = field(default_factory=list)
     agent_spec: Any | None = None
+    file_reading_limits: dict[str, int] = field(default_factory=dict)
     session: Any | None = None
     agent_session_factory: Any | None = None
     subagent_depth: int = 0

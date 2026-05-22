@@ -5,6 +5,7 @@ from pathlib import Path
 
 BINARY_SAMPLE_BYTES = 8192
 DEFAULT_TEXT_READ_MAX_BYTES = 256 * 1024
+DEFAULT_TEXT_READ_MAX_TOKENS = 25000
 BINARY_FILE_EXTENSIONS = {
     ".7z",
     ".avi",
@@ -91,12 +92,29 @@ def normalize_text_read_max_bytes(max_bytes: int | None) -> int:
     return max(1, min(int(max_bytes or DEFAULT_TEXT_READ_MAX_BYTES), DEFAULT_TEXT_READ_MAX_BYTES))
 
 
+def normalize_text_read_max_tokens(max_tokens: int | None) -> int:
+    return max(1, int(max_tokens or DEFAULT_TEXT_READ_MAX_TOKENS))
+
+
+def estimate_text_read_tokens(content: str, file_extension: str = "") -> int:
+    bytes_per_token = 2 if str(file_extension or "").lstrip(".").lower() in {"json", "jsonl", "jsonc"} else 4
+    return round(len(content) / bytes_per_token)
+
+
 def text_file_too_large_message(size_in_bytes: int, max_size_bytes: int) -> str:
     return (
         "File content (%s) exceeds maximum allowed size (%s). "
         "Use offset and limit parameters to read specific portions of the file, "
         "or search for specific content instead of reading the whole file."
     ) % (_format_file_size(size_in_bytes), _format_file_size(max_size_bytes))
+
+
+def text_file_too_many_tokens_message(token_count: int, max_tokens: int) -> str:
+    return (
+        "File content (%d tokens) exceeds maximum allowed tokens (%d). "
+        "Use offset and limit parameters to read specific portions of the file, "
+        "or search for specific content instead of reading the whole file."
+    ) % (token_count, max_tokens)
 
 
 def _looks_like_binary_sample(path: str | Path, data: bytes) -> bool:
