@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 
@@ -23,12 +25,13 @@ def single_file_git_diff(context: ToolRuntimeContext, path: str) -> dict[str, An
         git_path = absolute_path.relative_to(git_root).as_posix()
     except ValueError:
         return None
+    repository = _repository_slug(git_root)
     if _is_git_tracked(git_root, git_path):
         raw = _git_stdout(git_root, ["diff", _diff_ref(git_root), "--", git_path])
         if not raw:
             return None
-        return _parse_raw_git_diff(git_path, raw, status="modified")
-    return _synthetic_added_diff(git_path, absolute_path)
+        return _parse_raw_git_diff(git_path, raw, status="modified", repository=repository)
+    return _synthetic_added_diff(git_path, absolute_path, repository=repository)
 
 
 def _git_root(cwd: Path) -> Path | None:
@@ -62,6 +65,30 @@ def _default_branch_ref(git_root: Path) -> str:
     return ""
 
 
+def _repository_slug(git_root: Path) -> str | None:
+    remote_url = _git_stdout(git_root, ["remote", "get-url", "origin"]).strip()
+    if not remote_url:
+        return None
+    return _parse_github_repository(remote_url)
+
+
+def _parse_github_repository(remote_url: str) -> str | None:
+    value = remote_url.strip()
+    ssh_match = re.match(r"^[^@]+@github\.com:([^/]+)/([^/]+?)(?:\.git)?$", value)
+    if ssh_match:
+        return f"{ssh_match.group(1)}/{ssh_match.group(2).removesuffix('.git')}"
+    parsed = urlparse(value)
+    if parsed.scheme in {"http", "https", "ssh", "git"} and parsed.hostname == "github.com":
+        parts = [part for part in parsed.path.strip("/").split("/") if part]
+        if len(parts) >= 2:
+            return f"{parts[0]}/{parts[1].removesuffix('.git')}"
+    if "://" not in value and "@" not in value:
+        parts = [part for part in value.split("/") if part]
+        if len(parts) == 2:
+            return f"{parts[0]}/{parts[1].removesuffix('.git')}"
+    return None
+
+
 def _git_stdout(cwd: Path, args: list[str]) -> str:
     result = _run_git(cwd, args)
     if result is None or result.returncode != 0:
@@ -83,7 +110,13 @@ def _run_git(cwd: Path, args: list[str]) -> subprocess.CompletedProcess[str] | N
         return None
 
 
-def _parse_raw_git_diff(git_path: str, raw_diff: str, *, status: str) -> dict[str, Any] | None:
+def _parse_raw_git_diff(
+    git_path: str,
+    raw_diff: str,
+    *,
+    status: str,
+    repository: str | None,
+) -> dict[str, Any] | None:
     patch_lines: list[str] = []
     additions = 0
     deletions = 0
@@ -107,11 +140,16 @@ def _parse_raw_git_diff(git_path: str, raw_diff: str, *, status: str) -> dict[st
         "deletions": deletions,
         "changes": additions + deletions,
         "patch": "\n".join(patch_lines),
-        "repository": None,
+        "repository": repository,
     }
 
 
-def _synthetic_added_diff(git_path: str, absolute_path: Path) -> dict[str, Any] | None:
+def _synthetic_added_diff(
+    git_path: str,
+    absolute_path: Path,
+    *,
+    repository: str | None,
+) -> dict[str, Any] | None:
     try:
         content = absolute_path.read_text(encoding="utf-8", errors="replace")
     except OSError:
@@ -130,5 +168,5 @@ def _synthetic_added_diff(git_path: str, absolute_path: Path) -> dict[str, Any] 
         "deletions": 0,
         "changes": line_count,
         "patch": patch,
-        "repository": None,
+        "repository": repository,
     }

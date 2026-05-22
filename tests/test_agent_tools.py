@@ -2799,6 +2799,7 @@ def test_filesystem_write_exposes_src_origin_git_diff_for_tracked_file(tmp_path:
     _run_git(repo, "init")
     _run_git(repo, "config", "user.email", "agent@example.com")
     _run_git(repo, "config", "user.name", "Agent Test")
+    _run_git(repo, "remote", "add", "origin", "git@github.com:example/agents-test.git")
     (repo / "tracked.py").write_text("value = 'old'\n", encoding="utf-8")
     _run_git(repo, "add", "tracked.py")
     _run_git(repo, "commit", "-m", "initial")
@@ -2829,6 +2830,7 @@ def test_filesystem_write_exposes_src_origin_git_diff_for_tracked_file(tmp_path:
     assert written.raw["gitDiff"]["additions"] == 1
     assert written.raw["gitDiff"]["deletions"] == 1
     assert written.raw["gitDiff"]["changes"] == 2
+    assert written.raw["gitDiff"]["repository"] == "example/agents-test"
     assert "-value = 'old'" in written.raw["gitDiff"]["patch"]
     assert "+value = 'new'" in written.raw["gitDiff"]["patch"]
 
@@ -2886,6 +2888,7 @@ def test_filesystem_write_exposes_src_origin_git_diff_for_created_file(tmp_path:
     _run_git(repo, "init")
     _run_git(repo, "config", "user.email", "agent@example.com")
     _run_git(repo, "config", "user.name", "Agent Test")
+    _run_git(repo, "remote", "add", "origin", "https://github.com/example/agents-test.git")
     (repo / "README.md").write_text("base\n", encoding="utf-8")
     _run_git(repo, "add", "README.md")
     _run_git(repo, "commit", "-m", "initial")
@@ -2914,6 +2917,7 @@ def test_filesystem_write_exposes_src_origin_git_diff_for_created_file(tmp_path:
     assert written.raw["gitDiff"]["additions"] == 1
     assert written.raw["gitDiff"]["deletions"] == 0
     assert written.raw["gitDiff"]["changes"] == 1
+    assert written.raw["gitDiff"]["repository"] == "example/agents-test"
     assert "+print('new')" in written.raw["gitDiff"]["patch"]
 
 
@@ -5704,6 +5708,7 @@ def test_patch_apply_exposes_src_origin_git_diff_for_single_file_edit(tmp_path: 
     _run_git(repo, "init")
     _run_git(repo, "config", "user.email", "agent@example.com")
     _run_git(repo, "config", "user.name", "Agent Test")
+    _run_git(repo, "remote", "add", "origin", "ssh://git@github.com/example/agents-test.git")
     (repo / "tracked.py").write_text("value = 'old'\n", encoding="utf-8")
     _run_git(repo, "add", "tracked.py")
     _run_git(repo, "commit", "-m", "initial")
@@ -5739,6 +5744,7 @@ def test_patch_apply_exposes_src_origin_git_diff_for_single_file_edit(tmp_path: 
     assert result.raw["gitDiff"]["additions"] == 1
     assert result.raw["gitDiff"]["deletions"] == 1
     assert result.raw["gitDiff"]["changes"] == 2
+    assert result.raw["gitDiff"]["repository"] == "example/agents-test"
     assert "-value = 'old'" in result.raw["gitDiff"]["patch"]
     assert "+value = 'new'" in result.raw["gitDiff"]["patch"]
 
