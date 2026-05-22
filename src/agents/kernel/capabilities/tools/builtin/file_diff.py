@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -23,7 +24,7 @@ def single_file_git_diff(context: ToolRuntimeContext, path: str) -> dict[str, An
     except ValueError:
         return None
     if _is_git_tracked(git_root, git_path):
-        raw = _git_stdout(git_root, ["diff", "HEAD", "--", git_path])
+        raw = _git_stdout(git_root, ["diff", _diff_ref(git_root), "--", git_path])
         if not raw:
             return None
         return _parse_raw_git_diff(git_path, raw, status="modified")
@@ -40,6 +41,25 @@ def _git_root(cwd: Path) -> Path | None:
 def _is_git_tracked(git_root: Path, git_path: str) -> bool:
     result = _run_git(git_root, ["ls-files", "--error-unmatch", git_path])
     return result is not None and result.returncode == 0
+
+
+def _diff_ref(git_root: Path) -> str:
+    base_ref = os.environ.get("CLAUDE_CODE_BASE_REF") or _default_branch_ref(git_root)
+    if base_ref:
+        merge_base = _git_stdout(git_root, ["merge-base", "HEAD", base_ref]).strip()
+        if merge_base:
+            return merge_base
+    return "HEAD"
+
+
+def _default_branch_ref(git_root: Path) -> str:
+    remote_head = _git_stdout(git_root, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]).strip()
+    if remote_head:
+        return remote_head
+    for candidate in ("main", "master", "origin/main", "origin/master"):
+        if _git_stdout(git_root, ["rev-parse", "--verify", "--quiet", candidate]).strip():
+            return candidate
+    return ""
 
 
 def _git_stdout(cwd: Path, args: list[str]) -> str:

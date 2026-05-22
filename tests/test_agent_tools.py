@@ -2833,6 +2833,51 @@ def test_filesystem_write_exposes_src_origin_git_diff_for_tracked_file(tmp_path:
     assert "+value = 'new'" in written.raw["gitDiff"]["patch"]
 
 
+def test_filesystem_write_git_diff_uses_base_ref_merge_base(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _run_git(repo, "init")
+    _run_git(repo, "checkout", "-b", "main")
+    _run_git(repo, "config", "user.email", "agent@example.com")
+    _run_git(repo, "config", "user.name", "Agent Test")
+    (repo / "tracked.py").write_text("value = 'old'\n", encoding="utf-8")
+    _run_git(repo, "add", "tracked.py")
+    _run_git(repo, "commit", "-m", "initial")
+    _run_git(repo, "checkout", "-b", "feature")
+    (repo / "tracked.py").write_text("value = 'middle'\n", encoding="utf-8")
+    _run_git(repo, "add", "tracked.py")
+    _run_git(repo, "commit", "-m", "feature change")
+    monkeypatch.setenv("CLAUDE_CODE_BASE_REF", "main")
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=repo,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "tracked.py"}))
+    written = asyncio.run(registry.execute("filesystem.write", {"path": "tracked.py", "content": "value = 'new'\n"}))
+
+    assert read.is_error is False
+    assert written.is_error is False
+    assert written.raw["gitDiff"]["filename"] == "tracked.py"
+    assert "-value = 'old'" in written.raw["gitDiff"]["patch"]
+    assert "-value = 'middle'" not in written.raw["gitDiff"]["patch"]
+    assert "+value = 'new'" in written.raw["gitDiff"]["patch"]
+
+
 def test_filesystem_write_exposes_src_origin_git_diff_for_created_file(tmp_path: Path):
     if shutil.which("git") is None:
         pytest.skip("git is not installed")
