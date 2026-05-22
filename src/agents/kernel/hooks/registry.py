@@ -6,6 +6,7 @@ from typing import Any
 from uuid import uuid4
 
 from agents.kernel.hooks.base import AgentHooks, ToolHookDenied
+from agents.kernel.hooks.file_history_events import file_history_write_events
 from agents.kernel.hooks.memory_access import memory_access_events
 from agents.kernel.governance.tool_rules import tool_rule_matches_call
 from agents.kernel.schema import Message, ModelResponse, RuntimeEvent, ToolCall, ToolResult
@@ -168,6 +169,8 @@ class SessionStateHooks(AgentHooks):
 
     async def after_tool_use(self, call: ToolCall, result: ToolResult) -> ToolResult:
         for event in memory_access_events(call, result):
+            self.emit_runtime_event(event)
+        for event in file_history_write_events(call, result):
             self.emit_runtime_event(event)
         for record in self.registry.list(event="post_tool_use", enabled=True, limit=100):
             if record.action == "record" and _hook_matches_tool(record, call):

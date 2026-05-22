@@ -278,10 +278,9 @@ class TestSessionStateHooks:
             )
         )
 
-        events = hooks.drain_runtime_events()
+        events = [event for event in hooks.drain_runtime_events() if event.type == "team_memory_write"]
         assert returned is result
         assert len(events) == 1
-        assert events[0].type == "team_memory_write"
         assert events[0].name == "filesystem.write"
         assert events[0].payload["path"] == ".agents/projects/project-key/memory/team/MEMORY.md"
         assert events[0].payload["tool_name"] == "Write"
@@ -311,7 +310,8 @@ class TestSessionStateHooks:
             )
         )
 
-        assert hooks.drain_runtime_events() == []
+        events = [event for event in hooks.drain_runtime_events() if event.type == "team_memory_write"]
+        assert events == []
 
     def test_patch_apply_team_memory_write_event_dedupes_paths(self):
         hooks = SessionStateHooks(SessionHookRegistry())
@@ -333,9 +333,109 @@ class TestSessionStateHooks:
             )
         )
 
-        events = hooks.drain_runtime_events()
+        events = [event for event in hooks.drain_runtime_events() if event.type == "team_memory_write"]
         assert [event.payload["path"] for event in events] == [".agents/memory/team/MEMORY.md"]
         assert events[0].name == "patch.apply"
+
+    def test_file_history_write_events_track_successful_file_tools(self):
+        hooks = SessionStateHooks(SessionHookRegistry())
+
+        asyncio.run(
+            hooks.after_tool_use(
+                ToolCall(id="1", name="Write", arguments={"file_path": "notes.txt"}),
+                ToolResult(
+                    tool_call_id="1",
+                    name="Write",
+                    content="ok",
+                    raw={"filePath": "notes.txt", "type": "update"},
+                ),
+            )
+        )
+        asyncio.run(
+            hooks.after_tool_use(
+                ToolCall(
+                    id="2",
+                    name="patch.apply",
+                    arguments={
+                        "edits": [{"path": "src/app.py", "old_text": "a", "new_text": "b"}],
+                        "creates": [{"path": "src/new.py", "content": "x"}],
+                    },
+                ),
+                ToolResult(
+                    tool_call_id="2",
+                    name="patch.apply",
+                    content="ok",
+                    raw={
+                        "files": [
+                            {"path": "src/app.py", "action": "edit"},
+                            {"path": "src/new.py", "action": "create"},
+                            {"path": "src/app.py", "action": "edit"},
+                        ]
+                    },
+                ),
+            )
+        )
+        asyncio.run(
+            hooks.after_tool_use(
+                ToolCall(id="3", name="NotebookEdit", arguments={"notebook_path": "analysis.ipynb"}),
+                ToolResult(
+                    tool_call_id="3",
+                    name="NotebookEdit",
+                    content="ok",
+                    raw={"notebook_path": "analysis.ipynb", "edit_mode": "replace"},
+                ),
+            )
+        )
+
+        events = [event for event in hooks.drain_runtime_events() if event.type == "file_history_write"]
+        assert [(event.name, event.payload["path"], event.payload["operation"]) for event in events] == [
+            ("filesystem.write", "notes.txt", "update"),
+            ("patch.apply", "src/app.py", "edit"),
+            ("patch.apply", "src/new.py", "create"),
+            ("notebook.edit", "analysis.ipynb", "replace"),
+        ]
+        assert all(event.payload["checkpoint_pending"] is True for event in events)
+        assert events[0].payload["tool_name"] == "Write"
+
+    def test_file_history_write_events_skip_errors_and_dry_runs(self):
+        hooks = SessionStateHooks(SessionHookRegistry())
+
+        asyncio.run(
+            hooks.after_tool_use(
+                ToolCall(id="1", name="Write", arguments={"file_path": "notes.txt"}),
+                ToolResult(
+                    tool_call_id="1",
+                    name="Write",
+                    content="blocked",
+                    is_error=True,
+                    raw={"filePath": "notes.txt"},
+                ),
+            )
+        )
+        asyncio.run(
+            hooks.after_tool_use(
+                ToolCall(id="2", name="patch.apply", arguments={"edits": [{"path": "src/app.py"}]}),
+                ToolResult(
+                    tool_call_id="2",
+                    name="patch.apply",
+                    content="ok",
+                    raw={"dry_run": True, "files": [{"path": "src/app.py"}]},
+                ),
+            )
+        )
+        asyncio.run(
+            hooks.after_tool_use(
+                ToolCall(id="3", name="Write", arguments={"file_path": "same.txt"}),
+                ToolResult(
+                    tool_call_id="3",
+                    name="Write",
+                    content="ok",
+                    raw={"changed": False, "filePath": "same.txt"},
+                ),
+            )
+        )
+
+        assert hooks.drain_runtime_events() == []
 
     def test_session_state_hooks_persist_run_counts_to_store(self, tmp_path):
         workspace = WorkspaceContext(
