@@ -179,4 +179,7 @@ The first milestone is complete when:
 - FileWrite/FileEdit safety now includes a first team-memory secret guard: writes to
   `.agents/.../memory/team/...` paths are rejected when high-confidence credential patterns would be stored in
   shared team memory, while personal memory files keep the normal write/edit behavior.
+- Session hooks now emit a first `team_memory_write` runtime event after successful `Write` / `Edit` /
+  `patch.apply` writes to `.agents/.../memory/team/...`, giving future team-memory sync a durable
+  post-tool signal without coupling sync mechanics into file tools.
 - Remaining tool-lifecycle gap: remaining edge-case path matcher coverage, richer shell foreground-to-background controls and broader out-of-turn notification surfaces beyond SDK session drain, broader proactive tick scheduling beyond the current SDK Sleep wake/drain slice, worktree tmux lifecycle / hook-based VCS adapters / PR fetch-resume / attribution hook post-processing, broader non-UTF text encoding coverage, richer NotebookEdit UI/LSP/file-history behavior, broader special-file/symlink guard coverage, fuller auto-memory/team-memory lifecycle behavior, richer FileEdit/FileWrite LSP/file-history notifications, and full `src-origin` coding-tool safety behavior.

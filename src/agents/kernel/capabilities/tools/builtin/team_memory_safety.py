@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+
+from agents.kernel.memory_paths import is_team_memory_path
 
 
 @dataclass(frozen=True)
@@ -128,19 +129,6 @@ def check_team_memory_secrets(path: str, content: str) -> str | None:
         "Team memory is shared with all repository collaborators. "
         "Remove the sensitive content and try again."
     ) % labels
-
-
-def is_team_memory_path(path: str) -> bool:
-    parts = PurePosixPath(str(path or "").replace("\\", "/")).parts
-    for index, part in enumerate(parts):
-        if part != ".agents":
-            continue
-        tail = parts[index + 1 :]
-        if len(tail) >= 3 and tail[0] in {"memory", "memories"} and tail[1] == "team":
-            return True
-        if len(tail) >= 5 and tail[0] == "projects" and tail[2] == "memory" and tail[3] == "team":
-            return True
-    return False
 
 
 def scan_for_secrets(content: str) -> list[SecretMatch]:

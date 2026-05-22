@@ -30,7 +30,7 @@ from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.hooks import InMemoryHookStore
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 from agents.kernel.runtime.turns.tools import ToolOrchestrator
-from agents.kernel.schema import Message, ModelResponse, ToolCall
+from agents.kernel.schema import Message, ModelResponse, ToolCall, ToolResult
 
 
 class TestHooksFactory:
@@ -262,6 +262,80 @@ class TestSessionStateHooks:
         assert batch.results[0].content == "hi"
         assert pre.run_count == 1
         assert post.run_count == 1
+
+    def test_team_memory_write_emits_sync_pending_event(self):
+        hooks = SessionStateHooks(SessionHookRegistry())
+        result = ToolResult(tool_call_id="1", name="Write", content="ok", raw={})
+
+        returned = asyncio.run(
+            hooks.after_tool_use(
+                ToolCall(
+                    id="1",
+                    name="Write",
+                    arguments={"file_path": ".agents/projects/project-key/memory/team/MEMORY.md"},
+                ),
+                result,
+            )
+        )
+
+        events = hooks.drain_runtime_events()
+        assert returned is result
+        assert len(events) == 1
+        assert events[0].type == "team_memory_write"
+        assert events[0].name == "filesystem.write"
+        assert events[0].payload["path"] == ".agents/projects/project-key/memory/team/MEMORY.md"
+        assert events[0].payload["tool_name"] == "Write"
+        assert events[0].payload["sync_pending"] is True
+
+    def test_team_memory_write_event_skips_personal_memory_and_errors(self):
+        hooks = SessionStateHooks(SessionHookRegistry())
+
+        asyncio.run(
+            hooks.after_tool_use(
+                ToolCall(
+                    id="1",
+                    name="Write",
+                    arguments={"file_path": ".agents/projects/project-key/memory/MEMORY.md"},
+                ),
+                ToolResult(tool_call_id="1", name="Write", content="ok", raw={}),
+            )
+        )
+        asyncio.run(
+            hooks.after_tool_use(
+                ToolCall(
+                    id="2",
+                    name="Edit",
+                    arguments={"file_path": ".agents/projects/project-key/memory/team/MEMORY.md"},
+                ),
+                ToolResult(tool_call_id="2", name="Edit", content="blocked", is_error=True),
+            )
+        )
+
+        assert hooks.drain_runtime_events() == []
+
+    def test_patch_apply_team_memory_write_event_dedupes_paths(self):
+        hooks = SessionStateHooks(SessionHookRegistry())
+
+        asyncio.run(
+            hooks.after_tool_use(
+                ToolCall(
+                    id="1",
+                    name="patch.apply",
+                    arguments={
+                        "edits": [
+                            {"path": ".agents/memory/team/MEMORY.md", "old_text": "a", "new_text": "b"},
+                            {"path": ".agents/memory/team/MEMORY.md", "old_text": "b", "new_text": "c"},
+                        ],
+                        "creates": [{"path": ".agents/memory/MEMORY.md", "content": "personal"}],
+                    },
+                ),
+                ToolResult(tool_call_id="1", name="patch.apply", content="ok", raw={}),
+            )
+        )
+
+        events = hooks.drain_runtime_events()
+        assert [event.payload["path"] for event in events] == [".agents/memory/team/MEMORY.md"]
+        assert events[0].name == "patch.apply"
 
     def test_session_state_hooks_persist_run_counts_to_store(self, tmp_path):
         workspace = WorkspaceContext(
