@@ -136,7 +136,7 @@ runtime 已经把这个契约写入工具事件：
 
 `shell.run` 同时接受现有的 `timeout_seconds` 和 `src-origin` BashTool 风格的 `timeout` 毫秒字段；前台和后台命令都会在 raw payload 中返回 `description`、`background`、`timeout_seconds`、`timeout_ms`、`interrupted`、`isImage` 和 `dangerouslyDisableSandbox`，方便 SDK/UI 用同一套契约投影命令生命周期。后台启动结果还会返回 `backgroundTaskId`、`backgroundedByUser=false`、`assistantAutoBackgrounded=false` 这些 `src-origin` output schema 字段；当前 runtime 没有无沙箱执行策略，因此 `dangerouslyDisableSandbox=true` 会被显式拒绝，而不是静默忽略。
 
-`sleep.wait` 提供 `src-origin` Sleep 工具的基础能力：模型需要等待时可使用专用 wait tool，而不是用 `shell.run` 执行 `sleep` 占住 shell 进程。该工具是只读、并发安全、可被 interrupt 取消的低风险工具。
+`sleep.wait` 提供 `src-origin` Sleep 工具的基础能力：模型需要等待时可使用专用 wait tool，而不是用 `shell.run` 执行 `sleep` 占住 shell 进程。该工具是只读、并发安全、可被 interrupt 取消的低风险工具；SDK session 会把同 session 的 async user/task notifications 绑定为 Sleep wake signal，`next` / `later` 消息到达时可提前唤醒 Sleep 并在本次 session query 后继续 drain。
 
 任务工具的 alias 层覆盖 `TaskCreate`、`TaskList`、`TaskGet`、`TaskUpdate`、`TaskOutput`、`TaskStop` 以及旧名 `AgentOutputTool` / `BashOutputTool` / `KillShell`。其中 `task.update` 已扩展为可更新 title/input/status/metadata，`TaskUpdate.subject`、`description`、`activeForm`、`owner` 和依赖数组会通过 adapter 映射到 Python-native task store。
 

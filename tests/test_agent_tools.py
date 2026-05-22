@@ -1116,6 +1116,7 @@ def test_sleep_wait_is_dedicated_cancelable_wait_tool(tmp_path: Path):
     assert result.raw["requested_seconds"] == 0.01
     assert result.raw["slept_seconds"] >= 0
     assert result.raw["reason"] == "test wait"
+    assert result.raw["woke_for_notification"] is False
     assert impact.risk == "low"
     assert impact.operations == ["wait"]
 

@@ -15,6 +15,7 @@ from agents.kernel.models.protocol import message_event, reasoning_delta, retry_
 from agents.kernel.runtime import AgentRuntime, AgentSession, ScriptedModelClient
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.tools.builtin.file_safety import write_text_safely
+from agents.kernel.capabilities.tools.builtin.sleep import sleep_wait
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.governance import SandboxPolicy
@@ -2651,6 +2652,75 @@ def test_sdk_now_priority_async_message_interrupts_and_drains():
     assert results == ["run canceled", "urgent"]
     assert replay_users == []
     assert urgent_uuid
+
+
+def test_sdk_async_message_wakes_sleep_wait_and_drains():
+    async def execute():
+        started = asyncio.Event()
+        workspace = WorkspaceContext(
+            tenant_id="tenant",
+            user_id="user",
+            agent_id="agent",
+            workspace_id="workspace",
+            root=".",
+            path=".",
+        )
+
+        async def session_factory(settings, spec):
+            context = ToolRuntimeContext(
+                workspace=workspace,
+                sandbox=SandboxPolicy.for_workspace(workspace.path),
+            )
+
+            class SleepThenEchoSession:
+                runtime = SimpleNamespace(model="scripted", protocol="scripted", enabled_tools=["sleep.wait"])
+
+                def __init__(self):
+                    self.tool_context = context
+                    self.workspace = workspace
+
+                async def stream(self, text, run_id=None):
+                    if text == "sleep":
+                        started.set()
+                        result = await sleep_wait(
+                            self.tool_context,
+                            duration_seconds=60,
+                            reason="wait for notifications",
+                        )
+                        yield RuntimeEvent(
+                            type="done",
+                            name="assistant",
+                            payload={
+                                "content": "sleep woke notification=%s" % result["woke_for_notification"],
+                                "status": "finished",
+                            },
+                        )
+                        return
+                    yield RuntimeEvent(
+                        type="done",
+                        name="assistant",
+                        payload={"content": str(text), "status": "finished"},
+                    )
+
+            return SleepThenEchoSession()
+
+        client = AgentSDKClient(session_factory=session_factory)
+        session = client.create_sdk_session(SDKOptions(session_id="sleep-drain-session"))
+
+        async def collect():
+            return [message async for message in session.query("sleep")]
+
+        collector = asyncio.create_task(collect())
+        await asyncio.wait_for(started.wait(), timeout=2)
+        queued = session.enqueue_async_message("queued later", priority="later")
+        messages = await asyncio.wait_for(collector, timeout=2)
+        return messages, queued.uuid
+
+    messages, queued_uuid = asyncio.run(execute())
+    results = [message.result for message in messages if isinstance(message, SDKResultMessage)]
+
+    assert results == ["sleep woke notification=True", "queued later"]
+    assert queued_uuid
 
 
 def test_sdk_run_stdin_processes_user_and_control_messages():

@@ -306,6 +306,7 @@ class AgentSDKClient:
     elicitation_handler: SDKElicitationHandler | None = None
     active_turn_tasks: dict[str, asyncio.Task[Any]] = field(default_factory=dict)
     active_turn_run_ids: dict[str, str] = field(default_factory=dict)
+    active_sleep_wake_events: dict[str, asyncio.Event] = field(default_factory=dict)
     async_message_queue: list[_SDKAsyncMessageQueueItem] = field(default_factory=list)
     async_message_sequence: int = 0
     read_state_seeds: dict[str, dict[str, _SDKReadStateSeed]] = field(default_factory=dict)
@@ -389,6 +390,7 @@ class AgentSDKClient:
         queued = _coerce_async_user_message(message, session_id=session_id, priority=priority)
         self.async_message_queue.append(_SDKAsyncMessageQueueItem(sequence=self.async_message_sequence, message=queued))
         self.async_message_sequence += 1
+        self._wake_active_sleep_for_async_message(queued.session_id)
         if queued.priority == "now":
             self._interrupt_active_turn_for_async_message(queued.session_id)
         return queued
@@ -556,6 +558,7 @@ class AgentSDKClient:
         run = await self.run_service.start(spec)
         run_id = run.run_id
         session_id = options.session_id or run_id
+        self._install_sleep_wake_for_turn(session, session_id=session_id, run_id=run_id)
         current_task = asyncio.current_task()
         if current_task is not None:
             self.active_turn_tasks[session_id] = current_task
@@ -979,6 +982,29 @@ class AgentSDKClient:
             return
         task.cancel("interrupt")
 
+    def _wake_active_sleep_for_async_message(self, session_id: str) -> None:
+        if session_id:
+            event = self.active_sleep_wake_events.get(session_id)
+            if event is not None:
+                event.set()
+            return
+        for event in set(self.active_sleep_wake_events.values()):
+            event.set()
+
+    def _has_async_messages(
+        self,
+        *,
+        session_id: str = "",
+        max_priority: Literal["now", "next", "later"] = "later",
+    ) -> bool:
+        max_rank = _async_message_priority(max_priority)
+        for item in self.async_message_queue:
+            if session_id and item.message.session_id != session_id:
+                continue
+            if _async_message_priority(item.message.priority) <= max_rank:
+                return True
+        return False
+
     async def _control_workspace_root(self, options: SDKOptions) -> Path:
         if options.cwd:
             return Path(options.cwd).resolve()
@@ -1054,6 +1080,17 @@ class AgentSDKClient:
             if task is None or self.active_turn_tasks.get(key) is task:
                 self.active_turn_tasks.pop(key, None)
                 self.active_turn_run_ids.pop(key, None)
+                self.active_sleep_wake_events.pop(key, None)
+
+    def _install_sleep_wake_for_turn(self, session: Any, *, session_id: str, run_id: str) -> None:
+        context = getattr(session, "tool_context", None)
+        if context is None:
+            return
+        event = asyncio.Event()
+        context.sleep_wake_event = event
+        context.sleep_wake_check = lambda: self._has_async_messages(session_id=session_id, max_priority="later")
+        self.active_sleep_wake_events[session_id] = event
+        self.active_sleep_wake_events[run_id] = event
 
     async def _mcp_set_servers_control_response(
         self,

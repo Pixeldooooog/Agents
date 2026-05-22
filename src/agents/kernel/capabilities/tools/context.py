@@ -71,6 +71,8 @@ class ToolRuntimeContext:
     active_worktree_session: dict[str, Any] = field(default_factory=dict)
     file_read_state: dict[str, dict[str, Any]] = field(default_factory=dict)
     file_read_listeners: list[Callable[[str, str], None]] = field(default_factory=list)
+    sleep_wake_event: Any | None = None
+    sleep_wake_check: Callable[[], bool] | None = None
     dynamic_skill_dirs_checked: set[str] = field(default_factory=set)
     dynamic_skill_dirs: set[str] = field(default_factory=set)
     dynamic_skill_dir_triggers: set[str] = field(default_factory=set)
