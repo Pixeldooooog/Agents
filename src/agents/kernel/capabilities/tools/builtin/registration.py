@@ -121,6 +121,7 @@ from agents.kernel.capabilities.tools.builtin.patch import (
     PATCH_APPLY_SCHEMA,
     apply_patch,
     apply_src_origin_edit,
+    format_src_origin_edit_result,
 )
 from agents.kernel.capabilities.tools.builtin.planning import (
     PLAN_ENTER_SCHEMA,
@@ -1352,6 +1353,7 @@ def _register_src_origin_aliases(
         activity_kind="edit",
         activity_title="Edit file",
         activity_target_argument="file_path",
+        result_formatter=format_src_origin_edit_result,
     )
     _register_builtin_tool(
         registry,

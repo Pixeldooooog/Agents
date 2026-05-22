@@ -44,6 +44,7 @@ def test_src_origin_edit_empty_old_string_creates_file_without_prior_read(tmp_pa
     )
 
     assert result.is_error is False
+    assert result.content == "The file created.txt has been updated successfully."
     assert (tmp_path / "created.txt").read_text(encoding="utf-8") == "created\n"
     assert result.raw["filePath"] == "created.txt"
     assert result.raw["oldString"] == ""
@@ -215,6 +216,29 @@ def test_src_origin_edit_ambiguous_match_uses_src_origin_message(tmp_path: Path)
         "To replace all occurrences, set replace_all to true. To replace only one occurrence, "
         "please provide more context to uniquely identify the instance.\nString: old"
     )
+
+
+def test_src_origin_edit_replace_all_uses_src_origin_success_message(tmp_path: Path):
+    (tmp_path / "notes.txt").write_text("old old\n", encoding="utf-8")
+    registry = _registry(tmp_path)
+    asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+
+    result = asyncio.run(
+        registry.execute(
+            "Edit",
+            {
+                "file_path": "notes.txt",
+                "old_string": "old",
+                "new_string": "new",
+                "replace_all": True,
+            },
+        )
+    )
+
+    assert result.is_error is False
+    assert result.content == "The file notes.txt has been updated. All occurrences were successfully replaced."
+    assert result.raw["replaceAll"] is True
+    assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "new new\n"
 
 
 def test_patch_apply_keeps_empty_old_text_rejected(tmp_path: Path):

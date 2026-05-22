@@ -416,6 +416,24 @@ def _patch_payload(
     return payload
 
 
+def format_src_origin_edit_result(result: Any) -> str:
+    if not isinstance(result, dict):
+        return str(result)
+    file_path = str(result.get("filePath") or "")
+    if not file_path:
+        return str(result)
+
+    modified_note = ""
+    if result.get("userModified"):
+        modified_note = ".  The user modified your proposed changes before accepting them. "
+    if result.get("replaceAll"):
+        return "The file %s has been updated%s. All occurrences were successfully replaced." % (
+            file_path,
+            modified_note,
+        )
+    return "The file %s has been updated successfully%s." % (file_path, modified_note)
+
+
 def _combined_diff(files: list[_PlannedFile]) -> str:
     chunks: list[str] = []
     for item in files:
