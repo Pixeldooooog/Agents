@@ -17,6 +17,7 @@ from agents.kernel.capabilities.tools.builtin.file_safety import (
 from agents.kernel.capabilities.tools.builtin.file_diff import single_file_git_diff
 from agents.kernel.capabilities.tools.builtin.read_errors import file_not_found_message
 from agents.kernel.capabilities.tools.builtin.skill_discovery import discover_dynamic_skills_for_paths
+from agents.kernel.capabilities.tools.builtin.team_memory_safety import check_team_memory_secrets
 from agents.kernel.capabilities.sandbox.text import encode_text_bytes, format_file_size
 
 
@@ -229,6 +230,7 @@ def _plan_patch(
             verified_paths.add(relative_path)
             path = relative_path
         new_text = normalize_text_write_content(path, new_text)
+        _raise_team_memory_secret_error(path, new_text)
         match_old_text, match_new_text = _normalize_edit_strings(before, old_text, new_text)
         if match_old_text == match_new_text:
             raise ValueError("No changes to make: old_text and new_text are exactly the same for %s" % path)
@@ -281,6 +283,7 @@ def _plan_patch(
         except FileNotFoundError:
             before = ""
             encoding_by_path[path] = "utf-8"
+        _raise_team_memory_secret_error(path, content)
         content_by_path[path] = content
         actions_by_path[path] = action
         edits_by_path[path] = edits_by_path.get(path, 0) + 1
@@ -335,6 +338,7 @@ def _apply_empty_src_origin_edit(
         raise ValueError("Cannot create new file - file already exists.")
 
     after = normalize_text_write_content(path, str(new_string or ""))
+    _raise_team_memory_secret_error(path, after)
     if before == after:
         raise ValueError("Original and edited file match exactly. Failed to apply edit.")
     discover_dynamic_skills_for_paths(context, [path])
@@ -426,6 +430,12 @@ def _patch_payload(
         if git_diff is not None:
             payload["gitDiff"] = git_diff
     return payload
+
+
+def _raise_team_memory_secret_error(path: str, content: str) -> None:
+    secret_error = check_team_memory_secrets(path, content)
+    if secret_error is not None:
+        raise ValueError(secret_error)
 
 
 def format_src_origin_edit_result(result: Any) -> str:

@@ -2123,6 +2123,49 @@ def test_filesystem_read_does_not_prefix_fresh_memory_or_regular_markdown(tmp_pa
     assert unmanaged.content.startswith("1\tunmanaged memory-shaped doc")
 
 
+def test_filesystem_write_rejects_secret_content_in_team_memory(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    (tmp_path / ".agents" / "memory" / "team").mkdir(parents=True)
+    (tmp_path / ".agents" / "memory").mkdir(parents=True, exist_ok=True)
+    fake_github_token = "ghp_" + "A" * 36
+
+    blocked = asyncio.run(
+        registry.execute(
+            "filesystem.write",
+            {"path": ".agents/memory/team/MEMORY.md", "content": "token=%s\n" % fake_github_token},
+        )
+    )
+    personal = asyncio.run(
+        registry.execute(
+            "filesystem.write",
+            {"path": ".agents/memory/MEMORY.md", "content": "token=%s\n" % fake_github_token},
+        )
+    )
+
+    assert blocked.is_error is True
+    assert "Content contains potential secrets (GitHub PAT)" in blocked.content
+    assert "Team memory is shared with all repository collaborators" in blocked.content
+    assert not (tmp_path / ".agents" / "memory" / "team" / "MEMORY.md").exists()
+    assert personal.is_error is False
+    assert (tmp_path / ".agents" / "memory" / "MEMORY.md").read_text(encoding="utf-8").startswith("token=ghp_")
+
+
 def test_filesystem_read_returns_src_origin_style_image_payload(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="default",
@@ -5698,6 +5741,48 @@ def test_patch_apply_exposes_file_edit_style_single_edit_metadata(tmp_path: Path
     ]
     assert result.raw["structuredPatches"][0]["filePath"] == "notes.txt"
     assert result.raw["structuredPatches"][0]["hunks"] == result.raw["structuredPatch"]
+
+
+def test_patch_apply_rejects_secret_replacement_in_team_memory(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    memory_path = tmp_path / ".agents" / "projects" / "project-key" / "memory" / "team" / "MEMORY.md"
+    memory_path.parent.mkdir(parents=True)
+    memory_path.write_text("safe team note\n", encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+    fake_aws_key = "AKIA" + "A" * 16
+
+    read = asyncio.run(
+        registry.execute("filesystem.read", {"path": ".agents/projects/project-key/memory/team/MEMORY.md"})
+    )
+    result = asyncio.run(
+        registry.execute(
+            "Edit",
+            {
+                "file_path": ".agents/projects/project-key/memory/team/MEMORY.md",
+                "old_string": "safe team note",
+                "new_string": "aws=%s" % fake_aws_key,
+            },
+        )
+    )
+
+    assert read.is_error is False
+    assert result.is_error is True
+    assert "Content contains potential secrets (AWS Access Token)" in result.content
+    assert memory_path.read_text(encoding="utf-8") == "safe team note\n"
 
 
 def test_patch_apply_exposes_src_origin_git_diff_for_single_file_edit(tmp_path: Path):

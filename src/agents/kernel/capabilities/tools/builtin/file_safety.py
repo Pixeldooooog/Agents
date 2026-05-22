@@ -7,6 +7,7 @@ from typing import Any
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.sandbox.types import SandboxFileRead
 from agents.kernel.capabilities.tools.builtin.file_diff import single_file_git_diff
+from agents.kernel.capabilities.tools.builtin.team_memory_safety import check_team_memory_secrets
 
 
 MAX_SAFE_TEXT_READ_BYTES = 200000
@@ -116,6 +117,9 @@ def write_text_safely(context: ToolRuntimeContext, path: str, content: str) -> d
             raise ValueError(message.replace("refusing to read", "refusing to write", 1)) from exc
         raise
     output = normalize_text_write_content(relative_path, content)
+    secret_error = check_team_memory_secrets(relative_path, output)
+    if secret_error is not None:
+        raise ValueError(secret_error)
     if existed:
         ensure_existing_file_current(context, relative_path, current)
     result = context.sandbox_client.write_text(path, output, encoding=encoding)
