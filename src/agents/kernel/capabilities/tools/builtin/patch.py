@@ -82,13 +82,19 @@ def apply_patch(
     edits: list[dict[str, Any]] | None = None,
     creates: list[dict[str, Any]] | None = None,
     dry_run: bool = False,
+    src_origin_error_messages: bool = False,
 ) -> dict[str, Any]:
     edit_list = [dict(item) for item in (edits or []) if isinstance(item, dict)]
     create_list = [dict(item) for item in (creates or []) if isinstance(item, dict)]
     if not edit_list and not create_list:
         raise ValueError("patch.apply requires at least one edit or create operation")
 
-    planned, planned_edits = _plan_patch(context, edit_list, create_list)
+    planned, planned_edits = _plan_patch(
+        context,
+        edit_list,
+        create_list,
+        src_origin_error_messages=src_origin_error_messages,
+    )
     if not dry_run:
         discover_dynamic_skills_for_paths(context, [item.path for item in planned])
         for item in planned:
@@ -127,6 +133,7 @@ def apply_src_origin_edit(
                     "replace_all": bool(replace_all),
                 }
             ],
+            src_origin_error_messages=True,
         )
     return _apply_empty_src_origin_edit(
         context,
@@ -160,10 +167,34 @@ def _reject_src_origin_notebook_edit(context: ToolRuntimeContext, file_path: str
         raise ValueError("File is a Jupyter Notebook. Use the NotebookEdit tool to edit this file.")
 
 
+def _string_not_found_message(path: str, old_text: str, src_origin_error_messages: bool) -> str:
+    if src_origin_error_messages:
+        return "String to replace not found in file.\nString: %s" % old_text
+    return "String to replace not found in file.\nPath: %s\nString: %s" % (path, old_text)
+
+
+def _ambiguous_edit_message(
+    occurrences: int,
+    path: str,
+    old_text: str,
+    src_origin_error_messages: bool,
+) -> str:
+    guidance = (
+        "Found %d matches of the string to replace, but replace_all is false. "
+        "To replace all occurrences, set replace_all to true. To replace only one occurrence, "
+        "please provide more context to uniquely identify the instance."
+    ) % occurrences
+    if src_origin_error_messages:
+        return "%s\nString: %s" % (guidance, old_text)
+    return "%s\nPath: %s\nString: %s" % (guidance, path, old_text)
+
+
 def _plan_patch(
     context: ToolRuntimeContext,
     edits: list[dict[str, Any]],
     creates: list[dict[str, Any]],
+    *,
+    src_origin_error_messages: bool = False,
 ) -> tuple[list[_PlannedFile], list[_PlannedEdit]]:
     content_by_path: dict[str, str] = {}
     encoding_by_path: dict[str, str] = {}
@@ -198,18 +229,13 @@ def _plan_patch(
         _reject_editing_previous_new_text(match_old_text, applied_new_texts_by_path.get(path, []))
         actual_old_text = _find_actual_text(before, match_old_text)
         if actual_old_text is None:
-            raise ValueError("String to replace not found in file.\nPath: %s\nString: %s" % (path, old_text))
+            raise ValueError(_string_not_found_message(path, old_text, src_origin_error_messages))
         actual_new_text = _preserve_quote_style(match_old_text, actual_old_text, match_new_text)
         occurrences = before.count(actual_old_text)
         if occurrences == 0:
-            raise ValueError("String to replace not found in file.\nPath: %s\nString: %s" % (path, old_text))
+            raise ValueError(_string_not_found_message(path, old_text, src_origin_error_messages))
         if occurrences > 1 and not replace_all:
-            raise ValueError(
-                "Found %d matches of the string to replace, but replace_all is false. "
-                "To replace all occurrences, set replace_all to true. To replace only one occurrence, "
-                "provide more context to uniquely identify the instance.\nPath: %s\nString: %s"
-                % (occurrences, path, old_text)
-            )
+            raise ValueError(_ambiguous_edit_message(occurrences, path, old_text, src_origin_error_messages))
         edit_old_text, edit_new_text = _edit_target_and_replacement(before, actual_old_text, actual_new_text)
         replacement_count = before.count(edit_old_text)
         count = replacement_count if replace_all else 1

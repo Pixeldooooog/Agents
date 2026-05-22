@@ -173,6 +173,50 @@ def test_src_origin_edit_rejects_oversized_file_before_read(tmp_path: Path, monk
     assert (tmp_path / "large.txt").read_text(encoding="utf-8") == "123456789"
 
 
+def test_src_origin_edit_string_not_found_uses_src_origin_message(tmp_path: Path):
+    (tmp_path / "notes.txt").write_text("alpha\n", encoding="utf-8")
+    registry = _registry(tmp_path)
+    asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+
+    result = asyncio.run(
+        registry.execute(
+            "Edit",
+            {
+                "file_path": "notes.txt",
+                "old_string": "beta",
+                "new_string": "gamma",
+            },
+        )
+    )
+
+    assert result.is_error is True
+    assert result.content == "String to replace not found in file.\nString: beta"
+
+
+def test_src_origin_edit_ambiguous_match_uses_src_origin_message(tmp_path: Path):
+    (tmp_path / "notes.txt").write_text("old old\n", encoding="utf-8")
+    registry = _registry(tmp_path)
+    asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+
+    result = asyncio.run(
+        registry.execute(
+            "Edit",
+            {
+                "file_path": "notes.txt",
+                "old_string": "old",
+                "new_string": "new",
+            },
+        )
+    )
+
+    assert result.is_error is True
+    assert result.content == (
+        "Found 2 matches of the string to replace, but replace_all is false. "
+        "To replace all occurrences, set replace_all to true. To replace only one occurrence, "
+        "please provide more context to uniquely identify the instance.\nString: old"
+    )
+
+
 def test_patch_apply_keeps_empty_old_text_rejected(tmp_path: Path):
     registry = _registry(tmp_path)
 
