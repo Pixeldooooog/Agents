@@ -6,6 +6,7 @@ from typing import Any
 
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.sandbox.types import SandboxFileRead
+from agents.kernel.capabilities.tools.builtin.file_diff import single_file_git_diff
 
 
 MAX_SAFE_TEXT_READ_BYTES = 200000
@@ -136,6 +137,9 @@ def write_text_safely(context: ToolRuntimeContext, path: str, content: str) -> d
         "line_endings": _line_ending_style(output),
         "encoding": result.encoding,
     }
+    git_diff = single_file_git_diff(context, result.path)
+    if git_diff is not None:
+        payload["gitDiff"] = git_diff
     return payload
 
 

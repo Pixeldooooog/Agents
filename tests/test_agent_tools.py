@@ -2791,6 +2791,87 @@ def test_filesystem_write_requires_read_before_overwriting_existing_file(tmp_pat
     assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "new\n"
 
 
+def test_filesystem_write_exposes_src_origin_git_diff_for_tracked_file(tmp_path: Path):
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _run_git(repo, "init")
+    _run_git(repo, "config", "user.email", "agent@example.com")
+    _run_git(repo, "config", "user.name", "Agent Test")
+    (repo / "tracked.py").write_text("value = 'old'\n", encoding="utf-8")
+    _run_git(repo, "add", "tracked.py")
+    _run_git(repo, "commit", "-m", "initial")
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=repo,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "tracked.py"}))
+    written = asyncio.run(registry.execute("filesystem.write", {"path": "tracked.py", "content": "value = 'new'\n"}))
+
+    assert read.is_error is False
+    assert written.is_error is False
+    assert written.raw["gitDiff"]["filename"] == "tracked.py"
+    assert written.raw["gitDiff"]["status"] == "modified"
+    assert written.raw["gitDiff"]["additions"] == 1
+    assert written.raw["gitDiff"]["deletions"] == 1
+    assert written.raw["gitDiff"]["changes"] == 2
+    assert "-value = 'old'" in written.raw["gitDiff"]["patch"]
+    assert "+value = 'new'" in written.raw["gitDiff"]["patch"]
+
+
+def test_filesystem_write_exposes_src_origin_git_diff_for_created_file(tmp_path: Path):
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _run_git(repo, "init")
+    _run_git(repo, "config", "user.email", "agent@example.com")
+    _run_git(repo, "config", "user.name", "Agent Test")
+    (repo / "README.md").write_text("base\n", encoding="utf-8")
+    _run_git(repo, "add", "README.md")
+    _run_git(repo, "commit", "-m", "initial")
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=repo,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    written = asyncio.run(registry.execute("Write", {"file_path": "created_module.py", "content": "print('new')\n"}))
+
+    assert written.is_error is False
+    assert written.raw["gitDiff"]["filename"] == "created_module.py"
+    assert written.raw["gitDiff"]["status"] == "added"
+    assert written.raw["gitDiff"]["additions"] == 1
+    assert written.raw["gitDiff"]["deletions"] == 0
+    assert written.raw["gitDiff"]["changes"] == 1
+    assert "+print('new')" in written.raw["gitDiff"]["patch"]
+
+
 def test_filesystem_write_strips_trailing_whitespace_for_non_markdown(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="default",
