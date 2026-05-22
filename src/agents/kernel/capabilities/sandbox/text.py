@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 
 BINARY_SAMPLE_BYTES = 8192
 DEFAULT_TEXT_READ_MAX_BYTES = 256 * 1024
 DEFAULT_TEXT_READ_MAX_TOKENS = 25000
+TEXT_READ_MAX_TOKENS_ENV = "CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS"
 BINARY_FILE_EXTENSIONS = {
     ".7z",
     ".avi",
@@ -93,7 +95,19 @@ def normalize_text_read_max_bytes(max_bytes: int | None) -> int:
 
 
 def normalize_text_read_max_tokens(max_tokens: int | None) -> int:
-    return max(1, int(max_tokens or DEFAULT_TEXT_READ_MAX_TOKENS))
+    return max(1, int(max_tokens or default_text_read_max_tokens()))
+
+
+def default_text_read_max_tokens() -> int:
+    value = os.environ.get(TEXT_READ_MAX_TOKENS_ENV)
+    if value:
+        try:
+            parsed = int(value)
+        except ValueError:
+            parsed = 0
+        if parsed > 0:
+            return parsed
+    return DEFAULT_TEXT_READ_MAX_TOKENS
 
 
 def estimate_text_read_tokens(content: str, file_extension: str = "") -> int:

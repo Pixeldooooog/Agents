@@ -55,6 +55,32 @@ def test_filesystem_read_rejects_token_heavy_text_before_recording_full_read(tmp
     assert "File has not been read yet" in write.content
 
 
+def test_filesystem_read_uses_env_default_token_limit(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS", "2")
+    (tmp_path / "notes.txt").write_text("abcdefghijklmnopqrstuvwxyz\nok\n", encoding="utf-8")
+    registry = _registry_for_workspace(tmp_path)
+
+    full = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+    limited = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt", "offset": 2, "limit": 1}))
+
+    assert full.is_error is True
+    assert "exceeds maximum allowed tokens (2)" in full.content
+    assert limited.is_error is False
+    assert limited.raw["content"] == "ok\n"
+
+
+def test_filesystem_read_context_token_limit_overrides_env_default(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS", "2")
+    (tmp_path / "notes.txt").write_text("abcdefghijklmnopqrstuvwxyz\nok\n", encoding="utf-8")
+    registry = _registry_for_workspace(tmp_path, file_reading_limits={"maxTokens": 16})
+
+    result = asyncio.run(registry.execute("filesystem.read", {"path": "notes.txt"}))
+
+    assert result.is_error is False
+    assert result.raw["content"] == "abcdefghijklmnopqrstuvwxyz\nok\n"
+    assert result.raw["isPartialView"] is False
+
+
 def test_filesystem_read_uses_context_size_limit_unless_explicit_max_bytes(tmp_path: Path):
     (tmp_path / "notes.txt").write_text("one\ntwo\nthree\n", encoding="utf-8")
     registry = _registry_for_workspace(tmp_path, file_reading_limits={"max_size_bytes": 8})

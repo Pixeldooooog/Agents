@@ -13,7 +13,6 @@ from typing import Any
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.sandbox.text import (
     DEFAULT_TEXT_READ_MAX_BYTES,
-    DEFAULT_TEXT_READ_MAX_TOKENS,
     estimate_text_read_tokens,
     format_file_size,
     normalize_text_read_max_bytes,
@@ -253,7 +252,7 @@ def _validate_text_read_tokens(context: ToolRuntimeContext, content: str, path: 
 
 
 def _effective_text_read_max_tokens(context: ToolRuntimeContext) -> int:
-    return normalize_text_read_max_tokens(_effective_file_reading_limit(context, "maxTokens") or DEFAULT_TEXT_READ_MAX_TOKENS)
+    return normalize_text_read_max_tokens(_effective_file_reading_limit(context, "maxTokens"))
 
 
 def _effective_text_read_max_bytes(context: ToolRuntimeContext, explicit_max_bytes: int | None) -> int:
