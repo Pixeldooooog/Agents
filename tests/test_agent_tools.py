@@ -4524,6 +4524,10 @@ def test_builtin_permission_rules_match_legacy_path_and_pattern_rules(tmp_path: 
 def test_permission_rules_match_src_origin_state_tool_targets():
     policy = StaticToolPermissionPolicy(
         denied_tools=[
+            "Read(src/**)",
+            "Write(secrets/**)",
+            "Edit(secrets/**)",
+            "NotebookEdit(notebooks/**)",
             "TaskUpdate(task-*)",
             "TaskOutput(shell-*)",
             "CronDelete(nightly*)",
@@ -4541,6 +4545,20 @@ def test_permission_rules_match_src_origin_state_tool_targets():
     )
 
     cases = [
+        ("Read", {"file_path": "src/app.py"}, "Read(src/**)", False),
+        ("Write", {"file_path": "secrets/token.txt", "content": "x"}, "Write(secrets/**)", False),
+        (
+            "Edit",
+            {"file_path": "secrets/token.txt", "old_string": "old", "new_string": "new"},
+            "Edit(secrets/**)",
+            False,
+        ),
+        (
+            "NotebookEdit",
+            {"notebook_path": "notebooks/analysis.ipynb", "cell_id": "cell-0", "new_source": "x"},
+            "NotebookEdit(notebooks/**)",
+            False,
+        ),
         ("TaskUpdate", {"taskId": "task-123", "status": "finished"}, "TaskUpdate(task-*)", False),
         ("TaskOutput", {"task_id": "shell-abc"}, "TaskOutput(shell-*)", False),
         ("CronDelete", {"id": "nightly-build"}, "CronDelete(nightly*)", False),

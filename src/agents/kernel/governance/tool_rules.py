@@ -226,13 +226,13 @@ def _tool_rule_targets(call: ToolCall) -> tuple[str, ...]:
     arguments = dict(call.arguments or {})
     name = normalize_tool_name(call.name)
     if name in {"filesystem.read", "filesystem.list", "filesystem.write", "filesystem.delete"}:
-        return _argument_values(arguments, "path")
+        return _argument_values(arguments, "path", "file_path", "filePath")
     if name == "filesystem.move":
-        return _argument_values(arguments, "source_path", "destination_path")
+        return _argument_values(arguments, "source_path", "sourcePath", "destination_path", "destinationPath")
     if name == "notebook.edit":
-        return _argument_values(arguments, "notebook_path", "path")
+        return _argument_values(arguments, "notebook_path", "notebookPath", "path", "file_path", "filePath")
     if name == "patch.apply":
-        return _patch_paths(arguments)
+        return _unique_values((*_patch_paths(arguments), *_argument_values(arguments, "path", "file_path", "filePath")))
     if name == "search.grep":
         return _argument_values(arguments, "pattern")
     if name == "search.glob":
@@ -281,7 +281,19 @@ def _argument_values(arguments: dict, *names: str) -> tuple[str, ...]:
                 values.append(value)
         elif isinstance(value, (list, tuple)):
             values.extend(str(item) for item in value if str(item))
-    return tuple(values)
+    return _unique_values(values)
+
+
+def _unique_values(values: Iterable[str]) -> tuple[str, ...]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        unique.append(text)
+    return tuple(unique)
 
 
 def _patch_paths(arguments: dict) -> tuple[str, ...]:
