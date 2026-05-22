@@ -813,6 +813,7 @@ async def _collect_background_process(
         handle.error = str(exc)
     finally:
         await asyncio.gather(reader, return_exceptions=True)
+        await _flush_subprocess_close_callbacks(process)
         handle.output_bytes = _safe_size(output_file)
         handle.ended_at = time.time()
         if handle.status == "running":
@@ -822,6 +823,12 @@ async def _collect_background_process(
             handle.exit_code = int(process.returncode or -1)
         if handle.output_bytes > max_output_bytes:
             pass
+
+
+async def _flush_subprocess_close_callbacks(process: asyncio.subprocess.Process) -> None:
+    if process.returncode is not None:
+        # Let asyncio run subprocess pipe close callbacks before the owning test loop exits.
+        await asyncio.sleep(0)
 
 
 def _safe_size(path: Path) -> int:
