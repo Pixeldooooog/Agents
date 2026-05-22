@@ -3,12 +3,19 @@ from __future__ import annotations
 import asyncio
 import math
 import shlex
-import uuid
 from typing import Any
 
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.tools.registry import ToolExecutionError
-from agents.kernel.capabilities.sandbox.types import SandboxBackgroundCommand
+from agents.kernel.capabilities.tools.builtin.shell_lifecycle import (
+    assistant_auto_background_after_seconds,
+    background_shell_payload,
+    new_shell_task_id,
+    read_background_output,
+    resolve_background_command,
+    run_with_assistant_auto_background,
+    shell_output_path,
+)
 
 
 SILENT_SHELL_COMMANDS = {
@@ -111,6 +118,24 @@ async def run_command(
             "Blocked: %s. Use sleep.wait for deliberate waiting, or set run_in_background=true "
             "for commands that should continue while you do other work." % sleep_pattern
         )
+    auto_background_after = assistant_auto_background_after_seconds(
+        context,
+        command,
+        shell_tokens=_shell_tokens,
+        max_timeout_seconds=MAX_RUN_TIMEOUT_SECONDS,
+    )
+    if auto_background_after is not None:
+        return await run_with_assistant_auto_background(
+            context,
+            command=command,
+            timeout_seconds=resolved_timeout_seconds,
+            description=description,
+            dangerously_disable_sandbox=bool(dangerouslyDisableSandbox),
+            auto_background_after_seconds=auto_background_after,
+            apply_contract=_apply_shell_contract_fields,
+            interpret_result=interpret_command_result,
+            failure_content=_shell_failure_content,
+        )
     result = await context.sandbox_client.run_command(command, timeout_seconds=resolved_timeout_seconds)
     payload = result.to_dict()
     _apply_shell_contract_fields(
@@ -143,8 +168,8 @@ async def shell_run_background(
     description: str = "",
     dangerously_disable_sandbox: bool = False,
 ) -> dict[str, Any]:
-    task_id = _new_task_id(context)
-    output_path = _output_path(task_id)
+    task_id = new_shell_task_id(context)
+    output_path = shell_output_path(task_id)
     handle = await context.sandbox_client.start_background_command(
         task_id=task_id,
         command=command,
@@ -152,22 +177,15 @@ async def shell_run_background(
         timeout_seconds=timeout_seconds,
     )
     context.background_commands[task_id] = handle
-    payload = handle.to_dict()
-    _apply_shell_contract_fields(
-        payload,
+    return background_shell_payload(
+        handle,
         command=command,
         description=description,
         timeout_seconds=timeout_seconds,
-        background=True,
         dangerously_disable_sandbox=dangerously_disable_sandbox,
+        assistant_auto_backgrounded=False,
+        apply_contract=_apply_shell_contract_fields,
     )
-    payload["backgroundTaskId"] = task_id
-    payload["backgroundedByUser"] = False
-    payload["assistantAutoBackgrounded"] = False
-    payload.setdefault("stdout", "")
-    payload.setdefault("stderr", "")
-    payload.setdefault("exit_code", 0)
-    return payload
 
 
 def _apply_shell_contract_fields(
@@ -216,7 +234,7 @@ async def shell_output(
     timeout_seconds: float = 30.0,
     max_bytes: int = 20000,
 ) -> dict[str, Any]:
-    handle = _resolve_background_command(context, task_id)
+    handle = resolve_background_command(context, task_id)
     retrieval_status = "not_ready"
     if bool(block) and not handle.done():
         task = handle._task
@@ -229,7 +247,7 @@ async def shell_output(
         retrieval_status = "success"
     elif not bool(block):
         retrieval_status = "not_ready"
-    output = _read_background_output(context, handle, max_bytes=max_bytes)
+    output = read_background_output(context, handle, max_bytes=max_bytes)
     return {
         "retrieval_status": retrieval_status,
         "task": handle.to_dict(),
@@ -245,7 +263,7 @@ async def shell_backgrounds(context: ToolRuntimeContext) -> dict[str, Any]:
 
 
 async def shell_kill(context: ToolRuntimeContext, task_id: str) -> dict[str, Any]:
-    handle = _resolve_background_command(context, task_id)
+    handle = resolve_background_command(context, task_id)
     if not handle.done():
         handle.kill()
         task = handle._task
@@ -257,37 +275,6 @@ async def shell_kill(context: ToolRuntimeContext, task_id: str) -> dict[str, Any
     if not handle.done():
         handle.status = "killed"
     return {"task": handle.to_dict(), "killed": handle.status == "killed"}
-
-
-def _new_task_id(context: ToolRuntimeContext) -> str:
-    while True:
-        task_id = "shell_%s" % uuid.uuid4().hex[:12]
-        if task_id not in context.background_commands:
-            return task_id
-
-
-def _output_path(task_id: str) -> str:
-    return ".agents/task-output/%s.log" % task_id
-
-
-def _resolve_background_command(context: ToolRuntimeContext, task_id: str) -> SandboxBackgroundCommand:
-    value = str(task_id or "").strip()
-    if not value:
-        raise ValueError("task_id is required")
-    matches = [handle for key, handle in context.background_commands.items() if key == value or key.startswith(value)]
-    if not matches:
-        raise KeyError("background shell task not found: %s" % value)
-    if len(matches) > 1:
-        raise ValueError("ambiguous background shell task id: %s" % value)
-    return matches[0]
-
-
-def _read_background_output(context: ToolRuntimeContext, handle: SandboxBackgroundCommand, max_bytes: int) -> dict[str, Any]:
-    try:
-        result = context.sandbox_client.read_text(handle.output_path, max_bytes=max(1, min(int(max_bytes or 20000), 200000)))
-    except FileNotFoundError:
-        return {"content": "", "bytes": 0, "truncated": False}
-    return {"content": result.content, "bytes": result.bytes, "truncated": result.truncated}
 
 
 def detect_blocked_sleep_pattern(command: str) -> str | None:
