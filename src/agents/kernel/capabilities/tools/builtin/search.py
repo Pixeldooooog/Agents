@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from agents.kernel.capabilities.tools.builtin.read_errors import (
+    FILE_NOT_FOUND_CWD_NOTE,
+    similar_file_name,
+)
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
+from agents.kernel.capabilities.tools.registry import ToolExecutionError
 
 
 DEFAULT_GREP_HEAD_LIMIT = 250
@@ -35,7 +40,10 @@ GLOB_SCHEMA = {
     "type": "object",
     "properties": {
         "pattern": {"type": "string", "description": "Glob pattern to match files against."},
-        "path": {"type": "string", "description": "Workspace-relative directory to search. Defaults to workspace root."},
+        "path": {
+            "type": "string",
+            "description": "Workspace-relative directory to search. Defaults to workspace root.",
+        },
         "max_results": {"type": "integer", "minimum": 1, "maximum": 1000},
     },
     "required": ["pattern"],
@@ -54,6 +62,7 @@ def grep(
     offset: int = 0,
     **options,
 ) -> dict[str, Any]:
+    _validate_search_path(runtime_context, path or ".", require_directory=False, label="Path")
     if bool(options.get("-i", False)):
         case_sensitive = False
     context_before, context_after = _grep_context_window(options)
@@ -89,6 +98,7 @@ def glob(
     path: str = ".",
     max_results: int = 100,
 ) -> dict[str, Any]:
+    _validate_search_path(runtime_context, path or ".", require_directory=True, label="Directory")
     return runtime_context.sandbox_client.glob(
         pattern=pattern,
         path=path or ".",
@@ -170,7 +180,9 @@ def _grep_payload(
     }
     if mode == "content":
         selected, applied_limit = _apply_grep_head_limit(matches, head_limit=head_limit, offset=offset)
-        payload["content"] = "\n".join(_format_grep_match(item, show_line_numbers=show_line_numbers) for item in selected)
+        payload["content"] = "\n".join(
+            _format_grep_match(item, show_line_numbers=show_line_numbers) for item in selected
+        )
         payload["numLines"] = len(selected)
         _apply_grep_limit_metadata(payload, applied_limit=applied_limit, offset=offset)
     elif mode == "count":
@@ -204,6 +216,37 @@ def _unique_match_paths(matches: list[dict[str, Any]]) -> list[str]:
         seen.add(path)
         filenames.append(path)
     return filenames
+
+
+def _validate_search_path(
+    context: ToolRuntimeContext,
+    path: str,
+    *,
+    require_directory: bool,
+    label: str,
+) -> None:
+    resolved = context.sandbox.resolve_workspace_path(path)
+    if not resolved.exists():
+        message = _missing_search_path_message(context, path, label=label)
+        raise ToolExecutionError(
+            message,
+            raw={"error": message, "path": path, "reason": "path_not_found"},
+        )
+    if require_directory and not resolved.is_dir():
+        message = "Path is not a directory: %s" % path
+        raise ToolExecutionError(
+            message,
+            raw={"error": message, "path": path, "reason": "path_not_directory"},
+        )
+
+
+def _missing_search_path_message(context: ToolRuntimeContext, path: str, *, label: str) -> str:
+    cwd = str(context.workspace.path or context.workspace.root or ".")
+    message = "%s does not exist: %s. %s %s." % (label, path, FILE_NOT_FOUND_CWD_NOTE, cwd)
+    suggestion = similar_file_name(context, path)
+    if suggestion:
+        message += " Did you mean %s?" % suggestion
+    return message
 
 
 def _format_grep_match(match: dict[str, Any], *, show_line_numbers: bool = True) -> str:
