@@ -163,6 +163,7 @@ def _read_file(
             limit=limit,
             is_partial_view=False,
         )
+    _notify_file_read_listeners(context, result.path, result.content)
     payload = _text_read_payload(result.to_dict())
     _add_memory_freshness(context, payload)
     return payload
@@ -249,6 +250,15 @@ def _validate_text_read_tokens(context: ToolRuntimeContext, content: str, path: 
     token_count = estimate_text_read_tokens(content, Path(path).suffix)
     if token_count > max_tokens:
         raise ValueError(text_file_too_many_tokens_message(token_count, max_tokens))
+
+
+def _notify_file_read_listeners(context: ToolRuntimeContext, path: str, content: str) -> None:
+    listeners = list(getattr(context, "file_read_listeners", []) or [])
+    if not listeners:
+        return
+    resolved_path = str(context.sandbox.resolve_workspace_path(path))
+    for listener in listeners:
+        listener(resolved_path, content)
 
 
 def _effective_text_read_max_tokens(context: ToolRuntimeContext) -> int:

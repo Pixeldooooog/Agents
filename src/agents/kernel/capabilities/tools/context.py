@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -69,6 +70,7 @@ class ToolRuntimeContext:
     background_commands: dict[str, Any] = field(default_factory=dict)
     active_worktree_session: dict[str, Any] = field(default_factory=dict)
     file_read_state: dict[str, dict[str, Any]] = field(default_factory=dict)
+    file_read_listeners: list[Callable[[str, str], None]] = field(default_factory=list)
     scheduled_tasks: dict[str, dict[str, Any]] = field(default_factory=dict)
     hook_registry: SessionHookRegistry = field(default_factory=SessionHookRegistry)
     teams: dict[str, Any] = field(default_factory=dict)
