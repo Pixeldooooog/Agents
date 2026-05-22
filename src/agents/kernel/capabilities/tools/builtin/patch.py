@@ -16,7 +16,10 @@ from agents.kernel.capabilities.tools.builtin.file_safety import (
 )
 from agents.kernel.capabilities.tools.builtin.read_errors import file_not_found_message
 from agents.kernel.capabilities.tools.builtin.skill_discovery import discover_dynamic_skills_for_paths
+from agents.kernel.capabilities.sandbox.text import format_file_size
 
+
+SRC_ORIGIN_MAX_EDIT_FILE_SIZE_BYTES = 1024 * 1024 * 1024
 
 PATCH_APPLY_SCHEMA = {
     "type": "object",
@@ -110,6 +113,7 @@ def apply_src_origin_edit(
 ) -> dict[str, Any]:
     if old_string == new_string:
         raise ValueError("No changes to make: old_string and new_string are exactly the same.")
+    _reject_oversized_src_origin_edit_file(context, file_path)
     if old_string != "":
         _reject_missing_src_origin_edit_file(context, file_path)
         _reject_src_origin_notebook_edit(context, file_path)
@@ -136,6 +140,18 @@ def _reject_missing_src_origin_edit_file(context: ToolRuntimeContext, file_path:
     resolved = context.sandbox.resolve_workspace_path(file_path)
     if not resolved.exists():
         raise ValueError(file_not_found_message(context, file_path))
+
+
+def _reject_oversized_src_origin_edit_file(context: ToolRuntimeContext, file_path: str) -> None:
+    resolved = context.sandbox.resolve_workspace_path(file_path)
+    if not resolved.exists():
+        return
+    size = resolved.stat().st_size
+    if size > SRC_ORIGIN_MAX_EDIT_FILE_SIZE_BYTES:
+        raise ValueError(
+            "File is too large to edit (%s). Maximum editable file size is %s."
+            % (format_file_size(size), format_file_size(SRC_ORIGIN_MAX_EDIT_FILE_SIZE_BYTES))
+        )
 
 
 def _reject_src_origin_notebook_edit(context: ToolRuntimeContext, file_path: str) -> None:

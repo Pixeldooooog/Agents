@@ -8,6 +8,7 @@ from agents.kernel.capabilities.tools import (
     ToolRuntimeContext,
     register_builtin_tools,
 )
+from agents.kernel.capabilities.tools.builtin import patch as patch_tools
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.governance import SandboxPolicy
 
@@ -149,6 +150,27 @@ def test_src_origin_edit_rejects_noop_before_prior_read(tmp_path: Path):
     assert result.is_error is True
     assert result.content == "No changes to make: old_string and new_string are exactly the same."
     assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "old\n"
+
+
+def test_src_origin_edit_rejects_oversized_file_before_read(tmp_path: Path, monkeypatch):
+    (tmp_path / "large.txt").write_text("123456789", encoding="utf-8")
+    monkeypatch.setattr(patch_tools, "SRC_ORIGIN_MAX_EDIT_FILE_SIZE_BYTES", 8)
+    registry = _registry(tmp_path)
+
+    result = asyncio.run(
+        registry.execute(
+            "Edit",
+            {
+                "file_path": "large.txt",
+                "old_string": "123",
+                "new_string": "abc",
+            },
+        )
+    )
+
+    assert result.is_error is True
+    assert result.content == "File is too large to edit (9 B). Maximum editable file size is 8 B."
+    assert (tmp_path / "large.txt").read_text(encoding="utf-8") == "123456789"
 
 
 def test_patch_apply_keeps_empty_old_text_rejected(tmp_path: Path):
