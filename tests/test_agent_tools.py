@@ -5570,6 +5570,53 @@ def test_patch_apply_exposes_file_edit_style_single_edit_metadata(tmp_path: Path
     assert result.raw["structuredPatches"][0]["hunks"] == result.raw["structuredPatch"]
 
 
+def test_patch_apply_exposes_src_origin_git_diff_for_single_file_edit(tmp_path: Path):
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _run_git(repo, "init")
+    _run_git(repo, "config", "user.email", "agent@example.com")
+    _run_git(repo, "config", "user.name", "Agent Test")
+    (repo / "tracked.py").write_text("value = 'old'\n", encoding="utf-8")
+    _run_git(repo, "add", "tracked.py")
+    _run_git(repo, "commit", "-m", "initial")
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=repo,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "tracked.py"}))
+    result = asyncio.run(
+        registry.execute(
+            "Edit",
+            {"file_path": "tracked.py", "old_string": "old", "new_string": "new"},
+        )
+    )
+
+    assert read.is_error is False
+    assert result.is_error is False
+    assert result.raw["gitDiff"]["filename"] == "tracked.py"
+    assert result.raw["gitDiff"]["status"] == "modified"
+    assert result.raw["gitDiff"]["additions"] == 1
+    assert result.raw["gitDiff"]["deletions"] == 1
+    assert result.raw["gitDiff"]["changes"] == 2
+    assert "-value = 'old'" in result.raw["gitDiff"]["patch"]
+    assert "+value = 'new'" in result.raw["gitDiff"]["patch"]
+
+
 def test_patch_apply_rejects_noop_and_ambiguous_edits(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="default",

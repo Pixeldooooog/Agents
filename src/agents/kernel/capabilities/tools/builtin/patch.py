@@ -14,6 +14,7 @@ from agents.kernel.capabilities.tools.builtin.file_safety import (
     record_file_read,
     structured_text_patch,
 )
+from agents.kernel.capabilities.tools.builtin.file_diff import single_file_git_diff
 from agents.kernel.capabilities.tools.builtin.read_errors import file_not_found_message
 from agents.kernel.capabilities.tools.builtin.skill_discovery import discover_dynamic_skills_for_paths
 from agents.kernel.capabilities.sandbox.text import encode_text_bytes, format_file_size
@@ -95,18 +96,23 @@ def apply_patch(
         create_list,
         src_origin_error_messages=src_origin_error_messages,
     )
+    git_diffs: dict[str, dict[str, Any]] = {}
     if not dry_run:
         discover_dynamic_skills_for_paths(context, [item.path for item in planned])
         for item in planned:
             output = preserve_existing_line_endings(item.before, item.after)
             result = context.sandbox_client.write_text(item.path, output, encoding=item.encoding)
             record_file_read(context, result.path, output, encoding=result.encoding, write_encoding=result.write_encoding)
+            git_diff = single_file_git_diff(context, result.path)
+            if git_diff is not None:
+                git_diffs[result.path] = git_diff
 
     return _patch_payload(
         planned,
         planned_edits,
         dry_run=dry_run,
         include_single_edit_metadata=len(planned_edits) == 1 and not create_list,
+        git_diffs=git_diffs,
     )
 
 
@@ -335,6 +341,7 @@ def _apply_empty_src_origin_edit(
     output = preserve_existing_line_endings(before, after)
     result = context.sandbox_client.write_text(path, output, encoding=encoding)
     record_file_read(context, result.path, output, encoding=result.encoding, write_encoding=result.write_encoding)
+    git_diff = single_file_git_diff(context, result.path)
 
     planned = _PlannedFile(
         path=result.path,
@@ -357,6 +364,7 @@ def _apply_empty_src_origin_edit(
         [planned_edit],
         dry_run=False,
         include_single_edit_metadata=True,
+        git_diffs={result.path: git_diff} if git_diff is not None else {},
     )
 
 
@@ -366,6 +374,7 @@ def _patch_payload(
     *,
     dry_run: bool,
     include_single_edit_metadata: bool,
+    git_diffs: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     diff = _combined_diff(planned)
     payload = {
@@ -413,6 +422,9 @@ def _patch_payload(
                 "userModified": False,
             }
         )
+        git_diff = (git_diffs or {}).get(edit.path)
+        if git_diff is not None:
+            payload["gitDiff"] = git_diff
     return payload
 
 
