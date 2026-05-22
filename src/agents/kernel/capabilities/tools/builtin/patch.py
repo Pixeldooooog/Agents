@@ -14,6 +14,7 @@ from agents.kernel.capabilities.tools.builtin.file_safety import (
     record_file_read,
     structured_text_patch,
 )
+from agents.kernel.capabilities.tools.builtin.read_errors import file_not_found_message
 from agents.kernel.capabilities.tools.builtin.skill_discovery import discover_dynamic_skills_for_paths
 
 
@@ -108,6 +109,7 @@ def apply_src_origin_edit(
     replace_all: bool = False,
 ) -> dict[str, Any]:
     if old_string != "":
+        _reject_missing_src_origin_edit_file(context, file_path)
         _reject_src_origin_notebook_edit(context, file_path)
         return apply_patch(
             context,
@@ -126,6 +128,12 @@ def apply_src_origin_edit(
         new_string=new_string,
         replace_all=replace_all,
     )
+
+
+def _reject_missing_src_origin_edit_file(context: ToolRuntimeContext, file_path: str) -> None:
+    resolved = context.sandbox.resolve_workspace_path(file_path)
+    if not resolved.exists():
+        raise ValueError(file_not_found_message(context, file_path))
 
 
 def _reject_src_origin_notebook_edit(context: ToolRuntimeContext, file_path: str) -> None:

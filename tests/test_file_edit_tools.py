@@ -110,6 +110,27 @@ def test_src_origin_edit_rejects_notebooks_before_prior_read(tmp_path: Path):
     assert result.content == "File is a Jupyter Notebook. Use the NotebookEdit tool to edit this file."
 
 
+def test_src_origin_edit_missing_file_reports_cwd_and_similar_file(tmp_path: Path):
+    (tmp_path / "README.md").write_text("old\n", encoding="utf-8")
+    registry = _registry(tmp_path)
+
+    result = asyncio.run(
+        registry.execute(
+            "Edit",
+            {
+                "file_path": "README.txt",
+                "old_string": "old",
+                "new_string": "new",
+            },
+        )
+    )
+
+    assert result.is_error is True
+    assert "File does not exist" in result.content
+    assert "Note: your current working directory is %s" % tmp_path in result.content
+    assert "Did you mean README.md?" in result.content
+
+
 def test_patch_apply_keeps_empty_old_text_rejected(tmp_path: Path):
     registry = _registry(tmp_path)
 
