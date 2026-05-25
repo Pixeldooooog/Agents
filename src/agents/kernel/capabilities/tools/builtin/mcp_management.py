@@ -12,6 +12,9 @@ from agents.kernel.mcp_config import server_record_for_scope
 from agents.kernel.mcp_oauth_runtime import authenticate_mcp_oauth_server
 
 
+IDE_AUTH_HEADER = "X-Claude-Code-Ide-Authorization"
+SUPPORTED_TRANSPORTS = ("stdio", "sse", "sse-ide", "http", "ws", "ws-ide", "sdk", "claudeai-proxy")
+
 MCP_SERVERS_SCHEMA = {
     "type": "object",
     "properties": {},
@@ -22,9 +25,11 @@ MCP_CONFIGURE_SCHEMA = {
     "properties": {
         "name": {"type": "string", "description": "MCP server name."},
         "command": {"type": "string", "description": "Local MCP stdio server command line."},
-        "transport": {"type": "string", "enum": ["stdio", "sse", "http", "ws", "sdk", "claudeai-proxy"], "description": "MCP transport type."},
+        "transport": {"type": "string", "enum": list(SUPPORTED_TRANSPORTS), "description": "MCP transport type."},
         "url": {"type": "string", "description": "Remote MCP server URL for HTTP/SSE/WebSocket transports."},
         "headers": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Optional headers for HTTP/SSE/WebSocket MCP transports."},
+        "auth_token": {"type": "string", "description": "Optional IDE authorization token for ws-ide transports."},
+        "authToken": {"type": "string", "description": "Camel-case alias for auth_token, matching src-origin IDE config."},
         "execution_mode": {"type": "string", "description": "MCP execution mode, defaults to trusted_control_plane."},
         "sandbox_profile": {"type": "string", "description": "Optional sandbox profile for future sandboxed MCP execution."},
         "auth_required": {"type": "boolean", "description": "Whether the server is installed but currently needs authentication."},
@@ -87,6 +92,7 @@ async def mcp_configure(
     transport: str = "",
     url: str = "",
     headers: dict[str, Any] | None = None,
+    auth_token: str = "",
     execution_mode: str = "",
     sandbox_profile: str = "",
     auth_required: bool = False,
@@ -106,7 +112,11 @@ async def mcp_configure(
     settings.SERVER_COMMAND = command_text
     settings.SERVER_TRANSPORT = transport_value
     settings.SERVER_URL = url_text
-    settings.SERVER_HEADERS = _coerce_headers(headers)
+    settings.SERVER_HEADERS = _headers_with_ide_auth(
+        _coerce_headers(headers),
+        transport=transport_value,
+        auth_token=auth_token,
+    )
     settings.SERVER_HEADERS_JSON = json.dumps(settings.SERVER_HEADERS, ensure_ascii=False, sort_keys=True)
     settings.EXECUTION_MODE = str(execution_mode or getattr(settings, "EXECUTION_MODE", "") or "trusted_control_plane")
     if sandbox_profile:
@@ -503,7 +513,7 @@ def _merge_unique(*groups: list[str]) -> list[str]:
 
 def _transport(value: str) -> str:
     transport = str(value or "stdio").strip() or "stdio"
-    if transport not in {"stdio", "sse", "http", "ws", "sdk", "claudeai-proxy"}:
+    if transport not in SUPPORTED_TRANSPORTS:
         raise ValueError("unsupported MCP transport: %s" % transport)
     return transport
 
@@ -528,6 +538,20 @@ def _coerce_headers(headers: dict[str, Any] | None) -> dict[str, str]:
     if not isinstance(headers, dict):
         return {}
     return {str(key): str(value) for key, value in headers.items()}
+
+
+def _headers_with_ide_auth(headers: dict[str, str], *, transport: str, auth_token: str) -> dict[str, str]:
+    if transport != "ws-ide":
+        return headers
+    token = str(auth_token or "").strip()
+    if not token or _has_header(headers, IDE_AUTH_HEADER):
+        return headers
+    return {**headers, IDE_AUTH_HEADER: token}
+
+
+def _has_header(headers: dict[str, str], name: str) -> bool:
+    wanted = name.lower()
+    return any(str(key).lower() == wanted for key in headers)
 
 
 async def _save_mcp_config(context: ToolRuntimeContext) -> None:

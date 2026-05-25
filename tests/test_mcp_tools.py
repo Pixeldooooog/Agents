@@ -753,6 +753,54 @@ def test_builtin_mcp_management_accepts_websocket_transport(tmp_path: Path):
     assert configured.raw["servers"][0]["transport"] == "ws"
 
 
+def test_builtin_mcp_management_accepts_ide_transports(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=SandboxPolicy.for_workspace(workspace.path),
+        settings=SimpleNamespace(mcp=SimpleNamespace(SERVER_NAME="", SERVER_COMMAND="")),
+        mcp_config_store=InMemoryMCPConfigStore(),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    asyncio.run(
+        registry.execute(
+            "mcp.configure",
+            {
+                "name": "ide-sse",
+                "transport": "sse-ide",
+                "url": "http://127.0.0.1:32100/sse",
+            },
+        )
+    )
+    configured = asyncio.run(
+        registry.execute(
+            "mcp.configure",
+            {
+                "name": "ide-ws",
+                "transport": "ws-ide",
+                "url": "ws://127.0.0.1:32101/mcp",
+                "authToken": "ide-token",
+            },
+        )
+    )
+
+    servers = {server["name"]: server for server in configured.raw["servers"]}
+    assert configured.raw["configured"]["transport"] == "ws-ide"
+    assert configured.raw["configured"]["headers"] == {"X-Claude-Code-Ide-Authorization": "ide-token"}
+    assert servers["ide-sse"]["transport"] == "sse-ide"
+    assert servers["ide-ws"]["transport"] == "ws-ide"
+    assert servers["ide-ws"]["headers"] == {"X-Claude-Code-Ide-Authorization": "ide-token"}
+
+
 def test_load_configured_mcp_registers_auth_tool_for_auth_required_http_settings():
     registry = ToolRegistry()
     settings = SimpleNamespace(
@@ -1215,6 +1263,41 @@ def test_load_configured_mcp_uses_sse_transport(monkeypatch):
     assert created[0].called == [("search", {"query": "agents"})]
 
 
+def test_load_configured_mcp_uses_sse_ide_transport(monkeypatch):
+    created = []
+
+    class FakeSSEMCPClient(FakeMCPClient):
+        def __init__(self, server):
+            super().__init__()
+            self.server = server
+            created.append(self)
+
+    monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.MCPSSEClient", FakeSSEMCPClient)
+    registry = ToolRegistry()
+    settings = SimpleNamespace(
+        mcp=SimpleNamespace(
+            SERVER_NAME="ide",
+            SERVER_COMMAND="",
+            SERVER_TRANSPORT="sse-ide",
+            SERVER_URL="http://127.0.0.1:32100/sse",
+            SERVER_HEADERS_JSON="",
+            CLIENT_TIMEOUT=30.0,
+            EXECUTION_MODE="trusted_control_plane",
+            SANDBOX_PROFILE="",
+            AUTH_REQUIRED=False,
+        )
+    )
+
+    providers = asyncio.run(load_configured_mcp(settings, registry))
+    result = asyncio.run(registry.execute("mcp__ide__search", {"query": "agents"}))
+
+    assert len(providers) == 1
+    assert providers[0].server.transport == "sse-ide"
+    assert providers[0].server.url == "http://127.0.0.1:32100/sse"
+    assert json.loads(result.content)["answer"] == "agents"
+    assert created[0].called == [("search", {"query": "agents"})]
+
+
 def test_load_configured_mcp_uses_websocket_transport(monkeypatch):
     created = []
 
@@ -1248,6 +1331,43 @@ def test_load_configured_mcp_uses_websocket_transport(monkeypatch):
     assert providers[0].server.transport == "ws"
     assert providers[0].server.url == "wss://mcp.example.test/socket"
     assert providers[0].server.headers == {"X-Test": "ignored"}
+    assert json.loads(result.content)["answer"] == "agents"
+    assert created[0].called == [("search", {"query": "agents"})]
+
+
+def test_load_configured_mcp_uses_ws_ide_transport(monkeypatch):
+    created = []
+
+    class FakeWebSocketMCPClient(FakeMCPClient):
+        def __init__(self, server):
+            super().__init__()
+            self.server = server
+            created.append(self)
+
+    monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.MCPWebSocketClient", FakeWebSocketMCPClient)
+    registry = ToolRegistry()
+    settings = SimpleNamespace(
+        mcp=SimpleNamespace(
+            SERVER_NAME="ide",
+            SERVER_COMMAND="",
+            SERVER_TRANSPORT="ws-ide",
+            SERVER_URL="ws://127.0.0.1:32101/mcp",
+            SERVER_HEADERS_JSON='{"X-Claude-Code-Ide-Authorization":"ide-token"}',
+            CLIENT_TIMEOUT=30.0,
+            SSE_READ_TIMEOUT=120.0,
+            EXECUTION_MODE="trusted_control_plane",
+            SANDBOX_PROFILE="",
+            AUTH_REQUIRED=False,
+        )
+    )
+
+    providers = asyncio.run(load_configured_mcp(settings, registry))
+    result = asyncio.run(registry.execute("mcp__ide__search", {"query": "agents"}))
+
+    assert len(providers) == 1
+    assert providers[0].server.transport == "ws-ide"
+    assert providers[0].server.url == "ws://127.0.0.1:32101/mcp"
+    assert providers[0].server.headers == {"X-Claude-Code-Ide-Authorization": "ide-token"}
     assert json.loads(result.content)["answer"] == "agents"
     assert created[0].called == [("search", {"query": "agents"})]
 

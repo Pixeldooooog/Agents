@@ -2235,13 +2235,14 @@ def _register_mcp_management(registry: ToolRegistry, context: ToolRuntimeContext
         "mcp.configure",
         "Configure the local MCP server command for this session.",
         MCP_CONFIGURE_SCHEMA,
-        lambda command="", name="default", transport="", url="", headers=None, execution_mode="", sandbox_profile="", auth_required=False, auth_url="", auth_status="", auth_message="": mcp_configure(
+        lambda command="", name="default", transport="", url="", headers=None, auth_token="", authToken="", execution_mode="", sandbox_profile="", auth_required=False, auth_url="", auth_status="", auth_message="": mcp_configure(
             context,
             command=command,
             name=name,
             transport=transport,
             url=url,
             headers=headers,
+            auth_token=auth_token or authToken,
             execution_mode=execution_mode,
             sandbox_profile=sandbox_profile,
             auth_required=auth_required,

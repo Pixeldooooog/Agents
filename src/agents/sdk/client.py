@@ -111,6 +111,7 @@ SDKMcpMessageHandler = Callable[[Any], Any]
 SDKHookCallbackHandler = Callable[[SDKHookCallbackRequest], Any]
 SDKElicitationHandler = Callable[[SDKControlElicitationRequest], Any]
 MAX_SDK_SEED_READ_BYTES = 200000
+IDE_AUTH_HEADER = "X-Claude-Code-Ide-Authorization"
 
 
 @dataclass
@@ -2197,19 +2198,33 @@ def _mcp_record_from_control_config(
     args = config.get("args") if isinstance(config.get("args"), list) else []
     command_parts = [str(config.get("command") or ""), *[str(arg) for arg in args]]
     command = " ".join(part for part in command_parts if part).strip()
-    headers = config.get("headers") if isinstance(config.get("headers"), dict) else {}
+    headers = _mcp_headers_from_control_config(config, transport=transport)
     return MCPServerRecord(
         name=name,
         command=command,
         transport=transport,
         url=str(config.get("url") or ""),
-        headers={str(key): str(value) for key, value in headers.items()},
+        headers=headers,
         enabled=True,
         tenant_id=tenant_id,
         user_id=user_id,
         agent_id=agent_id,
         workspace_id=workspace_id,
     )
+
+
+def _mcp_headers_from_control_config(config: dict[str, Any], *, transport: str) -> dict[str, str]:
+    raw_headers = config.get("headers") if isinstance(config.get("headers"), dict) else {}
+    headers = {str(key): str(value) for key, value in raw_headers.items()}
+    token = str(config.get("authToken") or config.get("auth_token") or "").strip()
+    if transport == "ws-ide" and token and not _has_header(headers, IDE_AUTH_HEADER):
+        headers[IDE_AUTH_HEADER] = token
+    return headers
+
+
+def _has_header(headers: dict[str, str], name: str) -> bool:
+    wanted = name.lower()
+    return any(str(key).lower() == wanted for key in headers)
 
 
 def _task_in_sdk_scope(task: TaskRecord, options: SDKOptions) -> bool:

@@ -23,6 +23,10 @@ from agents.kernel.capabilities.tools.mcp import (
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 
 
+SSE_TRANSPORTS = {"sse", "sse-ide"}
+WEBSOCKET_TRANSPORTS = {"ws", "ws-ide"}
+
+
 class _UnavailableMCPClient:
     async def list_tools(self):
         return []
@@ -212,9 +216,9 @@ def _client_for_server(server: MCPServerConfig) -> Any:
         client = MCPStdioClient(server)
     elif transport == "http":
         client = MCPStreamableHTTPClient(server)
-    elif transport == "sse":
+    elif transport in SSE_TRANSPORTS:
         client = MCPSSEClient(server)
-    elif transport == "ws":
+    elif transport in WEBSOCKET_TRANSPORTS:
         client = MCPWebSocketClient(server)
     elif transport == "sdk":
         if server.sdk_message_handler is None:

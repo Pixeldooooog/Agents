@@ -2209,6 +2209,12 @@ def test_sdk_control_request_handler_applies_session_options_and_mcp_state():
                 request=SDKControlMcpSetServersRequest(
                     servers={
                         "docs": {"type": "stdio", "command": "docs-mcp", "args": ["--serve"]},
+                        "ide": {
+                            "type": "ws-ide",
+                            "url": "ws://127.0.0.1:32101/mcp",
+                            "ideName": "VS Code",
+                            "authToken": "ide-token",
+                        },
                         "socket": {"type": "ws", "url": "wss://mcp.example.test/socket"},
                     }
                 ),
@@ -2251,9 +2257,13 @@ def test_sdk_control_request_handler_applies_session_options_and_mcp_state():
         )
     )
 
-    assert mcp_set.response.response == {"added": ["docs", "socket"], "removed": [], "errors": {}}
+    records_by_name = {record.name: record for record in records}
+
+    assert mcp_set.response.response == {"added": ["docs", "ide", "socket"], "removed": [], "errors": {}}
     assert {"name": "docs", "status": "connected"} in mcp_status.response.response["mcpServers"]
-    assert {record.name: record.transport for record in records}["socket"] == "ws"
+    assert records_by_name["socket"].transport == "ws"
+    assert records_by_name["ide"].transport == "ws-ide"
+    assert records_by_name["ide"].headers == {"X-Claude-Code-Ide-Authorization": "ide-token"}
     assert mcp_reconnect.response.response == {
         "serverName": "docs",
         "status": "connected",
