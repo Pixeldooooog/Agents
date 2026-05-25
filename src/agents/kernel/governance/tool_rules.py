@@ -7,6 +7,7 @@ from fnmatch import fnmatchcase
 from typing import Iterable
 
 from agents.kernel.schema import ToolCall
+from agents.kernel.governance.shell_rule_normalization import normalize_shell_segment
 
 
 SHELL_RUN_TOOL = "shell.run"
@@ -63,7 +64,6 @@ _TOOL_ALIASES = {
 }
 _SHELL_COLON_PREFIXES = ("shell.run", "Bash", "bash", "Shell", "shell")
 _SHELL_SEPARATORS = {"&&", "||", ";", "|", "&"}
-_ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
 
 
 @dataclass(frozen=True)
@@ -415,20 +415,9 @@ def _mcp_server_prefix_matches(pattern: str, tool_name: str) -> bool:
 
 
 def _append_shell_segment(output: list[str], segment: list[str]) -> None:
-    normalized = _normalize_shell_segment(segment)
+    normalized = normalize_shell_segment(segment)
     if normalized:
         output.append(normalized)
-
-
-def _normalize_shell_segment(tokens: list[str]) -> str:
-    index = 0
-    while index < len(tokens) and _is_env_assignment(tokens[index]):
-        index += 1
-    return " ".join(tokens[index:]).strip()
-
-
-def _is_env_assignment(token: str) -> bool:
-    return bool(_ENV_ASSIGNMENT_RE.match(str(token or "")))
 
 
 def _is_shell_separator(token: str) -> bool:
