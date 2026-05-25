@@ -17,7 +17,7 @@ import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Protocol
+from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol
 
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 
@@ -31,6 +31,22 @@ class MCPElicitationHandler(Protocol):
 
 
 MCPSDKMessageHandler = Callable[[dict[str, Any]], Any]
+MCPOAuthAuthenticator = Callable[[Any, Mapping[str, Any]], Any]
+
+
+MCP_AUTHENTICATE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "callback_url": {
+            "type": "string",
+            "description": "Full OAuth callback URL after browser authorization.",
+        },
+        "callbackUrl": {
+            "type": "string",
+            "description": "Full OAuth callback URL after browser authorization.",
+        },
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -347,6 +363,7 @@ class MCPSDKControlClient(_MCPSessionClient):
 class MCPToolProvider:
     client: MCPClient
     server: MCPServerConfig
+    oauth_authenticator: MCPOAuthAuthenticator | None = None
 
     async def load_tools(self, registry: ToolRegistry) -> None:
         registered_names = set(registry.names()) if hasattr(registry, "names") else set()
@@ -413,7 +430,7 @@ class MCPToolProvider:
         registry.register(
             name,
             description,
-            {"type": "object", "properties": {}},
+            MCP_AUTHENTICATE_SCHEMA,
             self._auth_handler(
                 auth_url=auth_url,
                 transport=transport,
@@ -498,7 +515,23 @@ class MCPToolProvider:
         url: str = "",
         message: str = "",
     ):
-        async def authenticate() -> str:
+        async def authenticate(callback_url: str = "", callbackUrl: str = "") -> str:
+            callback_value = str(callback_url or callbackUrl or "").strip()
+            auth_url_value = str(auth_url or self.server.auth_url or "")
+            transport_value = str(transport or self.server.transport or "stdio")
+            if self.oauth_authenticator is not None and transport_value in {"sse", "http"} and (
+                callback_value or not auth_url_value
+            ):
+                payload = await self.oauth_authenticator(
+                    self.server,
+                    {
+                        "callback_url": callback_value,
+                        "auth_url": auth_url_value,
+                        "transport": transport_value,
+                        "url": str(url or self.server.url or ""),
+                    },
+                )
+                return json.dumps(payload, ensure_ascii=False, sort_keys=True)
             payload = self._auth_payload(
                 auth_url=auth_url,
                 transport=transport,

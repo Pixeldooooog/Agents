@@ -40,6 +40,7 @@ class ToolRuntimeContext:
     mcp_auth_store: Any | None = None
     mcp_elicitation_handler: Any | None = None
     sdk_mcp_handlers: dict[str, Any] = field(default_factory=dict)
+    mcp_oauth_flows: dict[str, Any] = field(default_factory=dict)
     session_state_store: Any | None = None
     skill_registry: Any | None = None
     mcp_providers: list[Any] = field(default_factory=list)

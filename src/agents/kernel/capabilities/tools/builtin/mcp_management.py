@@ -9,6 +9,7 @@ from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 from agents.kernel.mcp_auth import mcp_authorization_headers_for_scope
 from agents.kernel.mcp_config import server_record_for_scope
+from agents.kernel.mcp_oauth_flow import authenticate_mcp_oauth_server
 
 
 MCP_SERVERS_SCHEMA = {
@@ -226,6 +227,11 @@ async def mcp_reload(context: ToolRuntimeContext, registry: Any) -> dict[str, An
     auth_headers = await _mcp_auth_headers(context, records)
     if auth_headers:
         load_kwargs["auth_headers"] = auth_headers
+    load_kwargs["oauth_authenticator"] = lambda server, arguments: authenticate_mcp_oauth_server(
+        context,
+        server,
+        arguments,
+    )
     providers = await load_configured_mcp(_settings(context), staging_registry, **load_kwargs)
     definitions = _loaded_mcp_definitions(staging_registry)
 

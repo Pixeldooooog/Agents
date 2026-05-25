@@ -121,7 +121,7 @@ class MCPOAuthCallbackListener:
 
     def submit_callback_url(self, callback_url: str) -> bool:
         self._ensure_future()
-        callback = _parse_callback_url(callback_url)
+        callback = parse_mcp_oauth_callback_url(callback_url)
         if callback is None or not callback.code and not callback.error:
             return False
         self._resolve_callback(callback)
@@ -139,7 +139,7 @@ class MCPOAuthCallbackListener:
         if method != "GET" or not target:
             await _write_http_response(writer, 405, _html_page("Authentication Error", "Unsupported request."))
             return
-        callback = _parse_callback_url("http://localhost%s" % target)
+        callback = parse_mcp_oauth_callback_url("http://localhost%s" % target)
         if callback is None:
             await _write_http_response(writer, 404, _html_page("Authentication Error", "Unknown callback path."))
             return
@@ -229,7 +229,7 @@ def _request_target(request_line: str) -> tuple[str, str]:
     return parts[0].upper(), parts[1]
 
 
-def _parse_callback_url(callback_url: str) -> MCPOAuthCallback | None:
+def parse_mcp_oauth_callback_url(callback_url: str) -> MCPOAuthCallback | None:
     parsed = urlparse(str(callback_url or ""))
     if parsed.path != MCP_OAUTH_CALLBACK_PATH:
         return None

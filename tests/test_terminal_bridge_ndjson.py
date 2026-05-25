@@ -1274,7 +1274,7 @@ def test_ndjson_bridge_configures_reloads_and_clears_mcp(monkeypatch, tmp_path):
         event_offsets={},
     )
 
-    async def fake_load_configured_mcp(settings, registry, roots=None, records=None):
+    async def fake_load_configured_mcp(settings, registry, roots=None, records=None, oauth_authenticator=None):
         registry.register(
             "mcp__docs__search",
             "Search docs",

@@ -20,6 +20,7 @@ from agents.kernel.specs import AgentSpec
 from agents.kernel.hooks import AgentHooks, CompositeHooks, SessionStateHooks, hooks_from_settings
 from agents.kernel.capabilities import load_configured_mcp, load_configured_skills, resolve_active_tools
 from agents.kernel.mcp_auth import mcp_authorization_headers_for_scope
+from agents.kernel.mcp_oauth_flow import authenticate_mcp_oauth_server
 from agents.kernel.models import ModelClient
 from agents.kernel.runtime import AgentRuntime, AgentSession
 from agents.kernel.runtime.checkpoints import CheckpointStore
@@ -124,6 +125,11 @@ async def create_agent_session_async(
         mcp_load_kwargs["elicitation_handler"] = mcp_elicitation_handler
     if mcp_auth_headers:
         mcp_load_kwargs["auth_headers"] = mcp_auth_headers
+    mcp_load_kwargs["oauth_authenticator"] = lambda server, arguments: authenticate_mcp_oauth_server(
+        tool_context,
+        server,
+        arguments,
+    )
     tool_context.mcp_providers = await load_configured_mcp(settings, registry, **mcp_load_kwargs)
 
     await _hydrate_session_state(tool_context)

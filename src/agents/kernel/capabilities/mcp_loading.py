@@ -8,6 +8,7 @@ from typing import Any
 
 from agents.kernel.mcp_auth import merge_cached_authorization_header
 from agents.kernel.capabilities.tools.mcp import (
+    MCPOAuthAuthenticator,
     MCPElicitationHandler,
     MCPSSEClient,
     MCPSDKControlClient,
@@ -50,6 +51,7 @@ async def load_configured_mcp(
     elicitation_handler: MCPElicitationHandler | None = None,
     sdk_mcp_handlers: Mapping[str, Any] | None = None,
     auth_headers: Mapping[str, str] | None = None,
+    oauth_authenticator: MCPOAuthAuthenticator | None = None,
     records: list[Any] | None = None,
 ) -> list[MCPToolProvider]:
     roots = _normalize_roots(roots)
@@ -73,7 +75,11 @@ async def load_configured_mcp(
 
     providers: list[MCPToolProvider] = []
     for server in servers:
-        provider = MCPToolProvider(client=_client_for_server(server), server=server)
+        provider = MCPToolProvider(
+            client=_client_for_server(server),
+            server=server,
+            oauth_authenticator=oauth_authenticator,
+        )
         await provider.load_tools(registry)
         providers.append(provider)
     return providers

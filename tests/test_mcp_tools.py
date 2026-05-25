@@ -148,6 +148,49 @@ def test_mcp_provider_registers_auth_pseudo_tool_for_auth_required_server():
     assert client.called == []
 
 
+def test_mcp_provider_auth_pseudo_tool_uses_dynamic_oauth_authenticator():
+    registry = ToolRegistry()
+    captured = {}
+
+    async def authenticate(server, arguments):
+        captured["server"] = server
+        captured["arguments"] = dict(arguments)
+        return {
+            "status": "auth_url",
+            "server": server.name,
+            "authUrl": "https://auth.example.test/authorize",
+            "auth_url": "https://auth.example.test/authorize",
+            "message": "Open authorization URL.",
+        }
+
+    provider = MCPToolProvider(
+        client=FakeMCPClient(),
+        server=MCPServerConfig(
+            name="docs",
+            transport="http",
+            url="https://mcp.example.test/mcp",
+            auth_required=True,
+        ),
+        oauth_authenticator=authenticate,
+    )
+
+    asyncio.run(provider.load_tools(registry))
+    result = asyncio.run(
+        registry.execute(
+            "mcp__docs__authenticate",
+            {"callback_url": "http://localhost:3118/callback?code=code&state=state"},
+        )
+    )
+    payload = json.loads(result.content)
+    spec = registry.specs(["mcp__docs__authenticate"])[0]
+
+    assert payload["status"] == "auth_url"
+    assert payload["authUrl"] == "https://auth.example.test/authorize"
+    assert captured["server"].name == "docs"
+    assert captured["arguments"]["callback_url"] == "http://localhost:3118/callback?code=code&state=state"
+    assert "callback_url" in spec.parameters["properties"]
+
+
 def test_mcp_provider_auth_pseudo_tool_reports_unsupported_transport():
     registry = ToolRegistry()
     provider = MCPToolProvider(
@@ -484,7 +527,7 @@ def test_builtin_mcp_reload_preserves_existing_provider_when_reconnect_fails(mon
     register_builtin_tools(registry, context)
     old_provider = MCPToolProvider(client=old_client, server=MCPServerConfig(name="docs"))
 
-    async def failing_load(settings, registry, roots=None, records=None):
+    async def failing_load(settings, registry, roots=None, records=None, oauth_authenticator=None):
         raise RuntimeError("reconnect failed")
 
     monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.load_configured_mcp", failing_load)
