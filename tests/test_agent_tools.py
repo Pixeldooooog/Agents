@@ -3023,6 +3023,41 @@ def test_filesystem_write_requires_read_before_overwriting_existing_file(tmp_pat
     assert (tmp_path / "notes.txt").read_text(encoding="utf-8") == "new\n"
 
 
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlink is not available on this platform")
+def test_filesystem_write_reports_symlink_target_for_followed_writes(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    target = tmp_path / "target.txt"
+    link = tmp_path / "link.txt"
+    target.write_text("old\n", encoding="utf-8")
+    link.symlink_to(target.name)
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "link.txt"}))
+    written = asyncio.run(registry.execute("filesystem.write", {"path": "link.txt", "content": "new\n"}))
+
+    assert read.is_error is False
+    assert written.is_error is False
+    assert written.raw["filePath"] == "target.txt"
+    assert written.raw["symlinkTarget"] == "target.txt"
+    assert written.raw["safety"]["symlink_target"] == "target.txt"
+    assert link.is_symlink()
+    assert target.read_text(encoding="utf-8") == "new\n"
+
+
 def test_filesystem_write_exposes_src_origin_git_diff_for_tracked_file(tmp_path: Path):
     if shutil.which("git") is None:
         pytest.skip("git is not installed")
@@ -5932,6 +5967,46 @@ def test_patch_apply_exposes_file_edit_style_single_edit_metadata(tmp_path: Path
     ]
     assert result.raw["structuredPatches"][0]["filePath"] == "notes.txt"
     assert result.raw["structuredPatches"][0]["hunks"] == result.raw["structuredPatch"]
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlink is not available on this platform")
+def test_patch_apply_reports_symlink_target_for_followed_edits(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    target = tmp_path / "target.txt"
+    link = tmp_path / "link.txt"
+    target.write_text("hello old world\n", encoding="utf-8")
+    link.symlink_to(target.name)
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "link.txt"}))
+    result = asyncio.run(
+        registry.execute(
+            "Edit",
+            {"file_path": "link.txt", "old_string": "old", "new_string": "new"},
+        )
+    )
+
+    assert read.is_error is False
+    assert result.is_error is False
+    assert result.raw["filePath"] == "target.txt"
+    assert result.raw["symlinkTarget"] == "target.txt"
+    assert result.raw["files"][0]["symlinkTarget"] == "target.txt"
+    assert link.is_symlink()
+    assert target.read_text(encoding="utf-8") == "hello new world\n"
 
 
 def test_patch_apply_rejects_secret_replacement_in_team_memory(tmp_path: Path):

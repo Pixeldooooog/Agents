@@ -13,6 +13,7 @@ from agents.kernel.capabilities.tools.builtin.file_safety import (
     read_current_file,
     record_file_read,
     structured_text_patch,
+    symlink_target_for_write,
 )
 from agents.kernel.capabilities.tools.builtin.file_diff import single_file_git_diff
 from agents.kernel.capabilities.tools.builtin.lsp import notify_lsp_file_saved
@@ -68,6 +69,7 @@ class _PlannedFile:
     action: str
     encoding: str = "utf-8"
     edit_count: int = 0
+    symlink_target: str = ""
 
 
 @dataclass
@@ -209,12 +211,14 @@ def _plan_patch(
     encoding_by_path: dict[str, str] = {}
     actions_by_path: dict[str, str] = {}
     edits_by_path: dict[str, int] = {}
+    symlink_targets_by_path: dict[str, str] = {}
     verified_paths: set[str] = set()
     applied_new_texts_by_path: dict[str, list[str]] = {}
     planned_edits: list[_PlannedEdit] = []
 
     for operation in edits:
         path = _required_string(operation, "path")
+        symlink_target = symlink_target_for_write(context, path)
         old_text = _required_string(operation, "old_text")
         new_text = str(operation.get("new_text") or "")
         replace_all = bool(operation.get("replace_all"))
@@ -230,6 +234,8 @@ def _plan_patch(
             encoding_by_path[relative_path] = current_read.write_encoding or current_read.encoding
             ensure_existing_file_current(context, relative_path, before)
             verified_paths.add(relative_path)
+            if symlink_target:
+                symlink_targets_by_path[relative_path] = symlink_target
             path = relative_path
         new_text = normalize_text_write_content(path, new_text)
         _raise_team_memory_secret_error(path, new_text)
@@ -266,6 +272,7 @@ def _plan_patch(
 
     for operation in creates:
         path = _required_string(operation, "path")
+        symlink_target = symlink_target_for_write(context, path)
         content = str(operation.get("content") or "")
         overwrite = bool(operation.get("overwrite"))
         before = ""
@@ -279,12 +286,16 @@ def _plan_patch(
             if relative_path not in verified_paths:
                 ensure_existing_file_current(context, relative_path, before)
                 verified_paths.add(relative_path)
+            if symlink_target:
+                symlink_targets_by_path[relative_path] = symlink_target
             path = relative_path
             encoding_by_path[path] = current_read.write_encoding or current_read.encoding
             action = "overwrite"
         except FileNotFoundError:
             before = ""
             encoding_by_path[path] = "utf-8"
+            if symlink_target:
+                symlink_targets_by_path[path] = symlink_target
         _raise_team_memory_secret_error(path, content)
         content_by_path[path] = content
         actions_by_path[path] = action
@@ -310,6 +321,7 @@ def _plan_patch(
                 action=actions_by_path.get(path, "edit"),
                 encoding=encoding,
                 edit_count=edits_by_path.get(path, 0),
+                symlink_target=symlink_targets_by_path.get(path, ""),
             )
         )
     if not planned:
@@ -329,12 +341,14 @@ def _apply_empty_src_origin_edit(
     encoding = "utf-8"
     action = "create"
     try:
+        symlink_target = symlink_target_for_write(context, path)
         current_read = read_current_file(context, path)
         path = current_read.path
         before = current_read.content
         encoding = current_read.write_encoding or current_read.encoding
         action = "overwrite"
     except FileNotFoundError:
+        symlink_target = symlink_target_for_write(context, path)
         path = context.sandbox.relative_workspace_path(context.sandbox.resolve_workspace_path(path))
     if before.strip():
         raise ValueError("Cannot create new file - file already exists.")
@@ -357,6 +371,7 @@ def _apply_empty_src_origin_edit(
         action=action,
         encoding=result.encoding,
         edit_count=1,
+        symlink_target=symlink_target,
     )
     planned_edit = _PlannedEdit(
         path=result.path,
@@ -393,6 +408,7 @@ def _patch_payload(
                 "action": item.action,
                 "edits": item.edit_count,
                 "bytes": _encoded_length(item.after, item.encoding),
+                **({"symlinkTarget": item.symlink_target} if item.symlink_target else {}),
             }
             for item in planned
         ],
@@ -429,6 +445,8 @@ def _patch_payload(
                 "userModified": False,
             }
         )
+        if planned[0].symlink_target:
+            payload["symlinkTarget"] = planned[0].symlink_target
         git_diff = (git_diffs or {}).get(edit.path)
         if git_diff is not None:
             payload["gitDiff"] = git_diff

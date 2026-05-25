@@ -101,6 +101,7 @@ def ensure_existing_file_current(
 
 
 def write_text_safely(context: ToolRuntimeContext, path: str, content: str) -> dict[str, Any]:
+    symlink_target = symlink_target_for_write(context, path)
     existed = True
     try:
         current_read = read_current_file(context, path)
@@ -146,6 +147,9 @@ def write_text_safely(context: ToolRuntimeContext, path: str, content: str) -> d
     git_diff = single_file_git_diff(context, result.path)
     if git_diff is not None:
         payload["gitDiff"] = git_diff
+    if symlink_target:
+        payload["symlinkTarget"] = symlink_target
+        payload["safety"]["symlink_target"] = symlink_target
     return payload
 
 
@@ -205,6 +209,17 @@ def preserve_existing_line_endings(existing_content: str, new_content: str) -> s
     if "\r\n" not in existing_content or "\r\n" in new_content:
         return new_content
     return new_content.replace("\r\n", "\n").replace("\n", "\r\n")
+
+
+def symlink_target_for_write(context: ToolRuntimeContext, path: str) -> str:
+    entry = context.sandbox.resolve_workspace_entry_path(path)
+    if not entry.is_symlink():
+        return ""
+    target = context.sandbox.resolve_workspace_path(path)
+    try:
+        return context.sandbox.relative_workspace_path(target)
+    except PermissionError:
+        return str(target)
 
 
 def _is_markdown_path(path: str) -> bool:
