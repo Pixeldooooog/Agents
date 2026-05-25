@@ -3,12 +3,19 @@ from pathlib import Path
 
 from agents.kernel.capabilities.ide import (
     IDE_AUTH_HEADER,
+    default_ide_lockfile_dirs,
     detect_ide_lockfiles,
     mcp_record_from_detected_ide,
     read_ide_lockfile,
     sorted_ide_lockfiles,
 )
 from agents.kernel.context.workspace import WorkspaceContext
+
+
+def test_default_ide_lockfile_dirs_uses_claude_config_dir(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+
+    assert default_ide_lockfile_dirs() == [tmp_path / "config" / "ide"]
 
 
 def test_read_ide_lockfile_accepts_src_origin_json_format(tmp_path: Path):

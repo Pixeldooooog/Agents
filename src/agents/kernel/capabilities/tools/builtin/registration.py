@@ -121,6 +121,12 @@ from agents.kernel.capabilities.tools.builtin.mcp_management import (
     mcp_reload,
     mcp_servers,
 )
+from agents.kernel.capabilities.tools.builtin.mcp_ide import (
+    IDE_DISCOVERY_SCHEMA,
+    MCP_CONFIGURE_IDE_SCHEMA,
+    mcp_configure_ide,
+    mcp_detect_ide,
+)
 from agents.kernel.capabilities.tools.builtin.patch import (
     PATCH_APPLY_SCHEMA,
     apply_patch,
@@ -2249,6 +2255,40 @@ def _register_mcp_management(registry: ToolRegistry, context: ToolRuntimeContext
             auth_url=auth_url,
             auth_status=auth_status,
             auth_message=auth_message,
+        ),
+        metadata={"risk": "medium", "writes_state": True, "source": "mcp", "model_call": True},
+    )
+    registry.register(
+        "mcp.detect_ide",
+        "Detect Claude IDE extension MCP lockfiles for the current workspace.",
+        IDE_DISCOVERY_SCHEMA,
+        lambda cwd="", lockfile_dirs=None, lockfiles=None, include_invalid=False, port=0, skip_valid_check=False, host="": mcp_detect_ide(
+            context,
+            cwd=cwd,
+            lockfile_dirs=lockfile_dirs,
+            lockfiles=lockfiles,
+            include_invalid=include_invalid,
+            port=port,
+            skip_valid_check=skip_valid_check,
+            host=host,
+        ),
+        metadata={"risk": "low", "source": "mcp", "model_call": True},
+    )
+    registry.register(
+        "mcp.configure_ide",
+        "Detect and save a Claude IDE extension MCP server for this workspace.",
+        MCP_CONFIGURE_IDE_SCHEMA,
+        lambda name="ide", cwd="", lockfile_dirs=None, lockfiles=None, include_invalid=False, port=0, skip_valid_check=False, host="", index=-1: mcp_configure_ide(
+            context,
+            name=name,
+            cwd=cwd,
+            lockfile_dirs=lockfile_dirs,
+            lockfiles=lockfiles,
+            include_invalid=include_invalid,
+            port=port,
+            skip_valid_check=skip_valid_check,
+            host=host,
+            index=index,
         ),
         metadata={"risk": "medium", "writes_state": True, "source": "mcp", "model_call": True},
     )

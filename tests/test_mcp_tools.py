@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+from agents.kernel.capabilities.ide import IDE_AUTH_HEADER
 from agents.kernel.capabilities.mcp_loading import load_configured_mcp
 from agents.kernel.capabilities.sandbox.local import LocalSandboxProvider
 from agents.kernel.capabilities.tools import ToolRuntimeContext, register_builtin_tools
@@ -374,8 +375,11 @@ def test_builtin_mcp_resource_tools_list_and_read_resources(tmp_path: Path):
     assert client.closed is True
 
     impact = describe_tool_impact(ToolCall(id="call-mcp", name="mcp.configure", arguments={"command": "python local_mcp.py"}))
+    ide_impact = describe_tool_impact(ToolCall(id="call-mcp-ide", name="mcp.configure_ide", arguments={}))
     assert impact.risk == "medium"
     assert impact.operations == ["mcp_server_write"]
+    assert ide_impact.risk == "medium"
+    assert ide_impact.operations == ["mcp_server_write"]
 
 
 def test_builtin_mcp_management_tools_use_shared_config_store(tmp_path: Path):
@@ -854,6 +858,79 @@ def test_builtin_mcp_management_accepts_ide_transports(tmp_path: Path):
     assert servers["ide-sse"]["transport"] == "sse-ide"
     assert servers["ide-ws"]["transport"] == "ws-ide"
     assert servers["ide-ws"]["headers"] == {"X-Claude-Code-Ide-Authorization": "ide-token"}
+
+
+def test_builtin_mcp_detect_ide_lists_matching_lockfiles(tmp_path: Path):
+    workspace_path = tmp_path / "repo"
+    lockfile_dir = tmp_path / "ide"
+    workspace_path.mkdir()
+    lockfile_dir.mkdir()
+    (lockfile_dir / "32101.lock").write_text(
+        '{"workspaceFolders":["%s"],"ideName":"VS Code","transport":"ws","authToken":"secret"}' % workspace_path,
+        encoding="utf-8",
+    )
+    context = ToolRuntimeContext(
+        workspace=WorkspaceContext(
+            tenant_id="tenant",
+            user_id="user",
+            agent_id="agent",
+            workspace_id="workspace",
+            root=workspace_path,
+            path=workspace_path,
+        ),
+        sandbox=SandboxPolicy.for_workspace(workspace_path),
+        settings=SimpleNamespace(mcp=SimpleNamespace(SERVER_NAME="", SERVER_COMMAND="")),
+        mcp_config_store=InMemoryMCPConfigStore(),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    detected = asyncio.run(registry.execute("mcp.detect_ide", {"lockfile_dirs": [str(lockfile_dir)]}))
+
+    assert detected.raw["count"] == 1
+    assert detected.raw["detected"][0]["name"] == "VS Code"
+    assert detected.raw["detected"][0]["transport"] == "ws-ide"
+    assert detected.raw["detected"][0]["hasAuthToken"] is True
+    assert "secret" not in json.dumps(detected.raw)
+
+
+def test_builtin_mcp_configure_ide_saves_detected_server(tmp_path: Path):
+    workspace_path = tmp_path / "repo"
+    lockfile_dir = tmp_path / "ide"
+    workspace_path.mkdir()
+    lockfile_dir.mkdir()
+    (lockfile_dir / "32101.lock").write_text(
+        '{"workspaceFolders":["%s"],"ideName":"VS Code","transport":"ws","authToken":"secret"}' % workspace_path,
+        encoding="utf-8",
+    )
+    store = InMemoryMCPConfigStore()
+    context = ToolRuntimeContext(
+        workspace=WorkspaceContext(
+            tenant_id="tenant",
+            user_id="user",
+            agent_id="agent",
+            workspace_id="workspace",
+            root=workspace_path,
+            path=workspace_path,
+        ),
+        sandbox=SandboxPolicy.for_workspace(workspace_path),
+        settings=SimpleNamespace(mcp=SimpleNamespace(SERVER_NAME="", SERVER_COMMAND="")),
+        mcp_config_store=store,
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    configured = asyncio.run(registry.execute("mcp.configure_ide", {"lockfile_dirs": [str(lockfile_dir)]}))
+    records = asyncio.run(store.list_for_scope("tenant", user_id="user", agent_id="agent", workspace_id="workspace"))
+
+    assert configured.raw["configured"]["name"] == "ide"
+    assert configured.raw["configured"]["transport"] == "ws-ide"
+    assert configured.raw["configured"]["url"] == "ws://127.0.0.1:32101"
+    assert configured.raw["configured"]["headers"] == {IDE_AUTH_HEADER: "secret"}
+    assert configured.raw["selected"]["hasAuthToken"] is True
+    assert records[0].name == "ide"
+    assert records[0].transport == "ws-ide"
+    assert records[0].headers == {IDE_AUTH_HEADER: "secret"}
 
 
 def test_load_configured_mcp_registers_auth_tool_for_auth_required_http_settings():

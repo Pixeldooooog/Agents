@@ -150,7 +150,16 @@ def classify_tool_risk(name: str) -> ToolRisk:
         return ToolRisk.MEDIUM
     if name.startswith("tool.") or name.startswith("skill.") or name.startswith("plugin."):
         return ToolRisk.LOW
-    if name in {"mcp.configure", "mcp.enable", "mcp.disable", "mcp.remove", "mcp.clear", "mcp.reload", "mcp.reconnect"}:
+    if name in {
+        "mcp.configure",
+        "mcp.configure_ide",
+        "mcp.enable",
+        "mcp.disable",
+        "mcp.remove",
+        "mcp.clear",
+        "mcp.reload",
+        "mcp.reconnect",
+    }:
         return ToolRisk.MEDIUM
     if name in {"mcp.read_resource", "mcp.get_prompt"}:
         return ToolRisk.MEDIUM

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -10,6 +11,11 @@ from agents.kernel.mcp_config import MCPServerRecord, server_record_for_scope
 
 
 IDE_AUTH_HEADER = "X-Claude-Code-Ide-Authorization"
+
+
+def default_ide_lockfile_dirs(config_dir: str | Path | None = None) -> list[Path]:
+    base_dir = Path(config_dir or os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude").expanduser()
+    return [base_dir / "ide"]
 
 
 @dataclass(frozen=True)

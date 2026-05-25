@@ -243,6 +243,8 @@ def describe_tool_impact(call: ToolCall) -> ToolImpact:
         operation = {
             "mcp.servers": "mcp_server_read",
             "mcp.configure": "mcp_server_write",
+            "mcp.detect_ide": "mcp_server_read",
+            "mcp.configure_ide": "mcp_server_write",
             "mcp.enable": "mcp_server_write",
             "mcp.disable": "mcp_server_write",
             "mcp.remove": "mcp_server_write",
@@ -257,6 +259,8 @@ def describe_tool_impact(call: ToolCall) -> ToolImpact:
         summary = {
             "mcp.servers": "list MCP servers",
             "mcp.configure": "configure MCP server",
+            "mcp.detect_ide": "detect IDE MCP server",
+            "mcp.configure_ide": "configure IDE MCP server",
             "mcp.enable": "enable MCP server",
             "mcp.disable": "disable MCP server",
             "mcp.remove": "remove MCP server",

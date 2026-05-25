@@ -102,6 +102,8 @@ def test_terminal_coding_profile_exposes_task_and_agent_tools():
     assert "plugin.disable" in tools
     assert "mcp.servers" in tools
     assert "mcp.configure" in tools
+    assert "mcp.detect_ide" in tools
+    assert "mcp.configure_ide" in tools
     assert "mcp.enable" in tools
     assert "mcp.disable" in tools
     assert "mcp.remove" in tools
@@ -162,6 +164,7 @@ def test_terminal_coding_profile_exposes_task_and_agent_tools():
     assert "plugin.enable" in approval_tools
     assert "plugin.disable" in approval_tools
     assert "mcp.configure" in approval_tools
+    assert "mcp.configure_ide" in approval_tools
     assert "mcp.enable" in approval_tools
     assert "mcp.disable" in approval_tools
     assert "mcp.remove" in approval_tools
