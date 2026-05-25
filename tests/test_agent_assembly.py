@@ -542,6 +542,35 @@ def test_create_session_hydrates_mcp_config_store_before_loading(tmp_path, monke
     assert session.tool_context.mcp_config_store is store
 
 
+def test_create_session_passes_mcp_elicitation_handler_to_loader(tmp_path, monkeypatch):
+    monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
+    captured = {}
+
+    async def fake_load_mcp(settings, registry, roots=None, records=None, elicitation_handler=None):
+        captured["elicitation_handler"] = elicitation_handler
+        return []
+
+    def elicitation_handler(server_name, params):
+        return {"action": "decline", "server": server_name, "params": params}
+
+    monkeypatch.setattr("agents.kernel.assembly.session.load_configured_mcp", fake_load_mcp)
+    settings = FakeSettings()
+    settings.server.ROOT_PATH = tmp_path
+    settings.models.openai.API_KEY = "key"
+    settings.models.openai.MODEL = "model"
+
+    session = asyncio.run(
+        create_agent_session_async(
+            settings,
+            AgentSpec.from_overrides(user_id="user 1", agent_id="agent 1"),
+            mcp_elicitation_handler=elicitation_handler,
+        )
+    )
+
+    assert captured["elicitation_handler"] is elicitation_handler
+    assert session.tool_context.mcp_elicitation_handler is elicitation_handler
+
+
 def test_agent_session_close_closes_mcp_providers(tmp_path, monkeypatch):
     monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
     mcp_client = FakeCloseableMCPClient()

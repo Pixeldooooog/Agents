@@ -37,6 +37,7 @@ class ToolRuntimeContext:
     team_store: Any | None = None
     hook_store: Any | None = None
     mcp_config_store: Any | None = None
+    mcp_elicitation_handler: Any | None = None
     sdk_mcp_handlers: dict[str, Any] = field(default_factory=dict)
     session_state_store: Any | None = None
     skill_registry: Any | None = None
@@ -127,6 +128,7 @@ class ToolRuntimeContext:
         team_store: Any | None = None,
         hook_store: Any | None = None,
         mcp_config_store: Any | None = None,
+        mcp_elicitation_handler: Any | None = None,
         sdk_mcp_handlers: dict[str, Any] | None = None,
         session_state_store: Any | None = None,
         skill_registry: Any | None = None,
@@ -155,6 +157,7 @@ class ToolRuntimeContext:
             team_store=team_store,
             hook_store=hook_store,
             mcp_config_store=mcp_config_store,
+            mcp_elicitation_handler=mcp_elicitation_handler,
             sdk_mcp_handlers=dict(sdk_mcp_handlers or {}),
             session_state_store=session_state_store,
             skill_registry=skill_registry,

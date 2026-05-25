@@ -2488,6 +2488,58 @@ def test_sdk_control_request_handler_routes_hook_callbacks_and_elicitations():
     assert default_elicitation.response.response == {"action": "cancel"}
 
 
+def test_sdk_client_bridges_mcp_elicitation_handler():
+    client = AgentSDKClient(session_factory=_session_factory)
+    captured = {}
+
+    def elicitation_handler(request):
+        captured["request"] = request
+        return {
+            "action": "accept",
+            "content": {
+                "server": request.mcp_server_name,
+                "url": request.url,
+                "schema": request.requested_schema,
+            },
+        }
+
+    client.set_elicitation_handler(elicitation_handler)
+    params = SimpleNamespace(
+        message="Confirm browser auth",
+        mode="url",
+        url="https://mcp.example.test/oauth",
+        elicitationId="elicit-123",
+        requestedSchema={
+            "type": "object",
+            "properties": {"approved": {"type": "boolean"}},
+        },
+    )
+
+    result = asyncio.run(client._mcp_elicitation_handler("github", params))
+
+    request = captured["request"]
+    assert request.mcp_server_name == "github"
+    assert request.message == "Confirm browser auth"
+    assert request.mode == "url"
+    assert request.url == "https://mcp.example.test/oauth"
+    assert request.elicitation_id == "elicit-123"
+    assert request.requested_schema == {
+        "type": "object",
+        "properties": {"approved": {"type": "boolean"}},
+    }
+    assert result == {
+        "action": "accept",
+        "content": {
+            "server": "github",
+            "url": "https://mcp.example.test/oauth",
+            "schema": {
+                "type": "object",
+                "properties": {"approved": {"type": "boolean"}},
+            },
+        },
+    }
+
+
 def test_sdk_control_request_interrupt_cancels_active_session_query():
     async def execute():
         started = asyncio.Event()

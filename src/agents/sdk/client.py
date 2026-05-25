@@ -341,6 +341,7 @@ class AgentSDKClient:
             team_store=self.persistence.teams,
             hook_store=self.persistence.hooks,
             mcp_config_store=self.persistence.mcp_configs,
+            mcp_elicitation_handler=self._mcp_elicitation_handler,
             sdk_mcp_handlers=self.sdk_mcp_handlers,
             session_state_store=self.persistence.session_states,
             sandbox_store=self.persistence.sandboxes,
@@ -382,6 +383,10 @@ class AgentSDKClient:
 
     def set_elicitation_handler(self, handler: SDKElicitationHandler | None) -> None:
         self.elicitation_handler = handler
+
+    async def _mcp_elicitation_handler(self, server_name: str, params: Any) -> dict[str, Any]:
+        request = _sdk_elicitation_request_from_mcp_params(server_name, params)
+        return await self._run_elicitation_handler(request)
 
     def enqueue_async_message(
         self,
@@ -1239,6 +1244,9 @@ class AgentSDKClient:
         return dict(response)
 
     async def _elicitation_control_response(self, request: SDKControlElicitationRequest) -> dict[str, Any]:
+        return await self._run_elicitation_handler(request)
+
+    async def _run_elicitation_handler(self, request: SDKControlElicitationRequest) -> dict[str, Any]:
         if self.elicitation_handler is None:
             return {"action": "cancel"}
         response = self.elicitation_handler(request)
@@ -1619,6 +1627,50 @@ def _coerce_options(options: SDKOptions | dict[str, Any] | None) -> SDKOptions:
     if isinstance(options, SDKOptions):
         return options
     return SDKOptions.model_validate(options)
+
+
+def _sdk_elicitation_request_from_mcp_params(server_name: str, params: Any) -> SDKControlElicitationRequest:
+    mode = str(_mcp_param_field(params, "mode") or "form")
+    requested_schema = _mcp_param_field(params, "requested_schema", "requestedSchema")
+    return SDKControlElicitationRequest(
+        mcp_server_name=str(server_name or ""),
+        message=str(_mcp_param_field(params, "message") or ""),
+        mode="url" if mode == "url" else "form",
+        url=_optional_string(_mcp_param_field(params, "url")),
+        elicitation_id=_optional_string(_mcp_param_field(params, "elicitation_id", "elicitationId")),
+        requested_schema=dict(requested_schema) if isinstance(requested_schema, dict) else None,
+    )
+
+
+def _mcp_param_field(params: Any, *names: str) -> Any:
+    if params is None:
+        return None
+    if isinstance(params, dict):
+        for name in names:
+            if name in params:
+                return params[name]
+        return None
+    for name in names:
+        if hasattr(params, name):
+            return getattr(params, name)
+    model_dump = getattr(params, "model_dump", None)
+    if callable(model_dump):
+        try:
+            payload = model_dump(by_alias=True)
+        except TypeError:
+            payload = model_dump()
+        if isinstance(payload, dict):
+            for name in names:
+                if name in payload:
+                    return payload[name]
+    return None
+
+
+def _optional_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value)
+    return text if text else None
 
 
 async def _aiter_stdin_messages(

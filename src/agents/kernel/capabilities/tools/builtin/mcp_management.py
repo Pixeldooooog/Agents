@@ -219,6 +219,9 @@ async def mcp_reload(context: ToolRuntimeContext, registry: Any) -> dict[str, An
     sdk_mcp_handlers = getattr(context, "sdk_mcp_handlers", None)
     if sdk_mcp_handlers:
         load_kwargs["sdk_mcp_handlers"] = sdk_mcp_handlers
+    mcp_elicitation_handler = getattr(context, "mcp_elicitation_handler", None)
+    if mcp_elicitation_handler is not None:
+        load_kwargs["elicitation_handler"] = mcp_elicitation_handler
     providers = await load_configured_mcp(_settings(context), staging_registry, **load_kwargs)
     definitions = _loaded_mcp_definitions(staging_registry)
 

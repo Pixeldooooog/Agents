@@ -39,6 +39,7 @@ async def create_agent_session_async(
     team_store: Optional[Any] = None,
     hook_store: Optional[Any] = None,
     mcp_config_store: Optional[Any] = None,
+    mcp_elicitation_handler: Optional[Any] = None,
     sdk_mcp_handlers: Optional[dict[str, Any]] = None,
     session_state_store: Optional[Any] = None,
     sandbox_store: Optional[SandboxStore] = None,
@@ -75,6 +76,7 @@ async def create_agent_session_async(
         team_store=team_store,
         hook_store=hook_store,
         mcp_config_store=mcp_config_store,
+        mcp_elicitation_handler=mcp_elicitation_handler,
         sdk_mcp_handlers=sdk_mcp_handlers,
         session_state_store=session_state_store,
         skill_registry=skill_registry,
@@ -88,6 +90,7 @@ async def create_agent_session_async(
             team_store=team_store,
             hook_store=hook_store,
             mcp_config_store=mcp_config_store,
+            mcp_elicitation_handler=mcp_elicitation_handler,
             sdk_mcp_handlers=sdk_mcp_handlers,
             session_state_store=session_state_store,
             sandbox_store=sandbox_store,
@@ -112,6 +115,8 @@ async def create_agent_session_async(
     }
     if sdk_mcp_handlers:
         mcp_load_kwargs["sdk_mcp_handlers"] = sdk_mcp_handlers
+    if mcp_elicitation_handler is not None:
+        mcp_load_kwargs["elicitation_handler"] = mcp_elicitation_handler
     tool_context.mcp_providers = await load_configured_mcp(settings, registry, **mcp_load_kwargs)
 
     await _hydrate_session_state(tool_context)
@@ -187,6 +192,7 @@ def create_agent_session(
     team_store: Optional[Any] = None,
     hook_store: Optional[Any] = None,
     mcp_config_store: Optional[Any] = None,
+    mcp_elicitation_handler: Optional[Any] = None,
     sdk_mcp_handlers: Optional[dict[str, Any]] = None,
     session_state_store: Optional[Any] = None,
     sandbox_store: Optional[SandboxStore] = None,
@@ -212,6 +218,7 @@ def create_agent_session(
                 team_store=team_store,
                 hook_store=hook_store,
                 mcp_config_store=mcp_config_store,
+                mcp_elicitation_handler=mcp_elicitation_handler,
                 sdk_mcp_handlers=sdk_mcp_handlers,
                 session_state_store=session_state_store,
                 sandbox_store=sandbox_store,
@@ -606,6 +613,7 @@ def _subagent_session_factory(
     team_store: Optional[Any],
     hook_store: Optional[Any],
     mcp_config_store: Optional[Any],
+    mcp_elicitation_handler: Optional[Any],
     sdk_mcp_handlers: Optional[dict[str, Any]],
     session_state_store: Optional[Any],
     sandbox_store: Optional[SandboxStore],
@@ -627,6 +635,7 @@ def _subagent_session_factory(
             team_store=team_store,
             hook_store=hook_store,
             mcp_config_store=mcp_config_store,
+            mcp_elicitation_handler=mcp_elicitation_handler,
             sdk_mcp_handlers=sdk_mcp_handlers,
             session_state_store=session_state_store,
             sandbox_store=sandbox_store,
