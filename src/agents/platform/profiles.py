@@ -46,6 +46,8 @@ CODING_TOOLS = [
     "mcp.configure",
     "mcp.detect_ide",
     "mcp.configure_ide",
+    "mcp.ide_extension_status",
+    "mcp.install_ide_extension",
     "mcp.enable",
     "mcp.disable",
     "mcp.remove",
@@ -166,6 +168,7 @@ RISKY_TOOLS = [
     "plugin.disable",
     "mcp.configure",
     "mcp.configure_ide",
+    "mcp.install_ide_extension",
     "mcp.enable",
     "mcp.disable",
     "mcp.remove",
@@ -258,7 +261,7 @@ def system_prompt(base_prompt: Optional[str], profile: str, active_workspace: Op
         "Use user.ask when you need structured multiple-choice input from the user before proceeding. "
         "Use user.message when a tool-mediated user-visible message or workspace attachment is required. "
         "Use tool.search when you need to inspect the current tool catalog; use skill.discover/skill.install/skill.uninstall/skill.use/skill.disable and plugin.discover/plugin.install/plugin.uninstall/plugin.enable/plugin.disable to manage local skill or plugin contributions. "
-        "Use mcp.servers/mcp.configure/mcp.detect_ide/mcp.configure_ide/mcp.enable/mcp.disable/mcp.remove/mcp.clear/mcp.reload/mcp.reconnect to inspect or manage MCP server configuration, mcp.prompts/mcp.get_prompt for MCP prompt templates, and mcp.resources/mcp.read_resource for non-tool MCP context exposed by configured servers. "
+        "Use mcp.servers/mcp.configure/mcp.detect_ide/mcp.configure_ide/mcp.ide_extension_status/mcp.install_ide_extension/mcp.enable/mcp.disable/mcp.remove/mcp.clear/mcp.reload/mcp.reconnect to inspect or manage MCP server configuration, mcp.prompts/mcp.get_prompt for MCP prompt templates, and mcp.resources/mcp.read_resource for non-tool MCP context exposed by configured servers. "
         "Use prompt.templates/prompt.read/prompt.save/prompt.delete to manage reusable local prompt templates. "
         "Use session.status/session.summary/session.export, context.trace/context.messages, and context.compact/context.rewind to inspect, summarize, export, or trim current session context. "
         "Use permission.status, permission.sources, and permission.explain to inspect current tool permission rules and decisions before risky calls. "

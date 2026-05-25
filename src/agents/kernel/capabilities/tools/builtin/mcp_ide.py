@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from agents.kernel.capabilities import ide_extension
 from agents.kernel.capabilities.ide import (
     DetectedIDEInfo,
     default_ide_lockfile_dirs,
@@ -55,6 +56,28 @@ MCP_CONFIGURE_IDE_SCHEMA = {
         "index": {
             "type": "integer",
             "description": "Explicit detected IDE index to configure when multiple IDEs match.",
+        },
+    },
+}
+
+IDE_EXTENSION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "ide_type": {
+            "type": "string",
+            "description": "IDE type such as vscode, cursor, windsurf, or a JetBrains IDE id.",
+        },
+        "ideType": {
+            "type": "string",
+            "description": "Camel-case alias for ide_type.",
+        },
+        "target_version": {
+            "type": "string",
+            "description": "Optional target extension version. Defaults to the Agents package version.",
+        },
+        "targetVersion": {
+            "type": "string",
+            "description": "Camel-case alias for target_version.",
         },
     },
 }
@@ -124,6 +147,26 @@ async def mcp_configure_ide(
         "detected": [_ide_payload(ide) for ide in detection["detected"]],
         "lockfiles": [str(path) for path in detection["lockfiles"]],
     }
+
+
+async def mcp_ide_extension_status(
+    context: ToolRuntimeContext,
+    ide_type: str = "",
+) -> dict[str, Any]:
+    _ = context
+    return ide_extension.ide_extension_status(ide_type).to_dict()
+
+
+async def mcp_install_ide_extension(
+    context: ToolRuntimeContext,
+    ide_type: str = "",
+    target_version: str = "",
+) -> dict[str, Any]:
+    _ = context
+    return ide_extension.install_ide_extension(
+        ide_type,
+        target_version=target_version,
+    ).to_dict()
 
 
 def _detect_ide(

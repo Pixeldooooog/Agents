@@ -153,6 +153,7 @@ def classify_tool_risk(name: str) -> ToolRisk:
     if name in {
         "mcp.configure",
         "mcp.configure_ide",
+        "mcp.install_ide_extension",
         "mcp.enable",
         "mcp.disable",
         "mcp.remove",

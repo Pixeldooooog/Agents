@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from agents.kernel.capabilities.ide import IDE_AUTH_HEADER
+from agents.kernel.capabilities.ide_extension import IDECommandResult, IDE_EXTENSION_ID
 from agents.kernel.capabilities.mcp_loading import load_configured_mcp
 from agents.kernel.capabilities.sandbox.local import LocalSandboxProvider
 from agents.kernel.capabilities.tools import ToolRuntimeContext, register_builtin_tools
@@ -376,10 +377,13 @@ def test_builtin_mcp_resource_tools_list_and_read_resources(tmp_path: Path):
 
     impact = describe_tool_impact(ToolCall(id="call-mcp", name="mcp.configure", arguments={"command": "python local_mcp.py"}))
     ide_impact = describe_tool_impact(ToolCall(id="call-mcp-ide", name="mcp.configure_ide", arguments={}))
+    install_impact = describe_tool_impact(ToolCall(id="call-install-ide", name="mcp.install_ide_extension", arguments={}))
     assert impact.risk == "medium"
     assert impact.operations == ["mcp_server_write"]
     assert ide_impact.risk == "medium"
     assert ide_impact.operations == ["mcp_server_write"]
+    assert install_impact.risk == "medium"
+    assert install_impact.operations == ["mcp_server_write"]
 
 
 def test_builtin_mcp_management_tools_use_shared_config_store(tmp_path: Path):
@@ -931,6 +935,52 @@ def test_builtin_mcp_configure_ide_saves_detected_server(tmp_path: Path):
     assert records[0].name == "ide"
     assert records[0].transport == "ws-ide"
     assert records[0].headers == {IDE_AUTH_HEADER: "secret"}
+
+
+def test_builtin_mcp_ide_extension_tools_use_vscode_cli(monkeypatch, tmp_path: Path):
+    calls = []
+
+    def fake_runner(command, args, env):
+        calls.append((command, args, env))
+        if args == ["--list-extensions", "--show-versions"]:
+            return IDECommandResult(code=0, stdout=f"{IDE_EXTENSION_ID}@1.0.0\n")
+        return IDECommandResult(code=0, stdout="")
+
+    monkeypatch.setattr("agents.kernel.capabilities.ide_extension.run_ide_command", fake_runner)
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=SandboxPolicy.for_workspace(workspace.path),
+        settings=SimpleNamespace(mcp=SimpleNamespace(SERVER_NAME="", SERVER_COMMAND="")),
+        mcp_config_store=InMemoryMCPConfigStore(),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    status = asyncio.run(registry.execute("mcp.ide_extension_status", {"ideType": "vscode"}))
+    installed = asyncio.run(
+        registry.execute(
+            "mcp.install_ide_extension",
+            {"ideType": "vscode", "targetVersion": "1.2.0"},
+        )
+    )
+
+    assert status.raw["installed"] is True
+    assert status.raw["installedVersion"] == "1.0.0"
+    assert installed.raw["installed"] is True
+    assert installed.raw["installedVersion"] == "1.2.0"
+    assert [args for _command, args, _env in calls] == [
+        ["--list-extensions", "--show-versions"],
+        ["--list-extensions", "--show-versions"],
+        ["--force", "--install-extension", IDE_EXTENSION_ID],
+    ]
 
 
 def test_load_configured_mcp_registers_auth_tool_for_auth_required_http_settings():

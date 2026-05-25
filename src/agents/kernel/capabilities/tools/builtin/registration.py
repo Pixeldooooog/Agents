@@ -123,9 +123,12 @@ from agents.kernel.capabilities.tools.builtin.mcp_management import (
 )
 from agents.kernel.capabilities.tools.builtin.mcp_ide import (
     IDE_DISCOVERY_SCHEMA,
+    IDE_EXTENSION_SCHEMA,
     MCP_CONFIGURE_IDE_SCHEMA,
     mcp_configure_ide,
     mcp_detect_ide,
+    mcp_ide_extension_status,
+    mcp_install_ide_extension,
 )
 from agents.kernel.capabilities.tools.builtin.patch import (
     PATCH_APPLY_SCHEMA,
@@ -2291,6 +2294,33 @@ def _register_mcp_management(registry: ToolRegistry, context: ToolRuntimeContext
             index=index,
         ),
         metadata={"risk": "medium", "writes_state": True, "source": "mcp", "model_call": True},
+    )
+    registry.register(
+        "mcp.ide_extension_status",
+        "Check whether the Claude IDE extension is installed for an IDE.",
+        IDE_EXTENSION_SCHEMA,
+        lambda ide_type="", ideType="", target_version="", targetVersion="": mcp_ide_extension_status(
+            context,
+            ide_type=ide_type or ideType,
+        ),
+        metadata={"risk": "low", "requires_process": True, "source": "mcp", "model_call": True},
+    )
+    registry.register(
+        "mcp.install_ide_extension",
+        "Install or update the Claude IDE extension for supported VS Code-family IDEs.",
+        IDE_EXTENSION_SCHEMA,
+        lambda ide_type="", ideType="", target_version="", targetVersion="": mcp_install_ide_extension(
+            context,
+            ide_type=ide_type or ideType,
+            target_version=target_version or targetVersion,
+        ),
+        metadata={
+            "risk": "medium",
+            "writes_state": True,
+            "requires_process": True,
+            "source": "mcp",
+            "model_call": True,
+        },
     )
     registry.register(
         "mcp.clear",
