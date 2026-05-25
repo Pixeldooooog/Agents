@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import re
@@ -22,6 +23,11 @@ from agents.kernel.capabilities.tools.registry import ToolRegistry
 
 
 _MCP_UNSAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9_-]")
+
+
+class MCPElicitationHandler(Protocol):
+    def __call__(self, server_name: str, params: Any) -> Any:
+        raise NotImplementedError()
 
 
 @dataclass(frozen=True)
@@ -42,6 +48,7 @@ class MCPServerConfig:
     auth_status: str = ""
     auth_message: str = ""
     roots: List[str] = field(default_factory=list)
+    elicitation_handler: MCPElicitationHandler | None = None
 
 
 @dataclass(frozen=True)
@@ -154,9 +161,12 @@ class _MCPSessionClient:
         )
 
     async def _handle_elicitation(self, _context: Any, _params: Any) -> Any:
-        from mcp import types
-
-        return types.ElicitResult(action="cancel")
+        if self.server.elicitation_handler is None:
+            return _mcp_elicitation_result(None)
+        response = self.server.elicitation_handler(self.server.name, _params)
+        if inspect.isawaitable(response):
+            response = await response
+        return _mcp_elicitation_result(response)
 
     async def list_tools(self) -> List[MCPToolDefinition]:
         await self.initialize()
@@ -236,6 +246,27 @@ class _MCPSessionClient:
         if self._transport_context is not None:
             await self._transport_context.__aexit__(None, None, None)
             self._transport_context = None
+
+
+def _mcp_elicitation_result(response: Any) -> Any:
+    from mcp import types
+
+    if response is None:
+        return types.ElicitResult(action="cancel")
+    if isinstance(response, types.ElicitResult):
+        return response
+    if not isinstance(response, dict):
+        raise TypeError("MCP elicitation handler must return a dict")
+    action = str(response.get("action") or "cancel")
+    if action not in {"accept", "decline", "cancel"}:
+        raise ValueError("MCP elicitation action must be accept, decline, or cancel")
+    content = response.get("content")
+    if content is not None and not isinstance(content, dict):
+        raise TypeError("MCP elicitation content must be a dict")
+    return types.ElicitResult(
+        action=action,
+        content=dict(content) if content is not None else None,
+    )
 
 
 class MCPStdioClient(_MCPSessionClient):

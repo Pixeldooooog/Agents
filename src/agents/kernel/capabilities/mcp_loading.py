@@ -5,7 +5,14 @@ import shlex
 from pathlib import Path
 from typing import Any
 
-from agents.kernel.capabilities.tools.mcp import MCPSSEClient, MCPServerConfig, MCPStdioClient, MCPStreamableHTTPClient, MCPToolProvider
+from agents.kernel.capabilities.tools.mcp import (
+    MCPElicitationHandler,
+    MCPSSEClient,
+    MCPServerConfig,
+    MCPStdioClient,
+    MCPStreamableHTTPClient,
+    MCPToolProvider,
+)
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 
 
@@ -36,6 +43,7 @@ async def load_configured_mcp(
     settings: Any,
     registry: ToolRegistry,
     roots: list[str] | None = None,
+    elicitation_handler: MCPElicitationHandler | None = None,
 ) -> list[MCPToolProvider]:
     command = str(settings.mcp.SERVER_COMMAND or "").strip()
     transport = str(getattr(settings.mcp, "SERVER_TRANSPORT", "stdio") or "stdio")
@@ -63,6 +71,7 @@ async def load_configured_mcp(
         auth_status=getattr(settings.mcp, "AUTH_STATUS", "") or "",
         auth_message=getattr(settings.mcp, "AUTH_MESSAGE", "") or "",
         roots=_normalize_roots(roots),
+        elicitation_handler=elicitation_handler,
     )
     if transport == "stdio":
         client = MCPStdioClient(server)
