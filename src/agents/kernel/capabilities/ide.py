@@ -4,17 +4,19 @@ import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Collection, Iterable
 
 from agents.kernel.capabilities.ide_environment import (
     detect_ide_host,
     detect_ide_platform,
     is_inside_ide_workspace,
+    should_keep_ide_lockfile_for_process,
 )
 from agents.kernel.mcp_config import MCPServerRecord, server_record_for_scope
 
 
 IDE_AUTH_HEADER = "X-Claude-Code-Ide-Authorization"
+ProcessChecker = Callable[[int], bool]
 
 
 def default_ide_lockfile_dirs(config_dir: str | Path | None = None) -> list[Path]:
@@ -96,6 +98,11 @@ def detect_ide_lockfiles(
     host: str = "",
     platform: str | None = None,
     wsl_distro_name: str | None = None,
+    terminal_name: str | None = None,
+    force_code_terminal: bool | None = None,
+    parent_pid: int | None = None,
+    ancestor_pids: Collection[int] | None = None,
+    process_checker: ProcessChecker | None = None,
     fallback_name: str = "IDE",
 ) -> list[DetectedIDEInfo]:
     platform_name = detect_ide_platform(platform)
@@ -113,12 +120,25 @@ def detect_ide_lockfiles(
                     folder,
                     platform=platform_name,
                     running_in_windows=info.running_in_windows,
-                    wsl_distro_name=wsl_distro_name or os.environ.get("WSL_DISTRO_NAME"),
+                    wsl_distro_name=wsl_distro_name
+                    or os.environ.get("WSL_DISTRO_NAME"),
                 )
                 for folder in info.workspace_folders
             )
         )
         if not is_valid and not include_invalid:
+            continue
+        env_port_matches = env_port is not None and info.port == env_port
+        if not should_keep_ide_lockfile_for_process(
+            lockfile_pid=info.pid,
+            env_port_matches=env_port_matches,
+            platform=platform_name,
+            terminal_name=terminal_name,
+            parent_pid=parent_pid,
+            ancestor_pids=ancestor_pids,
+            process_checker=process_checker,
+            force_code_terminal=force_code_terminal,
+        ):
             continue
         detected.append(
             _detected_ide(

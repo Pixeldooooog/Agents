@@ -7,10 +7,33 @@ import subprocess
 import sys
 import unicodedata
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Collection, Mapping
 
 
 ConnectChecker = Callable[[str, int, float], bool]
+ProcessChecker = Callable[[int], bool]
+SUPPORTED_IDE_TERMINALS = {
+    "cursor",
+    "windsurf",
+    "vscode",
+    "codium",
+    "pycharm",
+    "intellij",
+    "webstorm",
+    "phpstorm",
+    "rubymine",
+    "clion",
+    "goland",
+    "rider",
+    "datagrip",
+    "appcode",
+    "dataspell",
+    "aqua",
+    "gateway",
+    "fleet",
+    "jetbrains",
+    "androidstudio",
+}
 
 
 def detect_ide_platform(platform: str | None = None) -> str:
@@ -25,6 +48,47 @@ def detect_ide_platform(platform: str | None = None) -> str:
     if sys.platform.startswith("linux"):
         return "linux"
     return sys.platform
+
+
+def detect_terminal_name(environ: Mapping[str, str] | None = None) -> str:
+    env = environ or os.environ
+    if env.get("CURSOR_TRACE_ID"):
+        return "cursor"
+    git_askpass = str(env.get("VSCODE_GIT_ASKPASS_MAIN", "") or "").lower()
+    if "cursor" in git_askpass:
+        return "cursor"
+    if "windsurf" in git_askpass:
+        return "windsurf"
+    bundle_id = str(env.get("__CFBundleIdentifier", "") or "").lower()
+    if "vscodium" in bundle_id:
+        return "codium"
+    if "windsurf" in bundle_id:
+        return "windsurf"
+    if "com.google.android.studio" in bundle_id:
+        return "androidstudio"
+    for terminal in SUPPORTED_IDE_TERMINALS:
+        if terminal != "vscode" and terminal in bundle_id:
+            return terminal
+    if env.get("TERMINAL_EMULATOR") == "JetBrains-JediTerm":
+        return "pycharm"
+    return str(env.get("TERM_PROGRAM", "") or "").strip().lower()
+
+
+def is_supported_ide_terminal(
+    terminal_name: str | None = None,
+    *,
+    force_code_terminal: bool | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> bool:
+    env = environ or os.environ
+    if force_code_terminal is None:
+        force_code_terminal = _env_truthy(env.get("FORCE_CODE_TERMINAL", ""))
+    if force_code_terminal:
+        return True
+    terminal = str(
+        terminal_name if terminal_name is not None else detect_terminal_name(env),
+    ).strip().lower()
+    return terminal in SUPPORTED_IDE_TERMINALS
 
 
 def is_inside_ide_workspace(
@@ -113,6 +177,85 @@ def detect_ide_host(
     if gateway and checker(gateway, int(port), timeout_seconds):
         return gateway
     return "127.0.0.1"
+
+
+def should_keep_ide_lockfile_for_process(
+    *,
+    lockfile_pid: int | None,
+    env_port_matches: bool,
+    platform: str,
+    terminal_name: str | None = None,
+    parent_pid: int | None = None,
+    ancestor_pids: Collection[int] | None = None,
+    process_checker: ProcessChecker | None = None,
+    force_code_terminal: bool | None = None,
+) -> bool:
+    if detect_ide_platform(platform) == "wsl":
+        return True
+    if not is_supported_ide_terminal(
+        terminal_name,
+        force_code_terminal=force_code_terminal,
+    ):
+        return True
+    if env_port_matches:
+        return True
+    if not lockfile_pid:
+        return False
+
+    checker = process_checker or is_process_running
+    if not checker(int(lockfile_pid)):
+        return False
+    current_parent = int(parent_pid if parent_pid is not None else os.getppid())
+    if current_parent == int(lockfile_pid):
+        return True
+    ancestors = (
+        set(ancestor_pids)
+        if ancestor_pids is not None
+        else get_ancestor_pids(current_parent)
+    )
+    return int(lockfile_pid) in ancestors
+
+
+def is_process_running(pid: int) -> bool:
+    if pid <= 1:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return False
+    except OSError:
+        return False
+    return True
+
+
+def get_ancestor_pids(parent_pid: int | None = None, *, max_depth: int = 10) -> set[int]:
+    pid = int(parent_pid if parent_pid is not None else os.getppid())
+    if pid <= 1:
+        return set()
+    script = (
+        "pid=%s; "
+        "for i in $(seq 1 %s); do "
+        "ppid=$(ps -o ppid= -p $pid 2>/dev/null | tr -d ' '); "
+        'if [ -z "$ppid" ] || [ "$ppid" = "0" ] || [ "$ppid" = "1" ]; then break; fi; '
+        "echo $ppid; "
+        "pid=$ppid; "
+        "done"
+    ) % (pid, int(max_depth))
+    try:
+        result = subprocess.run(
+            ["sh", "-c", script],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    if result.returncode != 0 or not result.stdout.strip():
+        return set()
+    return {int(line) for line in result.stdout.splitlines() if line.strip().isdigit()}
 
 
 def default_gateway_from_route_text(route_text: str | None) -> str | None:
@@ -219,6 +362,10 @@ def _linux_proc_version_mentions_wsl() -> bool:
     except OSError:
         return False
     return "microsoft" in version or "wsl" in version
+
+
+def _env_truthy(value: str) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _unique(values: list[str]) -> list[str]:

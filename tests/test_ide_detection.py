@@ -1,6 +1,8 @@
 import time
 from pathlib import Path
 
+import pytest
+
 from agents.kernel.capabilities.ide import (
     IDE_AUTH_HEADER,
     default_ide_lockfile_dirs,
@@ -12,9 +14,21 @@ from agents.kernel.capabilities.ide import (
 from agents.kernel.capabilities.ide_environment import (
     default_gateway_from_route_text,
     detect_ide_host,
+    is_supported_ide_terminal,
+    should_keep_ide_lockfile_for_process,
     windows_path_to_wsl_path,
 )
 from agents.kernel.context.workspace import WorkspaceContext
+
+
+@pytest.fixture(autouse=True)
+def clear_ide_terminal_env(monkeypatch):
+    monkeypatch.delenv("CURSOR_TRACE_ID", raising=False)
+    monkeypatch.delenv("FORCE_CODE_TERMINAL", raising=False)
+    monkeypatch.delenv("TERM_PROGRAM", raising=False)
+    monkeypatch.delenv("VSCODE_GIT_ASKPASS_MAIN", raising=False)
+    monkeypatch.delenv("__CFBundleIdentifier", raising=False)
+    monkeypatch.delenv("TERMINAL_EMULATOR", raising=False)
 
 
 def test_default_ide_lockfile_dirs_uses_claude_config_dir(monkeypatch, tmp_path: Path):
@@ -200,6 +214,86 @@ def test_detect_ide_lockfiles_filters_invalid_and_prefers_single_env_port(tmp_pa
     assert len(detected) == 1
     assert detected[0].name == "VS Code"
     assert detected[0].port == 32101
+
+
+def test_detect_ide_lockfiles_filters_supported_terminal_to_parent_pid(tmp_path: Path):
+    workspace = tmp_path / "repo"
+    workspace.mkdir()
+    first = tmp_path / "32100.lock"
+    second = tmp_path / "32101.lock"
+    first.write_text('{"workspaceFolders":["%s"],"ideName":"Cursor","pid":111}' % workspace, encoding="utf-8")
+    second.write_text('{"workspaceFolders":["%s"],"ideName":"VS Code","pid":222}' % workspace, encoding="utf-8")
+
+    detected = detect_ide_lockfiles(
+        [first, second],
+        cwd=workspace,
+        platform="darwin",
+        terminal_name="vscode",
+        parent_pid=222,
+        process_checker=lambda pid: pid in {111, 222},
+    )
+
+    assert len(detected) == 1
+    assert detected[0].port == 32101
+
+
+def test_detect_ide_lockfiles_accepts_supported_terminal_ancestor_pid(tmp_path: Path):
+    workspace = tmp_path / "repo"
+    workspace.mkdir()
+    lockfile = tmp_path / "32100.lock"
+    lockfile.write_text('{"workspaceFolders":["%s"],"ideName":"Cursor","pid":111}' % workspace, encoding="utf-8")
+
+    detected = detect_ide_lockfiles(
+        [lockfile],
+        cwd=workspace,
+        platform="linux",
+        terminal_name="cursor",
+        parent_pid=999,
+        ancestor_pids={111, 222},
+        process_checker=lambda pid: pid == 111,
+    )
+
+    assert len(detected) == 1
+    assert detected[0].port == 32100
+
+
+def test_detect_ide_lockfiles_env_port_bypasses_supported_terminal_pid_check(tmp_path: Path):
+    workspace = tmp_path / "repo"
+    workspace.mkdir()
+    lockfile = tmp_path / "32101.lock"
+    lockfile.write_text('{"workspaceFolders":["/other"],"ideName":"VS Code"}', encoding="utf-8")
+
+    detected = detect_ide_lockfiles(
+        [lockfile],
+        cwd=workspace,
+        env_port=32101,
+        platform="darwin",
+        terminal_name="vscode",
+        process_checker=lambda pid: False,
+    )
+
+    assert len(detected) == 1
+    assert detected[0].port == 32101
+
+
+def test_supported_ide_terminal_detection_uses_src_origin_env_signals(monkeypatch):
+    assert is_supported_ide_terminal("vscode") is True
+    assert is_supported_ide_terminal("iTerm.app") is False
+
+    monkeypatch.setenv("FORCE_CODE_TERMINAL", "1")
+    assert is_supported_ide_terminal("iTerm.app") is True
+
+
+def test_process_ancestry_check_skips_wsl_like_src_origin():
+    assert (
+        should_keep_ide_lockfile_for_process(
+            lockfile_pid=None,
+            env_port_matches=False,
+            platform="wsl",
+            terminal_name="vscode",
+        )
+        is True
+    )
 
 
 def test_mcp_record_from_detected_ide_preserves_ws_auth_token(tmp_path: Path):
