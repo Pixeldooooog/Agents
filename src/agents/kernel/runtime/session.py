@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from typing import AsyncIterable, List, Mapping, Optional
 from typing import Any
 
@@ -93,10 +94,33 @@ class AgentSession:
         }
 
     async def aclose(self) -> None:
+        first_error: Exception | None = None
+        tool_context = getattr(self, "tool_context", None)
+        providers = list(getattr(tool_context, "mcp_providers", []) or []) if tool_context is not None else []
+        for provider in providers:
+            close_provider = getattr(provider, "close", None)
+            if close_provider is None:
+                continue
+            try:
+                result = close_provider()
+                if inspect.isawaitable(result):
+                    await result
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
+        if tool_context is not None:
+            tool_context.mcp_providers = []
+
         model_client = getattr(self.runtime, "model_client", None)
         close = getattr(model_client, "async_close", None)
         if close is not None:
-            await close()
+            try:
+                await close()
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
+        if first_error is not None:
+            raise first_error
 
     async def send(self, text: str, run_id: str | None = None, task_id: str | None = None) -> AgentResult:
         candidate = self.messages + [Message.from_text("user", text)]

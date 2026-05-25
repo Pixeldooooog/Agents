@@ -113,7 +113,8 @@ async def mcp_configure(
 
 async def mcp_clear(context: ToolRuntimeContext) -> dict[str, Any]:
     settings = _mcp_settings(context)
-    removed = len(list(getattr(context, "mcp_providers", []) or []))
+    removed_providers = list(getattr(context, "mcp_providers", []) or [])
+    removed = len(removed_providers)
     previous_name = str(getattr(settings, "SERVER_NAME", "") or "default")
     settings.SERVER_NAME = ""
     settings.SERVER_COMMAND = ""
@@ -124,6 +125,7 @@ async def mcp_clear(context: ToolRuntimeContext) -> dict[str, Any]:
     settings.AUTH_URL = ""
     settings.AUTH_STATUS = ""
     settings.AUTH_MESSAGE = ""
+    await _close_mcp_providers(removed_providers)
     context.mcp_providers = []
     records = await _mcp_records(context)
     if records:
@@ -163,9 +165,8 @@ async def mcp_disable(context: ToolRuntimeContext, name: str = "") -> dict[str, 
     record = await _find_mcp_record(context, target)
     if record is not None:
         await _save_mcp_record(context, replace(record, enabled=False))
-    context.mcp_providers = [
-        provider for provider in list(getattr(context, "mcp_providers", []) or []) if _provider_name(provider) != target
-    ]
+    _removed, remaining = await _remove_mcp_providers(context, target)
+    context.mcp_providers = remaining
     if not target or str(getattr(settings, "SERVER_NAME", "") or "default") == target:
         settings.SERVER_NAME = ""
         settings.SERVER_COMMAND = ""
@@ -183,9 +184,8 @@ async def mcp_remove(context: ToolRuntimeContext, name: str = "") -> dict[str, A
     settings = _mcp_settings(context)
     target = str(name or "").strip() or str(getattr(settings, "SERVER_NAME", "") or "default")
     await _delete_mcp_config(context, target)
-    context.mcp_providers = [
-        provider for provider in list(getattr(context, "mcp_providers", []) or []) if _provider_name(provider) != target
-    ]
+    _removed, remaining = await _remove_mcp_providers(context, target)
+    context.mcp_providers = remaining
     if str(getattr(settings, "SERVER_NAME", "") or "default") == target:
         settings.SERVER_NAME = ""
         settings.SERVER_COMMAND = ""
@@ -363,6 +363,30 @@ async def _mcp_records(context: ToolRuntimeContext) -> list[Any]:
 async def _find_mcp_record(context: ToolRuntimeContext, name: str) -> Any | None:
     target = str(name or "default").strip() or "default"
     return next((record for record in await _mcp_records(context) if record.name == target), None)
+
+
+async def _remove_mcp_providers(context: ToolRuntimeContext, name: str) -> tuple[list[Any], list[Any]]:
+    target = str(name or "").strip()
+    providers = list(getattr(context, "mcp_providers", []) or [])
+    removed = [provider for provider in providers if _provider_name(provider) == target]
+    remaining = [provider for provider in providers if _provider_name(provider) != target]
+    await _close_mcp_providers(removed)
+    return removed, remaining
+
+
+async def _close_mcp_providers(providers: list[Any]) -> None:
+    first_error: Exception | None = None
+    for provider in providers:
+        close = getattr(provider, "close", None)
+        if close is None:
+            continue
+        try:
+            await close()
+        except Exception as exc:
+            if first_error is None:
+                first_error = exc
+    if first_error is not None:
+        raise first_error
 
 
 async def _delete_mcp_config(context: ToolRuntimeContext, name: str) -> None:

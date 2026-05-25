@@ -13,6 +13,7 @@ import json
 
 from agents.kernel.assembly import create_agent_session, create_agent_session_async
 from agents.kernel.capabilities.memory import InMemoryMemoryStore, MemoryRecord, MemoryScope
+from agents.kernel.capabilities.tools.mcp import MCPServerConfig, MCPToolProvider
 from agents.kernel.config import AgentConfigError, resolve_model_client_config
 from agents.kernel.mcp_config import InMemoryMCPConfigStore, MCPServerRecord
 from agents.kernel.session_state import InMemorySessionStateStore, SessionStateRecord
@@ -89,6 +90,32 @@ class FakeRuntimeClient:
 
     async def async_stream(self, request_data):
         raise RuntimeError("not used")
+
+
+class FakeCloseableMCPClient:
+    def __init__(self):
+        self.closed = False
+
+    async def list_tools(self):
+        return []
+
+    async def call_tool(self, name, arguments):
+        raise RuntimeError("not used")
+
+    async def list_resources(self):
+        return []
+
+    async def read_resource(self, uri):
+        raise RuntimeError("not used")
+
+    async def list_prompts(self):
+        return []
+
+    async def get_prompt(self, name, arguments=None):
+        raise RuntimeError("not used")
+
+    async def close(self):
+        self.closed = True
 
 
 def test_claude_config_prefers_agent_specific_values():
@@ -513,6 +540,26 @@ def test_create_session_hydrates_mcp_config_store_before_loading(tmp_path, monke
         "records": [("search", True), ("docs", True)],
     }
     assert session.tool_context.mcp_config_store is store
+
+
+def test_agent_session_close_closes_mcp_providers(tmp_path, monkeypatch):
+    monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
+    mcp_client = FakeCloseableMCPClient()
+
+    async def fake_load_mcp(settings, registry, roots=None, records=None):
+        return [MCPToolProvider(client=mcp_client, server=MCPServerConfig(name="docs"))]
+
+    monkeypatch.setattr("agents.kernel.assembly.session.load_configured_mcp", fake_load_mcp)
+    settings = FakeSettings()
+    settings.server.ROOT_PATH = tmp_path
+    settings.models.openai.API_KEY = "key"
+    settings.models.openai.MODEL = "model"
+
+    session = asyncio.run(create_agent_session_async(settings, AgentSpec.from_overrides(user_id="user 1", agent_id="agent 1")))
+    asyncio.run(session.aclose())
+
+    assert mcp_client.closed is True
+    assert session.tool_context.mcp_providers == []
 
 
 def test_create_session_hydrates_session_state_store(tmp_path, monkeypatch):

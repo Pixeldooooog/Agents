@@ -29,6 +29,7 @@ from agents.kernel.schema import ToolCall
 class FakeMCPClient:
     def __init__(self):
         self.called = []
+        self.closed = False
 
     async def list_tools(self):
         return [
@@ -70,6 +71,9 @@ class FakeMCPClient:
             "description": "Review code",
             "messages": [{"role": "user", "content": {"type": "text", "text": "Review %s" % arguments["path"]}}],
         }
+
+    async def close(self):
+        self.closed = True
 
 
 def test_mcp_provider_loads_tools_with_src_origin_dynamic_name_and_legacy_alias():
@@ -195,8 +199,9 @@ def test_builtin_mcp_resource_tools_list_and_read_resources(tmp_path: Path):
         path=tmp_path,
     )
     policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    client = FakeMCPClient()
     provider = MCPToolProvider(
-        client=FakeMCPClient(),
+        client=client,
         server=MCPServerConfig(name="docs", execution_mode="trusted_control_plane"),
     )
     context = ToolRuntimeContext(
@@ -232,6 +237,7 @@ def test_builtin_mcp_resource_tools_list_and_read_resources(tmp_path: Path):
     assert configured.raw["configured"]["command"] == "python local_mcp.py"
     assert cleared.raw["removed_providers"] == 1
     assert context.mcp_providers == []
+    assert client.closed is True
 
     impact = describe_tool_impact(ToolCall(id="call-mcp", name="mcp.configure", arguments={"command": "python local_mcp.py"}))
     assert impact.risk == "medium"
@@ -310,6 +316,8 @@ def test_builtin_mcp_management_prunes_matching_provider_for_multi_server_change
     )
     policy = SandboxPolicy.for_workspace(workspace.path)
     store = InMemoryMCPConfigStore()
+    docs_client = FakeMCPClient()
+    search_client = FakeMCPClient()
     context = ToolRuntimeContext(
         workspace=workspace,
         sandbox=policy,
@@ -332,8 +340,8 @@ def test_builtin_mcp_management_prunes_matching_provider_for_multi_server_change
         ),
         mcp_config_store=store,
         mcp_providers=[
-            MCPToolProvider(client=FakeMCPClient(), server=MCPServerConfig(name="docs")),
-            MCPToolProvider(client=FakeMCPClient(), server=MCPServerConfig(name="search")),
+            MCPToolProvider(client=docs_client, server=MCPServerConfig(name="docs")),
+            MCPToolProvider(client=search_client, server=MCPServerConfig(name="search")),
         ],
     )
     registry = ToolRegistry()
@@ -362,16 +370,20 @@ def test_builtin_mcp_management_prunes_matching_provider_for_multi_server_change
         )
         disabled = await registry.execute("mcp.disable", {"name": "search"})
         after_disable = [provider.server.name for provider in context.mcp_providers]
+        closed_after_disable = {"docs": docs_client.closed, "search": search_client.closed}
         removed = await registry.execute("mcp.remove", {"name": "docs"})
         after_remove = [provider.server.name for provider in context.mcp_providers]
-        return disabled, after_disable, removed, after_remove
+        closed_after_remove = {"docs": docs_client.closed, "search": search_client.closed}
+        return disabled, after_disable, closed_after_disable, removed, after_remove, closed_after_remove
 
-    disabled, after_disable, removed, after_remove = asyncio.run(execute())
+    disabled, after_disable, closed_after_disable, removed, after_remove, closed_after_remove = asyncio.run(execute())
 
     assert disabled.raw["disabled"] == "search"
     assert after_disable == ["docs"]
+    assert closed_after_disable == {"docs": False, "search": True}
     assert removed.raw["removed"] == "docs"
     assert after_remove == []
+    assert closed_after_remove == {"docs": True, "search": True}
 
 
 def test_builtin_mcp_management_persists_auth_transport_fields(tmp_path: Path):
