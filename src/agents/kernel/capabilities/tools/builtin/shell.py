@@ -309,6 +309,7 @@ async def shell_backgrounds(context: ToolRuntimeContext) -> dict[str, Any]:
 
 async def shell_kill(context: ToolRuntimeContext, task_id: str) -> dict[str, Any]:
     handle = resolve_background_command(context, task_id)
+    claim_shell_task_notification(context, handle)
     if not handle.done():
         handle.kill()
         task = handle._task

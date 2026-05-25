@@ -8,6 +8,7 @@ from typing import Any
 
 from agents.kernel.capabilities.sandbox.types import SandboxBackgroundCommand
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
+from agents.kernel.capabilities.tools.builtin.shell_prompt_stall import start_shell_prompt_stall_watcher
 
 
 def record_shell_background_command(
@@ -104,10 +105,13 @@ def watch_shell_task_completion(context: ToolRuntimeContext, handle: SandboxBack
     if task is None:
         return False
     metadata["task_notification_watcher_started"] = True
+    prompt_watcher = start_shell_prompt_stall_watcher(context, handle, metadata)
 
     def enqueue_when_done(completed: Any) -> None:
         with contextlib.suppress(asyncio.CancelledError, Exception):
             completed.exception()
+        if prompt_watcher is not None:
+            prompt_watcher.cancel()
         _enqueue_shell_task_completion(context, handle)
 
     task.add_done_callback(enqueue_when_done)

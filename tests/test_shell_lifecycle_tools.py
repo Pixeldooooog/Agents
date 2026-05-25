@@ -10,6 +10,7 @@ from agents.kernel.governance import SandboxPolicy
 from agents.kernel.runtime import AgentRuntime, ScriptedModelClient
 from agents.kernel.schema import Message, ModelResponse, ToolCall
 from agents.kernel.specs import AgentSpec
+from agents.kernel.capabilities.tools.builtin.shell_prompt_stall import looks_like_shell_prompt
 
 
 def _context_and_registry(
@@ -160,6 +161,53 @@ def test_shell_background_completion_enqueues_async_notification(tmp_path: Path)
     assert "<status>completed</status>" in text
     assert "Background Bash command &quot;Run async notification script&quot; completed" in text
     assert "Last output:\nstart\ndone" in text
+
+
+def test_shell_background_prompt_stall_enqueues_next_notification(tmp_path: Path):
+    context, registry = _context_and_registry(
+        tmp_path,
+        metadata={
+            "shellPromptStallAfterSeconds": 0.05,
+            "shellPromptStallIntervalSeconds": 0.02,
+        },
+    )
+    queued = []
+    context.async_message_enqueue = queued.append
+
+    async def execute():
+        script = "import time; print('Continue? ', end='', flush=True); time.sleep(0.5)"
+        started = await registry.execute(
+            "shell.run",
+            {
+                "command": "%s -c %s" % (shlex.quote(sys.executable), shlex.quote(script)),
+                "run_in_background": True,
+                "timeout_seconds": 2,
+                "description": "Run interactive prompt script",
+            },
+        )
+        for _ in range(30):
+            if queued:
+                break
+            await asyncio.sleep(0.02)
+        killed = await registry.execute("shell.kill", {"task_id": started.raw["task_id"]})
+        return started, killed
+
+    started, killed = asyncio.run(execute())
+
+    assert started.is_error is False
+    assert killed.is_error is False
+    assert len(queued) == 1
+    assert queued[0]["priority"] == "next"
+    text = queued[0]["message"]["content"][0]["text"]
+    assert "<task_id>%s</task_id>" % started.raw["task_id"] in text
+    assert "<status>" not in text
+    assert "appears to be waiting for interactive input" in text
+    assert "Last output:\nContinue?" in text
+
+
+def test_shell_prompt_detection_uses_last_output_line():
+    assert looks_like_shell_prompt("build output\nReady to continue?") is True
+    assert looks_like_shell_prompt("first prompt? \nmore build output") is False
 
 
 def test_shell_output_block_claim_suppresses_async_completion_notification(tmp_path: Path):

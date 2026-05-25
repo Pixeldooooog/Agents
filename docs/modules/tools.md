@@ -139,6 +139,7 @@ runtime 已经把这个契约写入工具事件：
 - `shell.output` 可非阻塞读取当前输出，也可 `block=true` 等待完成；返回 `retrieval_status`、task 状态、exit code、输出字节和截断信息。
 - `shell.backgrounds` 列出当前 session 的后台 shell 命令。
 - `shell.kill` 停止后台 shell 命令，并将状态投影为 `killed`。
+- 后台 shell 会监控输出停滞后的尾部内容；如果最后一行像 `(y/n)`、`Continue?`、`Press Enter` 等交互式提示，会通过 async queue 发一条非终态 `<task_notification>`，提醒模型 kill 后用 piped input 或非交互参数重跑。
 
 `shell.run` 同时接受现有的 `timeout_seconds` 和 `src-origin` BashTool 风格的 `timeout` 毫秒字段；前台和后台命令都会在 raw payload 中返回 `description`、`background`、`timeout_seconds`、`timeout_ms`、`interrupted`、`isImage` 和 `dangerouslyDisableSandbox`，方便 SDK/UI 用同一套契约投影命令生命周期。后台启动结果还会返回 `backgroundTaskId`、`backgroundedByUser=false`、`assistantAutoBackgrounded=false` 这些 `src-origin` output schema 字段；当前 runtime 没有无沙箱执行策略，因此 `dangerouslyDisableSandbox=true` 会被显式拒绝，而不是静默忽略。
 
