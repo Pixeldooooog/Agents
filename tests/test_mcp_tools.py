@@ -27,6 +27,7 @@ from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.governance import SandboxPolicy, describe_tool_impact
 from agents.kernel.mcp_config import InMemoryMCPConfigStore, MCPServerRecord
 from agents.kernel.mcp_elicitation_runtime import build_mcp_elicitation_complete_handler
+from agents.kernel.mcp_list_changed_runtime import build_mcp_list_changed_handler
 from agents.kernel.schema import ToolCall
 
 
@@ -245,6 +246,26 @@ class AnsweringMCPClient(FakeMCPClient):
     async def call_tool(self, name, arguments):
         self.called.append((name, arguments))
         return {"answer": "%s:%s" % (self.prefix, arguments["query"])}
+
+
+class MutableToolsMCPClient(FakeMCPClient):
+    def __init__(self, tool_names: list[str]):
+        super().__init__()
+        self.tool_names = list(tool_names)
+
+    async def list_tools(self):
+        return [
+            MCPToolDefinition(
+                name=name,
+                description="%s docs" % name,
+                parameters={"type": "object", "properties": {"query": {"type": "string"}}},
+            )
+            for name in self.tool_names
+        ]
+
+    async def call_tool(self, name, arguments):
+        self.called.append((name, arguments))
+        return {"answer": "%s:%s" % (name, arguments["query"])}
 
 
 def test_builtin_mcp_resource_tools_list_and_read_resources(tmp_path: Path):
@@ -611,7 +632,7 @@ def test_builtin_mcp_reload_preserves_existing_provider_when_reconnect_fails(mon
     register_builtin_tools(registry, context)
     old_provider = MCPToolProvider(client=old_client, server=MCPServerConfig(name="docs"))
 
-    async def failing_load(settings, registry, roots=None, records=None, oauth_authenticator=None):
+    async def failing_load(settings, registry, roots=None, records=None, oauth_authenticator=None, list_changed_handler=None):
         raise RuntimeError("reconnect failed")
 
     monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.load_configured_mcp", failing_load)
@@ -923,6 +944,145 @@ def test_mcp_session_client_routes_elicitation_complete_notification():
     asyncio.run(client._handle_message(notification))
 
     assert captured == [("docs", "elicit_123")]
+
+
+def test_mcp_session_client_routes_list_changed_notifications():
+    from mcp import types
+
+    captured = []
+
+    async def list_changed_handler(server_name, kind):
+        captured.append((server_name, kind))
+
+    client = MCPStreamableHTTPClient(
+        MCPServerConfig(
+            name="docs",
+            transport="http",
+            url="https://mcp.example.test/mcp",
+            list_changed_handler=list_changed_handler,
+        )
+    )
+
+    asyncio.run(client._handle_message(types.ServerNotification(root=types.ToolListChangedNotification())))
+    asyncio.run(client._handle_message(types.ServerNotification(root=types.PromptListChangedNotification())))
+    asyncio.run(client._handle_message(types.ServerNotification(root=types.ResourceListChangedNotification())))
+
+    assert captured == [("docs", "tools"), ("docs", "prompts"), ("docs", "resources")]
+
+
+def test_mcp_list_changed_handler_refreshes_target_tools(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    client = MutableToolsMCPClient(["search"])
+    provider = MCPToolProvider(client=client, server=MCPServerConfig(name="docs"))
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+        enabled_tools=["mcp__docs__search"],
+    )
+    registry = ToolRegistry()
+
+    async def execute():
+        await provider.load_tools(registry)
+        context.mcp_providers = [provider]
+        before = await registry.execute("mcp__docs__search", {"query": "before"})
+        client.tool_names = ["lookup"]
+        handler = build_mcp_list_changed_handler(context, registry)
+        await handler("docs", "tools")
+        after = await registry.execute("mcp__docs__lookup", {"query": "after"})
+        return before, after
+
+    before, after = asyncio.run(execute())
+
+    assert json.loads(before.content)["answer"] == "search:before"
+    assert json.loads(after.content)["answer"] == "lookup:after"
+    assert "mcp__docs__search" not in registry.names()
+    assert "mcp_docs_search" not in registry.names()
+    assert "mcp__docs__lookup" in registry.names()
+    assert "mcp_docs_lookup" in registry.names()
+    assert context.enabled_tools == ["mcp__docs__lookup"]
+    assert context.mcp_list_changed_notifications == [
+        {
+            "mcp_server_name": "docs",
+            "kind": "tools",
+            "refreshed": True,
+            "removed_tools": ["mcp__docs__search", "mcp_docs_search"],
+            "loaded_tools": ["mcp__docs__lookup"],
+        }
+    ]
+
+
+def test_mcp_list_changed_handler_preserves_tools_when_refresh_fails(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    client = MutableToolsMCPClient(["search"])
+    provider = MCPToolProvider(client=client, server=MCPServerConfig(name="docs"))
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+        enabled_tools=["mcp__docs__search"],
+    )
+    registry = ToolRegistry()
+
+    async def execute():
+        await provider.load_tools(registry)
+        context.mcp_providers = [provider]
+
+        async def fail_list_tools():
+            raise RuntimeError("list failed")
+
+        client.list_tools = fail_list_tools
+        handler = build_mcp_list_changed_handler(context, registry)
+        await handler("docs", "tools")
+        return await registry.execute("mcp__docs__search", {"query": "after"})
+
+    after = asyncio.run(execute())
+
+    assert json.loads(after.content)["answer"] == "search:after"
+    assert "mcp__docs__search" in registry.names()
+    assert context.enabled_tools == ["mcp__docs__search"]
+    assert context.mcp_list_changed_notifications[0]["refreshed"] is False
+    assert context.mcp_list_changed_notifications[0]["error"] == "list failed"
+
+
+def test_mcp_list_changed_handler_emits_runtime_event_for_non_tool_changes():
+    events = []
+    enqueued = []
+    context = SimpleNamespace(
+        mcp_list_changed_notifications=[],
+        has_runtime_event_sink=lambda: True,
+        emit_runtime_event=lambda event_type, name="", payload=None: events.append((event_type, name, payload)),
+        async_message_enqueue=enqueued.append,
+    )
+    handler = build_mcp_list_changed_handler(context, ToolRegistry())
+
+    asyncio.run(handler("docs", "prompts"))
+
+    payload = {
+        "mcp_server_name": "docs",
+        "kind": "prompts",
+        "refreshed": False,
+        "reason": "not_tool_registry_cached",
+    }
+    assert context.mcp_list_changed_notifications == [payload]
+    assert events == [("mcp_list_changed", "mcp", payload)]
+    assert enqueued == []
 
 
 def test_mcp_elicitation_complete_handler_emits_runtime_event_when_active():

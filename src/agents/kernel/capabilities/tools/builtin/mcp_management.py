@@ -214,7 +214,7 @@ async def mcp_reload(context: ToolRuntimeContext, registry: Any) -> dict[str, An
     previous_names = [_provider_name(provider) for provider in previous_providers]
     records = await _mcp_records(context)
     staging_registry = ToolRegistry()
-    load_kwargs = await _mcp_load_kwargs(context, records)
+    load_kwargs = await _mcp_load_kwargs(context, records, registry=registry)
     providers = await load_configured_mcp(_settings(context), staging_registry, **load_kwargs)
     definitions = _loaded_mcp_definitions(staging_registry)
 
@@ -262,7 +262,7 @@ async def mcp_reconnect(context: ToolRuntimeContext, registry: Any, name: str = 
     previous_providers = list(getattr(context, "mcp_providers", []) or [])
     previous_target_providers = [provider for provider in previous_providers if _provider_name(provider) == target]
     staging_registry = ToolRegistry()
-    load_kwargs = await _mcp_load_kwargs(context, target_records)
+    load_kwargs = await _mcp_load_kwargs(context, target_records, registry=registry)
     providers = await load_configured_mcp(_settings(context), staging_registry, **load_kwargs)
     definitions = _loaded_mcp_definitions_for_server(staging_registry, target)
 
@@ -388,7 +388,7 @@ def _loaded_mcp_definitions(registry: Any) -> list[Any]:
     return definitions_matching(lambda definition: isinstance(definition.metadata.get("mcp_info"), dict))
 
 
-async def _mcp_load_kwargs(context: ToolRuntimeContext, records: list[Any]) -> dict[str, Any]:
+async def _mcp_load_kwargs(context: ToolRuntimeContext, records: list[Any], registry: Any | None = None) -> dict[str, Any]:
     load_kwargs: dict[str, Any] = {
         "roots": [str(context.workspace.path)],
         "records": records if records else None,
@@ -402,6 +402,10 @@ async def _mcp_load_kwargs(context: ToolRuntimeContext, records: list[Any]) -> d
 
         load_kwargs["elicitation_handler"] = mcp_elicitation_handler
         load_kwargs["elicitation_complete_handler"] = build_mcp_elicitation_complete_handler(context)
+    if registry is not None:
+        from agents.kernel.mcp_list_changed_runtime import build_mcp_list_changed_handler
+
+        load_kwargs["list_changed_handler"] = build_mcp_list_changed_handler(context, registry)
     auth_headers = await _mcp_auth_headers(context, records)
     if auth_headers:
         load_kwargs["auth_headers"] = auth_headers

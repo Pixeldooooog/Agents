@@ -11,6 +11,7 @@ from agents.kernel.capabilities.tools.mcp import (
     MCPOAuthAuthenticator,
     MCPElicitationCompleteHandler,
     MCPElicitationHandler,
+    MCPListChangedHandler,
     MCPSSEClient,
     MCPSDKControlClient,
     MCPServerConfig,
@@ -51,6 +52,7 @@ async def load_configured_mcp(
     roots: list[str] | None = None,
     elicitation_handler: MCPElicitationHandler | None = None,
     elicitation_complete_handler: MCPElicitationCompleteHandler | None = None,
+    list_changed_handler: MCPListChangedHandler | None = None,
     sdk_mcp_handlers: Mapping[str, Any] | None = None,
     auth_headers: Mapping[str, str] | None = None,
     oauth_authenticator: MCPOAuthAuthenticator | None = None,
@@ -63,6 +65,7 @@ async def load_configured_mcp(
         roots=roots,
         elicitation_handler=elicitation_handler,
         elicitation_complete_handler=elicitation_complete_handler,
+        list_changed_handler=list_changed_handler,
         sdk_mcp_handlers=sdk_mcp_handlers,
         auth_headers=auth_headers,
     )
@@ -72,6 +75,7 @@ async def load_configured_mcp(
             roots=roots,
             elicitation_handler=elicitation_handler,
             elicitation_complete_handler=elicitation_complete_handler,
+            list_changed_handler=list_changed_handler,
             sdk_mcp_handlers=sdk_mcp_handlers,
             auth_headers=auth_headers,
         )
@@ -95,6 +99,7 @@ def _server_from_settings(
     roots: list[str],
     elicitation_handler: MCPElicitationHandler | None,
     elicitation_complete_handler: MCPElicitationCompleteHandler | None,
+    list_changed_handler: MCPListChangedHandler | None,
     sdk_mcp_handlers: Mapping[str, Any] | None,
     auth_headers: Mapping[str, str] | None,
 ) -> MCPServerConfig | None:
@@ -126,6 +131,7 @@ def _server_from_settings(
         roots=roots,
         elicitation_handler=elicitation_handler,
         elicitation_complete_handler=elicitation_complete_handler,
+        list_changed_handler=list_changed_handler,
         sdk_message_handler=_sdk_handler_for(settings.mcp.SERVER_NAME or "default", sdk_mcp_handlers),
     )
 
@@ -137,6 +143,7 @@ def _servers_from_records(
     roots: list[str],
     elicitation_handler: MCPElicitationHandler | None,
     elicitation_complete_handler: MCPElicitationCompleteHandler | None,
+    list_changed_handler: MCPListChangedHandler | None,
     sdk_mcp_handlers: Mapping[str, Any] | None,
     auth_headers: Mapping[str, str] | None,
 ) -> list[MCPServerConfig]:
@@ -149,6 +156,7 @@ def _servers_from_records(
             roots=roots,
             elicitation_handler=elicitation_handler,
             elicitation_complete_handler=elicitation_complete_handler,
+            list_changed_handler=list_changed_handler,
             sdk_mcp_handlers=sdk_mcp_handlers,
             auth_headers=auth_headers,
         )
@@ -164,6 +172,7 @@ def _server_from_record(
     roots: list[str],
     elicitation_handler: MCPElicitationHandler | None,
     elicitation_complete_handler: MCPElicitationCompleteHandler | None,
+    list_changed_handler: MCPListChangedHandler | None,
     sdk_mcp_handlers: Mapping[str, Any] | None,
     auth_headers: Mapping[str, str] | None,
 ) -> MCPServerConfig:
@@ -192,6 +201,7 @@ def _server_from_record(
         roots=roots,
         elicitation_handler=elicitation_handler,
         elicitation_complete_handler=elicitation_complete_handler,
+        list_changed_handler=list_changed_handler,
         sdk_message_handler=_sdk_handler_for(str(getattr(record, "name", "") or "default"), sdk_mcp_handlers),
     )
 

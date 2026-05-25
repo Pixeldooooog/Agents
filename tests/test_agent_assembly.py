@@ -483,7 +483,7 @@ def test_create_session_hydrates_mcp_config_store_before_loading(tmp_path, monke
     monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
     captured = {}
 
-    async def fake_load_mcp(settings, registry, roots=None, records=None, oauth_authenticator=None):
+    async def fake_load_mcp(settings, registry, roots=None, records=None, oauth_authenticator=None, list_changed_handler=None):
         captured["name"] = settings.mcp.SERVER_NAME
         captured["command"] = settings.mcp.SERVER_COMMAND
         captured["execution_mode"] = settings.mcp.EXECUTION_MODE
@@ -491,6 +491,7 @@ def test_create_session_hydrates_mcp_config_store_before_loading(tmp_path, monke
         captured["roots"] = list(roots or [])
         captured["records"] = [(record.name, record.enabled) for record in records or []]
         captured["oauth_authenticator"] = oauth_authenticator
+        captured["list_changed_handler"] = list_changed_handler
         return []
 
     monkeypatch.setattr("agents.kernel.assembly.session.load_configured_mcp", fake_load_mcp)
@@ -534,7 +535,8 @@ def test_create_session_hydrates_mcp_config_store_before_loading(tmp_path, monke
     session = asyncio.run(create())
 
     assert captured["oauth_authenticator"] is not None
-    assert {key: value for key, value in captured.items() if key != "oauth_authenticator"} == {
+    assert captured["list_changed_handler"] is not None
+    assert {key: value for key, value in captured.items() if key not in {"oauth_authenticator", "list_changed_handler"}} == {
         "name": "search",
         "command": "python search.py",
         "execution_mode": "workspace",
@@ -556,10 +558,12 @@ def test_create_session_passes_mcp_elicitation_handler_to_loader(tmp_path, monke
         records=None,
         elicitation_handler=None,
         elicitation_complete_handler=None,
+        list_changed_handler=None,
         oauth_authenticator=None,
     ):
         captured["elicitation_handler"] = elicitation_handler
         captured["elicitation_complete_handler"] = elicitation_complete_handler
+        captured["list_changed_handler"] = list_changed_handler
         captured["oauth_authenticator"] = oauth_authenticator
         return []
 
@@ -582,6 +586,7 @@ def test_create_session_passes_mcp_elicitation_handler_to_loader(tmp_path, monke
 
     assert captured["elicitation_handler"] is elicitation_handler
     assert captured["elicitation_complete_handler"] is not None
+    assert captured["list_changed_handler"] is not None
     assert captured["oauth_authenticator"] is not None
     assert session.tool_context.mcp_elicitation_handler is elicitation_handler
 
@@ -590,9 +595,10 @@ def test_create_session_loads_cached_mcp_auth_headers(tmp_path, monkeypatch):
     monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
     captured = {}
 
-    async def fake_load_mcp(settings, registry, roots=None, records=None, auth_headers=None, oauth_authenticator=None):
+    async def fake_load_mcp(settings, registry, roots=None, records=None, auth_headers=None, oauth_authenticator=None, list_changed_handler=None):
         captured["auth_headers"] = dict(auth_headers or {})
         captured["oauth_authenticator"] = oauth_authenticator
+        captured["list_changed_handler"] = list_changed_handler
         return []
 
     monkeypatch.setattr("agents.kernel.assembly.session.load_configured_mcp", fake_load_mcp)
@@ -637,6 +643,7 @@ def test_create_session_loads_cached_mcp_auth_headers(tmp_path, monkeypatch):
 
     assert captured["auth_headers"] == {"docs": "Bearer cached"}
     assert captured["oauth_authenticator"] is not None
+    assert captured["list_changed_handler"] is not None
     assert session.tool_context.mcp_auth_store is auth_store
 
 
@@ -644,7 +651,7 @@ def test_agent_session_close_closes_mcp_providers(tmp_path, monkeypatch):
     monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
     mcp_client = FakeCloseableMCPClient()
 
-    async def fake_load_mcp(settings, registry, roots=None, records=None, oauth_authenticator=None):
+    async def fake_load_mcp(settings, registry, roots=None, records=None, oauth_authenticator=None, list_changed_handler=None):
         return [MCPToolProvider(client=mcp_client, server=MCPServerConfig(name="docs"))]
 
     monkeypatch.setattr("agents.kernel.assembly.session.load_configured_mcp", fake_load_mcp)

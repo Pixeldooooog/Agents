@@ -35,6 +35,11 @@ class MCPElicitationCompleteHandler(Protocol):
         raise NotImplementedError()
 
 
+class MCPListChangedHandler(Protocol):
+    def __call__(self, server_name: str, kind: str) -> Any:
+        raise NotImplementedError()
+
+
 MCPSDKMessageHandler = Callable[[dict[str, Any]], Any]
 MCPOAuthAuthenticator = Callable[[Any, Mapping[str, Any]], Any]
 
@@ -90,6 +95,7 @@ class MCPServerConfig:
     roots: List[str] = field(default_factory=list)
     elicitation_handler: MCPElicitationHandler | None = None
     elicitation_complete_handler: MCPElicitationCompleteHandler | None = None
+    list_changed_handler: MCPListChangedHandler | None = None
     sdk_message_handler: MCPSDKMessageHandler | None = None
 
 
@@ -219,13 +225,27 @@ class _MCPSessionClient:
             from mcp import types
         except Exception:
             return
-        if not isinstance(root, types.ElicitCompleteNotification):
+        if isinstance(root, types.ElicitCompleteNotification):
+            await self._handle_elicitation_complete(root)
             return
+        kind = _list_changed_kind(root, types)
+        if kind:
+            await self._handle_list_changed(kind)
+
+    async def _handle_elicitation_complete(self, root: Any) -> None:
         handler = self.server.elicitation_complete_handler
         if handler is None:
             return
         elicitation_id = str(getattr(root.params, "elicitationId", "") or "")
         response = handler(self.server.name, elicitation_id)
+        if inspect.isawaitable(response):
+            await response
+
+    async def _handle_list_changed(self, kind: str) -> None:
+        handler = self.server.list_changed_handler
+        if handler is None:
+            return
+        response = handler(self.server.name, kind)
         if inspect.isawaitable(response):
             await response
 
@@ -328,6 +348,23 @@ def _mcp_elicitation_result(response: Any) -> Any:
         action=action,
         content=dict(content) if content is not None else None,
     )
+
+
+def _list_changed_kind(root: Any, types: Any) -> str:
+    if isinstance(root, types.ToolListChangedNotification):
+        return "tools"
+    if isinstance(root, types.PromptListChangedNotification):
+        return "prompts"
+    if isinstance(root, types.ResourceListChangedNotification):
+        return "resources"
+    method = str(getattr(root, "method", "") or "")
+    if method == "notifications/tools/list_changed":
+        return "tools"
+    if method == "notifications/prompts/list_changed":
+        return "prompts"
+    if method == "notifications/resources/list_changed":
+        return "resources"
+    return ""
 
 
 class MCPStdioClient(_MCPSessionClient):

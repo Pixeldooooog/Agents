@@ -40,6 +40,7 @@ class ToolRuntimeContext:
     mcp_auth_store: Any | None = None
     mcp_elicitation_handler: Any | None = None
     mcp_elicitation_completions: list[dict[str, str]] = field(default_factory=list)
+    mcp_list_changed_notifications: list[dict[str, Any]] = field(default_factory=list)
     sdk_mcp_handlers: dict[str, Any] = field(default_factory=dict)
     mcp_oauth_flows: dict[str, Any] = field(default_factory=dict)
     mcp_oauth_waiters: dict[str, Any] = field(default_factory=dict)
