@@ -7,6 +7,7 @@ from typing import Any
 
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.tools.registry import ToolRegistry
+from agents.kernel.mcp_auth import mcp_authorization_headers_for_scope
 from agents.kernel.mcp_config import server_record_for_scope
 
 
@@ -222,6 +223,9 @@ async def mcp_reload(context: ToolRuntimeContext, registry: Any) -> dict[str, An
     mcp_elicitation_handler = getattr(context, "mcp_elicitation_handler", None)
     if mcp_elicitation_handler is not None:
         load_kwargs["elicitation_handler"] = mcp_elicitation_handler
+    auth_headers = await _mcp_auth_headers(context, records)
+    if auth_headers:
+        load_kwargs["auth_headers"] = auth_headers
     providers = await load_configured_mcp(_settings(context), staging_registry, **load_kwargs)
     definitions = _loaded_mcp_definitions(staging_registry)
 
@@ -471,6 +475,29 @@ async def _mcp_records(context: ToolRuntimeContext) -> list[Any]:
     workspace = context.workspace
     return await store.list_for_scope(
         workspace.tenant_id,
+        user_id=workspace.user_id,
+        agent_id=workspace.agent_id,
+        workspace_id=workspace.workspace_id,
+    )
+
+
+async def _mcp_auth_headers(context: ToolRuntimeContext, records: list[Any]) -> dict[str, str]:
+    store = getattr(context, "mcp_auth_store", None)
+    if store is None:
+        return {}
+    workspace = context.workspace
+    names = [str(getattr(record, "name", "") or "") for record in records if bool(getattr(record, "enabled", True))]
+    if not names:
+        settings = _mcp_settings(context)
+        command = str(getattr(settings, "SERVER_COMMAND", "") or "").strip()
+        transport = str(getattr(settings, "SERVER_TRANSPORT", "stdio") or "stdio")
+        url = str(getattr(settings, "SERVER_URL", "") or "").strip()
+        if (transport == "stdio" and command) or (transport != "stdio" and url):
+            names = [str(getattr(settings, "SERVER_NAME", "") or "default")]
+    return await mcp_authorization_headers_for_scope(
+        store,
+        names=names,
+        tenant_id=workspace.tenant_id,
         user_id=workspace.user_id,
         agent_id=workspace.agent_id,
         workspace_id=workspace.workspace_id,

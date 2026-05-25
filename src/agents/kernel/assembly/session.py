@@ -19,6 +19,7 @@ from agents.kernel.context.sources import build_context_pack
 from agents.kernel.specs import AgentSpec
 from agents.kernel.hooks import AgentHooks, CompositeHooks, SessionStateHooks, hooks_from_settings
 from agents.kernel.capabilities import load_configured_mcp, load_configured_skills, resolve_active_tools
+from agents.kernel.mcp_auth import mcp_authorization_headers_for_scope
 from agents.kernel.models import ModelClient
 from agents.kernel.runtime import AgentRuntime, AgentSession
 from agents.kernel.runtime.checkpoints import CheckpointStore
@@ -39,6 +40,7 @@ async def create_agent_session_async(
     team_store: Optional[Any] = None,
     hook_store: Optional[Any] = None,
     mcp_config_store: Optional[Any] = None,
+    mcp_auth_store: Optional[Any] = None,
     mcp_elicitation_handler: Optional[Any] = None,
     sdk_mcp_handlers: Optional[dict[str, Any]] = None,
     session_state_store: Optional[Any] = None,
@@ -76,6 +78,7 @@ async def create_agent_session_async(
         team_store=team_store,
         hook_store=hook_store,
         mcp_config_store=mcp_config_store,
+        mcp_auth_store=mcp_auth_store,
         mcp_elicitation_handler=mcp_elicitation_handler,
         sdk_mcp_handlers=sdk_mcp_handlers,
         session_state_store=session_state_store,
@@ -90,6 +93,7 @@ async def create_agent_session_async(
             team_store=team_store,
             hook_store=hook_store,
             mcp_config_store=mcp_config_store,
+            mcp_auth_store=mcp_auth_store,
             mcp_elicitation_handler=mcp_elicitation_handler,
             sdk_mcp_handlers=sdk_mcp_handlers,
             session_state_store=session_state_store,
@@ -109,6 +113,7 @@ async def create_agent_session_async(
     builtin_tools = register_builtin_tools(registry, tool_context, web_provider=web_provider)
     mcp_records = await _mcp_config_records(tool_context)
     await _hydrate_mcp_config(tool_context, records=mcp_records)
+    mcp_auth_headers = await _mcp_auth_headers(tool_context, records=mcp_records)
     mcp_load_kwargs: dict[str, Any] = {
         "roots": [str(workspace.path)],
         "records": mcp_records if mcp_records else None,
@@ -117,6 +122,8 @@ async def create_agent_session_async(
         mcp_load_kwargs["sdk_mcp_handlers"] = sdk_mcp_handlers
     if mcp_elicitation_handler is not None:
         mcp_load_kwargs["elicitation_handler"] = mcp_elicitation_handler
+    if mcp_auth_headers:
+        mcp_load_kwargs["auth_headers"] = mcp_auth_headers
     tool_context.mcp_providers = await load_configured_mcp(settings, registry, **mcp_load_kwargs)
 
     await _hydrate_session_state(tool_context)
@@ -192,6 +199,7 @@ def create_agent_session(
     team_store: Optional[Any] = None,
     hook_store: Optional[Any] = None,
     mcp_config_store: Optional[Any] = None,
+    mcp_auth_store: Optional[Any] = None,
     mcp_elicitation_handler: Optional[Any] = None,
     sdk_mcp_handlers: Optional[dict[str, Any]] = None,
     session_state_store: Optional[Any] = None,
@@ -218,6 +226,7 @@ def create_agent_session(
                 team_store=team_store,
                 hook_store=hook_store,
                 mcp_config_store=mcp_config_store,
+                mcp_auth_store=mcp_auth_store,
                 mcp_elicitation_handler=mcp_elicitation_handler,
                 sdk_mcp_handlers=sdk_mcp_handlers,
                 session_state_store=session_state_store,
@@ -548,6 +557,38 @@ async def _hydrate_mcp_config(tool_context: ToolRuntimeContext, records: list[An
     mcp.AUTH_MESSAGE = active.auth_message
 
 
+async def _mcp_auth_headers(tool_context: ToolRuntimeContext, records: list[Any] | None = None) -> dict[str, str]:
+    store = getattr(tool_context, "mcp_auth_store", None)
+    if store is None:
+        return {}
+    workspace = tool_context.workspace
+    names = _mcp_auth_names(tool_context.settings, records)
+    return await mcp_authorization_headers_for_scope(
+        store,
+        names=names,
+        tenant_id=workspace.tenant_id,
+        user_id=workspace.user_id,
+        agent_id=workspace.agent_id,
+        workspace_id=workspace.workspace_id,
+    )
+
+
+def _mcp_auth_names(settings: Any, records: list[Any] | None) -> list[str]:
+    if records:
+        return [str(getattr(record, "name", "") or "") for record in records if bool(getattr(record, "enabled", True))]
+    mcp = getattr(settings, "mcp", None)
+    if mcp is None:
+        return []
+    command = str(getattr(mcp, "SERVER_COMMAND", "") or "").strip()
+    transport = str(getattr(mcp, "SERVER_TRANSPORT", "stdio") or "stdio")
+    url = str(getattr(mcp, "SERVER_URL", "") or "").strip()
+    if transport == "stdio" and not command:
+        return []
+    if transport != "stdio" and not url:
+        return []
+    return [str(getattr(mcp, "SERVER_NAME", "") or "default")]
+
+
 async def _hydrate_session_state(tool_context: ToolRuntimeContext) -> None:
     store = getattr(tool_context, "session_state_store", None)
     if store is None:
@@ -613,6 +654,7 @@ def _subagent_session_factory(
     team_store: Optional[Any],
     hook_store: Optional[Any],
     mcp_config_store: Optional[Any],
+    mcp_auth_store: Optional[Any],
     mcp_elicitation_handler: Optional[Any],
     sdk_mcp_handlers: Optional[dict[str, Any]],
     session_state_store: Optional[Any],
@@ -635,6 +677,7 @@ def _subagent_session_factory(
             team_store=team_store,
             hook_store=hook_store,
             mcp_config_store=mcp_config_store,
+            mcp_auth_store=mcp_auth_store,
             mcp_elicitation_handler=mcp_elicitation_handler,
             sdk_mcp_handlers=sdk_mcp_handlers,
             session_state_store=session_state_store,

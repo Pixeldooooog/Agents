@@ -362,6 +362,25 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
 CREATE INDEX IF NOT EXISTS idx_mcp_servers_scope
 ON mcp_servers(tenant_id, user_id, agent_id, workspace_id, updated_at);
 
+CREATE TABLE IF NOT EXISTS mcp_auth_tokens (
+    name TEXT NOT NULL,
+    access_token TEXT NOT NULL,
+    token_type TEXT NOT NULL DEFAULT 'Bearer',
+    refresh_token TEXT NOT NULL DEFAULT '',
+    expires_at REAL NOT NULL DEFAULT 0,
+    scopes_json TEXT NOT NULL DEFAULT '[]',
+    tenant_id TEXT NOT NULL DEFAULT '',
+    user_id TEXT NOT NULL DEFAULT '',
+    agent_id TEXT NOT NULL DEFAULT '',
+    workspace_id TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    PRIMARY KEY(tenant_id, user_id, agent_id, workspace_id, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_mcp_auth_tokens_scope
+ON mcp_auth_tokens(tenant_id, user_id, agent_id, workspace_id, updated_at);
+
 CREATE TABLE IF NOT EXISTS session_states (
     tenant_id TEXT NOT NULL DEFAULT '',
     user_id TEXT NOT NULL DEFAULT '',

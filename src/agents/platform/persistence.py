@@ -7,6 +7,7 @@ from agents.kernel.capabilities.sandbox import SandboxStore
 from agents.kernel.governance.audit import ApprovalAuditStore
 from agents.kernel.capabilities.memory import MemoryStore
 from agents.kernel.hooks import HookStore
+from agents.kernel.mcp_auth import MCPAuthTokenStore
 from agents.kernel.mcp_config import MCPConfigStore
 from agents.kernel.runtime import CheckpointStore
 from agents.kernel.governance import CredentialRefStore
@@ -32,6 +33,7 @@ from agents.platform.sessions import (
     create_credential_ref_store,
     create_hook_store,
     create_identity_store,
+    create_mcp_auth_token_store,
     create_mcp_config_store,
     create_memory_store,
     create_run_store,
@@ -60,6 +62,7 @@ class PlatformPersistence:
     memories: MemoryStore
     hooks: HookStore
     mcp_configs: MCPConfigStore
+    mcp_auth_tokens: MCPAuthTokenStore
     session_states: SessionStateStore
     credentials: CredentialRefStore
     tasks: TaskStore
@@ -106,6 +109,7 @@ def _create_persistence(
         memories=create_memory_store(settings, store_kind=store_kind),
         hooks=create_hook_store(settings, store_kind=store_kind),
         mcp_configs=create_mcp_config_store(settings, store_kind=store_kind),
+        mcp_auth_tokens=create_mcp_auth_token_store(settings, store_kind=store_kind),
         session_states=create_session_state_store(settings, store_kind=store_kind),
         credentials=create_credential_ref_store(settings, store_kind=store_kind),
         tasks=create_task_store(settings, store_kind=store_kind),

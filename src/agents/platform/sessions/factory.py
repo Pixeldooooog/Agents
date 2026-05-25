@@ -11,6 +11,7 @@ from agents.kernel.governance.audit import (
 )
 from agents.kernel.hooks import HookStore, InMemoryHookStore, SQLiteHookStore
 from agents.kernel.capabilities.memory import InMemoryMemoryStore, MemoryStore, SQLiteMemoryStore
+from agents.kernel.mcp_auth import InMemoryMCPAuthTokenStore, MCPAuthTokenStore, SQLiteMCPAuthTokenStore
 from agents.kernel.mcp_config import InMemoryMCPConfigStore, MCPConfigStore, SQLiteMCPConfigStore
 from agents.kernel.persistence import SQLiteDatabase, resolve_database_path
 from agents.kernel.runtime import CheckpointStore, InMemoryCheckpointStore, SQLiteCheckpointStore
@@ -139,6 +140,12 @@ def create_mcp_config_store(settings: Any, store_kind: str | None = None) -> MCP
     if _uses_sqlite(settings, store_kind):
         return SQLiteMCPConfigStore(_sqlite_database(settings))
     return InMemoryMCPConfigStore()
+
+
+def create_mcp_auth_token_store(settings: Any, store_kind: str | None = None) -> MCPAuthTokenStore:
+    if _uses_sqlite(settings, store_kind):
+        return SQLiteMCPAuthTokenStore(_sqlite_database(settings))
+    return InMemoryMCPAuthTokenStore()
 
 
 def create_session_state_store(settings: Any, store_kind: str | None = None) -> SessionStateStore:

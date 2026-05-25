@@ -15,6 +15,7 @@ from agents.kernel.assembly import create_agent_session, create_agent_session_as
 from agents.kernel.capabilities.memory import InMemoryMemoryStore, MemoryRecord, MemoryScope
 from agents.kernel.capabilities.tools.mcp import MCPServerConfig, MCPToolProvider
 from agents.kernel.config import AgentConfigError, resolve_model_client_config
+from agents.kernel.mcp_auth import InMemoryMCPAuthTokenStore, MCPAuthTokenRecord
 from agents.kernel.mcp_config import InMemoryMCPConfigStore, MCPServerRecord
 from agents.kernel.session_state import InMemorySessionStateStore, SessionStateRecord
 from agents.kernel.specs import AgentSpec
@@ -569,6 +570,58 @@ def test_create_session_passes_mcp_elicitation_handler_to_loader(tmp_path, monke
 
     assert captured["elicitation_handler"] is elicitation_handler
     assert session.tool_context.mcp_elicitation_handler is elicitation_handler
+
+
+def test_create_session_loads_cached_mcp_auth_headers(tmp_path, monkeypatch):
+    monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
+    captured = {}
+
+    async def fake_load_mcp(settings, registry, roots=None, records=None, auth_headers=None):
+        captured["auth_headers"] = dict(auth_headers or {})
+        return []
+
+    monkeypatch.setattr("agents.kernel.assembly.session.load_configured_mcp", fake_load_mcp)
+    settings = FakeSettings()
+    settings.server.ROOT_PATH = tmp_path
+    settings.models.openai.API_KEY = "key"
+    settings.models.openai.MODEL = "model"
+    config_store = InMemoryMCPConfigStore()
+    auth_store = InMemoryMCPAuthTokenStore()
+
+    async def create():
+        await config_store.save(
+            MCPServerRecord(
+                name="docs",
+                command="",
+                transport="http",
+                url="https://mcp.example.test",
+                tenant_id="default",
+                user_id="user-1",
+                agent_id="agent-1",
+                workspace_id="default",
+            )
+        )
+        await auth_store.save(
+            MCPAuthTokenRecord(
+                name="docs",
+                access_token="cached",
+                tenant_id="default",
+                user_id="user-1",
+                agent_id="agent-1",
+                workspace_id="default",
+            )
+        )
+        return await create_agent_session_async(
+            settings,
+            AgentSpec.from_overrides(user_id="user 1", agent_id="agent 1"),
+            mcp_config_store=config_store,
+            mcp_auth_store=auth_store,
+        )
+
+    session = asyncio.run(create())
+
+    assert captured["auth_headers"] == {"docs": "Bearer cached"}
+    assert session.tool_context.mcp_auth_store is auth_store
 
 
 def test_agent_session_close_closes_mcp_providers(tmp_path, monkeypatch):

@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from agents.kernel.mcp_auth import merge_cached_authorization_header
 from agents.kernel.capabilities.tools.mcp import (
     MCPElicitationHandler,
     MCPSSEClient,
@@ -48,6 +49,7 @@ async def load_configured_mcp(
     roots: list[str] | None = None,
     elicitation_handler: MCPElicitationHandler | None = None,
     sdk_mcp_handlers: Mapping[str, Any] | None = None,
+    auth_headers: Mapping[str, str] | None = None,
     records: list[Any] | None = None,
 ) -> list[MCPToolProvider]:
     roots = _normalize_roots(roots)
@@ -57,6 +59,7 @@ async def load_configured_mcp(
         roots=roots,
         elicitation_handler=elicitation_handler,
         sdk_mcp_handlers=sdk_mcp_handlers,
+        auth_headers=auth_headers,
     )
     if records is None:
         settings_server = _server_from_settings(
@@ -64,6 +67,7 @@ async def load_configured_mcp(
             roots=roots,
             elicitation_handler=elicitation_handler,
             sdk_mcp_handlers=sdk_mcp_handlers,
+            auth_headers=auth_headers,
         )
         servers = [settings_server] if settings_server is not None else []
 
@@ -81,6 +85,7 @@ def _server_from_settings(
     roots: list[str],
     elicitation_handler: MCPElicitationHandler | None,
     sdk_mcp_handlers: Mapping[str, Any] | None,
+    auth_headers: Mapping[str, str] | None,
 ) -> MCPServerConfig | None:
     command = str(settings.mcp.SERVER_COMMAND or "").strip()
     transport = str(getattr(settings.mcp, "SERVER_TRANSPORT", "stdio") or "stdio")
@@ -91,11 +96,12 @@ def _server_from_settings(
     if transport not in {"stdio", "sdk"} and not url:
         return None
     command_parts = shlex.split(command) if command else []
+    name = settings.mcp.SERVER_NAME or "default"
     return MCPServerConfig(
-        name=settings.mcp.SERVER_NAME or "default",
+        name=name,
         command=command_parts[0] if command_parts else "",
         args=command_parts[1:],
-        headers=_headers_from_settings(settings.mcp),
+        headers=_server_headers(_headers_from_settings(settings.mcp), name, auth_headers),
         timeout_seconds=getattr(settings.mcp, "CLIENT_TIMEOUT", 30.0),
         sse_read_timeout_seconds=getattr(settings.mcp, "SSE_READ_TIMEOUT", 300.0),
         transport=transport,
@@ -119,6 +125,7 @@ def _servers_from_records(
     roots: list[str],
     elicitation_handler: MCPElicitationHandler | None,
     sdk_mcp_handlers: Mapping[str, Any] | None,
+    auth_headers: Mapping[str, str] | None,
 ) -> list[MCPServerConfig]:
     if records is None:
         return []
@@ -129,6 +136,7 @@ def _servers_from_records(
             roots=roots,
             elicitation_handler=elicitation_handler,
             sdk_mcp_handlers=sdk_mcp_handlers,
+            auth_headers=auth_headers,
         )
         for record in records
         if bool(getattr(record, "enabled", True))
@@ -142,14 +150,20 @@ def _server_from_record(
     roots: list[str],
     elicitation_handler: MCPElicitationHandler | None,
     sdk_mcp_handlers: Mapping[str, Any] | None,
+    auth_headers: Mapping[str, str] | None,
 ) -> MCPServerConfig:
     command = str(getattr(record, "command", "") or "").strip()
     command_parts = shlex.split(command) if command else []
+    name = str(getattr(record, "name", "") or "default")
     return MCPServerConfig(
-        name=str(getattr(record, "name", "") or "default"),
+        name=name,
         command=command_parts[0] if command_parts else "",
         args=command_parts[1:],
-        headers={str(key): str(value) for key, value in dict(getattr(record, "headers", {}) or {}).items()},
+        headers=_server_headers(
+            {str(key): str(value) for key, value in dict(getattr(record, "headers", {}) or {}).items()},
+            name,
+            auth_headers,
+        ),
         timeout_seconds=getattr(settings.mcp, "CLIENT_TIMEOUT", 30.0),
         sse_read_timeout_seconds=getattr(settings.mcp, "SSE_READ_TIMEOUT", 300.0),
         transport=str(getattr(record, "transport", "stdio") or "stdio"),
@@ -191,6 +205,13 @@ def _sdk_handler_for(name: str, handlers: Mapping[str, Any] | None) -> Any | Non
     if not handlers:
         return None
     return handlers.get(str(name or "").strip())
+
+
+def _server_headers(headers: dict[str, str], name: str, auth_headers: Mapping[str, str] | None) -> dict[str, str]:
+    authorization = ""
+    if auth_headers:
+        authorization = str(auth_headers.get(str(name or "").strip()) or "")
+    return merge_cached_authorization_header(headers, authorization)
 
 
 def _normalize_roots(roots: list[str] | None) -> list[str]:
