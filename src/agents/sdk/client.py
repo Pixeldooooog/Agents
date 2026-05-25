@@ -341,6 +341,7 @@ class AgentSDKClient:
             team_store=self.persistence.teams,
             hook_store=self.persistence.hooks,
             mcp_config_store=self.persistence.mcp_configs,
+            sdk_mcp_handlers=self.sdk_mcp_handlers,
             session_state_store=self.persistence.session_states,
             sandbox_store=self.persistence.sandboxes,
             artifact_store=self.persistence.artifacts,

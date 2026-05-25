@@ -20,7 +20,7 @@ MCP_CONFIGURE_SCHEMA = {
     "properties": {
         "name": {"type": "string", "description": "MCP server name."},
         "command": {"type": "string", "description": "Local MCP stdio server command line."},
-        "transport": {"type": "string", "enum": ["stdio", "sse", "http", "ws", "claudeai-proxy"], "description": "MCP transport type."},
+        "transport": {"type": "string", "enum": ["stdio", "sse", "http", "ws", "sdk", "claudeai-proxy"], "description": "MCP transport type."},
         "url": {"type": "string", "description": "Remote MCP server URL for HTTP/SSE/WebSocket transports."},
         "headers": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Optional headers for HTTP/SSE/WebSocket MCP transports."},
         "execution_mode": {"type": "string", "description": "MCP execution mode, defaults to trusted_control_plane."},
@@ -212,12 +212,14 @@ async def mcp_reload(context: ToolRuntimeContext, registry: Any) -> dict[str, An
     previous_names = [_provider_name(provider) for provider in previous_providers]
     records = await _mcp_records(context)
     staging_registry = ToolRegistry()
-    providers = await load_configured_mcp(
-        _settings(context),
-        staging_registry,
-        roots=[str(context.workspace.path)],
-        records=records if records else None,
-    )
+    load_kwargs: dict[str, Any] = {
+        "roots": [str(context.workspace.path)],
+        "records": records if records else None,
+    }
+    sdk_mcp_handlers = getattr(context, "sdk_mcp_handlers", None)
+    if sdk_mcp_handlers:
+        load_kwargs["sdk_mcp_handlers"] = sdk_mcp_handlers
+    providers = await load_configured_mcp(_settings(context), staging_registry, **load_kwargs)
     definitions = _loaded_mcp_definitions(staging_registry)
 
     try:
@@ -371,7 +373,7 @@ def _merge_unique(*groups: list[str]) -> list[str]:
 
 def _transport(value: str) -> str:
     transport = str(value or "stdio").strip() or "stdio"
-    if transport not in {"stdio", "sse", "http", "ws", "claudeai-proxy"}:
+    if transport not in {"stdio", "sse", "http", "ws", "sdk", "claudeai-proxy"}:
         raise ValueError("unsupported MCP transport: %s" % transport)
     return transport
 

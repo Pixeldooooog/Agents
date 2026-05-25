@@ -746,3 +746,75 @@ def test_async_create_session_can_run_inside_event_loop(tmp_path, monkeypatch):
 
     assert session.runtime.protocol == "openai-chat"
     assert session.workspace.path.exists()
+
+
+def test_async_create_session_loads_sdk_mcp_tools(tmp_path, monkeypatch):
+    monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
+    settings = FakeSettings()
+    settings.server.ROOT_PATH = tmp_path
+    settings.models.openai.API_KEY = "key"
+    settings.models.openai.MODEL = "model"
+    store = InMemoryMCPConfigStore()
+
+    async def sdk_mcp_handler(message):
+        method = message.get("method")
+        if method == "initialize":
+            return {
+                "jsonrpc": "2.0",
+                "id": message["id"],
+                "result": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "sdk-tools", "version": "1.0.0"},
+                },
+            }
+        if method == "notifications/initialized":
+            return None
+        if method == "tools/list":
+            return {
+                "jsonrpc": "2.0",
+                "id": message["id"],
+                "result": {
+                    "tools": [
+                        {
+                            "name": "search",
+                            "description": "Search SDK tools",
+                            "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}}},
+                        }
+                    ]
+                },
+            }
+        if method == "tools/call":
+            arguments = dict(message.get("params", {}).get("arguments", {}) or {})
+            return {
+                "jsonrpc": "2.0",
+                "id": message["id"],
+                "result": {"content": [{"type": "text", "text": "sdk:%s" % arguments.get("query", "")}]},
+            }
+        raise AssertionError("unexpected SDK MCP method: %s" % method)
+
+    async def create_and_call():
+        await store.save(
+            MCPServerRecord(
+                name="sdk-tools",
+                command="",
+                transport="sdk",
+                enabled=True,
+                tenant_id="local",
+            )
+        )
+        session = await create_agent_session_async(
+            settings,
+            AgentSpec.from_overrides(workspace_path=str(tmp_path)),
+            mcp_config_store=store,
+            sdk_mcp_handlers={"sdk-tools": sdk_mcp_handler},
+        )
+        result = await session.runtime.tools.execute("mcp__sdk-tools__search", {"query": "agents"})
+        await session.aclose()
+        return session, result
+
+    session, result = asyncio.run(create_and_call())
+
+    assert "mcp__sdk-tools__search" in session.runtime.tools.names()
+    assert "mcp__sdk-tools__search" in session.runtime.config.enabled_tools
+    assert result.content == "sdk:agents"

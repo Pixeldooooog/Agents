@@ -39,6 +39,7 @@ async def create_agent_session_async(
     team_store: Optional[Any] = None,
     hook_store: Optional[Any] = None,
     mcp_config_store: Optional[Any] = None,
+    sdk_mcp_handlers: Optional[dict[str, Any]] = None,
     session_state_store: Optional[Any] = None,
     sandbox_store: Optional[SandboxStore] = None,
     artifact_store: Optional[ArtifactStore] = None,
@@ -74,6 +75,7 @@ async def create_agent_session_async(
         team_store=team_store,
         hook_store=hook_store,
         mcp_config_store=mcp_config_store,
+        sdk_mcp_handlers=sdk_mcp_handlers,
         session_state_store=session_state_store,
         skill_registry=skill_registry,
         agent_spec=resolved_spec,
@@ -86,6 +88,7 @@ async def create_agent_session_async(
             team_store=team_store,
             hook_store=hook_store,
             mcp_config_store=mcp_config_store,
+            sdk_mcp_handlers=sdk_mcp_handlers,
             session_state_store=session_state_store,
             sandbox_store=sandbox_store,
             artifact_store=artifact_store,
@@ -103,12 +106,13 @@ async def create_agent_session_async(
     builtin_tools = register_builtin_tools(registry, tool_context, web_provider=web_provider)
     mcp_records = await _mcp_config_records(tool_context)
     await _hydrate_mcp_config(tool_context, records=mcp_records)
-    tool_context.mcp_providers = await load_configured_mcp(
-        settings,
-        registry,
-        roots=[str(workspace.path)],
-        records=mcp_records if mcp_records else None,
-    )
+    mcp_load_kwargs: dict[str, Any] = {
+        "roots": [str(workspace.path)],
+        "records": mcp_records if mcp_records else None,
+    }
+    if sdk_mcp_handlers:
+        mcp_load_kwargs["sdk_mcp_handlers"] = sdk_mcp_handlers
+    tool_context.mcp_providers = await load_configured_mcp(settings, registry, **mcp_load_kwargs)
 
     await _hydrate_session_state(tool_context)
     skill_registry = _skill_registry_with_session_state(settings, skill_registry, tool_context)
@@ -117,6 +121,7 @@ async def create_agent_session_async(
     tool_context.agent_spec = effective_spec
     active_tools = _merge_unique(
         _resolve_active_tools(settings, skill_registry, effective_spec.enabled_tools, builtin_tools),
+        _loaded_mcp_canonical_tools(registry),
         _managed_extension_tools(tool_context),
         _plugin_enabled_tools(settings, tool_context),
     )
@@ -182,6 +187,7 @@ def create_agent_session(
     team_store: Optional[Any] = None,
     hook_store: Optional[Any] = None,
     mcp_config_store: Optional[Any] = None,
+    sdk_mcp_handlers: Optional[dict[str, Any]] = None,
     session_state_store: Optional[Any] = None,
     sandbox_store: Optional[SandboxStore] = None,
     artifact_store: Optional[ArtifactStore] = None,
@@ -206,6 +212,7 @@ def create_agent_session(
                 team_store=team_store,
                 hook_store=hook_store,
                 mcp_config_store=mcp_config_store,
+                sdk_mcp_handlers=sdk_mcp_handlers,
                 session_state_store=session_state_store,
                 sandbox_store=sandbox_store,
                 artifact_store=artifact_store,
@@ -276,6 +283,18 @@ def _managed_extension_tools(tool_context: ToolRuntimeContext) -> list[str]:
         mapping = dict(getattr(tool_context, mapping_name, {}) or {})
         groups.extend([list(tools or []) for tools in mapping.values()])
     return _merge_unique(*groups)
+
+
+def _loaded_mcp_canonical_tools(registry: ToolRegistry) -> list[str]:
+    names: list[str] = []
+    definitions = registry.definitions_matching(
+        lambda definition: isinstance(definition.metadata.get("mcp_info"), dict)
+    )
+    for definition in definitions:
+        name = str(definition.name or "")
+        if name.startswith("mcp__"):
+            names.append(name)
+    return names
 
 
 def _plugin_enabled_tools(settings: Any, tool_context: ToolRuntimeContext) -> list[str]:
@@ -587,6 +606,7 @@ def _subagent_session_factory(
     team_store: Optional[Any],
     hook_store: Optional[Any],
     mcp_config_store: Optional[Any],
+    sdk_mcp_handlers: Optional[dict[str, Any]],
     session_state_store: Optional[Any],
     sandbox_store: Optional[SandboxStore],
     artifact_store: Optional[ArtifactStore],
@@ -607,6 +627,7 @@ def _subagent_session_factory(
             team_store=team_store,
             hook_store=hook_store,
             mcp_config_store=mcp_config_store,
+            sdk_mcp_handlers=sdk_mcp_handlers,
             session_state_store=session_state_store,
             sandbox_store=sandbox_store,
             artifact_store=artifact_store,

@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 import shlex
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from agents.kernel.capabilities.tools.mcp import (
     MCPElicitationHandler,
     MCPSSEClient,
+    MCPSDKControlClient,
     MCPServerConfig,
     MCPStdioClient,
     MCPStreamableHTTPClient,
@@ -45,6 +47,7 @@ async def load_configured_mcp(
     registry: ToolRegistry,
     roots: list[str] | None = None,
     elicitation_handler: MCPElicitationHandler | None = None,
+    sdk_mcp_handlers: Mapping[str, Any] | None = None,
     records: list[Any] | None = None,
 ) -> list[MCPToolProvider]:
     roots = _normalize_roots(roots)
@@ -53,12 +56,14 @@ async def load_configured_mcp(
         records,
         roots=roots,
         elicitation_handler=elicitation_handler,
+        sdk_mcp_handlers=sdk_mcp_handlers,
     )
     if records is None:
         settings_server = _server_from_settings(
             settings,
             roots=roots,
             elicitation_handler=elicitation_handler,
+            sdk_mcp_handlers=sdk_mcp_handlers,
         )
         servers = [settings_server] if settings_server is not None else []
 
@@ -75,6 +80,7 @@ def _server_from_settings(
     *,
     roots: list[str],
     elicitation_handler: MCPElicitationHandler | None,
+    sdk_mcp_handlers: Mapping[str, Any] | None,
 ) -> MCPServerConfig | None:
     command = str(settings.mcp.SERVER_COMMAND or "").strip()
     transport = str(getattr(settings.mcp, "SERVER_TRANSPORT", "stdio") or "stdio")
@@ -82,7 +88,7 @@ def _server_from_settings(
     auth_required = bool(getattr(settings.mcp, "AUTH_REQUIRED", False))
     if transport == "stdio" and not command:
         return None
-    if transport != "stdio" and not url:
+    if transport not in {"stdio", "sdk"} and not url:
         return None
     command_parts = shlex.split(command) if command else []
     return MCPServerConfig(
@@ -102,6 +108,7 @@ def _server_from_settings(
         auth_message=getattr(settings.mcp, "AUTH_MESSAGE", "") or "",
         roots=roots,
         elicitation_handler=elicitation_handler,
+        sdk_message_handler=_sdk_handler_for(settings.mcp.SERVER_NAME or "default", sdk_mcp_handlers),
     )
 
 
@@ -111,6 +118,7 @@ def _servers_from_records(
     *,
     roots: list[str],
     elicitation_handler: MCPElicitationHandler | None,
+    sdk_mcp_handlers: Mapping[str, Any] | None,
 ) -> list[MCPServerConfig]:
     if records is None:
         return []
@@ -120,6 +128,7 @@ def _servers_from_records(
             record,
             roots=roots,
             elicitation_handler=elicitation_handler,
+            sdk_mcp_handlers=sdk_mcp_handlers,
         )
         for record in records
         if bool(getattr(record, "enabled", True))
@@ -132,6 +141,7 @@ def _server_from_record(
     *,
     roots: list[str],
     elicitation_handler: MCPElicitationHandler | None,
+    sdk_mcp_handlers: Mapping[str, Any] | None,
 ) -> MCPServerConfig:
     command = str(getattr(record, "command", "") or "").strip()
     command_parts = shlex.split(command) if command else []
@@ -152,6 +162,7 @@ def _server_from_record(
         auth_message=str(getattr(record, "auth_message", "") or ""),
         roots=roots,
         elicitation_handler=elicitation_handler,
+        sdk_message_handler=_sdk_handler_for(str(getattr(record, "name", "") or "default"), sdk_mcp_handlers),
     )
 
 
@@ -165,11 +176,21 @@ def _client_for_server(server: MCPServerConfig) -> Any:
         client = MCPSSEClient(server)
     elif transport == "ws":
         client = MCPWebSocketClient(server)
+    elif transport == "sdk":
+        if server.sdk_message_handler is None:
+            raise RuntimeError("MCP sdk transport requires a registered SDK MCP handler: %s" % server.name)
+        client = MCPSDKControlClient(server)
     else:
         client = _UnavailableMCPClient()
         if not server.auth_required:
             raise RuntimeError("MCP %s transport is not implemented yet" % transport)
     return client
+
+
+def _sdk_handler_for(name: str, handlers: Mapping[str, Any] | None) -> Any | None:
+    if not handlers:
+        return None
+    return handlers.get(str(name or "").strip())
 
 
 def _normalize_roots(roots: list[str] | None) -> list[str]:

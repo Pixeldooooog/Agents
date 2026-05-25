@@ -17,7 +17,7 @@ import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol
+from typing import Any, Callable, Dict, List, Optional, Protocol
 
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 
@@ -28,6 +28,9 @@ _MCP_UNSAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9_-]")
 class MCPElicitationHandler(Protocol):
     def __call__(self, server_name: str, params: Any) -> Any:
         raise NotImplementedError()
+
+
+MCPSDKMessageHandler = Callable[[dict[str, Any]], Any]
 
 
 @dataclass(frozen=True)
@@ -49,6 +52,7 @@ class MCPServerConfig:
     auth_message: str = ""
     roots: List[str] = field(default_factory=list)
     elicitation_handler: MCPElicitationHandler | None = None
+    sdk_message_handler: MCPSDKMessageHandler | None = None
 
 
 @dataclass(frozen=True)
@@ -326,6 +330,16 @@ class MCPWebSocketClient(_MCPSessionClient):
         from mcp.client.websocket import websocket_client
 
         self._transport_context = websocket_client(self.server.url)
+        return await self._transport_context.__aenter__()
+
+
+class MCPSDKControlClient(_MCPSessionClient):
+    async def _open_transport(self) -> tuple[Any, Any]:
+        from agents.kernel.capabilities.tools.mcp_sdk import sdk_control_client
+
+        if self.server.sdk_message_handler is None:
+            raise RuntimeError("SDK MCP server is not registered: %s" % self.server.name)
+        self._transport_context = sdk_control_client(self.server.sdk_message_handler)
         return await self._transport_context.__aenter__()
 
 

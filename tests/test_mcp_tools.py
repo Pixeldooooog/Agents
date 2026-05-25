@@ -883,6 +883,87 @@ def test_load_configured_mcp_uses_websocket_transport(monkeypatch):
     assert created[0].called == [("search", {"query": "agents"})]
 
 
+def test_load_configured_mcp_uses_sdk_transport_handler():
+    messages = []
+
+    async def sdk_mcp_handler(message):
+        messages.append(message)
+        method = message.get("method")
+        if method == "initialize":
+            return {
+                "jsonrpc": "2.0",
+                "id": message["id"],
+                "result": {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "sdk-tools", "version": "1.0.0"},
+                },
+            }
+        if method == "notifications/initialized":
+            return None
+        if method == "tools/list":
+            return {
+                "jsonrpc": "2.0",
+                "id": message["id"],
+                "result": {
+                    "tools": [
+                        {
+                            "name": "search",
+                            "description": "Search SDK tools",
+                            "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}}},
+                        }
+                    ]
+                },
+            }
+        if method == "tools/call":
+            arguments = dict(message.get("params", {}).get("arguments", {}) or {})
+            return {
+                "jsonrpc": "2.0",
+                "id": message["id"],
+                "result": {"content": [{"type": "text", "text": "sdk:%s" % arguments.get("query", "")}]},
+            }
+        raise AssertionError("unexpected SDK MCP method: %s" % method)
+
+    registry = ToolRegistry()
+    settings = SimpleNamespace(
+        mcp=SimpleNamespace(
+            CLIENT_TIMEOUT=30.0,
+            SSE_READ_TIMEOUT=120.0,
+        )
+    )
+
+    async def execute():
+        providers = await load_configured_mcp(
+            settings,
+            registry,
+            records=[
+                MCPServerRecord(
+                    name="sdk-tools",
+                    command="",
+                    transport="sdk",
+                    enabled=True,
+                )
+            ],
+            sdk_mcp_handlers={"sdk-tools": sdk_mcp_handler},
+        )
+        result = await registry.execute("mcp__sdk-tools__search", {"query": "agents"})
+        for provider in providers:
+            await provider.close()
+        return providers, result
+
+    providers, result = asyncio.run(execute())
+
+    assert len(providers) == 1
+    assert providers[0].server.transport == "sdk"
+    assert result.content == "sdk:agents"
+    assert [message.get("method") for message in messages] == [
+        "initialize",
+        "notifications/initialized",
+        "tools/list",
+        "tools/call",
+    ]
+
+
 def test_mcp_websocket_client_opens_sdk_transport(monkeypatch):
     captured = {}
 
