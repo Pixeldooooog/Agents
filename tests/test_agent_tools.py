@@ -4690,11 +4690,18 @@ def test_builtin_permission_rules_match_bash_command_patterns(tmp_path: Path):
     npm = asyncio.run(registry.execute("permission.explain", {"tool": "shell.run", "arguments": {"command": "npm test"}}))
     echo = asyncio.run(registry.execute("permission.explain", {"tool": "shell.run", "arguments": {"command": "echo git status"}}))
     asyncio.run(registry.execute("permission.add_rule", {"behavior": "deny", "tool": "Bash(npm install:*)"}))
+    asyncio.run(registry.execute("permission.add_rule", {"behavior": "deny", "tool": "Bash(rm:*)"}))
     timeout_install = asyncio.run(
         registry.execute(
             "permission.explain",
             {"tool": "shell.run", "arguments": {"command": "timeout 10 npm install left-pad"}},
         )
+    )
+    xargs_rm = asyncio.run(
+        registry.execute("permission.explain", {"tool": "shell.run", "arguments": {"command": "printf x | xargs rm -f"}})
+    )
+    flagged_xargs_rm = asyncio.run(
+        registry.execute("permission.explain", {"tool": "shell.run", "arguments": {"command": "printf x | xargs -n1 rm -f"}})
     )
     asyncio.run(registry.execute("permission.add_rule", {"behavior": "ask", "tool": "Bash(npm publish:*)"}))
     wrapped_publish = asyncio.run(
@@ -4714,6 +4721,9 @@ def test_builtin_permission_rules_match_bash_command_patterns(tmp_path: Path):
     assert echo.raw["decision"]["allowed"] is True
     assert timeout_install.raw["decision"]["allowed"] is False
     assert timeout_install.raw["decision"]["metadata"]["matched_rule"] == "Bash(npm install:*)"
+    assert xargs_rm.raw["decision"]["allowed"] is False
+    assert xargs_rm.raw["decision"]["metadata"]["matched_rule"] == "Bash(rm:*)"
+    assert flagged_xargs_rm.raw["decision"]["allowed"] is True
     assert wrapped_publish.raw["decision"]["requires_approval"] is True
     assert wrapped_publish.raw["decision"]["metadata"]["matched_rule"] == "Bash(npm publish:*)"
     assert npm_ask.raw["decision"]["requires_approval"] is True

@@ -161,6 +161,7 @@ Agent/team alias 层覆盖 `Agent`、旧名 `Task`、`SendMessage`、`TeamCreate
 - `Bash(git *)` 会匹配 `git`、`git status` 和 `FOO=bar git status`，但不会匹配 `echo git status`。
 - `Bash(git:*)` 保留 legacy prefix 语义，匹配 bare `git` 和 `git ...`。
 - `timeout`、`time`、`nice`、`stdbuf`、`nohup` 等安全 wrapper 会在匹配前归一化，例如 `timeout 10 npm install foo` 会命中 `Bash(npm install:*)`。
+- bare `xargs <command>` 会参与 legacy prefix 匹配，例如 `xargs rm -f` 会命中 `Bash(rm:*)`；带 flag 的 `xargs -n1 rm` 暂不展开，避免过度推断。
 - 复合命令按 subcommand 匹配，例如 `npm test && git status` 会命中 `Bash(git *)`。
 - pre/post tool hooks 对复杂 shell 解析 fail-safe：无法可靠解析时会运行匹配到 `Bash(...)` 的 hook，避免安全 hook 被绕过。
 - `Read(src/**)`、`Write(secrets/**)`、`Edit(src/**)`、`NotebookEdit(notebooks/**)`、`LSP(src/**)` 兼容 `src-origin` 的路径 wildcard 规则，分别映射到 `filesystem.read`、`filesystem.write`、`patch.apply`、`notebook.edit`、`lsp.query`。非文件类 alias 也会从 `src-origin` 参数中抽取匹配目标，例如 `TaskUpdate(task-*)` 匹配 `taskId`，`CronDelete(nightly*)` 匹配 `id`，`Agent(research*)` 匹配 `subagent_type` / `description`，`SendMessage(teammate*)` 匹配 `to`，MCP/Web 规则匹配 `server` / `uri` / `url`。

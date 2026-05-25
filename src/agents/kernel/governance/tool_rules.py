@@ -227,7 +227,10 @@ def shell_subcommand_matches_rule(subcommand: str, pattern: str) -> bool:
     prefix = shell_rule_extract_prefix(pattern)
     command = str(subcommand or "").strip()
     if prefix is not None:
-        return command == prefix or command.startswith("%s " % prefix)
+        if command == prefix or command.startswith("%s " % prefix):
+            return True
+        xargs_prefix = "xargs %s" % prefix
+        return command == xargs_prefix or command.startswith("%s " % xargs_prefix)
     return match_wildcard_pattern(pattern, command)
 
 
