@@ -22,7 +22,7 @@ from agents.kernel.capabilities.tools.mcp import (
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.governance import SandboxPolicy, describe_tool_impact
-from agents.kernel.mcp_config import InMemoryMCPConfigStore
+from agents.kernel.mcp_config import InMemoryMCPConfigStore, MCPServerRecord
 from agents.kernel.schema import ToolCall
 
 
@@ -272,25 +272,106 @@ def test_builtin_mcp_management_tools_use_shared_config_store(tmp_path: Path):
         configured_search = await first.execute("mcp.configure", {"name": "search", "command": "python search.py"})
         listed = await second.execute("mcp.servers", {})
         disabled = await second.execute("mcp.disable", {"name": "search"})
+        after_disable = await second.execute("mcp.servers", {})
         enabled = await second.execute("mcp.enable", {"name": "docs"})
         removed = await second.execute("mcp.remove", {"name": "docs"})
         cleared = await second.execute("mcp.clear", {})
         after_clear = await make_registry().execute("mcp.servers", {})
-        return configured, configured_search, listed, disabled, enabled, removed, cleared, after_clear
+        return configured, configured_search, listed, disabled, after_disable, enabled, removed, cleared, after_clear
 
-    configured, configured_search, listed, disabled, enabled, removed, cleared, after_clear = asyncio.run(execute())
+    configured, configured_search, listed, disabled, after_disable, enabled, removed, cleared, after_clear = asyncio.run(execute())
 
     assert configured.raw["configured"]["name"] == "docs"
     assert configured_search.raw["configured"]["name"] == "search"
-    assert listed.raw["configured"]["command"] == "python search.py"
-    assert {record["name"]: record["enabled"] for record in listed.raw["servers"]} == {"search": True, "docs": False}
+    assert listed.raw["configured"]["command"] in {"python search.py", "python server.py"}
+    assert {record["name"]: record["enabled"] for record in listed.raw["servers"]} == {"search": True, "docs": True}
     assert disabled.raw["disabled"] == "search"
-    assert disabled.raw["configured"]["enabled"] is False
+    assert {record["name"]: record["enabled"] for record in after_disable.raw["servers"]} == {"search": False, "docs": True}
     assert enabled.raw["enabled"] == "docs"
     assert enabled.raw["configured"]["command"] == "python server.py"
     assert removed.raw["removed"] == "docs"
     assert cleared.raw["cleared"] is True
+    assert cleared.raw["configured"]["enabled"] is False
+    assert cleared.raw["removed_providers"] == 0
+    assert cleared.raw["configured"]["command"] == ""
+    assert cleared.raw["configured"]["name"] == ""
+    assert after_clear.raw["servers"] == []
     assert after_clear.raw["configured"]["enabled"] is False
+
+
+def test_builtin_mcp_management_prunes_matching_provider_for_multi_server_changes(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    store = InMemoryMCPConfigStore()
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+        settings=SimpleNamespace(
+            mcp=SimpleNamespace(
+                SERVER_NAME="docs",
+                SERVER_COMMAND="python docs.py",
+                SERVER_TRANSPORT="stdio",
+                SERVER_URL="",
+                SERVER_HEADERS={},
+                SERVER_HEADERS_JSON="",
+                EXECUTION_MODE="trusted_control_plane",
+                SANDBOX_PROFILE="",
+                AUTH_REQUIRED=False,
+                AUTH_URL="",
+                AUTH_STATUS="",
+                AUTH_MESSAGE="",
+            )
+        ),
+        mcp_config_store=store,
+        mcp_providers=[
+            MCPToolProvider(client=FakeMCPClient(), server=MCPServerConfig(name="docs")),
+            MCPToolProvider(client=FakeMCPClient(), server=MCPServerConfig(name="search")),
+        ],
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    async def execute():
+        await store.save(
+            MCPServerRecord(
+                name="docs",
+                command="python docs.py",
+                tenant_id="tenant",
+                user_id="user",
+                agent_id="agent",
+                workspace_id="workspace",
+            )
+        )
+        await store.save(
+            MCPServerRecord(
+                name="search",
+                command="python search.py",
+                tenant_id="tenant",
+                user_id="user",
+                agent_id="agent",
+                workspace_id="workspace",
+            )
+        )
+        disabled = await registry.execute("mcp.disable", {"name": "search"})
+        after_disable = [provider.server.name for provider in context.mcp_providers]
+        removed = await registry.execute("mcp.remove", {"name": "docs"})
+        after_remove = [provider.server.name for provider in context.mcp_providers]
+        return disabled, after_disable, removed, after_remove
+
+    disabled, after_disable, removed, after_remove = asyncio.run(execute())
+
+    assert disabled.raw["disabled"] == "search"
+    assert after_disable == ["docs"]
+    assert removed.raw["removed"] == "docs"
+    assert after_remove == []
 
 
 def test_builtin_mcp_management_persists_auth_transport_fields(tmp_path: Path):
@@ -426,6 +507,45 @@ def test_load_configured_mcp_uses_streamable_http_transport(monkeypatch, tmp_pat
     assert providers[0].server.elicitation_handler is elicitation_handler
     assert json.loads(result.content)["answer"] == "agents"
     assert created[0].called == [("search", {"query": "agents"})]
+
+
+def test_load_configured_mcp_loads_multiple_enabled_records(monkeypatch, tmp_path: Path):
+    created = []
+
+    class FakeStdioMCPClient(FakeMCPClient):
+        def __init__(self, server):
+            super().__init__()
+            self.server = server
+            created.append(self)
+
+    monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.MCPStdioClient", FakeStdioMCPClient)
+    registry = ToolRegistry()
+    settings = SimpleNamespace(mcp=SimpleNamespace(CLIENT_TIMEOUT=30.0, SSE_READ_TIMEOUT=120.0))
+    records = [
+        MCPServerRecord(name="docs", command="python docs_server.py", enabled=True),
+        MCPServerRecord(name="search", command="python search_server.py", enabled=True),
+        MCPServerRecord(name="disabled", command="python disabled_server.py", enabled=False),
+    ]
+
+    providers = asyncio.run(
+        load_configured_mcp(
+            settings,
+            registry,
+            roots=[str(tmp_path)],
+            records=records,
+        )
+    )
+    docs_result = asyncio.run(registry.execute("mcp__docs__search", {"query": "docs"}))
+    search_result = asyncio.run(registry.execute("mcp__search__search", {"query": "search"}))
+
+    assert [provider.server.name for provider in providers] == ["docs", "search"]
+    assert [provider.server.command for provider in providers] == ["python", "python"]
+    assert [provider.server.args for provider in providers] == [["docs_server.py"], ["search_server.py"]]
+    assert [provider.server.roots for provider in providers] == [[str(tmp_path.resolve())], [str(tmp_path.resolve())]]
+    assert "mcp__disabled__search" not in registry.names()
+    assert json.loads(docs_result.content)["answer"] == "docs"
+    assert json.loads(search_result.content)["answer"] == "search"
+    assert [client.called for client in created] == [[("search", {"query": "docs"})], [("search", {"query": "search"})]]
 
 
 def test_mcp_session_client_lists_workspace_roots(tmp_path: Path):

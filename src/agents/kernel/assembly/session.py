@@ -101,8 +101,14 @@ async def create_agent_session_async(
     registry.set_execution_observer(SandboxToolExecutionRecorder(tool_context, sandbox_store))
     web_provider = create_web_search_provider(settings)
     builtin_tools = register_builtin_tools(registry, tool_context, web_provider=web_provider)
-    await _hydrate_mcp_config(tool_context)
-    tool_context.mcp_providers = await load_configured_mcp(settings, registry, roots=[str(workspace.path)])
+    mcp_records = await _mcp_config_records(tool_context)
+    await _hydrate_mcp_config(tool_context, records=mcp_records)
+    tool_context.mcp_providers = await load_configured_mcp(
+        settings,
+        registry,
+        roots=[str(workspace.path)],
+        records=mcp_records if mcp_records else None,
+    )
 
     await _hydrate_session_state(tool_context)
     skill_registry = _skill_registry_with_session_state(settings, skill_registry, tool_context)
@@ -480,17 +486,22 @@ async def _hydrate_hooks(tool_context: ToolRuntimeContext) -> None:
     tool_context.hook_registry.replace_all(hooks)
 
 
-async def _hydrate_mcp_config(tool_context: ToolRuntimeContext) -> None:
+async def _mcp_config_records(tool_context: ToolRuntimeContext) -> list[Any]:
     store = getattr(tool_context, "mcp_config_store", None)
     if store is None:
-        return
+        return []
     workspace = tool_context.workspace
-    records = await store.list_for_scope(
+    return await store.list_for_scope(
         workspace.tenant_id,
         user_id=workspace.user_id,
         agent_id=workspace.agent_id,
         workspace_id=workspace.workspace_id,
     )
+
+
+async def _hydrate_mcp_config(tool_context: ToolRuntimeContext, records: list[Any] | None = None) -> None:
+    if records is None:
+        records = await _mcp_config_records(tool_context)
     active = next((record for record in records if record.enabled), None)
     if active is None:
         return

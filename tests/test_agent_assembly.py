@@ -455,12 +455,13 @@ def test_create_session_hydrates_mcp_config_store_before_loading(tmp_path, monke
     monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
     captured = {}
 
-    async def fake_load_mcp(settings, registry, roots=None):
+    async def fake_load_mcp(settings, registry, roots=None, records=None):
         captured["name"] = settings.mcp.SERVER_NAME
         captured["command"] = settings.mcp.SERVER_COMMAND
         captured["execution_mode"] = settings.mcp.EXECUTION_MODE
         captured["sandbox_profile"] = settings.mcp.SANDBOX_PROFILE
         captured["roots"] = list(roots or [])
+        captured["records"] = [(record.name, record.enabled) for record in records or []]
         return []
 
     monkeypatch.setattr("agents.kernel.assembly.session.load_configured_mcp", fake_load_mcp)
@@ -483,6 +484,18 @@ def test_create_session_hydrates_mcp_config_store_before_loading(tmp_path, monke
                 workspace_id="default",
             )
         )
+        await store.save(
+            MCPServerRecord(
+                name="search",
+                command="python search.py",
+                execution_mode="workspace",
+                sandbox_profile="coding",
+                tenant_id="default",
+                user_id="user-1",
+                agent_id="agent-1",
+                workspace_id="default",
+            )
+        )
         return await create_agent_session_async(
             settings,
             AgentSpec.from_overrides(user_id="user 1", agent_id="agent 1"),
@@ -492,11 +505,12 @@ def test_create_session_hydrates_mcp_config_store_before_loading(tmp_path, monke
     session = asyncio.run(create())
 
     assert captured == {
-        "name": "docs",
-        "command": "python server.py",
+        "name": "search",
+        "command": "python search.py",
         "execution_mode": "workspace",
         "sandbox_profile": "coding",
         "roots": [str(session.workspace.path)],
+        "records": [("search", True), ("docs", True)],
     }
     assert session.tool_context.mcp_config_store is store
 

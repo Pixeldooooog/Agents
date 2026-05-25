@@ -108,7 +108,6 @@ async def mcp_configure(
     settings.AUTH_STATUS = str(auth_status or "")
     settings.AUTH_MESSAGE = str(auth_message or "")
     await _save_mcp_config(context)
-    await _disable_other_mcp_configs(context, settings.SERVER_NAME)
     return await mcp_servers(context)
 
 
@@ -126,7 +125,12 @@ async def mcp_clear(context: ToolRuntimeContext) -> dict[str, Any]:
     settings.AUTH_STATUS = ""
     settings.AUTH_MESSAGE = ""
     context.mcp_providers = []
-    await _delete_mcp_config(context, previous_name)
+    records = await _mcp_records(context)
+    if records:
+        for record in records:
+            await _delete_mcp_config(context, record.name)
+    else:
+        await _delete_mcp_config(context, previous_name)
     return {"cleared": True, "removed_providers": removed, "configured": (await mcp_servers(context))["configured"]}
 
 
@@ -137,7 +141,6 @@ async def mcp_enable(context: ToolRuntimeContext, name: str = "") -> dict[str, A
         raise KeyError("mcp server not found: %s" % target)
     enabled = replace(record, enabled=True)
     await _save_mcp_record(context, enabled)
-    await _disable_other_mcp_configs(context, enabled.name)
     settings = _mcp_settings(context)
     settings.SERVER_NAME = enabled.name
     settings.SERVER_COMMAND = enabled.command
@@ -160,6 +163,9 @@ async def mcp_disable(context: ToolRuntimeContext, name: str = "") -> dict[str, 
     record = await _find_mcp_record(context, target)
     if record is not None:
         await _save_mcp_record(context, replace(record, enabled=False))
+    context.mcp_providers = [
+        provider for provider in list(getattr(context, "mcp_providers", []) or []) if _provider_name(provider) != target
+    ]
     if not target or str(getattr(settings, "SERVER_NAME", "") or "default") == target:
         settings.SERVER_NAME = ""
         settings.SERVER_COMMAND = ""
@@ -170,9 +176,6 @@ async def mcp_disable(context: ToolRuntimeContext, name: str = "") -> dict[str, 
         settings.AUTH_URL = ""
         settings.AUTH_STATUS = ""
         settings.AUTH_MESSAGE = ""
-        context.mcp_providers = [
-            provider for provider in list(getattr(context, "mcp_providers", []) or []) if _provider_name(provider) != target
-        ]
     return {"disabled": target, "configured": (await mcp_servers(context))["configured"]}
 
 
@@ -180,6 +183,9 @@ async def mcp_remove(context: ToolRuntimeContext, name: str = "") -> dict[str, A
     settings = _mcp_settings(context)
     target = str(name or "").strip() or str(getattr(settings, "SERVER_NAME", "") or "default")
     await _delete_mcp_config(context, target)
+    context.mcp_providers = [
+        provider for provider in list(getattr(context, "mcp_providers", []) or []) if _provider_name(provider) != target
+    ]
     if str(getattr(settings, "SERVER_NAME", "") or "default") == target:
         settings.SERVER_NAME = ""
         settings.SERVER_COMMAND = ""
@@ -190,9 +196,6 @@ async def mcp_remove(context: ToolRuntimeContext, name: str = "") -> dict[str, A
         settings.AUTH_URL = ""
         settings.AUTH_STATUS = ""
         settings.AUTH_MESSAGE = ""
-        context.mcp_providers = [
-            provider for provider in list(getattr(context, "mcp_providers", []) or []) if _provider_name(provider) != target
-        ]
     return {"removed": target, "configured": (await mcp_servers(context))["configured"]}
 
 
@@ -360,16 +363,6 @@ async def _mcp_records(context: ToolRuntimeContext) -> list[Any]:
 async def _find_mcp_record(context: ToolRuntimeContext, name: str) -> Any | None:
     target = str(name or "default").strip() or "default"
     return next((record for record in await _mcp_records(context) if record.name == target), None)
-
-
-async def _disable_other_mcp_configs(context: ToolRuntimeContext, active_name: str) -> None:
-    store = getattr(context, "mcp_config_store", None)
-    if store is None:
-        return
-    active = str(active_name or "default").strip() or "default"
-    for record in await _mcp_records(context):
-        if record.name != active and record.enabled:
-            await store.save(replace(record, enabled=False))
 
 
 async def _delete_mcp_config(context: ToolRuntimeContext, name: str) -> None:
