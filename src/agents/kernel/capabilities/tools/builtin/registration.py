@@ -117,6 +117,7 @@ from agents.kernel.capabilities.tools.builtin.mcp_management import (
     mcp_disable,
     mcp_enable,
     mcp_remove,
+    mcp_reconnect,
     mcp_reload,
     mcp_servers,
 )
@@ -2262,6 +2263,13 @@ def _register_mcp_management(registry: ToolRegistry, context: ToolRuntimeContext
         "Reconnect configured MCP servers and swap loaded MCP tool handlers.",
         MCP_RELOAD_SCHEMA,
         lambda: mcp_reload(context, registry),
+        metadata={"risk": "medium", "writes_state": True, "source": "mcp", "model_call": True},
+    )
+    registry.register(
+        "mcp.reconnect",
+        "Reconnect one configured MCP server and swap only that server's tool handlers.",
+        MCP_SERVER_NAME_SCHEMA,
+        lambda name="": mcp_reconnect(context, registry, name=name),
         metadata={"risk": "medium", "writes_state": True, "source": "mcp", "model_call": True},
     )
     registry.register(

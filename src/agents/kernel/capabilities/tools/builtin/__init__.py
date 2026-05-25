@@ -109,6 +109,7 @@ from agents.kernel.capabilities.tools.builtin.mcp_management import (
     mcp_disable,
     mcp_enable,
     mcp_remove,
+    mcp_reconnect,
     mcp_reload,
     mcp_servers,
 )
@@ -451,6 +452,7 @@ __all__ = [
     "mcp_disable",
     "mcp_enable",
     "mcp_remove",
+    "mcp_reconnect",
     "mcp_reload",
     "mcp_servers",
     "mcp_get_prompt",

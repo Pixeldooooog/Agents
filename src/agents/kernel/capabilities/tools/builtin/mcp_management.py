@@ -214,27 +214,7 @@ async def mcp_reload(context: ToolRuntimeContext, registry: Any) -> dict[str, An
     previous_names = [_provider_name(provider) for provider in previous_providers]
     records = await _mcp_records(context)
     staging_registry = ToolRegistry()
-    load_kwargs: dict[str, Any] = {
-        "roots": [str(context.workspace.path)],
-        "records": records if records else None,
-    }
-    sdk_mcp_handlers = getattr(context, "sdk_mcp_handlers", None)
-    if sdk_mcp_handlers:
-        load_kwargs["sdk_mcp_handlers"] = sdk_mcp_handlers
-    mcp_elicitation_handler = getattr(context, "mcp_elicitation_handler", None)
-    if mcp_elicitation_handler is not None:
-        from agents.kernel.mcp_elicitation_runtime import build_mcp_elicitation_complete_handler
-
-        load_kwargs["elicitation_handler"] = mcp_elicitation_handler
-        load_kwargs["elicitation_complete_handler"] = build_mcp_elicitation_complete_handler(context)
-    auth_headers = await _mcp_auth_headers(context, records)
-    if auth_headers:
-        load_kwargs["auth_headers"] = auth_headers
-    load_kwargs["oauth_authenticator"] = lambda server, arguments: authenticate_mcp_oauth_server(
-        context,
-        server,
-        arguments,
-    )
+    load_kwargs = await _mcp_load_kwargs(context, records)
     providers = await load_configured_mcp(_settings(context), staging_registry, **load_kwargs)
     definitions = _loaded_mcp_definitions(staging_registry)
 
@@ -258,6 +238,56 @@ async def mcp_reload(context: ToolRuntimeContext, registry: Any) -> dict[str, An
     return {
         "reloaded": True,
         "closed_providers": previous_names,
+        "removed_tools": removed_tools,
+        "providers": [_provider_payload(provider) for provider in providers],
+        "loaded_tools": loaded_tools,
+        "configured": (await mcp_servers(context))["configured"],
+    }
+
+
+async def mcp_reconnect(context: ToolRuntimeContext, registry: Any, name: str = "") -> dict[str, Any]:
+    from agents.kernel.capabilities.mcp_loading import load_configured_mcp
+
+    target = str(name or "").strip() or str(getattr(_mcp_settings(context), "SERVER_NAME", "") or "default")
+    records = await _mcp_records(context)
+    target_records = _target_mcp_records(records, target)
+    if records and not target_records:
+        known = {str(getattr(record, "name", "") or "") for record in records}
+        if target in known:
+            raise RuntimeError("mcp server is disabled: %s" % target)
+        raise KeyError("mcp server not found: %s" % target)
+    if not records and not _settings_mcp_server_matches(context, target):
+        raise KeyError("mcp server not found: %s" % target)
+
+    previous_providers = list(getattr(context, "mcp_providers", []) or [])
+    previous_target_providers = [provider for provider in previous_providers if _provider_name(provider) == target]
+    staging_registry = ToolRegistry()
+    load_kwargs = await _mcp_load_kwargs(context, target_records)
+    providers = await load_configured_mcp(_settings(context), staging_registry, **load_kwargs)
+    definitions = _loaded_mcp_definitions_for_server(staging_registry, target)
+
+    try:
+        await _close_mcp_providers(previous_target_providers)
+    except Exception:
+        await _close_mcp_providers(providers)
+        raise
+
+    removed_tools = _unregister_loaded_mcp_tools_for_server(registry, target)
+    for definition in definitions:
+        registry.register_definition(definition)
+
+    context.mcp_providers = _replace_mcp_providers(previous_providers, target, providers)
+    loaded_tools = _loaded_mcp_tool_names(registry, providers)
+    removed_set = set(removed_tools)
+    context.enabled_tools = _merge_unique(
+        [tool for tool in list(getattr(context, "enabled_tools", []) or []) if tool not in removed_set],
+        loaded_tools,
+    )
+    return {
+        "reconnected": True,
+        "server": target,
+        "serverName": target,
+        "closed_providers": [_provider_name(provider) for provider in previous_target_providers],
         "removed_tools": removed_tools,
         "providers": [_provider_payload(provider) for provider in providers],
         "loaded_tools": loaded_tools,
@@ -356,6 +386,86 @@ def _loaded_mcp_definitions(registry: Any) -> list[Any]:
     if definitions_matching is None:
         return []
     return definitions_matching(lambda definition: isinstance(definition.metadata.get("mcp_info"), dict))
+
+
+async def _mcp_load_kwargs(context: ToolRuntimeContext, records: list[Any]) -> dict[str, Any]:
+    load_kwargs: dict[str, Any] = {
+        "roots": [str(context.workspace.path)],
+        "records": records if records else None,
+    }
+    sdk_mcp_handlers = getattr(context, "sdk_mcp_handlers", None)
+    if sdk_mcp_handlers:
+        load_kwargs["sdk_mcp_handlers"] = sdk_mcp_handlers
+    mcp_elicitation_handler = getattr(context, "mcp_elicitation_handler", None)
+    if mcp_elicitation_handler is not None:
+        from agents.kernel.mcp_elicitation_runtime import build_mcp_elicitation_complete_handler
+
+        load_kwargs["elicitation_handler"] = mcp_elicitation_handler
+        load_kwargs["elicitation_complete_handler"] = build_mcp_elicitation_complete_handler(context)
+    auth_headers = await _mcp_auth_headers(context, records)
+    if auth_headers:
+        load_kwargs["auth_headers"] = auth_headers
+    load_kwargs["oauth_authenticator"] = lambda server, arguments: authenticate_mcp_oauth_server(
+        context,
+        server,
+        arguments,
+    )
+    return load_kwargs
+
+
+def _loaded_mcp_definitions_for_server(registry: Any, server_name: str) -> list[Any]:
+    definitions_matching = getattr(registry, "definitions_matching", None)
+    if definitions_matching is None:
+        return []
+    return definitions_matching(lambda definition: _definition_mcp_server(definition) == server_name)
+
+
+def _unregister_loaded_mcp_tools_for_server(registry: Any, server_name: str) -> list[str]:
+    unregister_matching = getattr(registry, "unregister_matching", None)
+    if unregister_matching is None:
+        return []
+    return unregister_matching(lambda definition: _definition_mcp_server(definition) == server_name)
+
+
+def _definition_mcp_server(definition: Any) -> str:
+    info = definition.metadata.get("mcp_info") if isinstance(getattr(definition, "metadata", None), dict) else None
+    if not isinstance(info, dict):
+        return ""
+    return str(info.get("server") or "")
+
+
+def _target_mcp_records(records: list[Any], target: str) -> list[Any]:
+    return [
+        record
+        for record in records
+        if str(getattr(record, "name", "") or "") == target and bool(getattr(record, "enabled", True))
+    ]
+
+
+def _settings_mcp_server_matches(context: ToolRuntimeContext, target: str) -> bool:
+    settings = _mcp_settings(context)
+    name = str(getattr(settings, "SERVER_NAME", "") or "default")
+    command = str(getattr(settings, "SERVER_COMMAND", "") or "").strip()
+    transport = str(getattr(settings, "SERVER_TRANSPORT", "stdio") or "stdio")
+    url = str(getattr(settings, "SERVER_URL", "") or "").strip()
+    if name != target:
+        return False
+    return (transport == "stdio" and bool(command)) or (transport != "stdio" and bool(url))
+
+
+def _replace_mcp_providers(previous: list[Any], target: str, replacements: list[Any]) -> list[Any]:
+    replaced = False
+    result: list[Any] = []
+    for provider in previous:
+        if _provider_name(provider) != target:
+            result.append(provider)
+            continue
+        if not replaced:
+            result.extend(replacements)
+            replaced = True
+    if not replaced:
+        result.extend(replacements)
+    return result
 
 
 def _registry_spec(registry: Any, name: str) -> Any | None:

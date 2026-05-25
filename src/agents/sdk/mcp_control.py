@@ -41,7 +41,7 @@ async def reconnect_mcp_server(
             raise RuntimeError("SDK MCP server is disabled: %s" % resolved_name)
         return {"serverName": resolved_name, "status": "connected", "reconnected": True}
     if active_session is not None:
-        result = await reload_active_session_mcp(active_session)
+        result = await reconnect_active_session_mcp(active_session, resolved_name)
         return _reconnect_payload(resolved_name, result)
     status = await status_for_server(resolved_name)
     if status is None:
@@ -54,15 +54,15 @@ async def reconnect_mcp_server(
     }
 
 
-async def reload_active_session_mcp(session: Any) -> dict[str, Any]:
-    from agents.kernel.capabilities.tools.builtin.mcp_management import mcp_reload
+async def reconnect_active_session_mcp(session: Any, server_name: str) -> dict[str, Any]:
+    from agents.kernel.capabilities.tools.builtin.mcp_management import mcp_reconnect
 
     context = getattr(session, "tool_context", None)
     runtime = getattr(session, "runtime", None)
     registry = getattr(runtime, "tools", None)
     if context is None or registry is None:
         raise RuntimeError("active SDK session does not expose MCP reload context")
-    result = await mcp_reload(context, registry)
+    result = await mcp_reconnect(context, registry, name=server_name)
     _replace_runtime_mcp_tools(runtime, result)
     return result
 

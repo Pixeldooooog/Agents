@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from agents.kernel.capabilities.mcp_loading import load_configured_mcp
 from agents.kernel.capabilities.sandbox.local import LocalSandboxProvider
 from agents.kernel.capabilities.tools import ToolRuntimeContext, register_builtin_tools
+from agents.kernel.capabilities.tools.builtin.mcp_management import mcp_reconnect
 from agents.kernel.capabilities.tools.mcp import (
     MCPAuthenticationRequired,
     MCPPromptArgumentDefinition,
@@ -503,6 +504,88 @@ def test_builtin_mcp_reload_closes_old_providers_and_swaps_tool_handlers(monkeyp
     assert sorted(reloaded.raw["removed_tools"]) == ["mcp__docs__search", "mcp_docs_search"]
     assert reloaded.raw["loaded_tools"] == ["mcp__docs__search"]
     assert "mcp_docs_search" in registry.names()
+
+
+def test_builtin_mcp_reconnect_swaps_only_target_provider(monkeypatch, tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    store = InMemoryMCPConfigStore()
+    old_docs_client = AnsweringMCPClient("old-docs")
+    old_search_client = AnsweringMCPClient("old-search")
+    new_clients = []
+
+    class FakeStdioMCPClient(AnsweringMCPClient):
+        def __init__(self, server):
+            super().__init__("new-%s" % server.name, server=server)
+            new_clients.append(self)
+
+    monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.MCPStdioClient", FakeStdioMCPClient)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+        settings=SimpleNamespace(mcp=SimpleNamespace(CLIENT_TIMEOUT=30.0, SSE_READ_TIMEOUT=120.0)),
+        mcp_config_store=store,
+        enabled_tools=["mcp__docs__search", "mcp__search__search"],
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+    old_docs_provider = MCPToolProvider(client=old_docs_client, server=MCPServerConfig(name="docs"))
+    old_search_provider = MCPToolProvider(client=old_search_client, server=MCPServerConfig(name="search"))
+
+    async def execute():
+        await store.save(
+            MCPServerRecord(
+                name="docs",
+                command="python docs.py",
+                tenant_id="tenant",
+                user_id="user",
+                agent_id="agent",
+                workspace_id="workspace",
+            )
+        )
+        await store.save(
+            MCPServerRecord(
+                name="search",
+                command="python search.py",
+                tenant_id="tenant",
+                user_id="user",
+                agent_id="agent",
+                workspace_id="workspace",
+            )
+        )
+        await old_docs_provider.load_tools(registry)
+        await old_search_provider.load_tools(registry)
+        context.mcp_providers = [old_docs_provider, old_search_provider]
+        before_docs = await registry.execute("mcp__docs__search", {"query": "before-docs"})
+        before_search = await registry.execute("mcp__search__search", {"query": "before-search"})
+        reconnected = await mcp_reconnect(context, registry, name="docs")
+        after_docs = await registry.execute("mcp__docs__search", {"query": "after-docs"})
+        after_search = await registry.execute("mcp__search__search", {"query": "after-search"})
+        return before_docs, before_search, reconnected, after_docs, after_search
+
+    before_docs, before_search, reconnected, after_docs, after_search = asyncio.run(execute())
+
+    assert json.loads(before_docs.content)["answer"] == "old-docs:before-docs"
+    assert json.loads(before_search.content)["answer"] == "old-search:before-search"
+    assert json.loads(after_docs.content)["answer"] == "new-docs:after-docs"
+    assert json.loads(after_search.content)["answer"] == "old-search:after-search"
+    assert old_docs_client.closed is True
+    assert old_search_client.closed is False
+    assert [provider.server.name for provider in context.mcp_providers] == ["docs", "search"]
+    assert [client.server.name for client in new_clients] == ["docs"]
+    assert reconnected["serverName"] == "docs"
+    assert reconnected["closed_providers"] == ["docs"]
+    assert sorted(reconnected["removed_tools"]) == ["mcp__docs__search", "mcp_docs_search"]
+    assert reconnected["loaded_tools"] == ["mcp__docs__search"]
+    assert context.enabled_tools == ["mcp__search__search", "mcp__docs__search"]
 
 
 def test_builtin_mcp_reload_preserves_existing_provider_when_reconnect_fails(monkeypatch, tmp_path: Path):
