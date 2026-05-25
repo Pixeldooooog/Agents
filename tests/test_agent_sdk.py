@@ -861,6 +861,31 @@ async def _rewind_patch_session_factory(settings, spec):
                     },
                 },
             )
+            original_notebook = json.dumps({"cells": [{"cell_type": "code", "source": "print(1)\n"}]})
+            updated_notebook = json.dumps({"cells": [{"cell_type": "code", "source": "print(2)\n"}]})
+            notebook = Path(workspace_path) / "analysis.ipynb"
+            notebook.write_text(updated_notebook, encoding="utf-8")
+            yield RuntimeEvent(
+                type="tool_result",
+                name="notebook.edit",
+                payload={
+                    "tool_call_id": "notebook-edit",
+                    "raw": {
+                        "notebook_path": "analysis.ipynb",
+                        "original_file": original_notebook,
+                        "updated_file": updated_notebook,
+                        "structuredPatch": [
+                            {
+                                "oldStart": 1,
+                                "oldLines": 1,
+                                "newStart": 1,
+                                "newLines": 1,
+                                "lines": ["-print(1)", "+print(2)"],
+                            }
+                        ],
+                    },
+                },
+            )
             yield RuntimeEvent(type="done", name="assistant", payload={"content": "edited", "status": "finished"})
 
     return RewindPatchSession()
@@ -2383,6 +2408,7 @@ def test_sdk_control_request_rewinds_files_from_run_store(tmp_path):
         notes = tmp_path / "notes.txt"
         created = tmp_path / "created.txt"
         write_note = tmp_path / "write.txt"
+        notebook = tmp_path / "analysis.ipynb"
         notes.write_text("old\n", encoding="utf-8")
         write_note.write_text("old write\n", encoding="utf-8")
         client = AgentSDKClient(session_factory=_rewind_patch_session_factory)
@@ -2416,21 +2442,24 @@ def test_sdk_control_request_rewinds_files_from_run_store(tmp_path):
             actual,
             notes.read_text(encoding="utf-8"),
             write_note.read_text(encoding="utf-8"),
+            notebook.read_text(encoding="utf-8"),
             created.exists(),
         )
 
-    dry_run, actual, notes_content, write_content, created_exists = asyncio.run(execute())
+    dry_run, actual, notes_content, write_content, notebook_content, created_exists = asyncio.run(execute())
 
     assert isinstance(dry_run.response, SDKControlSuccessResponse)
     assert dry_run.response.response == {
         "canRewind": True,
-        "filesChanged": ["created.txt", "notes.txt", "write.txt"],
-        "insertions": 2,
-        "deletions": 1,
+        "filesChanged": ["analysis.ipynb", "created.txt", "notes.txt", "write.txt"],
+        "insertions": 3,
+        "deletions": 2,
     }
     assert actual.response.response == {"canRewind": True}
     assert notes_content == "old\n"
     assert write_content == "old write\n"
+    expected_notebook = json.dumps({"cells": [{"cell_type": "code", "source": "print(1)\n"}]})
+    assert notebook_content == expected_notebook
     assert created_exists is False
 
 
@@ -2486,7 +2515,7 @@ def test_sdk_records_file_history_snapshots_for_rewind(tmp_path):
 
     snapshots, dry_run, actual, notes_content, write_content, created_exists = asyncio.run(execute())
 
-    assert len(snapshots) == 4
+    assert len(snapshots) == 5
     assert snapshots[0]["isSnapshotUpdate"] is False
     assert all(snapshot["isSnapshotUpdate"] is True for snapshot in snapshots[1:])
     message_ids = {snapshot["messageId"] for snapshot in snapshots}
@@ -2495,21 +2524,25 @@ def test_sdk_records_file_history_snapshots_for_rewind(tmp_path):
     backup_root = Path(final_snapshot["backupRoot"])
     assert backup_root == tmp_path / "claude-config" / "file-history" / "auto-history-session"
     backups = final_snapshot["snapshot"]["trackedFileBackups"]
-    assert sorted(backups) == ["created.txt", "notes.txt", "write.txt"]
+    assert sorted(backups) == ["analysis.ipynb", "created.txt", "notes.txt", "write.txt"]
+    notebook_backup = backup_root / backups["analysis.ipynb"]["backupFileName"]
     assert backups["created.txt"]["backupFileName"] is None
     assert backups["created.txt"]["version"] == 1
     note_backup = backup_root / backups["notes.txt"]["backupFileName"]
     write_backup = backup_root / backups["write.txt"]["backupFileName"]
+    assert notebook_backup.name.endswith("@v1")
     assert note_backup.name.endswith("@v1")
     assert write_backup.name.endswith("@v1")
+    expected_notebook = json.dumps({"cells": [{"cell_type": "code", "source": "print(1)\n"}]})
+    assert notebook_backup.read_text(encoding="utf-8") == expected_notebook
     assert note_backup.read_text(encoding="utf-8") == "old\n"
     assert write_backup.read_text(encoding="utf-8") == "old write\n"
     assert isinstance(dry_run.response, SDKControlSuccessResponse)
     assert dry_run.response.response == {
         "canRewind": True,
-        "filesChanged": ["created.txt", "notes.txt", "write.txt"],
-        "insertions": 2,
-        "deletions": 3,
+        "filesChanged": ["analysis.ipynb", "created.txt", "notes.txt", "write.txt"],
+        "insertions": 3,
+        "deletions": 4,
     }
     assert actual.response.response == {"canRewind": True}
     assert notes_content == "old\n"

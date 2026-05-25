@@ -10,6 +10,7 @@ from agents.kernel.capabilities.tools.builtin.file_safety import (
     preserve_existing_line_endings,
     record_file_read,
     read_current_file,
+    structured_text_patch,
 )
 from agents.kernel.capabilities.tools.builtin.lsp import notify_lsp_file_saved
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
@@ -60,6 +61,8 @@ def notebook_edit(
     if mode == "insert" and requested_cell_type is None:
         raise ValueError("Cell type is required when using edit_mode=insert.")
     cell_index = _cell_index(cells, cell_id, edit_mode=mode)
+    old_cell_source = "" if mode == "insert" else _cell_source(cells[cell_index])
+    updated_cell_source = "" if mode == "delete" else str(new_source)
     language = str((notebook.get("metadata") or {}).get("language_info", {}).get("name") or "python")
     output_cell_id = _apply_notebook_cell_edit(
         notebook,
@@ -81,17 +84,30 @@ def notebook_edit(
         source="write",
     )
     notify_lsp_file_saved(context, result.path, updated_content)
+    result_cell_type = requested_cell_type or _result_cell_type(cells, cell_index, mode)
+    ui_metadata = _notebook_edit_ui_metadata(
+        relative_path=relative_path,
+        output_cell_id=output_cell_id,
+        cell_index=cell_index,
+        result_cell_type=result_cell_type,
+        mode=mode,
+        old_cell_source=old_cell_source,
+        updated_cell_source=updated_cell_source,
+    )
     return {
         "new_source": str(new_source),
         "cell_id": output_cell_id,
-        "cell_type": requested_cell_type or _result_cell_type(cells, cell_index, mode),
+        "cell_type": result_cell_type,
         "language": language,
         "edit_mode": mode,
         "error": "",
         "notebook_path": relative_path,
         "path": relative_path,
+        **ui_metadata,
         "original_file": original_content,
         "updated_file": updated_content,
+        "originalFile": original_content,
+        "updatedFile": updated_content,
         "bytes": result.bytes,
         "encoding": result.encoding,
     }
@@ -112,6 +128,55 @@ def format_notebook_edit_result(result: Any) -> str:
     if mode == "replace":
         return "Updated cell %s with %s" % (cell_id, source)
     return "Unknown edit mode"
+
+
+def _notebook_edit_ui_metadata(
+    *,
+    relative_path: str,
+    output_cell_id: str,
+    cell_index: int,
+    result_cell_type: str,
+    mode: str,
+    old_cell_source: str,
+    updated_cell_source: str,
+) -> dict[str, Any]:
+    structured_patch = structured_text_patch(old_cell_source, updated_cell_source)
+    return {
+        "filePath": relative_path,
+        "notebookPath": relative_path,
+        "cellId": output_cell_id,
+        "cellIndex": cell_index,
+        "cellType": result_cell_type,
+        "editMode": mode,
+        "oldString": old_cell_source,
+        "newString": updated_cell_source,
+        "replaceAll": False,
+        "originalCellSource": old_cell_source,
+        "updatedCellSource": updated_cell_source,
+        "structuredPatch": structured_patch,
+        "structuredPatches": [
+            {
+                "filePath": relative_path,
+                "cellId": output_cell_id,
+                "cellIndex": cell_index,
+                "editMode": mode,
+                "hunks": structured_patch,
+            }
+        ],
+        "editSummary": [
+            {
+                "filePath": relative_path,
+                "cellId": output_cell_id,
+                "cellIndex": cell_index,
+                "cellType": result_cell_type,
+                "editMode": mode,
+                "oldString": old_cell_source,
+                "newString": updated_cell_source,
+                "replaceAll": False,
+                "occurrences": 0 if mode == "insert" else 1,
+            }
+        ],
+    }
 
 
 def _read_current_notebook_for_edit(context: ToolRuntimeContext, notebook_path: str) -> tuple[str, str, str]:
@@ -184,6 +249,13 @@ def _parse_cell_id(cell_id: str) -> int | None:
     if not value.isdigit():
         return None
     return int(value)
+
+
+def _cell_source(cell: dict[str, Any]) -> str:
+    source = cell.get("source", "")
+    if isinstance(source, list):
+        return "".join(str(item) for item in source)
+    return str(source or "")
 
 
 def _apply_notebook_cell_edit(

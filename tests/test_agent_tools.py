@@ -2878,15 +2878,48 @@ def test_notebook_edit_updates_cells_with_read_before_write_safety(tmp_path: Pat
     assert replaced.raw["language"] == "python"
     assert replaced.raw["edit_mode"] == "replace"
     assert replaced.raw["notebook_path"] == "analysis.ipynb"
+    assert replaced.raw["filePath"] == "analysis.ipynb"
+    assert replaced.raw["cellId"] == "calc"
+    assert replaced.raw["cellIndex"] == 1
+    assert replaced.raw["oldString"] == "print(1)\n"
+    assert replaced.raw["newString"] == "print(2)\n"
+    assert replaced.raw["structuredPatch"][0]["lines"] == [
+        "-print(1)",
+        "+print(2)",
+    ]
+    assert replaced.raw["structuredPatches"][0] == {
+        "filePath": "analysis.ipynb",
+        "cellId": "calc",
+        "cellIndex": 1,
+        "editMode": "replace",
+        "hunks": replaced.raw["structuredPatch"],
+    }
+    assert replaced.raw["editSummary"][0] == {
+        "filePath": "analysis.ipynb",
+        "cellId": "calc",
+        "cellIndex": 1,
+        "cellType": "code",
+        "editMode": "replace",
+        "oldString": "print(1)\n",
+        "newString": "print(2)\n",
+        "replaceAll": False,
+        "occurrences": 1,
+    }
     assert replaced.raw["original_file"] == json.dumps(notebook)
+    assert replaced.raw["originalFile"] == replaced.raw["original_file"]
     assert '"print(2)\\n"' in replaced.raw["updated_file"]
+    assert replaced.raw["updatedFile"] == replaced.raw["updated_file"]
     assert reread.raw["type"] == "notebook"
     assert reread.raw["file"]["cells"][1]["source"] == "print(2)\n"
     assert inserted.is_error is False
     assert inserted.content == "Inserted cell %s with Inserted note\n" % inserted_id
     assert inserted.raw["cell_type"] == "markdown"
+    assert inserted.raw["oldString"] == ""
+    assert inserted.raw["structuredPatch"][0]["lines"] == ["+Inserted note"]
     assert deleted.is_error is False
     assert deleted.content == "Deleted cell %s" % inserted_id
+    assert deleted.raw["newString"] == ""
+    assert deleted.raw["structuredPatch"][0]["lines"] == ["-Inserted note"]
     assert len(payload["cells"]) == 2
     assert payload["cells"][1]["source"] == "print(2)\n"
     assert payload["cells"][1]["execution_count"] is None

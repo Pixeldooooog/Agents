@@ -2961,7 +2961,7 @@ def _rewind_entry_from_notebook_payload(payload: dict[str, Any]) -> _RewindFileE
     after = payload.get("updated_file") if "updated_file" in payload else payload.get("updatedFile")
     if not path or not isinstance(before, str):
         return None
-    insertions, deletions = _change_stats(None, before, after if isinstance(after, str) else None)
+    insertions, deletions = _change_stats(payload.get("structuredPatch"), before, after if isinstance(after, str) else None)
     return _RewindFileEntry(
         path=path,
         before=before,
