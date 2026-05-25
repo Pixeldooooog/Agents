@@ -22,7 +22,7 @@ MCP_CONFIGURE_SCHEMA = {
         "command": {"type": "string", "description": "Local MCP stdio server command line."},
         "transport": {"type": "string", "enum": ["stdio", "sse", "http", "ws", "claudeai-proxy"], "description": "MCP transport type."},
         "url": {"type": "string", "description": "Remote MCP server URL for HTTP/SSE/WebSocket transports."},
-        "headers": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Optional headers for HTTP/SSE MCP transports."},
+        "headers": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Optional headers for HTTP/SSE/WebSocket MCP transports."},
         "execution_mode": {"type": "string", "description": "MCP execution mode, defaults to trusted_control_plane."},
         "sandbox_profile": {"type": "string", "description": "Optional sandbox profile for future sandboxed MCP execution."},
         "auth_required": {"type": "boolean", "description": "Whether the server is installed but currently needs authentication."},

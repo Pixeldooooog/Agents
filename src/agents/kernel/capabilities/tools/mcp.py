@@ -314,6 +314,15 @@ class MCPSSEClient(_MCPSessionClient):
 
 class MCPWebSocketClient(_MCPSessionClient):
     async def _open_transport(self) -> tuple[Any, Any]:
+        if self.server.headers:
+            from agents.kernel.capabilities.tools.mcp_websocket import websocket_client_with_headers
+
+            self._transport_context = websocket_client_with_headers(
+                self.server.url,
+                headers=self.server.headers,
+            )
+            return await self._transport_context.__aenter__()
+
         from mcp.client.websocket import websocket_client
 
         self._transport_context = websocket_client(self.server.url)

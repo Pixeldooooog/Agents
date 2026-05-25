@@ -20,6 +20,7 @@ from agents.kernel.capabilities.tools.mcp import (
     mcp_info_from_name,
     normalize_mcp_name,
 )
+from agents.kernel.capabilities.tools.mcp_websocket import websocket_client_with_headers
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.governance import SandboxPolicy, describe_tool_impact
@@ -910,6 +911,87 @@ def test_mcp_websocket_client_opens_sdk_transport(monkeypatch):
 
     assert (read, write) == ("read-stream", "write-stream")
     assert captured == {"url": "wss://mcp.example.test/socket", "closed": True}
+
+
+def test_mcp_websocket_client_opens_header_transport(monkeypatch):
+    captured = {}
+
+    class FakeContext:
+        async def __aenter__(self):
+            return "read-stream", "write-stream"
+
+        async def __aexit__(self, exc_type, exc, tb):
+            captured["closed"] = True
+
+    def fake_websocket_client_with_headers(url, *, headers=None):
+        captured["url"] = url
+        captured["headers"] = dict(headers or {})
+        return FakeContext()
+
+    monkeypatch.setattr(
+        "agents.kernel.capabilities.tools.mcp_websocket.websocket_client_with_headers",
+        fake_websocket_client_with_headers,
+    )
+    client = MCPWebSocketClient(
+        MCPServerConfig(
+            name="socket",
+            transport="ws",
+            url="wss://mcp.example.test/socket",
+            headers={"Authorization": "Bearer token", "X-Test": "yes"},
+        )
+    )
+
+    read, write = asyncio.run(client._open_transport())
+    asyncio.run(client.close())
+
+    assert (read, write) == ("read-stream", "write-stream")
+    assert captured == {
+        "url": "wss://mcp.example.test/socket",
+        "headers": {"Authorization": "Bearer token", "X-Test": "yes"},
+        "closed": True,
+    }
+
+
+def test_websocket_client_with_headers_passes_handshake_headers(monkeypatch):
+    captured = {}
+
+    class FakeWebSocketContext:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            captured["closed"] = True
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await asyncio.Event().wait()
+            raise StopAsyncIteration
+
+        async def send(self, message):
+            captured.setdefault("sent", []).append(message)
+
+    def fake_ws_connect(url, **kwargs):
+        captured["url"] = url
+        captured["kwargs"] = kwargs
+        return FakeWebSocketContext()
+
+    monkeypatch.setattr("agents.kernel.capabilities.tools.mcp_websocket.ws_connect", fake_ws_connect)
+
+    async def run_client():
+        async with websocket_client_with_headers(
+            "wss://mcp.example.test/socket",
+            headers={"Authorization": "Bearer token", "X-Test": "yes"},
+        ) as (read, write):
+            assert read is not None
+            assert write is not None
+
+    asyncio.run(run_client())
+
+    assert captured["url"] == "wss://mcp.example.test/socket"
+    assert captured["kwargs"]["additional_headers"] == {"Authorization": "Bearer token", "X-Test": "yes"}
+    assert captured["closed"] is True
 
 
 def test_builtin_mcp_prompt_tools_list_and_get_prompt(tmp_path: Path):
