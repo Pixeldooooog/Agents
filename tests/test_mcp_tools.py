@@ -81,6 +81,31 @@ class FakeMCPClient:
         self.closed = True
 
 
+class FakeIDEMCPClient(FakeMCPClient):
+    async def list_tools(self):
+        return [
+            MCPToolDefinition(
+                name="executeCode",
+                description="Execute code in the IDE",
+                parameters={"type": "object", "properties": {"code": {"type": "string"}}},
+            ),
+            MCPToolDefinition(
+                name="getDiagnostics",
+                description="Get IDE diagnostics",
+                parameters={"type": "object", "properties": {"uri": {"type": "string"}}},
+            ),
+            MCPToolDefinition(
+                name="search",
+                description="Search IDE workspace",
+                parameters={"type": "object", "properties": {"query": {"type": "string"}}},
+            ),
+        ]
+
+    async def call_tool(self, name, arguments):
+        self.called.append((name, arguments))
+        return {"tool": name, "arguments": arguments}
+
+
 def test_mcp_provider_loads_tools_with_src_origin_dynamic_name_and_legacy_alias():
     registry = ToolRegistry()
     client = FakeMCPClient()
@@ -108,6 +133,35 @@ def test_mcp_provider_loads_tools_with_src_origin_dynamic_name_and_legacy_alias(
     assert json.loads(result.content)["answer"] == "agents"
     assert json.loads(legacy_result.content)["answer"] == "legacy"
     assert client.called == [("search", {"query": "agents"}), ("search", {"query": "legacy"})]
+
+
+def test_mcp_provider_limits_ide_tools_to_src_origin_allowlist():
+    registry = ToolRegistry()
+    client = FakeIDEMCPClient()
+    provider = MCPToolProvider(
+        client=client,
+        server=MCPServerConfig(name="ide", transport="ws-ide", url="ws://127.0.0.1:32101/mcp"),
+    )
+
+    asyncio.run(provider.load_tools(registry))
+    execute_result = asyncio.run(registry.execute("mcp__ide__executeCode", {"code": "1 + 1"}))
+    diagnostics_result = asyncio.run(registry.execute("mcp__ide__getDiagnostics", {"uri": "file:///tmp/app.py"}))
+    search_result = asyncio.run(registry.execute("mcp__ide__search", {"query": "agents"}))
+
+    assert "mcp__ide__executeCode" in registry.names()
+    assert "mcp__ide__getDiagnostics" in registry.names()
+    assert "mcp__ide__search" not in registry.names()
+    assert "mcp_ide_search" not in registry.names()
+    assert json.loads(execute_result.content) == {"arguments": {"code": "1 + 1"}, "tool": "executeCode"}
+    assert json.loads(diagnostics_result.content) == {
+        "arguments": {"uri": "file:///tmp/app.py"},
+        "tool": "getDiagnostics",
+    }
+    assert search_result.is_error is True
+    assert client.called == [
+        ("executeCode", {"code": "1 + 1"}),
+        ("getDiagnostics", {"uri": "file:///tmp/app.py"}),
+    ]
 
 
 def test_mcp_provider_matches_src_origin_name_normalization():
@@ -1266,7 +1320,7 @@ def test_load_configured_mcp_uses_sse_transport(monkeypatch):
 def test_load_configured_mcp_uses_sse_ide_transport(monkeypatch):
     created = []
 
-    class FakeSSEMCPClient(FakeMCPClient):
+    class FakeSSEMCPClient(FakeIDEMCPClient):
         def __init__(self, server):
             super().__init__()
             self.server = server
@@ -1289,13 +1343,14 @@ def test_load_configured_mcp_uses_sse_ide_transport(monkeypatch):
     )
 
     providers = asyncio.run(load_configured_mcp(settings, registry))
-    result = asyncio.run(registry.execute("mcp__ide__search", {"query": "agents"}))
+    result = asyncio.run(registry.execute("mcp__ide__executeCode", {"code": "1 + 1"}))
 
     assert len(providers) == 1
     assert providers[0].server.transport == "sse-ide"
     assert providers[0].server.url == "http://127.0.0.1:32100/sse"
-    assert json.loads(result.content)["answer"] == "agents"
-    assert created[0].called == [("search", {"query": "agents"})]
+    assert json.loads(result.content) == {"arguments": {"code": "1 + 1"}, "tool": "executeCode"}
+    assert "mcp__ide__search" not in registry.names()
+    assert created[0].called == [("executeCode", {"code": "1 + 1"})]
 
 
 def test_load_configured_mcp_uses_websocket_transport(monkeypatch):
@@ -1338,7 +1393,7 @@ def test_load_configured_mcp_uses_websocket_transport(monkeypatch):
 def test_load_configured_mcp_uses_ws_ide_transport(monkeypatch):
     created = []
 
-    class FakeWebSocketMCPClient(FakeMCPClient):
+    class FakeWebSocketMCPClient(FakeIDEMCPClient):
         def __init__(self, server):
             super().__init__()
             self.server = server
@@ -1362,14 +1417,18 @@ def test_load_configured_mcp_uses_ws_ide_transport(monkeypatch):
     )
 
     providers = asyncio.run(load_configured_mcp(settings, registry))
-    result = asyncio.run(registry.execute("mcp__ide__search", {"query": "agents"}))
+    result = asyncio.run(registry.execute("mcp__ide__getDiagnostics", {"uri": "file:///tmp/app.py"}))
 
     assert len(providers) == 1
     assert providers[0].server.transport == "ws-ide"
     assert providers[0].server.url == "ws://127.0.0.1:32101/mcp"
     assert providers[0].server.headers == {"X-Claude-Code-Ide-Authorization": "ide-token"}
-    assert json.loads(result.content)["answer"] == "agents"
-    assert created[0].called == [("search", {"query": "agents"})]
+    assert json.loads(result.content) == {
+        "arguments": {"uri": "file:///tmp/app.py"},
+        "tool": "getDiagnostics",
+    }
+    assert "mcp__ide__search" not in registry.names()
+    assert created[0].called == [("getDiagnostics", {"uri": "file:///tmp/app.py"})]
 
 
 def test_load_configured_mcp_uses_sdk_transport_handler():

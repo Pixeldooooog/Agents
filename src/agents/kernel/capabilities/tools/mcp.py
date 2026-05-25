@@ -23,6 +23,7 @@ from agents.kernel.capabilities.tools.registry import ToolRegistry
 
 
 _MCP_UNSAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9_-]")
+ALLOWED_IDE_TOOL_NAMES = {"mcp__ide__executeCode", "mcp__ide__getDiagnostics"}
 
 
 class MCPElicitationHandler(Protocol):
@@ -462,6 +463,8 @@ class MCPToolProvider:
             return
         for tool in tools:
             canonical_name = self._registry_name(tool.name)
+            if not _is_included_mcp_tool(canonical_name):
+                continue
             if canonical_name not in registered_names:
                 registry.register(
                     canonical_name,
@@ -723,6 +726,10 @@ def normalize_mcp_name(name: str) -> str:
 
 def build_mcp_tool_name(server_name: str, tool_name: str) -> str:
     return "mcp__%s__%s" % (normalize_mcp_name(server_name), normalize_mcp_name(tool_name))
+
+
+def _is_included_mcp_tool(name: str) -> bool:
+    return not name.startswith("mcp__ide__") or name in ALLOWED_IDE_TOOL_NAMES
 
 
 def mcp_info_from_name(name: str) -> Dict[str, str] | None:
