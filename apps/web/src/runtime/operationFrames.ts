@@ -1,5 +1,6 @@
 import type { OperationEvent, OperationPhase, OperationSceneKind } from "../types";
 import { createId } from "./sessionUtils";
+import { isEditTool } from "./operationToolMapping";
 
 const scenes: OperationSceneKind[] = ["workspace", "edit", "web", "browser", "terminal", "git", "document", "summary"];
 const phases: OperationPhase[] = ["opening", "running", "closing", "done", "error"];
@@ -48,8 +49,7 @@ function normalizePhase(value: unknown): OperationPhase {
 }
 
 function sceneForTool(toolName: string): OperationSceneKind {
-  if (toolName.startsWith("filesystem.write") || toolName.startsWith("filesystem.delete") || toolName.startsWith("filesystem.move")) return "edit";
-  if (toolName.startsWith("patch.")) return "edit";
+  if (isEditTool(toolName)) return "edit";
   if (toolName.startsWith("web.")) return "web";
   if (toolName.startsWith("browser.")) return "browser";
   if (toolName.startsWith("shell.") || toolName.startsWith("test.")) return "terminal";
@@ -66,7 +66,7 @@ function titleForTool(toolName: string, phase: OperationPhase) {
   if (toolName.startsWith("browser.")) return `${verb} browser`;
   if (toolName.startsWith("shell.") || toolName.startsWith("test.")) return `${verb} terminal`;
   if (toolName.startsWith("git.")) return `${verb} git terminal`;
-  if (toolName.includes("write") || toolName.startsWith("patch.")) return `${verb} editor`;
+  if (isEditTool(toolName)) return `${verb} editor`;
   if (toolName.startsWith("skill.") || toolName.startsWith("mcp.") || toolName.startsWith("prompt.") || toolName.startsWith("context.")) return `${verb} document reader`;
   return `${verb} workspace`;
 }

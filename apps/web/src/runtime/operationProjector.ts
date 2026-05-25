@@ -2,6 +2,7 @@ import type { OperationEvent, OperationFile, OperationPhase, OperationSceneKind,
 import { operationFromFrame } from "./operationFrames";
 import { fileHistoryOperation } from "./operationSpecialEvents";
 import { createId } from "./sessionUtils";
+import { fileTarget, isEditTool } from "./operationToolMapping";
 
 type RuntimeEvent = {
   type?: string;
@@ -124,8 +125,7 @@ function genericOperation(event: RuntimeEvent, scene: OperationSceneKind, toolNa
 }
 
 export function sceneForTool(toolName: string): OperationSceneKind {
-  if (toolName.startsWith("filesystem.write") || toolName.startsWith("filesystem.delete") || toolName.startsWith("filesystem.move")) return "edit";
-  if (toolName.startsWith("patch.")) return "edit";
+  if (isEditTool(toolName)) return "edit";
   if (toolName.startsWith("web.")) return "web";
   if (toolName.startsWith("browser.")) return "browser";
   if (toolName.startsWith("shell.") || toolName.startsWith("test.")) return "terminal";
@@ -147,12 +147,13 @@ function titleForTool(toolName: string, phase: OperationPhase) {
   if (toolName.startsWith("todo.") || toolName.startsWith("plan.")) return `${verb} planning context`;
   if (toolName.startsWith("task.") || toolName.startsWith("schedule.")) return `${verb} task context`;
   if (toolName.startsWith("workflow.") || toolName.startsWith("agent.") || toolName.startsWith("team.")) return `${verb} orchestration context`;
-  if (toolName.includes("write") || toolName.startsWith("patch.")) return `${verb} workspace edit`;
+  if (isEditTool(toolName)) return `${verb} workspace edit`;
   return `${verb} workspace file`;
 }
 
 function targetForTool(toolName: string, args: Record<string, any>, result: any) {
-  if (args.path) return String(args.path);
+  const path = fileTarget(args);
+  if (path) return String(path);
   if (args.source_path || args.destination_path) return [args.source_path, args.destination_path].filter(Boolean).join(" -> ");
   if (args.query) return String(args.query);
   if (args.url) return String(args.url);
@@ -163,7 +164,10 @@ function targetForTool(toolName: string, args: Record<string, any>, result: any)
   if (args.task_id) return String(args.task_id);
   if (args.agent_id) return String(args.agent_id);
   if (args.team_id) return String(args.team_id);
-  return typeof result?.path === "string" ? result.path : toolName;
+  return typeof result?.path === "string" ? result.path
+    : typeof result?.notebook_path === "string" ? result.notebook_path
+    : typeof result?.filePath === "string" ? result.filePath
+    : toolName;
 }
 
 function detailForTool(toolName: string, args: Record<string, any>, result: any) {
@@ -208,7 +212,8 @@ function filesFromResult(toolName: string, args: Record<string, any>, result: an
     kind: String(entry.kind || entry.type || ""),
     status: String(entry.status || ""),
   }));
-  if (!files.length && args.path) files.push({ path: String(args.path), kind: toolName.includes("write") ? "file" : "" });
+  const targetPath = fileTarget(args);
+  if (!files.length && targetPath) files.push({ path: String(targetPath), kind: isEditTool(toolName) ? "file" : "" });
   return files;
 }
 

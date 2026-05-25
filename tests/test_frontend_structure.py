@@ -75,6 +75,7 @@ def test_operation_stage_uses_normalized_operation_events():
     session = (FRONTEND_SRC / "runtime/agentSession.ts").read_text(encoding="utf-8")
     projector = (FRONTEND_SRC / "runtime/operationProjector.ts").read_text(encoding="utf-8")
     frames = (FRONTEND_SRC / "runtime/operationFrames.ts").read_text(encoding="utf-8")
+    tool_mapping = (FRONTEND_SRC / "runtime/operationToolMapping.ts").read_text(encoding="utf-8")
     playback = (FRONTEND_SRC / "runtime/operationPlayback.ts").read_text(encoding="utf-8")
     script = (FRONTEND_SRC / "runtime/operationStageScript.ts").read_text(encoding="utf-8")
     surfaces = (FRONTEND_SRC / "runtime/operationSurfaces.ts").read_text(encoding="utf-8")
@@ -91,6 +92,9 @@ def test_operation_stage_uses_normalized_operation_events():
     assert "sandbox_trace" in frames
     assert "operationFromFrame" in projector
     assert "sceneForTool" in projector
+    assert "isEditTool" in projector and "isEditTool" in frames
+    assert 'toolName === "NotebookEdit"' in tool_mapping
+    assert "args.notebook_path" in tool_mapping
     assert "playbackFrames" in playback
     assert "scriptForOperation" in script
     assert "surfaceForScene" in surfaces

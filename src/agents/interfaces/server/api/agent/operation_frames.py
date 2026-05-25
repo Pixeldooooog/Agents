@@ -137,7 +137,7 @@ def _preview(result: Any) -> Any:
 
 
 def _scene_for(tool_name: str) -> str:
-    if tool_name.startswith(("filesystem.write", "filesystem.delete", "filesystem.move", "patch.")):
+    if _is_edit_tool(tool_name):
         return "edit"
     if tool_name.startswith("web."):
         return "web"
@@ -152,13 +152,19 @@ def _scene_for(tool_name: str) -> str:
     return "workspace"
 
 
+def _is_edit_tool(tool_name: str) -> bool:
+    return tool_name in {"notebook.edit", "NotebookEdit"} or tool_name.startswith(
+        ("filesystem.write", "filesystem.delete", "filesystem.move", "patch.")
+    )
+
+
 def _title_for(tool_name: str, phase: str) -> str:
     action = {"opening": "Opening", "running": "Operating", "closing": "Closing", "done": "Completed", "error": "Failed"}.get(phase, "Operating")
     if tool_name.startswith("web."):
         return "%s web workspace" % action
     if tool_name.startswith(("shell.", "test.", "git.")):
         return "%s terminal" % action
-    if tool_name.startswith(("filesystem.write", "filesystem.delete", "filesystem.move", "patch.")):
+    if _is_edit_tool(tool_name):
         return "%s editor" % action
     if tool_name.startswith(("skill.", "prompt.", "mcp.", "context.")):
         return "%s document reader" % action
@@ -168,7 +174,7 @@ def _title_for(tool_name: str, phase: str) -> str:
 def _target_for(tool_name: str, args: dict[str, Any], result: Any) -> str:
     if not isinstance(args, dict):
         return tool_name
-    for key in ("path", "query", "url", "command", "name", "title", "task_id", "agent_id", "team_id"):
+    for key in ("path", "notebook_path", "notebookPath", "file_path", "filePath", "query", "url", "command", "name", "title", "task_id", "agent_id", "team_id"):
         if args.get(key):
             return str(args[key])
     if args.get("source_path") or args.get("destination_path"):
@@ -183,7 +189,7 @@ def _detail_for(tool_name: str, args: dict[str, Any], result: Any) -> str:
         return "Inspect web sources for %s" % _target_for(tool_name, args, result)
     if tool_name.startswith(("shell.", "test.", "git.")):
         return "Run command and collect output"
-    if tool_name.startswith(("filesystem.write", "filesystem.delete", "filesystem.move", "patch.")):
+    if _is_edit_tool(tool_name):
         return "Apply workspace file change"
     if tool_name.startswith(("skill.", "prompt.", "mcp.", "context.")):
         return "Open context source and extract constraints"
@@ -202,7 +208,7 @@ def _active_step(tool_name: str, args: dict[str, Any]) -> tuple[str, str]:
         return ("search sources", target)
     if tool_name.startswith(("shell.", "test.", "git.")):
         return ("execute command", target)
-    if tool_name.startswith(("filesystem.write", "filesystem.delete", "filesystem.move", "patch.")):
+    if _is_edit_tool(tool_name):
         return ("edit file", target)
     if tool_name.startswith(("skill.", "prompt.", "mcp.", "context.")):
         return ("read source", target)
@@ -220,7 +226,15 @@ def _done_step(tool_name: str, failed: bool) -> tuple[str, str]:
 def _files_from_args(args: dict[str, Any]) -> list[dict[str, str]]:
     if not isinstance(args, dict):
         return []
-    paths = [args.get("path"), args.get("source_path"), args.get("destination_path")]
+    paths = [
+        args.get("path"),
+        args.get("notebook_path"),
+        args.get("notebookPath"),
+        args.get("file_path"),
+        args.get("filePath"),
+        args.get("source_path"),
+        args.get("destination_path"),
+    ]
     return [{"path": str(path), "status": "target"} for path in paths if path]
 
 

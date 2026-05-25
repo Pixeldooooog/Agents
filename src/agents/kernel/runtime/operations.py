@@ -47,7 +47,7 @@ def _frame_from_event(run_id: str, event: RuntimeEvent, sequence: int) -> dict[s
         "detail": _detail_for_event(event, contract, payload),
         "argsPreview": _scrub(dict(call.get("arguments") or payload.get("arguments") or {})),
         "resultPreview": _preview(result),
-        "files": [{"path": path, "status": "target"} for path in _paths_from_contract(contract)],
+        "files": [{"path": path, "status": "target"} for path in _frame_paths(tool_name, target, contract)],
         "sources": _sources_from_result(result),
         "stats": {"contract": contract} if contract else {},
         "step": _step_for_event(event, target, contract),
@@ -119,7 +119,7 @@ def _scene_from_contract(tool_name: str, contract: dict[str, Any]) -> str:
 
 
 def _scene_for_tool(tool_name: str) -> str:
-    if tool_name.startswith(("filesystem.write", "filesystem.delete", "filesystem.move", "patch.")):
+    if _is_edit_tool(tool_name):
         return "edit"
     if tool_name.startswith("web."):
         return "web"
@@ -132,6 +132,12 @@ def _scene_for_tool(tool_name: str) -> str:
     if tool_name.startswith(("skill.", "prompt.", "mcp.", "context.", "todo.", "plan.", "task.", "schedule.", "workflow.", "agent.", "team.")):
         return "document"
     return "workspace"
+
+
+def _is_edit_tool(tool_name: str) -> bool:
+    return tool_name in {"notebook.edit", "NotebookEdit"} or tool_name.startswith(
+        ("filesystem.write", "filesystem.delete", "filesystem.move", "patch.")
+    )
 
 
 def _title_for_event(event: RuntimeEvent, tool_name: str, contract: dict[str, Any], phase: str) -> str:
@@ -176,7 +182,7 @@ def _target_from_call(call: dict[str, Any], payload: dict[str, Any]) -> str:
     args = call.get("arguments") if isinstance(call.get("arguments"), dict) else payload.get("arguments")
     if not isinstance(args, dict):
         return ""
-    for key in ("path", "query", "url", "command", "name", "title", "task_id", "agent_id", "team_id"):
+    for key in ("path", "notebook_path", "notebookPath", "file_path", "filePath", "query", "url", "command", "name", "title", "task_id", "agent_id", "team_id"):
         if args.get(key):
             return str(args[key])
     if args.get("source_path") or args.get("destination_path"):
@@ -189,6 +195,13 @@ def _paths_from_contract(contract: dict[str, Any]) -> list[str]:
     if not isinstance(paths, list):
         return []
     return [str(path) for path in paths if str(path)]
+
+
+def _frame_paths(tool_name: str, target: str, contract: dict[str, Any]) -> list[str]:
+    paths = _paths_from_contract(contract)
+    if paths:
+        return paths
+    return [target] if _is_edit_tool(tool_name) and target else []
 
 
 def _scrub(args: dict[str, Any]) -> dict[str, Any]:

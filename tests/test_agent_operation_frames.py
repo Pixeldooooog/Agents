@@ -85,6 +85,54 @@ def test_operation_frames_project_file_history_write_events():
     assert frames[0]["step"] == {"label": "queue file checkpoint", "detail": "notes.md"}
 
 
+def test_operation_frames_project_notebook_edit_as_editor_without_contract():
+    frames = build_operation_frames(
+        run_id="run-1",
+        runtime_events=[
+            RuntimeEvent(
+                type="tool_start",
+                name="NotebookEdit",
+                payload={
+                    "id": "call-notebook",
+                    "name": "NotebookEdit",
+                    "arguments": {
+                        "notebook_path": "analysis.ipynb",
+                        "cell_id": "calc",
+                        "new_source": "print(2)\n",
+                    },
+                },
+            )
+        ],
+        sandbox_events=[
+            SandboxEventRecord(
+                lease_id="lease-notebook",
+                event_type="tool_started",
+                run_id="run-1",
+                tool_call_id="call-notebook-sandbox",
+                tool_name="NotebookEdit",
+                status="running",
+                payload={"arguments": json.dumps({"notebook_path": "analysis.ipynb", "cell_id": "calc"})},
+                created_at=1.0,
+            )
+        ],
+        sandbox_snapshots=[],
+        artifacts=[],
+    )
+
+    assert frames[0]["source"] == "runtime_contract"
+    assert frames[0]["scene"] == "edit"
+    assert frames[0]["target"] == "analysis.ipynb"
+    assert frames[0]["files"] == [{"path": "analysis.ipynb", "status": "target"}]
+    sandbox_opening = frames[1]
+    assert sandbox_opening["source"] == "sandbox_trace"
+    assert sandbox_opening["scene"] == "edit"
+    assert sandbox_opening["title"] == "Opening editor"
+    assert sandbox_opening["target"] == "analysis.ipynb"
+    assert sandbox_opening["files"] == [{"path": "analysis.ipynb", "status": "target"}]
+    assert sandbox_opening["step"] == {"label": "open app", "detail": "Launch Editor for analysis.ipynb"}
+    assert frames[2]["step"] == {"label": "edit file", "detail": "analysis.ipynb"}
+
+
 def test_operation_frames_expand_sandbox_tool_events():
     started = SandboxEventRecord(
         lease_id="lease-1",
