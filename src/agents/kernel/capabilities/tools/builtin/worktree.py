@@ -13,6 +13,7 @@ from typing import Any
 from agents.kernel.capabilities.sandbox.factory import create_sandbox_client_from_profile
 from agents.kernel.capabilities.sandbox.types import SandboxProfile
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext, _scoped_lease_id
+from agents.kernel.session_state import save_session_state
 
 
 NO_ACTIVE_WORKTREE_SESSION_MESSAGE = (
@@ -67,7 +68,7 @@ GIT_NO_PROMPT_ENV = {
 }
 
 
-def enter_worktree(
+async def enter_worktree(
     context: ToolRuntimeContext,
     name: str = "",
     pr_number: int | None = None,
@@ -110,6 +111,7 @@ def enter_worktree(
     }
     context.active_worktree_session = session
     _switch_workspace(context, worktree_path)
+    await save_session_state(context)
 
     action = "Resumed" if existed else "Created"
     return {
@@ -128,7 +130,7 @@ def enter_worktree(
     }
 
 
-def exit_worktree(context: ToolRuntimeContext, action: str, discard_changes: bool = False) -> dict[str, Any]:
+async def exit_worktree(context: ToolRuntimeContext, action: str, discard_changes: bool = False) -> dict[str, Any]:
     normalized_action = str(action or "").strip()
     if normalized_action not in {"keep", "remove"}:
         raise ValueError("action must be keep or remove")
@@ -169,6 +171,7 @@ def exit_worktree(context: ToolRuntimeContext, action: str, discard_changes: boo
     context.active_worktree_session = {}
 
     if normalized_action == "keep":
+        await save_session_state(context)
         return {
             "action": "keep",
             "originalCwd": str(original_cwd),
@@ -188,6 +191,7 @@ def exit_worktree(context: ToolRuntimeContext, action: str, discard_changes: boo
         deleted = _git(original_cwd, ["branch", "-D", branch], check=False)
         if deleted.returncode != 0:
             branch_delete_error = _git_error("Could not delete worktree branch", deleted)
+    await save_session_state(context)
 
     discard_parts = []
     if commits:
@@ -206,6 +210,38 @@ def exit_worktree(context: ToolRuntimeContext, action: str, discard_changes: boo
         "message": "Exited and removed worktree at %s.%s Session is now back in %s.%s"
         % (worktree_path, discard_note, original_cwd, warning),
     }
+
+
+def restore_active_worktree_session(context: ToolRuntimeContext, session: dict[str, Any]) -> bool:
+    restored = _normalized_worktree_session(session)
+    if not restored:
+        context.active_worktree_session = {}
+        return False
+
+    try:
+        repo_root = _git_root(context.workspace.path)
+    except (OSError, subprocess.SubprocessError, RuntimeError):
+        context.active_worktree_session = {}
+        return False
+
+    original_cwd = Path(str(restored.get("originalCwd") or "")).expanduser().resolve()
+    worktree_path = Path(str(restored.get("worktreePath") or "")).expanduser().resolve()
+    if original_cwd != repo_root or not _is_known_worktree_path(repo_root, worktree_path, restored):
+        context.active_worktree_session = {}
+        return False
+    try:
+        is_worktree = _is_git_worktree(worktree_path)
+    except (OSError, subprocess.SubprocessError):
+        is_worktree = False
+    if not is_worktree:
+        context.active_worktree_session = {}
+        return False
+
+    restored["originalCwd"] = str(original_cwd)
+    restored["worktreePath"] = str(worktree_path)
+    context.active_worktree_session = restored
+    _switch_workspace(context, worktree_path)
+    return True
 
 
 def format_worktree_result(result: Any) -> str:
@@ -290,6 +326,41 @@ def _worktree_branch_name(slug: str) -> str:
 
 def _worktree_path_for(repo_root: Path, slug: str) -> Path:
     return (repo_root / ".agents" / "worktrees" / _flatten_slug(slug)).resolve()
+
+
+def _normalized_worktree_session(session: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(session, dict):
+        return {}
+    restored = {str(key): _json_safe_value(value) for key, value in session.items()}
+    if not restored.get("originalCwd") or not restored.get("worktreePath"):
+        return {}
+    return restored
+
+
+def _json_safe_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe_value(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _json_safe_value(item) for key, item in value.items()}
+    return str(value)
+
+
+def _is_known_worktree_path(repo_root: Path, worktree_path: Path, session: dict[str, Any]) -> bool:
+    slug = str(session.get("worktreeName") or "").strip()
+    if slug:
+        try:
+            validate_worktree_slug(slug)
+        except ValueError:
+            return False
+        return worktree_path == _worktree_path_for(repo_root, slug)
+    worktrees_root = (repo_root / ".agents" / "worktrees").resolve()
+    try:
+        worktree_path.relative_to(worktrees_root)
+    except ValueError:
+        return False
+    return True
 
 
 def _prepare_worktree_base_ref(repo_root: Path, pr_number: int | None) -> str:

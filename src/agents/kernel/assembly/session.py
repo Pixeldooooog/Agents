@@ -31,6 +31,7 @@ from agents.kernel.governance.tool_rules import matching_blanket_tool_rule
 from agents.kernel.state.workspaces.factory import resolve_workspace
 from agents.kernel.state.artifacts import ArtifactBlobStore, ArtifactStore
 from agents.kernel.capabilities.tools import ToolRegistry, ToolRuntimeContext, register_builtin_tools
+from agents.kernel.capabilities.tools.builtin.worktree import restore_active_worktree_session
 
 
 async def create_agent_session_async(
@@ -114,11 +115,12 @@ async def create_agent_session_async(
     registry.set_execution_observer(SandboxToolExecutionRecorder(tool_context, sandbox_store))
     web_provider = create_web_search_provider(settings)
     builtin_tools = register_builtin_tools(registry, tool_context, web_provider=web_provider)
+    await _hydrate_session_state(tool_context)
     mcp_records = await _mcp_config_records(tool_context)
     await _hydrate_mcp_config(tool_context, records=mcp_records)
     mcp_auth_headers = await _mcp_auth_headers(tool_context, records=mcp_records)
     mcp_load_kwargs: dict[str, Any] = {
-        "roots": [str(workspace.path)],
+        "roots": [str(tool_context.workspace.path)],
         "records": mcp_records if mcp_records else None,
     }
     if sdk_mcp_handlers:
@@ -136,7 +138,6 @@ async def create_agent_session_async(
     )
     tool_context.mcp_providers = await load_configured_mcp(settings, registry, **mcp_load_kwargs)
 
-    await _hydrate_session_state(tool_context)
     skill_registry = _skill_registry_with_session_state(settings, skill_registry, tool_context)
     tool_context.skill_registry = skill_registry
     effective_spec = _effective_spec_from_session_state(resolved_spec, tool_context)
@@ -155,7 +156,7 @@ async def create_agent_session_async(
     await _hydrate_schedules(tool_context)
     await _hydrate_teams(tool_context)
     await _hydrate_hooks(tool_context)
-    memory_fragments = await _memory_fragments(settings, memory_store, workspace)
+    memory_fragments = await _memory_fragments(settings, memory_store, tool_context.workspace)
     system_prompt = settings.agent.SYSTEM_PROMPT if effective_spec.system_prompt is None else effective_spec.system_prompt
     if tool_context.system_prompt_overridden:
         system_prompt = tool_context.system_prompt_override
@@ -163,7 +164,7 @@ async def create_agent_session_async(
         system_prompt=system_prompt,
         skill_registry=skill_registry,
         enabled_tools=active_tools,
-        workspace=workspace,
+        workspace=tool_context.workspace,
         memory_fragments=memory_fragments,
         extension_fragments=_plugin_context_fragments(settings, tool_context),
     )
@@ -194,7 +195,7 @@ async def create_agent_session_async(
         max_context_tokens=settings.agent.MAX_CONTEXT_TOKENS,
         compaction_target_tokens=int(getattr(settings.agent, "CONTEXT_COMPACTION_TARGET_TOKENS", 0) or 0) or None,
         context_trace=compiled_context.trace,
-        workspace=workspace,
+        workspace=tool_context.workspace,
         tool_context=tool_context,
     )
 
@@ -629,6 +630,7 @@ async def _hydrate_session_state(tool_context: ToolRuntimeContext) -> None:
     tool_context.enabled_plugins = set(record.enabled_plugins)
     tool_context.skill_tools = {name: list(tools) for name, tools in record.skill_tools.items()}
     tool_context.plugin_tools = {name: list(tools) for name, tools in record.plugin_tools.items()}
+    restore_active_worktree_session(tool_context, record.active_worktree_session)
     tool_context.config_overrides = dict(record.metadata)
 
 

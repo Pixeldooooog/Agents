@@ -42,6 +42,7 @@ SESSION_STATE_COLUMNS = {
     "enabled_plugins_json": "TEXT NOT NULL DEFAULT '[]'",
     "skill_tools_json": "TEXT NOT NULL DEFAULT '{}'",
     "plugin_tools_json": "TEXT NOT NULL DEFAULT '{}'",
+    "active_worktree_session_json": "TEXT NOT NULL DEFAULT '{}'",
 }
 
 
@@ -403,6 +404,7 @@ CREATE TABLE IF NOT EXISTS session_states (
     enabled_plugins_json TEXT NOT NULL DEFAULT '[]',
     skill_tools_json TEXT NOT NULL DEFAULT '{}',
     plugin_tools_json TEXT NOT NULL DEFAULT '{}',
+    active_worktree_session_json TEXT NOT NULL DEFAULT '{}',
     metadata_json TEXT NOT NULL DEFAULT '{}',
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL,

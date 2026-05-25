@@ -254,6 +254,13 @@ def test_sqlite_session_state_store_persists_scoped_planning_state(tmp_path):
         enabled_plugins=["planner"],
         skill_tools={"focus": ["filesystem.read"]},
         plugin_tools={"planner": ["todo.write"]},
+        active_worktree_session={
+            "originalCwd": "/work/repo",
+            "worktreePath": "/work/repo/.agents/worktrees/feature",
+            "worktreeName": "feature",
+            "worktreeBranch": "worktree-feature",
+            "usedSparsePaths": False,
+        },
     )
     other = SessionStateRecord(
         tenant_id="tenant-1",
@@ -292,6 +299,8 @@ def test_sqlite_session_state_store_persists_scoped_planning_state(tmp_path):
     assert loaded.enabled_plugins == ["planner"]
     assert loaded.skill_tools == {"focus": ["filesystem.read"]}
     assert loaded.plugin_tools == {"planner": ["todo.write"]}
+    assert loaded.active_worktree_session["worktreePath"] == "/work/repo/.agents/worktrees/feature"
+    assert loaded.active_worktree_session["usedSparsePaths"] is False
     assert other_loaded is not None
     assert other_loaded.todos[0]["content"] == "Review output"
     assert after_delete is None

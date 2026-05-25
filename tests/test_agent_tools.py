@@ -35,6 +35,7 @@ from agents.kernel.capabilities.sandbox.types import SandboxCommandResult
 import agents.kernel.capabilities.tools.builtin.filesystem as filesystem_tools
 from agents.kernel.capabilities.tools.builtin.browser import browser_open
 from agents.kernel.capabilities.tools.builtin.shell import classify_shell_command, detect_blocked_sleep_pattern, is_silent_shell_command
+from agents.kernel.capabilities.tools.builtin.worktree import restore_active_worktree_session
 from agents.kernel.capabilities.tools import ToolRuntimeContext, register_builtin_tools
 from agents.kernel.capabilities.tools.registry import ToolDefinition, ToolExecutionError, ToolRegistry
 from agents.kernel.specs import AgentSpec
@@ -197,10 +198,12 @@ def test_tool_registry_describes_call_activity_target_and_paths(tmp_path: Path):
         path=tmp_path,
     )
     policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True, allow_process=True)
+    store = InMemorySessionStateStore()
     context = ToolRuntimeContext(
         workspace=workspace,
         sandbox=policy,
         sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+        session_state_store=store,
     )
     registry = ToolRegistry()
     register_builtin_tools(registry, context)
@@ -699,17 +702,29 @@ def test_worktree_tools_enter_keep_resume_and_remove_git_worktrees(tmp_path: Pat
         path=repo,
     )
     policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True, allow_process=True)
+    store = InMemorySessionStateStore()
     context = ToolRuntimeContext(
         workspace=workspace,
         sandbox=policy,
         sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+        session_state_store=store,
     )
     registry = ToolRegistry()
     register_builtin_tools(registry, context)
 
     entered = asyncio.run(registry.execute("EnterWorktree", {"name": "feature/test"}))
     worktree_path = Path(entered.raw["worktreePath"])
+    record_after_enter = asyncio.run(store.load_for_scope("tenant", user_id="user", agent_id="agent", workspace_id="workspace"))
+    assert record_after_enter is not None
+    restored_context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+        session_state_store=store,
+    )
+    restored = restore_active_worktree_session(restored_context, record_after_enter.active_worktree_session)
     kept = asyncio.run(registry.execute("ExitWorktree", {"action": "keep"}))
+    record_after_keep = asyncio.run(store.load_for_scope("tenant", user_id="user", agent_id="agent", workspace_id="workspace"))
     kept_path_exists = worktree_path.exists()
     resumed = asyncio.run(registry.execute("worktree.enter", {"name": "feature/test"}))
     clean_removed = asyncio.run(registry.execute("worktree.exit", {"action": "remove"}))
@@ -719,6 +734,7 @@ def test_worktree_tools_enter_keep_resume_and_remove_git_worktrees(tmp_path: Pat
     blocked = asyncio.run(registry.execute("worktree.exit", {"action": "remove"}))
     blocked_workspace = context.workspace.path
     removed = asyncio.run(registry.execute("ExitWorktree", {"action": "remove", "discard_changes": True}))
+    record_after_remove = asyncio.run(store.load_for_scope("tenant", user_id="user", agent_id="agent", workspace_id="workspace"))
     enter_impact = describe_tool_impact(ToolCall(id="enter-wt", name="EnterWorktree", arguments={"name": "cleanup"}))
     remove_impact = describe_tool_impact(ToolCall(id="exit-wt", name="ExitWorktree", arguments={"action": "remove"}))
     remove_decision = asyncio.run(
@@ -727,7 +743,12 @@ def test_worktree_tools_enter_keep_resume_and_remove_git_worktrees(tmp_path: Pat
 
     assert entered.is_error is False
     assert entered.raw["worktreeBranch"] == "worktree-feature+test"
+    assert record_after_enter is not None
+    assert record_after_enter.active_worktree_session["worktreePath"] == str(worktree_path)
+    assert restored is True
+    assert restored_context.workspace.path == worktree_path.resolve()
     assert kept.raw["action"] == "keep"
+    assert record_after_keep.active_worktree_session == {}
     assert context.workspace.path == repo.resolve()
     assert kept_path_exists is True
     assert resumed.raw["resumed"] is True
@@ -739,6 +760,7 @@ def test_worktree_tools_enter_keep_resume_and_remove_git_worktrees(tmp_path: Pat
     assert blocked_workspace == dirty_path.resolve()
     assert removed.is_error is False
     assert removed.raw["discardedFiles"] == 1
+    assert record_after_remove.active_worktree_session == {}
     assert not dirty_path.exists()
     assert context.workspace.path == repo.resolve()
     assert context.active_worktree_session == {}

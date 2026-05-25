@@ -30,6 +30,7 @@ class SessionStateRecord:
     enabled_plugins: list[str] = field(default_factory=list)
     skill_tools: dict[str, list[str]] = field(default_factory=dict)
     plugin_tools: dict[str, list[str]] = field(default_factory=dict)
+    active_worktree_session: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, str] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
@@ -60,6 +61,7 @@ class SessionStateRecord:
             "enabled_plugins": list(self.enabled_plugins),
             "skill_tools": {key: list(value) for key, value in self.skill_tools.items()},
             "plugin_tools": {key: list(value) for key, value in self.plugin_tools.items()},
+            "active_worktree_session": dict(self.active_worktree_session),
             "metadata": dict(self.metadata),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -141,8 +143,8 @@ class SQLiteSessionStateStore:
                     permission_denied_tools_override_json,
                     approval_required_tools_override_json, permission_overridden,
                     enabled_skills_json, enabled_plugins_json, skill_tools_json, plugin_tools_json,
-                    metadata_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    active_worktree_session_json, metadata_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(tenant_id, user_id, agent_id, workspace_id) DO UPDATE SET
                     todos_json = excluded.todos_json,
                     plan_mode = excluded.plan_mode,
@@ -161,6 +163,7 @@ class SQLiteSessionStateStore:
                     enabled_plugins_json = excluded.enabled_plugins_json,
                     skill_tools_json = excluded.skill_tools_json,
                     plugin_tools_json = excluded.plugin_tools_json,
+                    active_worktree_session_json = excluded.active_worktree_session_json,
                     metadata_json = excluded.metadata_json,
                     updated_at = excluded.updated_at
                 """,
@@ -186,6 +189,7 @@ class SQLiteSessionStateStore:
                     json_dumps(updated.enabled_plugins),
                     json_dumps(updated.skill_tools),
                     json_dumps(updated.plugin_tools),
+                    json_dumps(updated.active_worktree_session),
                     json_dumps(updated.metadata),
                     updated.created_at,
                     updated.updated_at,
@@ -260,6 +264,7 @@ def session_state_record_for_context(context: Any) -> SessionStateRecord:
         enabled_plugins=_string_list(getattr(context, "enabled_plugins", []) or []),
         skill_tools=_string_list_mapping(getattr(context, "skill_tools", {}) or {}),
         plugin_tools=_string_list_mapping(getattr(context, "plugin_tools", {}) or {}),
+        active_worktree_session=_json_mapping(getattr(context, "active_worktree_session", {}) or {}),
         metadata=_string_mapping(getattr(context, "config_overrides", {}) or {}),
     )
 
@@ -294,6 +299,7 @@ def _record_from_row(row) -> SessionStateRecord:
         enabled_plugins=_string_list(json_list(row["enabled_plugins_json"])),
         skill_tools=_string_list_mapping(json_dict(row["skill_tools_json"])),
         plugin_tools=_string_list_mapping(json_dict(row["plugin_tools_json"])),
+        active_worktree_session=_json_mapping(json_dict(row["active_worktree_session_json"])),
         metadata={key: str(value) for key, value in json_dict(row["metadata_json"]).items()},
         created_at=float(row["created_at"]),
         updated_at=float(row["updated_at"]),
@@ -348,3 +354,19 @@ def _string_mapping(value: Any) -> dict[str, str]:
     if not isinstance(value, dict):
         return {}
     return {str(key): str(item) for key, item in value.items()}
+
+
+def _json_mapping(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {str(key): _json_value(item) for key, item in value.items()}
+
+
+def _json_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, (list, tuple, set)):
+        return [_json_value(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _json_value(item) for key, item in value.items()}
+    return str(value)
