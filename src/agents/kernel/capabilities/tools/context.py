@@ -43,6 +43,7 @@ class ToolRuntimeContext:
     mcp_oauth_flows: dict[str, Any] = field(default_factory=dict)
     mcp_oauth_waiters: dict[str, Any] = field(default_factory=dict)
     mcp_oauth_results: dict[str, Any] = field(default_factory=dict)
+    mcp_oauth_reload_lock: Any | None = None
     mcp_oauth_listener_factory: Any | None = None
     mcp_oauth_browser_opener: Any | None = None
     session_state_store: Any | None = None

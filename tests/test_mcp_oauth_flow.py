@@ -187,6 +187,18 @@ def test_complete_mcp_oauth_authorization_exchanges_code_and_saves_token():
 
 def test_authenticate_mcp_oauth_server_starts_and_completes_flow(monkeypatch):
     monkeypatch.setattr("agents.kernel.mcp_oauth_runtime.find_available_mcp_oauth_callback_port", lambda: 3118)
+    registry = object()
+    reload_calls = []
+
+    async def fake_reload(context, active_registry):
+        reload_calls.append((context, active_registry))
+        return {
+            "loaded_tools": ["mcp__docs__search"],
+            "providers": [{"name": "docs"}],
+            "removed_tools": [],
+        }
+
+    monkeypatch.setattr("agents.kernel.capabilities.tools.builtin.mcp_management.mcp_reload", fake_reload)
 
     async def handler(request: httpx.Request) -> httpx.Response:
         url = str(request.url)
@@ -222,6 +234,7 @@ def test_authenticate_mcp_oauth_server_starts_and_completes_flow(monkeypatch):
             ),
             mcp_auth_store=store,
             mcp_oauth_flows={},
+            session=SimpleNamespace(runtime=SimpleNamespace(tools=registry)),
         )
         server = SimpleNamespace(name="docs", transport="http", url="https://mcp.example.test/mcp")
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
@@ -245,16 +258,26 @@ def test_authenticate_mcp_oauth_server_starts_and_completes_flow(monkeypatch):
             agent_id="agent",
             workspace_id="workspace",
         )
-        return started, completed, token, context.mcp_oauth_flows
+        return started, completed, token, context.mcp_oauth_flows, context
 
-    started, completed, token, flows = asyncio.run(exercise())
+    started, completed, token, flows, context = asyncio.run(exercise())
 
     assert started["status"] == "auth_url"
     assert started["redirect_uri"] == "http://localhost:3118/callback"
     assert completed["status"] == "authenticated"
+    assert completed["reload"] == {
+        "status": "reloaded",
+        "loaded_tools": ["mcp__docs__search"],
+        "providers": [{"name": "docs"}],
+        "removed_tools": [],
+    }
+    assert "MCP tools were reloaded" in completed["message"]
     assert token is not None
     assert token.authorization_header() == "Bearer access"
     assert flows == {}
+    assert len(reload_calls) == 1
+    assert reload_calls[0][0] is context
+    assert reload_calls[0][1] is registry
 
 
 def test_authenticate_mcp_oauth_server_waits_for_loopback_callback_and_opens_browser(monkeypatch):
@@ -327,6 +350,85 @@ def test_authenticate_mcp_oauth_server_waits_for_loopback_callback_and_opens_bro
     assert context.mcp_oauth_flows == {}
     assert context.mcp_oauth_waiters == {}
     assert context.mcp_oauth_results["docs"]["status"] == "authenticated"
+    assert context.mcp_oauth_results["docs"]["reload"] == {
+        "status": "skipped",
+        "reason": "no_active_registry",
+    }
+
+
+def test_authenticate_mcp_oauth_server_keeps_auth_success_when_reload_fails(monkeypatch):
+    monkeypatch.setattr("agents.kernel.mcp_oauth_runtime.find_available_mcp_oauth_callback_port", lambda: 3118)
+
+    async def fail_reload(_context, _registry):
+        raise RuntimeError("reload failed")
+
+    monkeypatch.setattr("agents.kernel.capabilities.tools.builtin.mcp_management.mcp_reload", fail_reload)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if url == "https://mcp.example.test/.well-known/oauth-protected-resource/mcp":
+            return httpx.Response(200, json={"authorization_servers": ["https://auth.example.test"]})
+        if url == "https://auth.example.test/.well-known/oauth-authorization-server":
+            return httpx.Response(
+                200,
+                json={
+                    "authorization_endpoint": "https://auth.example.test/authorize",
+                    "token_endpoint": "https://auth.example.test/token",
+                    "registration_endpoint": "https://auth.example.test/register",
+                    "scope": "read",
+                },
+            )
+        if url == "https://auth.example.test/register":
+            return httpx.Response(201, json={"client_id": "client-1"})
+        if url == "https://auth.example.test/token":
+            return httpx.Response(200, json={"access_token": "access", "scope": "read"})
+        return httpx.Response(404, json={})
+
+    async def exercise():
+        store = InMemoryMCPAuthTokenStore()
+        context = SimpleNamespace(
+            workspace=SimpleNamespace(
+                tenant_id="tenant",
+                user_id="user",
+                agent_id="agent",
+                workspace_id="workspace",
+            ),
+            mcp_auth_store=store,
+            mcp_oauth_flows={},
+            session=SimpleNamespace(runtime=SimpleNamespace(tools=object())),
+        )
+        server = SimpleNamespace(name="docs", transport="http", url="https://mcp.example.test/mcp")
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            started = await authenticate_mcp_oauth_server(
+                context,
+                server,
+                {"wait_for_callback": False},
+                http_client=client,
+            )
+            state = parse_qs(urlparse(started["authUrl"]).query)["state"][0]
+            completed = await authenticate_mcp_oauth_server(
+                context,
+                server,
+                {"callback_url": "http://localhost:3118/callback?code=code-1&state=%s" % state},
+                http_client=client,
+            )
+        token = await store.get(
+            "docs",
+            tenant_id="tenant",
+            user_id="user",
+            agent_id="agent",
+            workspace_id="workspace",
+        )
+        return completed, token, context.mcp_oauth_flows
+
+    completed, token, flows = asyncio.run(exercise())
+
+    assert completed["status"] == "authenticated"
+    assert completed["reload"] == {"status": "error", "message": "reload failed"}
+    assert "Token was cached" in completed["message"]
+    assert token is not None
+    assert token.authorization_header() == "Bearer access"
+    assert flows == {}
 
 
 def test_close_mcp_oauth_waiters_cancels_active_loopback_waiter():

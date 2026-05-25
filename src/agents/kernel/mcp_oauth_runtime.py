@@ -55,14 +55,10 @@ async def authenticate_mcp_oauth_server(
                 "message": "No pending OAuth authorization exists for %s. Start authentication first." % server_name,
             }
         try:
-            payload = await complete_mcp_oauth_authorization(
+            payload = await _complete_mcp_oauth_authorization_for_context(
+                context,
                 pending,
                 callback_url,
-                auth_store=getattr(context, "mcp_auth_store", None),
-                tenant_id=str(getattr(context.workspace, "tenant_id", "") or ""),
-                user_id=str(getattr(context.workspace, "user_id", "") or ""),
-                agent_id=str(getattr(context.workspace, "agent_id", "") or ""),
-                workspace_id=str(getattr(context.workspace, "workspace_id", "") or ""),
                 http_client=http_client,
             )
         except (MCPOAuthFlowError, MCPOAuthProviderError, MCPOAuthStateMismatchError, MCPOAuthTokenRequestError) as exc:
@@ -208,6 +204,85 @@ def _oauth_results(context: Any) -> dict[str, dict[str, Any]]:
     return results
 
 
+async def _complete_mcp_oauth_authorization_for_context(
+    context: Any,
+    pending: MCPOAuthPendingAuthorization,
+    callback_url: str,
+    *,
+    http_client: httpx.AsyncClient | None,
+) -> dict[str, Any]:
+    workspace = getattr(context, "workspace", None)
+    payload = await complete_mcp_oauth_authorization(
+        pending,
+        callback_url,
+        auth_store=getattr(context, "mcp_auth_store", None),
+        tenant_id=str(getattr(workspace, "tenant_id", "") or ""),
+        user_id=str(getattr(workspace, "user_id", "") or ""),
+        agent_id=str(getattr(workspace, "agent_id", "") or ""),
+        workspace_id=str(getattr(workspace, "workspace_id", "") or ""),
+        http_client=http_client,
+    )
+    return await _attach_mcp_reload_result(context, payload)
+
+
+async def _attach_mcp_reload_result(context: Any, payload: Mapping[str, Any]) -> dict[str, Any]:
+    reload_result = await _reload_registry_for_authenticated_mcp(context)
+    updated = dict(payload)
+    updated["reload"] = reload_result
+    updated["message"] = _authenticated_message_with_reload_result(updated, reload_result)
+    return updated
+
+
+async def _reload_registry_for_authenticated_mcp(context: Any) -> dict[str, Any]:
+    registry = _active_mcp_registry(context)
+    if registry is None:
+        return {"status": "skipped", "reason": "no_active_registry"}
+
+    lock = _oauth_reload_lock(context)
+    async with lock:
+        try:
+            from agents.kernel.capabilities.tools.builtin.mcp_management import mcp_reload
+
+            result = await mcp_reload(context, registry)
+        except Exception as exc:  # noqa: BLE001 - token cache has already succeeded.
+            return {"status": "error", "message": str(exc)}
+
+    return {
+        "status": "reloaded",
+        "loaded_tools": list(result.get("loaded_tools") or []),
+        "providers": list(result.get("providers") or []),
+        "removed_tools": list(result.get("removed_tools") or []),
+    }
+
+
+def _active_mcp_registry(context: Any) -> Any | None:
+    session = getattr(context, "session", None)
+    runtime = getattr(session, "runtime", None)
+    return getattr(runtime, "tools", None)
+
+
+def _oauth_reload_lock(context: Any) -> Any:
+    lock = getattr(context, "mcp_oauth_reload_lock", None)
+    if lock is None:
+        lock = asyncio.Lock()
+        setattr(context, "mcp_oauth_reload_lock", lock)
+    return lock
+
+
+def _authenticated_message_with_reload_result(payload: Mapping[str, Any], reload_result: Mapping[str, Any]) -> str:
+    server_name = str(payload.get("server") or "MCP server")
+    status = str(reload_result.get("status") or "")
+    if status == "reloaded":
+        return "Authentication completed for %s. MCP tools were reloaded with the cached token." % server_name
+    if status == "error":
+        message = str(reload_result.get("message") or "unknown error")
+        return "Authentication completed for %s. Token was cached, but MCP reload failed: %s" % (server_name, message)
+    return str(
+        payload.get("message")
+        or "Authentication completed for %s. Run mcp.reload to reconnect with the cached token." % server_name
+    )
+
+
 async def _start_loopback_listener(context: Any, state: str) -> Any:
     port = find_available_mcp_oauth_callback_port()
     factory = getattr(context, "mcp_oauth_listener_factory", None)
@@ -246,14 +321,10 @@ async def _wait_for_loopback_callback(
     try:
         timeout = max(0.1, pending.expires_at - time.time()) if pending.expires_at else 5 * 60
         callback = await listener.wait(timeout_seconds=timeout)
-        payload = await complete_mcp_oauth_authorization(
+        payload = await _complete_mcp_oauth_authorization_for_context(
+            context,
             pending,
             callback.callback_url,
-            auth_store=getattr(context, "mcp_auth_store", None),
-            tenant_id=str(getattr(context.workspace, "tenant_id", "") or ""),
-            user_id=str(getattr(context.workspace, "user_id", "") or ""),
-            agent_id=str(getattr(context.workspace, "agent_id", "") or ""),
-            workspace_id=str(getattr(context.workspace, "workspace_id", "") or ""),
             http_client=http_client,
         )
         _oauth_results(context)[server_name] = payload
