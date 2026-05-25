@@ -45,6 +45,22 @@ MCP_AUTHENTICATE_SCHEMA = {
             "type": "string",
             "description": "Full OAuth callback URL after browser authorization.",
         },
+        "wait_for_callback": {
+            "type": "boolean",
+            "description": "Start a local loopback listener and complete OAuth automatically when the browser redirects.",
+        },
+        "waitForCallback": {
+            "type": "boolean",
+            "description": "Start a local loopback listener and complete OAuth automatically when the browser redirects.",
+        },
+        "open_browser": {
+            "type": "boolean",
+            "description": "Ask the host to open the authorization URL when a browser opener is available.",
+        },
+        "openBrowser": {
+            "type": "boolean",
+            "description": "Ask the host to open the authorization URL when a browser opener is available.",
+        },
     },
 }
 
@@ -515,7 +531,14 @@ class MCPToolProvider:
         url: str = "",
         message: str = "",
     ):
-        async def authenticate(callback_url: str = "", callbackUrl: str = "") -> str:
+        async def authenticate(
+            callback_url: str = "",
+            callbackUrl: str = "",
+            wait_for_callback: bool = True,
+            waitForCallback: bool = True,
+            open_browser: bool = True,
+            openBrowser: bool = True,
+        ) -> str:
             callback_value = str(callback_url or callbackUrl or "").strip()
             auth_url_value = str(auth_url or self.server.auth_url or "")
             transport_value = str(transport or self.server.transport or "stdio")
@@ -529,6 +552,8 @@ class MCPToolProvider:
                         "auth_url": auth_url_value,
                         "transport": transport_value,
                         "url": str(url or self.server.url or ""),
+                        "wait_for_callback": bool(wait_for_callback and waitForCallback),
+                        "open_browser": bool(open_browser and openBrowser),
                     },
                 )
                 return json.dumps(payload, ensure_ascii=False, sort_keys=True)

@@ -16,12 +16,9 @@ from agents.kernel.mcp_auth import MCPAuthTokenStore
 from agents.kernel.mcp_oauth import (
     MCPOAuthProviderError,
     MCPOAuthStateMismatchError,
-    build_mcp_oauth_redirect_uri,
-    find_available_mcp_oauth_callback_port,
     parse_mcp_oauth_callback_url,
 )
 from agents.kernel.mcp_oauth_tokens import (
-    MCPOAuthTokenRequestError,
     build_mcp_oauth_authorization_url,
     exchange_mcp_oauth_code,
     generate_pkce_code_verifier,
@@ -267,93 +264,6 @@ async def complete_mcp_oauth_authorization(
 
 class MCPOAuthFlowError(Exception):
     pass
-
-
-async def authenticate_mcp_oauth_server(
-    context: Any,
-    server: Any,
-    arguments: Mapping[str, Any] | None = None,
-    *,
-    http_client: httpx.AsyncClient | None = None,
-) -> dict[str, Any]:
-    args = dict(arguments or {})
-    callback_url = str(args.get("callback_url") or args.get("callbackUrl") or "").strip()
-    flows = _pending_flows(context)
-    server_name = str(getattr(server, "name", "") or "default")
-    if callback_url:
-        pending = flows.get(server_name)
-        if pending is None:
-            return {
-                "status": "error",
-                "server": server_name,
-                "transport": str(getattr(server, "transport", "") or ""),
-                "url": str(getattr(server, "url", "") or ""),
-                "message": "No pending OAuth authorization exists for %s. Start authentication first." % server_name,
-            }
-        try:
-            payload = await complete_mcp_oauth_authorization(
-                pending,
-                callback_url,
-                auth_store=getattr(context, "mcp_auth_store", None),
-                tenant_id=str(getattr(context.workspace, "tenant_id", "") or ""),
-                user_id=str(getattr(context.workspace, "user_id", "") or ""),
-                agent_id=str(getattr(context.workspace, "agent_id", "") or ""),
-                workspace_id=str(getattr(context.workspace, "workspace_id", "") or ""),
-                http_client=http_client,
-            )
-        except (MCPOAuthFlowError, MCPOAuthProviderError, MCPOAuthStateMismatchError, MCPOAuthTokenRequestError) as exc:
-            return {
-                "status": "error",
-                "server": server_name,
-                "transport": str(getattr(server, "transport", "") or ""),
-                "url": str(getattr(server, "url", "") or ""),
-                "message": str(exc),
-            }
-        flows.pop(server_name, None)
-        return payload
-
-    try:
-        port = find_available_mcp_oauth_callback_port()
-        pending = await start_mcp_oauth_authorization(
-            server_name,
-            str(getattr(server, "url", "") or ""),
-            redirect_uri=build_mcp_oauth_redirect_uri(port),
-            http_client=http_client,
-        )
-    except Exception as exc:  # noqa: BLE001 - surfaced as model-visible auth status.
-        return {
-            "status": "error",
-            "server": server_name,
-            "transport": str(getattr(server, "transport", "") or ""),
-            "url": str(getattr(server, "url", "") or ""),
-            "message": "Failed to start OAuth flow for %s: %s" % (server_name, exc),
-        }
-    flows[server_name] = pending
-    return {
-        "status": "auth_url",
-        "server": server_name,
-        "transport": str(getattr(server, "transport", "") or ""),
-        "url": str(getattr(server, "url", "") or ""),
-        "authUrl": pending.authorization_url,
-        "auth_url": pending.authorization_url,
-        "redirectUri": pending.redirect_uri,
-        "redirect_uri": pending.redirect_uri,
-        "expiresAt": pending.expires_at,
-        "expires_at": pending.expires_at,
-        "message": (
-            "Open this URL to authorize the %s MCP server, then paste the full callback URL "
-            "back into this tool as callback_url."
-        )
-        % server_name,
-    }
-
-
-def _pending_flows(context: Any) -> dict[str, MCPOAuthPendingAuthorization]:
-    flows = getattr(context, "mcp_oauth_flows", None)
-    if not isinstance(flows, dict):
-        flows = {}
-        setattr(context, "mcp_oauth_flows", flows)
-    return flows
 
 
 async def _discover_authorization_server_url(

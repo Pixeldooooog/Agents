@@ -20,7 +20,7 @@ from agents.kernel.specs import AgentSpec
 from agents.kernel.hooks import AgentHooks, CompositeHooks, SessionStateHooks, hooks_from_settings
 from agents.kernel.capabilities import load_configured_mcp, load_configured_skills, resolve_active_tools
 from agents.kernel.mcp_auth import mcp_authorization_headers_for_scope
-from agents.kernel.mcp_oauth_flow import authenticate_mcp_oauth_server
+from agents.kernel.mcp_oauth_runtime import authenticate_mcp_oauth_server
 from agents.kernel.models import ModelClient
 from agents.kernel.runtime import AgentRuntime, AgentSession
 from agents.kernel.runtime.checkpoints import CheckpointStore

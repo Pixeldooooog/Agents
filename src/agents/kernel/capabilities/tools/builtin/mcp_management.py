@@ -9,7 +9,7 @@ from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 from agents.kernel.mcp_auth import mcp_authorization_headers_for_scope
 from agents.kernel.mcp_config import server_record_for_scope
-from agents.kernel.mcp_oauth_flow import authenticate_mcp_oauth_server
+from agents.kernel.mcp_oauth_runtime import authenticate_mcp_oauth_server
 
 
 MCP_SERVERS_SCHEMA = {

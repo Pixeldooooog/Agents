@@ -8,11 +8,12 @@ import httpx
 from agents.kernel.mcp_auth import InMemoryMCPAuthTokenStore
 from agents.kernel.mcp_oauth_flow import (
     MCPOAuthPendingAuthorization,
-    authenticate_mcp_oauth_server,
     complete_mcp_oauth_authorization,
     discover_mcp_oauth_server_metadata,
     start_mcp_oauth_authorization,
 )
+from agents.kernel.mcp_oauth_runtime import authenticate_mcp_oauth_server, close_mcp_oauth_waiters
+from agents.kernel.mcp_oauth import parse_mcp_oauth_callback_url
 
 
 def test_start_mcp_oauth_authorization_discovers_prm_registers_client_and_builds_url():
@@ -185,7 +186,7 @@ def test_complete_mcp_oauth_authorization_exchanges_code_and_saves_token():
 
 
 def test_authenticate_mcp_oauth_server_starts_and_completes_flow(monkeypatch):
-    monkeypatch.setattr("agents.kernel.mcp_oauth_flow.find_available_mcp_oauth_callback_port", lambda: 3118)
+    monkeypatch.setattr("agents.kernel.mcp_oauth_runtime.find_available_mcp_oauth_callback_port", lambda: 3118)
 
     async def handler(request: httpx.Request) -> httpx.Response:
         url = str(request.url)
@@ -224,7 +225,12 @@ def test_authenticate_mcp_oauth_server_starts_and_completes_flow(monkeypatch):
         )
         server = SimpleNamespace(name="docs", transport="http", url="https://mcp.example.test/mcp")
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-            started = await authenticate_mcp_oauth_server(context, server, {}, http_client=client)
+            started = await authenticate_mcp_oauth_server(
+                context,
+                server,
+                {"wait_for_callback": False},
+                http_client=client,
+            )
             state = parse_qs(urlparse(started["authUrl"]).query)["state"][0]
             completed = await authenticate_mcp_oauth_server(
                 context,
@@ -249,3 +255,126 @@ def test_authenticate_mcp_oauth_server_starts_and_completes_flow(monkeypatch):
     assert token is not None
     assert token.authorization_header() == "Bearer access"
     assert flows == {}
+
+
+def test_authenticate_mcp_oauth_server_waits_for_loopback_callback_and_opens_browser(monkeypatch):
+    monkeypatch.setattr("agents.kernel.mcp_oauth_runtime.find_available_mcp_oauth_callback_port", lambda: 0)
+    opened = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if url == "https://mcp.example.test/.well-known/oauth-protected-resource/mcp":
+            return httpx.Response(
+                200,
+                json={"authorization_servers": ["https://auth.example.test"]},
+            )
+        if url == "https://auth.example.test/.well-known/oauth-authorization-server":
+            return httpx.Response(
+                200,
+                json={
+                    "authorization_endpoint": "https://auth.example.test/authorize",
+                    "token_endpoint": "https://auth.example.test/token",
+                    "registration_endpoint": "https://auth.example.test/register",
+                    "scope": "read",
+                },
+            )
+        if url == "https://auth.example.test/register":
+            return httpx.Response(201, json={"client_id": "client-1"})
+        if url == "https://auth.example.test/token":
+            return httpx.Response(200, json={"access_token": "access", "scope": "read"})
+        return httpx.Response(404, json={})
+
+    async def exercise():
+        store = InMemoryMCPAuthTokenStore()
+        context = SimpleNamespace(
+            workspace=SimpleNamespace(
+                tenant_id="tenant",
+                user_id="user",
+                agent_id="agent",
+                workspace_id="workspace",
+            ),
+            mcp_auth_store=store,
+            mcp_oauth_flows={},
+            mcp_oauth_waiters={},
+            mcp_oauth_results={},
+            mcp_oauth_listener_factory=lambda port, expected_state: FakeOAuthListener(port, expected_state),
+            mcp_oauth_browser_opener=opened.append,
+        )
+        server = SimpleNamespace(name="docs", transport="http", url="https://mcp.example.test/mcp")
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            started = await authenticate_mcp_oauth_server(context, server, {}, http_client=client)
+            waiter = context.mcp_oauth_waiters["docs"]
+            state = parse_qs(urlparse(started["authUrl"]).query)["state"][0]
+            waiter.listener.submit_callback_url("http://localhost:3118/callback?code=code-1&state=%s" % state)
+            await waiter.task
+        token = await store.get(
+            "docs",
+            tenant_id="tenant",
+            user_id="user",
+            agent_id="agent",
+            workspace_id="workspace",
+        )
+        return started, token, context
+
+    started, token, context = asyncio.run(exercise())
+
+    assert started["status"] == "auth_url"
+    assert started["callbackListening"] is True
+    assert started["browserOpened"] is True
+    assert opened == [started["authUrl"]]
+    assert token is not None
+    assert token.authorization_header() == "Bearer access"
+    assert context.mcp_oauth_flows == {}
+    assert context.mcp_oauth_waiters == {}
+    assert context.mcp_oauth_results["docs"]["status"] == "authenticated"
+
+
+def test_close_mcp_oauth_waiters_cancels_active_loopback_waiter():
+    async def exercise():
+        listener = FakeOAuthListener(port=3118, expected_state="state")
+        await listener.start()
+        task = asyncio.create_task(listener.wait(timeout_seconds=60))
+        context = SimpleNamespace(
+            mcp_oauth_waiters={
+                "docs": SimpleNamespace(server_name="docs", listener=listener, task=task),
+            }
+        )
+        await close_mcp_oauth_waiters(context)
+        return task.cancelled(), listener.closed, context.mcp_oauth_waiters
+
+    cancelled, closed, waiters = asyncio.run(exercise())
+
+    assert cancelled is True
+    assert closed is True
+    assert waiters == {}
+
+
+class FakeOAuthListener:
+    def __init__(self, port: int, expected_state: str):
+        self.port = int(port or 3118)
+        self.expected_state = expected_state
+        self.closed = False
+        self._future = None
+
+    @property
+    def redirect_uri(self):
+        return "http://localhost:%d/callback" % self.port
+
+    async def start(self):
+        self._future = asyncio.get_running_loop().create_future()
+
+    async def close(self):
+        self.closed = True
+
+    async def wait(self, timeout_seconds: float = 300):
+        return await asyncio.wait_for(self._future, timeout_seconds)
+
+    def submit_callback_url(self, callback_url: str):
+        callback = parse_mcp_oauth_callback_url(callback_url)
+        if callback is None:
+            return False
+        if callback.state != self.expected_state:
+            self._future.set_exception(RuntimeError("state mismatch"))
+        else:
+            self._future.set_result(callback)
+        return True

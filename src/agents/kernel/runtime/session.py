@@ -96,6 +96,14 @@ class AgentSession:
     async def aclose(self) -> None:
         first_error: Exception | None = None
         tool_context = getattr(self, "tool_context", None)
+        if tool_context is not None:
+            try:
+                from agents.kernel.mcp_oauth_runtime import close_mcp_oauth_waiters
+
+                await close_mcp_oauth_waiters(tool_context)
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
         providers = list(getattr(tool_context, "mcp_providers", []) or []) if tool_context is not None else []
         for provider in providers:
             close_provider = getattr(provider, "close", None)
