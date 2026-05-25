@@ -470,15 +470,22 @@ class MCPToolProvider:
     client: MCPClient
     server: MCPServerConfig
     oauth_authenticator: MCPOAuthAuthenticator | None = None
+    tools: List[MCPToolDefinition] = field(default_factory=list, compare=False, repr=False)
+    resources: List[MCPResourceDefinition] = field(default_factory=list, compare=False, repr=False)
+    prompts: List[MCPPromptDefinition] = field(default_factory=list, compare=False, repr=False)
+    resources_loaded: bool = field(default=False, compare=False, repr=False)
+    prompts_loaded: bool = field(default=False, compare=False, repr=False)
 
     async def load_tools(self, registry: ToolRegistry) -> None:
         registered_names = set(registry.names()) if hasattr(registry, "names") else set()
         if self.server.auth_required:
+            object.__setattr__(self, "tools", [])
             self._register_auth_tool(registry, registered_names)
             return
         try:
             tools = await self.client.list_tools()
         except MCPAuthenticationRequired as exc:
+            object.__setattr__(self, "tools", [])
             self._register_auth_tool(
                 registry,
                 registered_names,
@@ -488,6 +495,7 @@ class MCPToolProvider:
                 message=str(exc),
             )
             return
+        object.__setattr__(self, "tools", list(tools))
         for tool in tools:
             canonical_name = self._registry_name(tool.name)
             if not _is_included_mcp_tool(canonical_name):
@@ -713,11 +721,18 @@ class MCPToolProvider:
             % (self.server.name, auth_url_value),
         }
 
-    async def list_resources(self) -> List[MCPResourceDefinition]:
+    async def list_resources(self, refresh: bool = False) -> List[MCPResourceDefinition]:
+        if self.resources_loaded and not refresh:
+            return list(self.resources)
         list_resources = getattr(self.client, "list_resources", None)
         if list_resources is None:
+            object.__setattr__(self, "resources", [])
+            object.__setattr__(self, "resources_loaded", True)
             return []
-        return await list_resources()
+        resources = list(await list_resources())
+        object.__setattr__(self, "resources", resources)
+        object.__setattr__(self, "resources_loaded", True)
+        return list(resources)
 
     async def read_resource(self, uri: str) -> Any:
         read_resource = getattr(self.client, "read_resource", None)
@@ -725,11 +740,18 @@ class MCPToolProvider:
             raise RuntimeError("MCP server does not support resources")
         return await read_resource(uri)
 
-    async def list_prompts(self) -> List[MCPPromptDefinition]:
+    async def list_prompts(self, refresh: bool = False) -> List[MCPPromptDefinition]:
+        if self.prompts_loaded and not refresh:
+            return list(self.prompts)
         list_prompts = getattr(self.client, "list_prompts", None)
         if list_prompts is None:
+            object.__setattr__(self, "prompts", [])
+            object.__setattr__(self, "prompts_loaded", True)
             return []
-        return await list_prompts()
+        prompts = list(await list_prompts())
+        object.__setattr__(self, "prompts", prompts)
+        object.__setattr__(self, "prompts_loaded", True)
+        return list(prompts)
 
     async def get_prompt(self, name: str, arguments: Dict[str, Any] | None = None) -> Any:
         get_prompt = getattr(self.client, "get_prompt", None)

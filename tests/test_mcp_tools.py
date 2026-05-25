@@ -325,6 +325,34 @@ class MutableToolsMCPClient(FakeMCPClient):
         return {"answer": "%s:%s" % (name, arguments["query"])}
 
 
+class MutableCatalogMCPClient(FakeMCPClient):
+    def __init__(self, prompt_names: list[str], resource_uris: list[str]):
+        super().__init__()
+        self.prompt_names = list(prompt_names)
+        self.resource_uris = list(resource_uris)
+
+    async def list_prompts(self):
+        return [
+            MCPPromptDefinition(
+                name=name,
+                description="%s prompt" % name,
+                arguments=[],
+            )
+            for name in self.prompt_names
+        ]
+
+    async def list_resources(self):
+        return [
+            MCPResourceDefinition(
+                uri=uri,
+                name=uri.rsplit("/", 1)[-1],
+                description="%s resource" % uri,
+                mime_type="text/markdown",
+            )
+            for uri in self.resource_uris
+        ]
+
+
 def test_builtin_mcp_resource_tools_list_and_read_resources(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="tenant",
@@ -1291,6 +1319,57 @@ def test_mcp_list_changed_handler_preserves_tools_when_refresh_fails(tmp_path: P
     assert context.mcp_list_changed_notifications[0]["error"] == "list failed"
 
 
+def test_mcp_list_changed_handler_refreshes_prompt_and_resource_catalogs(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    client = MutableCatalogMCPClient(prompt_names=["review"], resource_uris=["docs://intro"])
+    provider = MCPToolProvider(client=client, server=MCPServerConfig(name="docs"))
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+        mcp_providers=[provider],
+    )
+    registry = ToolRegistry()
+
+    async def execute():
+        assert [prompt.name for prompt in await provider.list_prompts()] == ["review"]
+        assert [resource.uri for resource in await provider.list_resources()] == ["docs://intro"]
+        client.prompt_names = ["debug"]
+        client.resource_uris = ["docs://api"]
+        handler = build_mcp_list_changed_handler(context, registry)
+        await handler("docs", "prompts")
+        await handler("docs", "resources")
+
+    asyncio.run(execute())
+
+    assert [prompt.name for prompt in provider.prompts] == ["debug"]
+    assert [resource.uri for resource in provider.resources] == ["docs://api"]
+    assert context.mcp_list_changed_notifications == [
+        {
+            "mcp_server_name": "docs",
+            "kind": "prompts",
+            "refreshed": True,
+            "prompt_count": 1,
+            "loaded_prompts": ["debug"],
+        },
+        {
+            "mcp_server_name": "docs",
+            "kind": "resources",
+            "refreshed": True,
+            "resource_count": 1,
+            "loaded_resources": ["docs://api"],
+        },
+    ]
+
+
 def test_mcp_list_changed_handler_emits_runtime_event_for_non_tool_changes():
     events = []
     enqueued = []
@@ -1308,7 +1387,7 @@ def test_mcp_list_changed_handler_emits_runtime_event_for_non_tool_changes():
         "mcp_server_name": "docs",
         "kind": "prompts",
         "refreshed": False,
-        "reason": "not_tool_registry_cached",
+        "reason": "server_not_loaded",
     }
     assert context.mcp_list_changed_notifications == [payload]
     assert events == [("mcp_list_changed", "mcp", payload)]

@@ -29,15 +29,17 @@ def build_mcp_list_changed_handler(context: Any, registry: Any) -> Any:
 async def _handle_list_changed(context: Any, registry: Any, server_name: str, kind: str) -> dict[str, Any]:
     if kind == "unknown":
         return {"refreshed": False, "reason": "unsupported_kind"}
-    if kind != "tools":
-        return {"refreshed": False, "reason": "not_tool_registry_cached"}
+    if kind == "prompts":
+        return await _refresh_prompts_for_server(context, server_name)
+    if kind == "resources":
+        return await _refresh_resources_for_server(context, server_name)
     if registry is None:
         return {"refreshed": False, "reason": "missing_registry"}
     return await _refresh_tools_for_server(context, registry, server_name)
 
 
 async def _refresh_tools_for_server(context: Any, registry: Any, server_name: str) -> dict[str, Any]:
-    providers = [provider for provider in list(getattr(context, "mcp_providers", []) or []) if _provider_name(provider) == server_name]
+    providers = _providers_for_server(context, server_name)
     if not providers:
         return {"refreshed": False, "reason": "server_not_loaded"}
 
@@ -57,9 +59,43 @@ async def _refresh_tools_for_server(context: Any, registry: Any, server_name: st
     }
 
 
+async def _refresh_prompts_for_server(context: Any, server_name: str) -> dict[str, Any]:
+    providers = _providers_for_server(context, server_name)
+    if not providers:
+        return {"refreshed": False, "reason": "server_not_loaded"}
+    prompts: list[Any] = []
+    for provider in providers:
+        prompts.extend(await provider.list_prompts(refresh=True))
+    loaded_prompts = sorted(str(getattr(prompt, "name", "") or "") for prompt in prompts if getattr(prompt, "name", ""))
+    return {
+        "refreshed": True,
+        "prompt_count": len(prompts),
+        "loaded_prompts": loaded_prompts,
+    }
+
+
+async def _refresh_resources_for_server(context: Any, server_name: str) -> dict[str, Any]:
+    providers = _providers_for_server(context, server_name)
+    if not providers:
+        return {"refreshed": False, "reason": "server_not_loaded"}
+    resources: list[Any] = []
+    for provider in providers:
+        resources.extend(await provider.list_resources(refresh=True))
+    loaded_resources = sorted(str(getattr(resource, "uri", "") or "") for resource in resources if getattr(resource, "uri", ""))
+    return {
+        "refreshed": True,
+        "resource_count": len(resources),
+        "loaded_resources": loaded_resources,
+    }
+
+
 def _normalize_kind(kind: str) -> str:
     value = str(kind or "").strip().lower()
     return value if value in _LIST_CHANGED_KINDS else "unknown"
+
+
+def _providers_for_server(context: Any, server_name: str) -> list[Any]:
+    return [provider for provider in list(getattr(context, "mcp_providers", []) or []) if _provider_name(provider) == server_name]
 
 
 def _provider_name(provider: Any) -> str:
@@ -164,6 +200,10 @@ def _list_changed_text(payload: dict[str, Any]) -> str:
     ]
     for tool in payload.get("loaded_tools") or []:
         lines.append("<loaded_tool>%s</loaded_tool>" % html.escape(str(tool or "")))
+    for prompt in payload.get("loaded_prompts") or []:
+        lines.append("<loaded_prompt>%s</loaded_prompt>" % html.escape(str(prompt or "")))
+    for resource in payload.get("loaded_resources") or []:
+        lines.append("<loaded_resource>%s</loaded_resource>" % html.escape(str(resource or "")))
     error = str(payload.get("error") or "")
     if error:
         lines.append("<error>%s</error>" % html.escape(error))
