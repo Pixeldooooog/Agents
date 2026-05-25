@@ -128,6 +128,7 @@ class _MCPSessionClient:
             self._session_context = ClientSession(
                 read,
                 write,
+                elicitation_callback=self._handle_elicitation,
                 list_roots_callback=self._list_roots if self.server.roots else None,
             )
             self._session = await self._session_context.__aenter__()
@@ -151,6 +152,11 @@ class _MCPSessionClient:
                 for root in self.server.roots
             ]
         )
+
+    async def _handle_elicitation(self, _context: Any, _params: Any) -> Any:
+        from mcp import types
+
+        return types.ElicitResult(action="cancel")
 
     async def list_tools(self) -> List[MCPToolDefinition]:
         await self.initialize()

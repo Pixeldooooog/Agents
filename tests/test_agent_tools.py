@@ -3986,6 +3986,51 @@ def test_mcp_session_client_lists_workspace_roots(tmp_path: Path):
     assert [root.name for root in result.roots] == [tmp_path.name]
 
 
+def test_mcp_session_client_registers_elicitation_cancel_fallback(monkeypatch, tmp_path: Path):
+    captured = {}
+
+    class FakeSessionContext:
+        def __init__(self, read, write, **kwargs):
+            captured["read"] = read
+            captured["write"] = write
+            captured["kwargs"] = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def initialize(self):
+            return None
+
+    client = MCPStreamableHTTPClient(
+        MCPServerConfig(
+            name="docs",
+            transport="http",
+            url="https://mcp.example.test/mcp",
+            roots=[str(tmp_path)],
+        )
+    )
+
+    async def fake_open_transport():
+        return "read-stream", "write-stream"
+
+    monkeypatch.setattr("mcp.ClientSession", FakeSessionContext)
+    monkeypatch.setattr(client, "_open_transport", fake_open_transport)
+
+    asyncio.run(client.initialize())
+    callback = captured["kwargs"]["elicitation_callback"]
+    result = asyncio.run(callback(None, None))
+    asyncio.run(client.close())
+
+    assert captured["read"] == "read-stream"
+    assert captured["write"] == "write-stream"
+    assert captured["kwargs"]["list_roots_callback"] == client._list_roots
+    assert result.action == "cancel"
+    assert result.content is None
+
+
 def test_load_configured_mcp_uses_sse_transport(monkeypatch):
     created = []
 
