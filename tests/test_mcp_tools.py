@@ -189,6 +189,17 @@ def test_mcp_provider_converts_auth_error_to_auth_pseudo_tool():
     assert "needs OAuth" in payload["message"]
 
 
+class AnsweringMCPClient(FakeMCPClient):
+    def __init__(self, prefix: str, server=None):
+        super().__init__()
+        self.prefix = prefix
+        self.server = server
+
+    async def call_tool(self, name, arguments):
+        self.called.append((name, arguments))
+        return {"answer": "%s:%s" % (self.prefix, arguments["query"])}
+
+
 def test_builtin_mcp_resource_tools_list_and_read_resources(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="tenant",
@@ -384,6 +395,122 @@ def test_builtin_mcp_management_prunes_matching_provider_for_multi_server_change
     assert removed.raw["removed"] == "docs"
     assert after_remove == []
     assert closed_after_remove == {"docs": True, "search": True}
+
+
+def test_builtin_mcp_reload_closes_old_providers_and_swaps_tool_handlers(monkeypatch, tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    store = InMemoryMCPConfigStore()
+    old_client = AnsweringMCPClient("old")
+    new_clients = []
+
+    class FakeStdioMCPClient(AnsweringMCPClient):
+        def __init__(self, server):
+            super().__init__("new", server=server)
+            new_clients.append(self)
+
+    monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.MCPStdioClient", FakeStdioMCPClient)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+        settings=SimpleNamespace(mcp=SimpleNamespace(CLIENT_TIMEOUT=30.0, SSE_READ_TIMEOUT=120.0)),
+        mcp_config_store=store,
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+    old_provider = MCPToolProvider(client=old_client, server=MCPServerConfig(name="docs"))
+
+    async def execute():
+        await store.save(
+            MCPServerRecord(
+                name="docs",
+                command="python docs.py",
+                tenant_id="tenant",
+                user_id="user",
+                agent_id="agent",
+                workspace_id="workspace",
+            )
+        )
+        await old_provider.load_tools(registry)
+        context.mcp_providers = [old_provider]
+        before = await registry.execute("mcp__docs__search", {"query": "before"})
+        reloaded = await registry.execute("mcp.reload", {})
+        after = await registry.execute("mcp__docs__search", {"query": "after"})
+        return before, reloaded, after
+
+    before, reloaded, after = asyncio.run(execute())
+
+    assert json.loads(before.content)["answer"] == "old:before"
+    assert json.loads(after.content)["answer"] == "new:after"
+    assert old_client.closed is True
+    assert [provider.server.name for provider in context.mcp_providers] == ["docs"]
+    assert new_clients and new_clients[0].called == [("search", {"query": "after"})]
+    assert reloaded.raw["closed_providers"] == ["docs"]
+    assert sorted(reloaded.raw["removed_tools"]) == ["mcp__docs__search", "mcp_docs_search"]
+    assert reloaded.raw["loaded_tools"] == ["mcp__docs__search"]
+    assert "mcp_docs_search" in registry.names()
+
+
+def test_builtin_mcp_reload_preserves_existing_provider_when_reconnect_fails(monkeypatch, tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    store = InMemoryMCPConfigStore()
+    old_client = AnsweringMCPClient("old")
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+        settings=SimpleNamespace(mcp=SimpleNamespace(CLIENT_TIMEOUT=30.0, SSE_READ_TIMEOUT=120.0)),
+        mcp_config_store=store,
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+    old_provider = MCPToolProvider(client=old_client, server=MCPServerConfig(name="docs"))
+
+    async def failing_load(settings, registry, roots=None, records=None):
+        raise RuntimeError("reconnect failed")
+
+    monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.load_configured_mcp", failing_load)
+
+    async def execute():
+        await store.save(
+            MCPServerRecord(
+                name="docs",
+                command="python docs.py",
+                tenant_id="tenant",
+                user_id="user",
+                agent_id="agent",
+                workspace_id="workspace",
+            )
+        )
+        await old_provider.load_tools(registry)
+        context.mcp_providers = [old_provider]
+        failed = await registry.execute("mcp.reload", {})
+        after = await registry.execute("mcp__docs__search", {"query": "after"})
+        return failed, after
+
+    failed, after = asyncio.run(execute())
+
+    assert failed.is_error is True
+    assert "reconnect failed" in failed.content
+    assert old_client.closed is False
+    assert context.mcp_providers == [old_provider]
+    assert json.loads(after.content)["answer"] == "old:after"
 
 
 def test_builtin_mcp_management_persists_auth_transport_fields(tmp_path: Path):

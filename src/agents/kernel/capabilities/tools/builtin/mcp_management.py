@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
+from agents.kernel.capabilities.tools.registry import ToolRegistry
 from agents.kernel.mcp_config import server_record_for_scope
 
 
@@ -32,6 +33,11 @@ MCP_CONFIGURE_SCHEMA = {
 }
 
 MCP_CLEAR_SCHEMA = {
+    "type": "object",
+    "properties": {},
+}
+
+MCP_RELOAD_SCHEMA = {
     "type": "object",
     "properties": {},
 }
@@ -199,6 +205,48 @@ async def mcp_remove(context: ToolRuntimeContext, name: str = "") -> dict[str, A
     return {"removed": target, "configured": (await mcp_servers(context))["configured"]}
 
 
+async def mcp_reload(context: ToolRuntimeContext, registry: Any) -> dict[str, Any]:
+    from agents.kernel.capabilities.mcp_loading import load_configured_mcp
+
+    previous_providers = list(getattr(context, "mcp_providers", []) or [])
+    previous_names = [_provider_name(provider) for provider in previous_providers]
+    records = await _mcp_records(context)
+    staging_registry = ToolRegistry()
+    providers = await load_configured_mcp(
+        _settings(context),
+        staging_registry,
+        roots=[str(context.workspace.path)],
+        records=records if records else None,
+    )
+    definitions = _loaded_mcp_definitions(staging_registry)
+
+    try:
+        await _close_mcp_providers(previous_providers)
+    except Exception:
+        await _close_mcp_providers(providers)
+        raise
+
+    removed_tools = _unregister_loaded_mcp_tools(registry)
+    for definition in definitions:
+        registry.register_definition(definition)
+
+    context.mcp_providers = providers
+    loaded_tools = _loaded_mcp_tool_names(registry, providers)
+    removed_set = set(removed_tools)
+    context.enabled_tools = _merge_unique(
+        [tool for tool in list(getattr(context, "enabled_tools", []) or []) if tool not in removed_set],
+        loaded_tools,
+    )
+    return {
+        "reloaded": True,
+        "closed_providers": previous_names,
+        "removed_tools": removed_tools,
+        "providers": [_provider_payload(provider) for provider in providers],
+        "loaded_tools": loaded_tools,
+        "configured": (await mcp_servers(context))["configured"],
+    }
+
+
 def _mcp_settings(context: ToolRuntimeContext) -> Any:
     settings = getattr(context, "settings", None)
     if settings is None:
@@ -240,6 +288,11 @@ def _mcp_settings(context: ToolRuntimeContext) -> Any:
     return mcp
 
 
+def _settings(context: ToolRuntimeContext) -> Any:
+    _mcp_settings(context)
+    return context.settings
+
+
 def _provider_payload(provider: Any) -> dict[str, str]:
     server = getattr(provider, "server", None)
     return {
@@ -255,6 +308,65 @@ def _provider_payload(provider: Any) -> dict[str, str]:
 
 def _provider_name(provider: Any) -> str:
     return str(getattr(getattr(provider, "server", None), "name", "") or "")
+
+
+def _loaded_mcp_tool_names(registry: Any, providers: list[Any]) -> list[str]:
+    provider_names = {str(_provider_name(provider)) for provider in providers}
+    names: list[str] = []
+    for name in getattr(registry, "names", lambda: [])():
+        spec = _registry_spec(registry, name)
+        metadata = _spec_metadata(spec)
+        info = metadata.get("mcp_info") if isinstance(metadata, dict) else None
+        if not isinstance(info, dict):
+            continue
+        if info.get("server") not in provider_names:
+            continue
+        if name.startswith("mcp__"):
+            names.append(name)
+    return sorted(names)
+
+
+def _unregister_loaded_mcp_tools(registry: Any) -> list[str]:
+    unregister_matching = getattr(registry, "unregister_matching", None)
+    if unregister_matching is None:
+        return []
+    return unregister_matching(lambda definition: isinstance(definition.metadata.get("mcp_info"), dict))
+
+
+def _loaded_mcp_definitions(registry: Any) -> list[Any]:
+    definitions_matching = getattr(registry, "definitions_matching", None)
+    if definitions_matching is None:
+        return []
+    return definitions_matching(lambda definition: isinstance(definition.metadata.get("mcp_info"), dict))
+
+
+def _registry_spec(registry: Any, name: str) -> Any | None:
+    try:
+        specs = registry.specs([name])
+    except Exception:
+        return None
+    return specs[0] if specs else None
+
+
+def _spec_metadata(spec: Any | None) -> dict[str, Any]:
+    raw = getattr(spec, "raw", None)
+    if not isinstance(raw, dict):
+        return {}
+    metadata = raw.get("metadata")
+    return dict(metadata) if isinstance(metadata, dict) else {}
+
+
+def _merge_unique(*groups: list[str]) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        for item in group:
+            value = str(item or "")
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            merged.append(value)
+    return merged
 
 
 def _transport(value: str) -> str:

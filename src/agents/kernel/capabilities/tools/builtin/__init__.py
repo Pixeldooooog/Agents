@@ -101,6 +101,7 @@ from agents.kernel.capabilities.tools.builtin.mcp_prompts import (
 from agents.kernel.capabilities.tools.builtin.mcp_management import (
     MCP_CLEAR_SCHEMA,
     MCP_CONFIGURE_SCHEMA,
+    MCP_RELOAD_SCHEMA,
     MCP_SERVER_NAME_SCHEMA,
     MCP_SERVERS_SCHEMA,
     mcp_clear,
@@ -108,6 +109,7 @@ from agents.kernel.capabilities.tools.builtin.mcp_management import (
     mcp_disable,
     mcp_enable,
     mcp_remove,
+    mcp_reload,
     mcp_servers,
 )
 from agents.kernel.capabilities.tools.builtin.patch import PATCH_APPLY_SCHEMA, apply_patch
@@ -314,6 +316,7 @@ __all__ = [
     "MCP_RESOURCES_SCHEMA",
     "MCP_CLEAR_SCHEMA",
     "MCP_CONFIGURE_SCHEMA",
+    "MCP_RELOAD_SCHEMA",
     "MCP_SERVER_NAME_SCHEMA",
     "MCP_SERVERS_SCHEMA",
     "MCP_GET_PROMPT_SCHEMA",
@@ -448,6 +451,7 @@ __all__ = [
     "mcp_disable",
     "mcp_enable",
     "mcp_remove",
+    "mcp_reload",
     "mcp_servers",
     "mcp_get_prompt",
     "mcp_prompts",

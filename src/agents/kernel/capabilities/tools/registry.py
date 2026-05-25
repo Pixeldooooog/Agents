@@ -218,6 +218,17 @@ class ToolRegistry:
             raise ValueError("tool already registered: %s" % definition.name)
         self._tools[definition.name] = definition
 
+    def unregister_matching(self, predicate: Callable[[ToolDefinition], bool]) -> List[str]:
+        removed: list[str] = []
+        for name, definition in list(self._tools.items()):
+            if predicate(definition):
+                removed.append(name)
+                self._tools.pop(name, None)
+        return sorted(removed)
+
+    def definitions_matching(self, predicate: Callable[[ToolDefinition], bool]) -> List[ToolDefinition]:
+        return [definition for _name, definition in sorted(self._tools.items()) if predicate(definition)]
+
     def names(self) -> List[str]:
         return sorted(self._tools)
 

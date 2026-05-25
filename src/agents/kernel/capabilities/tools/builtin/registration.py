@@ -109,6 +109,7 @@ from agents.kernel.capabilities.tools.builtin.mcp_prompts import (
 from agents.kernel.capabilities.tools.builtin.mcp_management import (
     MCP_CLEAR_SCHEMA,
     MCP_CONFIGURE_SCHEMA,
+    MCP_RELOAD_SCHEMA,
     MCP_SERVER_NAME_SCHEMA,
     MCP_SERVERS_SCHEMA,
     mcp_clear,
@@ -116,6 +117,7 @@ from agents.kernel.capabilities.tools.builtin.mcp_management import (
     mcp_disable,
     mcp_enable,
     mcp_remove,
+    mcp_reload,
     mcp_servers,
 )
 from agents.kernel.capabilities.tools.builtin.patch import (
@@ -2253,6 +2255,13 @@ def _register_mcp_management(registry: ToolRegistry, context: ToolRuntimeContext
         "Clear local MCP server configuration and loaded providers for this session.",
         MCP_CLEAR_SCHEMA,
         lambda: mcp_clear(context),
+        metadata={"risk": "medium", "writes_state": True, "source": "mcp", "model_call": True},
+    )
+    registry.register(
+        "mcp.reload",
+        "Reconnect configured MCP servers and swap loaded MCP tool handlers.",
+        MCP_RELOAD_SCHEMA,
+        lambda: mcp_reload(context, registry),
         metadata={"risk": "medium", "writes_state": True, "source": "mcp", "model_call": True},
     )
     registry.register(

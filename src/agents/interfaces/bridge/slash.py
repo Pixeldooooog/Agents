@@ -10,7 +10,6 @@ from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
-from agents.kernel.capabilities import load_configured_mcp
 from agents.kernel.capabilities.memory import MemoryScope
 from agents.kernel.capabilities.skills import SkillLoader
 from agents.kernel.capabilities.tools.builtin.memory import memory_add, memory_edit, memory_forget
@@ -28,7 +27,7 @@ from agents.kernel.capabilities.tools.builtin.commands import (
     command_save,
 )
 from agents.kernel.capabilities.tools.builtin.hooks import hook_add, hook_delete, hook_list
-from agents.kernel.capabilities.tools.builtin.mcp_management import mcp_clear, mcp_configure, mcp_disable, mcp_enable, mcp_remove
+from agents.kernel.capabilities.tools.builtin.mcp_management import mcp_clear, mcp_configure, mcp_disable, mcp_enable, mcp_reload, mcp_remove
 from agents.kernel.capabilities.tools.builtin.planning import plan_clear, plan_enter, plan_exit, todo_write
 from agents.kernel.capabilities.tools.builtin.extensions import skill_install, skill_uninstall
 from agents.kernel.capabilities.tools.builtin.permissions import permission_add_rule, permission_remove_rule, permission_sources
@@ -979,31 +978,25 @@ async def _handle_mcp_remove(state: Any, rest: str, *, write: BridgeWriter) -> N
 
 
 async def _handle_mcp_reload(state: Any, *, write: BridgeWriter) -> None:
-    settings = _mcp_settings(state)
-    if not str(getattr(settings, "SERVER_COMMAND", "") or "").strip() and not str(getattr(settings, "SERVER_URL", "") or "").strip():
-        write({"type": "error", "message": "mcp server command or url is not configured"})
-        return
     registry = getattr(getattr(getattr(state, "session", None), "runtime", None), "tools", None)
     if registry is None or not hasattr(registry, "names"):
         write({"type": "error", "message": "tool registry is not available"})
         return
-    before = set(registry.names())
+    context = _tool_context(state)
+    if context is None:
+        write({"type": "error", "message": "tool context is not available"})
+        return
     try:
-        providers = await load_configured_mcp(state.settings, registry)
+        result = await mcp_reload(context, registry)
     except Exception as exc:
         write({"type": "error", "message": "mcp reload failed: %s" % exc})
         return
-    context = _tool_context(state)
-    if context is not None:
-        context.mcp_providers = providers
-    after = set(registry.names())
-    new_mcp_tools = sorted(name for name in after - before if _is_mcp_tool_name(name))
-    added = [name for name in new_mcp_tools if _is_canonical_mcp_tool_name(name)]
-    if not added:
-        added = new_mcp_tools
-    state.active_tools = _merge_unique(list(getattr(state, "active_tools", []) or []), added)
+    removed = [str(name) for name in result.get("removed_tools", []) or []]
+    added = [str(name) for name in result.get("loaded_tools", []) or [] if _is_canonical_mcp_tool_name(name)]
+    state.active_tools = _merge_unique([tool for tool in list(getattr(state, "active_tools", []) or []) if tool not in set(removed)], added)
+    _remove_runtime_enabled_tools(state, removed)
     _replace_runtime_enabled_tools(state, added)
-    write({"type": "notice", "message": "mcp reloaded: %s new tool%s" % (len(added), "" if len(added) == 1 else "s")})
+    write({"type": "notice", "message": "mcp reloaded: %s tool%s" % (len(added), "" if len(added) == 1 else "s")})
     write({"type": "mcp", "mcp": mcp_payload(state)})
     write({"type": "tools", "tools": tools_payload(state)})
 

@@ -106,6 +106,7 @@ def test_terminal_coding_profile_exposes_task_and_agent_tools():
     assert "mcp.disable" in tools
     assert "mcp.remove" in tools
     assert "mcp.clear" in tools
+    assert "mcp.reload" in tools
     assert "mcp.prompts" in tools
     assert "mcp.get_prompt" in tools
     assert "mcp.resources" in tools
@@ -165,6 +166,7 @@ def test_terminal_coding_profile_exposes_task_and_agent_tools():
     assert "mcp.disable" in approval_tools
     assert "mcp.remove" in approval_tools
     assert "mcp.clear" in approval_tools
+    assert "mcp.reload" in approval_tools
     assert "permission.add_rule" in approval_tools
     assert "permission.remove_rule" in approval_tools
     assert "memory.add" in approval_tools
@@ -1272,23 +1274,35 @@ def test_ndjson_bridge_configures_reloads_and_clears_mcp(monkeypatch, tmp_path):
         event_offsets={},
     )
 
-    async def fake_load_configured_mcp(settings, registry):
+    async def fake_load_configured_mcp(settings, registry, roots=None, records=None):
         registry.register(
             "mcp__docs__search",
             "Search docs",
             {},
             lambda query: query,
-            metadata={"source": "mcp", "server": settings.mcp.SERVER_NAME, "risk": "medium"},
+            metadata={
+                "source": "mcp",
+                "server": settings.mcp.SERVER_NAME,
+                "risk": "medium",
+                "mcp_info": {"server": "docs", "remote_name": "search"},
+            },
         )
         registry.register(
             "mcp_docs_search",
             "Search docs",
             {},
             lambda query: query,
-            metadata={"source": "mcp", "server": settings.mcp.SERVER_NAME, "risk": "medium", "alias_of": "mcp__docs__search"},
+            metadata={
+                "source": "mcp",
+                "server": settings.mcp.SERVER_NAME,
+                "risk": "medium",
+                "alias_of": "mcp__docs__search",
+                "mcp_info": {"server": "docs", "remote_name": "search"},
+            },
         )
+        return [SimpleNamespace(server=SimpleNamespace(name="docs", transport="stdio", url="", headers={}, execution_mode="", auth_required=False))]
 
-    monkeypatch.setattr("agents.interfaces.bridge.slash.load_configured_mcp", fake_load_configured_mcp)
+    monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.load_configured_mcp", fake_load_configured_mcp)
     emitted = []
 
     asyncio.run(run_slash(state, "/mcp set docs -- python server.py", emitted))
@@ -1305,7 +1319,7 @@ def test_ndjson_bridge_configures_reloads_and_clears_mcp(monkeypatch, tmp_path):
     assert emitted[4] == {"type": "notice", "message": "mcp enabled: docs"}
     assert emitted[5]["type"] == "mcp"
     assert ["server", "docs"] in emitted[5]["mcp"]
-    assert emitted[6] == {"type": "notice", "message": "mcp reloaded: 1 new tool"}
+    assert emitted[6] == {"type": "notice", "message": "mcp reloaded: 1 tool"}
     assert emitted[7]["type"] == "mcp"
     assert ["tools", "1"] in emitted[7]["mcp"]
     assert emitted[8]["type"] == "tools"
