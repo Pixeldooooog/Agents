@@ -223,7 +223,10 @@ async def mcp_reload(context: ToolRuntimeContext, registry: Any) -> dict[str, An
         load_kwargs["sdk_mcp_handlers"] = sdk_mcp_handlers
     mcp_elicitation_handler = getattr(context, "mcp_elicitation_handler", None)
     if mcp_elicitation_handler is not None:
+        from agents.kernel.mcp_elicitation_runtime import build_mcp_elicitation_complete_handler
+
         load_kwargs["elicitation_handler"] = mcp_elicitation_handler
+        load_kwargs["elicitation_complete_handler"] = build_mcp_elicitation_complete_handler(context)
     auth_headers = await _mcp_auth_headers(context, records)
     if auth_headers:
         load_kwargs["auth_headers"] = auth_headers

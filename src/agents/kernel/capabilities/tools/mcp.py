@@ -30,6 +30,11 @@ class MCPElicitationHandler(Protocol):
         raise NotImplementedError()
 
 
+class MCPElicitationCompleteHandler(Protocol):
+    def __call__(self, server_name: str, elicitation_id: str) -> Any:
+        raise NotImplementedError()
+
+
 MCPSDKMessageHandler = Callable[[dict[str, Any]], Any]
 MCPOAuthAuthenticator = Callable[[Any, Mapping[str, Any]], Any]
 
@@ -84,6 +89,7 @@ class MCPServerConfig:
     auth_message: str = ""
     roots: List[str] = field(default_factory=list)
     elicitation_handler: MCPElicitationHandler | None = None
+    elicitation_complete_handler: MCPElicitationCompleteHandler | None = None
     sdk_message_handler: MCPSDKMessageHandler | None = None
 
 
@@ -173,6 +179,7 @@ class _MCPSessionClient:
                 write,
                 elicitation_callback=self._handle_elicitation,
                 list_roots_callback=self._list_roots if self.server.roots else None,
+                message_handler=self._handle_message,
             )
             self._session = await self._session_context.__aenter__()
             await self._session.initialize()
@@ -203,6 +210,24 @@ class _MCPSessionClient:
         if inspect.isawaitable(response):
             response = await response
         return _mcp_elicitation_result(response)
+
+    async def _handle_message(self, message: Any) -> None:
+        root = getattr(message, "root", None)
+        if root is None:
+            return
+        try:
+            from mcp import types
+        except Exception:
+            return
+        if not isinstance(root, types.ElicitCompleteNotification):
+            return
+        handler = self.server.elicitation_complete_handler
+        if handler is None:
+            return
+        elicitation_id = str(getattr(root.params, "elicitationId", "") or "")
+        response = handler(self.server.name, elicitation_id)
+        if inspect.isawaitable(response):
+            await response
 
     async def list_tools(self) -> List[MCPToolDefinition]:
         await self.initialize()

@@ -549,8 +549,17 @@ def test_create_session_passes_mcp_elicitation_handler_to_loader(tmp_path, monke
     monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
     captured = {}
 
-    async def fake_load_mcp(settings, registry, roots=None, records=None, elicitation_handler=None, oauth_authenticator=None):
+    async def fake_load_mcp(
+        settings,
+        registry,
+        roots=None,
+        records=None,
+        elicitation_handler=None,
+        elicitation_complete_handler=None,
+        oauth_authenticator=None,
+    ):
         captured["elicitation_handler"] = elicitation_handler
+        captured["elicitation_complete_handler"] = elicitation_complete_handler
         captured["oauth_authenticator"] = oauth_authenticator
         return []
 
@@ -572,6 +581,7 @@ def test_create_session_passes_mcp_elicitation_handler_to_loader(tmp_path, monke
     )
 
     assert captured["elicitation_handler"] is elicitation_handler
+    assert captured["elicitation_complete_handler"] is not None
     assert captured["oauth_authenticator"] is not None
     assert session.tool_context.mcp_elicitation_handler is elicitation_handler
 

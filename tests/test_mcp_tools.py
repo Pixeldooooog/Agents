@@ -25,6 +25,7 @@ from agents.kernel.capabilities.tools.registry import ToolRegistry
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.governance import SandboxPolicy, describe_tool_impact
 from agents.kernel.mcp_config import InMemoryMCPConfigStore, MCPServerRecord
+from agents.kernel.mcp_elicitation_runtime import build_mcp_elicitation_complete_handler
 from agents.kernel.schema import ToolCall
 
 
@@ -690,6 +691,9 @@ def test_load_configured_mcp_uses_streamable_http_transport(monkeypatch, tmp_pat
     def elicitation_handler(server_name, params):
         return {"action": "decline"}
 
+    def elicitation_complete_handler(server_name, elicitation_id):
+        return None
+
     monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.MCPStreamableHTTPClient", FakeHTTPMCPClient)
     registry = ToolRegistry()
     settings = SimpleNamespace(
@@ -713,6 +717,7 @@ def test_load_configured_mcp_uses_streamable_http_transport(monkeypatch, tmp_pat
             registry,
             roots=[str(tmp_path), str(tmp_path)],
             elicitation_handler=elicitation_handler,
+            elicitation_complete_handler=elicitation_complete_handler,
         )
     )
     result = asyncio.run(registry.execute("mcp__docs__search", {"query": "agents"}))
@@ -724,6 +729,7 @@ def test_load_configured_mcp_uses_streamable_http_transport(monkeypatch, tmp_pat
     assert providers[0].server.sse_read_timeout_seconds == 120.0
     assert providers[0].server.roots == [str(tmp_path.resolve())]
     assert providers[0].server.elicitation_handler is elicitation_handler
+    assert providers[0].server.elicitation_complete_handler is elicitation_complete_handler
     assert json.loads(result.content)["answer"] == "agents"
     assert created[0].called == [("search", {"query": "agents"})]
 
@@ -809,6 +815,82 @@ def test_mcp_session_client_routes_elicitation_handler_response(tmp_path: Path):
     assert result.content == {"choice": "yes"}
 
 
+def test_mcp_session_client_routes_elicitation_complete_notification():
+    from mcp import types
+
+    captured = []
+
+    async def complete_handler(server_name, elicitation_id):
+        captured.append((server_name, elicitation_id))
+
+    client = MCPStreamableHTTPClient(
+        MCPServerConfig(
+            name="docs",
+            transport="http",
+            url="https://mcp.example.test/mcp",
+            elicitation_complete_handler=complete_handler,
+        )
+    )
+    notification = types.ServerNotification(
+        root=types.ElicitCompleteNotification(
+            params=types.ElicitCompleteNotificationParams(elicitationId="elicit_123")
+        )
+    )
+
+    asyncio.run(client._handle_message(notification))
+
+    assert captured == [("docs", "elicit_123")]
+
+
+def test_mcp_elicitation_complete_handler_emits_runtime_event_when_active():
+    events = []
+    enqueued = []
+    context = SimpleNamespace(
+        mcp_elicitation_completions=[],
+        has_runtime_event_sink=lambda: True,
+        emit_runtime_event=lambda event_type, name="", payload=None: events.append((event_type, name, payload)),
+        async_message_enqueue=enqueued.append,
+    )
+    handler = build_mcp_elicitation_complete_handler(context)
+
+    asyncio.run(handler("docs", "elicit_123"))
+
+    assert context.mcp_elicitation_completions == [
+        {"mcp_server_name": "docs", "elicitation_id": "elicit_123"}
+    ]
+    assert events == [
+        (
+            "elicitation_complete",
+            "mcp",
+            {"mcp_server_name": "docs", "elicitation_id": "elicit_123"},
+        )
+    ]
+    assert enqueued == []
+
+
+def test_mcp_elicitation_complete_handler_enqueues_async_message_without_active_event_sink():
+    enqueued = []
+    context = SimpleNamespace(
+        mcp_elicitation_completions=[],
+        has_runtime_event_sink=lambda: False,
+        async_message_enqueue=enqueued.append,
+    )
+    handler = build_mcp_elicitation_complete_handler(context)
+
+    asyncio.run(handler("docs", "elicit_123"))
+
+    assert context.mcp_elicitation_completions == [
+        {"mcp_server_name": "docs", "elicitation_id": "elicit_123"}
+    ]
+    assert len(enqueued) == 1
+    assert enqueued[0]["priority"] == "later"
+    assert enqueued[0]["isSynthetic"] is True
+    text = enqueued[0]["message"]["content"][0]["text"]
+    assert "<mcp_elicitation_complete>" in text
+    assert "<server>docs</server>" in text
+    assert "<elicitation_id>elicit_123</elicitation_id>" in text
+
+
 def test_mcp_session_client_registers_elicitation_cancel_fallback(monkeypatch, tmp_path: Path):
     captured = {}
 
@@ -850,6 +932,7 @@ def test_mcp_session_client_registers_elicitation_cancel_fallback(monkeypatch, t
     assert captured["read"] == "read-stream"
     assert captured["write"] == "write-stream"
     assert captured["kwargs"]["list_roots_callback"] == client._list_roots
+    assert captured["kwargs"]["message_handler"] == client._handle_message
     assert result.action == "cancel"
     assert result.content is None
 
