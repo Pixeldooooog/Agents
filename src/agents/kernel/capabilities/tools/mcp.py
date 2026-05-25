@@ -312,6 +312,14 @@ class MCPSSEClient(_MCPSessionClient):
         return await self._transport_context.__aenter__()
 
 
+class MCPWebSocketClient(_MCPSessionClient):
+    async def _open_transport(self) -> tuple[Any, Any]:
+        from mcp.client.websocket import websocket_client
+
+        self._transport_context = websocket_client(self.server.url)
+        return await self._transport_context.__aenter__()
+
+
 @dataclass(frozen=True)
 class MCPToolProvider:
     client: MCPClient

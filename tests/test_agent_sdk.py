@@ -2207,7 +2207,10 @@ def test_sdk_control_request_handler_applies_session_options_and_mcp_state():
             SDKControlRequest(
                 request_id="mcp-set",
                 request=SDKControlMcpSetServersRequest(
-                    servers={"docs": {"type": "stdio", "command": "docs-mcp", "args": ["--serve"]}}
+                    servers={
+                        "docs": {"type": "stdio", "command": "docs-mcp", "args": ["--serve"]},
+                        "socket": {"type": "ws", "url": "wss://mcp.example.test/socket"},
+                    }
                 ),
             )
         )
@@ -2239,8 +2242,18 @@ def test_sdk_control_request_handler_applies_session_options_and_mcp_state():
         )
     )
 
-    assert mcp_set.response.response == {"added": ["docs"], "removed": [], "errors": {}}
+    records = asyncio.run(
+        client.persistence.mcp_configs.list_for_scope(
+            "tenant",
+            user_id="user",
+            agent_id="agent",
+            workspace_id="",
+        )
+    )
+
+    assert mcp_set.response.response == {"added": ["docs", "socket"], "removed": [], "errors": {}}
     assert {"name": "docs", "status": "connected"} in mcp_status.response.response["mcpServers"]
+    assert {record.name: record.transport for record in records}["socket"] == "ws"
     assert mcp_reconnect.response.response == {
         "serverName": "docs",
         "status": "connected",

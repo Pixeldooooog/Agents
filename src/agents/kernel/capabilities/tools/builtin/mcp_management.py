@@ -20,8 +20,8 @@ MCP_CONFIGURE_SCHEMA = {
     "properties": {
         "name": {"type": "string", "description": "MCP server name."},
         "command": {"type": "string", "description": "Local MCP stdio server command line."},
-        "transport": {"type": "string", "enum": ["stdio", "sse", "http", "claudeai-proxy"], "description": "MCP transport type."},
-        "url": {"type": "string", "description": "Remote MCP server URL for HTTP/SSE transports."},
+        "transport": {"type": "string", "enum": ["stdio", "sse", "http", "ws", "claudeai-proxy"], "description": "MCP transport type."},
+        "url": {"type": "string", "description": "Remote MCP server URL for HTTP/SSE/WebSocket transports."},
         "headers": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Optional headers for HTTP/SSE MCP transports."},
         "execution_mode": {"type": "string", "description": "MCP execution mode, defaults to trusted_control_plane."},
         "sandbox_profile": {"type": "string", "description": "Optional sandbox profile for future sandboxed MCP execution."},
@@ -371,7 +371,7 @@ def _merge_unique(*groups: list[str]) -> list[str]:
 
 def _transport(value: str) -> str:
     transport = str(value or "stdio").strip() or "stdio"
-    if transport not in {"stdio", "sse", "http", "claudeai-proxy"}:
+    if transport not in {"stdio", "sse", "http", "ws", "claudeai-proxy"}:
         raise ValueError("unsupported MCP transport: %s" % transport)
     return transport
 

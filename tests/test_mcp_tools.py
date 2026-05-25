@@ -15,6 +15,7 @@ from agents.kernel.capabilities.tools.mcp import (
     MCPStreamableHTTPClient,
     MCPToolDefinition,
     MCPToolProvider,
+    MCPWebSocketClient,
     build_mcp_tool_name,
     mcp_info_from_name,
     normalize_mcp_name,
@@ -568,6 +569,41 @@ def test_builtin_mcp_management_persists_auth_transport_fields(tmp_path: Path):
     assert listed.raw["servers"][0]["auth_message"] == "needs OAuth"
 
 
+def test_builtin_mcp_management_accepts_websocket_transport(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=SandboxPolicy.for_workspace(workspace.path),
+        settings=SimpleNamespace(mcp=SimpleNamespace(SERVER_NAME="", SERVER_COMMAND="")),
+        mcp_config_store=InMemoryMCPConfigStore(),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    configured = asyncio.run(
+        registry.execute(
+            "mcp.configure",
+            {
+                "name": "socket",
+                "transport": "ws",
+                "url": "wss://mcp.example.test/socket",
+            },
+        )
+    )
+
+    assert configured.raw["configured"]["name"] == "socket"
+    assert configured.raw["configured"]["transport"] == "ws"
+    assert configured.raw["configured"]["url"] == "wss://mcp.example.test/socket"
+    assert configured.raw["servers"][0]["transport"] == "ws"
+
+
 def test_load_configured_mcp_registers_auth_tool_for_auth_required_http_settings():
     registry = ToolRegistry()
     settings = SimpleNamespace(
@@ -807,6 +843,73 @@ def test_load_configured_mcp_uses_sse_transport(monkeypatch):
     assert providers[0].server.headers == {"X-Test": "yes"}
     assert json.loads(result.content)["answer"] == "agents"
     assert created[0].called == [("search", {"query": "agents"})]
+
+
+def test_load_configured_mcp_uses_websocket_transport(monkeypatch):
+    created = []
+
+    class FakeWebSocketMCPClient(FakeMCPClient):
+        def __init__(self, server):
+            super().__init__()
+            self.server = server
+            created.append(self)
+
+    monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.MCPWebSocketClient", FakeWebSocketMCPClient)
+    registry = ToolRegistry()
+    settings = SimpleNamespace(
+        mcp=SimpleNamespace(
+            SERVER_NAME="socket",
+            SERVER_COMMAND="",
+            SERVER_TRANSPORT="ws",
+            SERVER_URL="wss://mcp.example.test/socket",
+            SERVER_HEADERS_JSON='{"X-Test":"ignored"}',
+            CLIENT_TIMEOUT=30.0,
+            SSE_READ_TIMEOUT=120.0,
+            EXECUTION_MODE="trusted_control_plane",
+            SANDBOX_PROFILE="",
+            AUTH_REQUIRED=False,
+        )
+    )
+
+    providers = asyncio.run(load_configured_mcp(settings, registry))
+    result = asyncio.run(registry.execute("mcp__socket__search", {"query": "agents"}))
+
+    assert len(providers) == 1
+    assert providers[0].server.transport == "ws"
+    assert providers[0].server.url == "wss://mcp.example.test/socket"
+    assert providers[0].server.headers == {"X-Test": "ignored"}
+    assert json.loads(result.content)["answer"] == "agents"
+    assert created[0].called == [("search", {"query": "agents"})]
+
+
+def test_mcp_websocket_client_opens_sdk_transport(monkeypatch):
+    captured = {}
+
+    class FakeContext:
+        async def __aenter__(self):
+            return "read-stream", "write-stream"
+
+        async def __aexit__(self, exc_type, exc, tb):
+            captured["closed"] = True
+
+    def fake_websocket_client(url):
+        captured["url"] = url
+        return FakeContext()
+
+    monkeypatch.setattr("mcp.client.websocket.websocket_client", fake_websocket_client)
+    client = MCPWebSocketClient(
+        MCPServerConfig(
+            name="socket",
+            transport="ws",
+            url="wss://mcp.example.test/socket",
+        )
+    )
+
+    read, write = asyncio.run(client._open_transport())
+    asyncio.run(client.close())
+
+    assert (read, write) == ("read-stream", "write-stream")
+    assert captured == {"url": "wss://mcp.example.test/socket", "closed": True}
 
 
 def test_builtin_mcp_prompt_tools_list_and_get_prompt(tmp_path: Path):

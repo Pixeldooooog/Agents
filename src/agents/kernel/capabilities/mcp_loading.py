@@ -12,6 +12,7 @@ from agents.kernel.capabilities.tools.mcp import (
     MCPStdioClient,
     MCPStreamableHTTPClient,
     MCPToolProvider,
+    MCPWebSocketClient,
 )
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 
@@ -162,6 +163,8 @@ def _client_for_server(server: MCPServerConfig) -> Any:
         client = MCPStreamableHTTPClient(server)
     elif transport == "sse":
         client = MCPSSEClient(server)
+    elif transport == "ws":
+        client = MCPWebSocketClient(server)
     else:
         client = _UnavailableMCPClient()
         if not server.auth_required:
