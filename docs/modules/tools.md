@@ -83,6 +83,7 @@ approval 事件和 audit 记录会附带 `impact`：
 
 - IDE MCP server 的模型可见工具面按 `src-origin` 只允许 `mcp__ide__executeCode` 和 `mcp__ide__getDiagnostics`；其他 `mcp__ide__*` 工具不会注册 canonical 名称或 legacy alias。
 - IDE MCP 连接成功后会 best-effort 向 server 发送 `ide_connected` JSON-RPC notification，payload 包含当前进程 `pid`；发送失败不会让 MCP provider 连接失败。
+- IDE lockfile core parser 已对齐 `src-origin` 的新旧格式：从 `*.lock` 文件名解析端口，读取 JSON `workspaceFolders` / `pid` / `ideName` / `transport` / `runningInWindows` / `authToken`，兼容旧版按行列出的 workspace folders，按当前 workspace 判断 valid，并可转换成 `sse-ide` / `ws-ide` MCP config record。自动选择 UI、扩展安装和 WSL host 探测仍是后续层。
 
 `ToolRegistry.describe_call(name, arguments)` 会基于同一份契约返回 activity、target、paths 和 metadata。权限、trace、operation stage 和未来 SDK event projector 应使用这个入口，而不是重新解析工具参数。
 
