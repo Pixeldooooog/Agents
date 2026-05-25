@@ -102,7 +102,7 @@ async def create_agent_session_async(
     web_provider = create_web_search_provider(settings)
     builtin_tools = register_builtin_tools(registry, tool_context, web_provider=web_provider)
     await _hydrate_mcp_config(tool_context)
-    tool_context.mcp_providers = await load_configured_mcp(settings, registry)
+    tool_context.mcp_providers = await load_configured_mcp(settings, registry, roots=[str(workspace.path)])
 
     await _hydrate_session_state(tool_context)
     skill_registry = _skill_registry_with_session_state(settings, skill_registry, tool_context)

@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol
 
 from agents.kernel.capabilities.tools.registry import ToolRegistry
@@ -40,6 +41,7 @@ class MCPServerConfig:
     auth_url: str = ""
     auth_status: str = ""
     auth_message: str = ""
+    roots: List[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -123,7 +125,11 @@ class _MCPSessionClient:
             from mcp import ClientSession
 
             read, write = await self._open_transport()
-            self._session_context = ClientSession(read, write)
+            self._session_context = ClientSession(
+                read,
+                write,
+                list_roots_callback=self._list_roots if self.server.roots else None,
+            )
             self._session = await self._session_context.__aenter__()
             await self._session.initialize()
         except Exception as exc:
@@ -135,6 +141,16 @@ class _MCPSessionClient:
 
     async def _open_transport(self) -> tuple[Any, Any]:
         raise NotImplementedError()
+
+    async def _list_roots(self, _context: Any) -> Any:
+        from mcp import types
+
+        return types.ListRootsResult(
+            roots=[
+                types.Root(uri=_root_uri(root), name=_root_name(root))
+                for root in self.server.roots
+            ]
+        )
 
     async def list_tools(self) -> List[MCPToolDefinition]:
         await self.initialize()
@@ -535,6 +551,20 @@ def _mcp_location(transport: str, url: str) -> str:
     transport_value = str(transport or "stdio")
     url_value = str(url or "").strip()
     return "%s at %s" % (transport_value, url_value) if url_value else transport_value
+
+
+def _root_uri(root: str) -> str:
+    value = str(root or "").strip()
+    if value.startswith("file://"):
+        return value
+    return Path(value).expanduser().resolve().as_uri()
+
+
+def _root_name(root: str) -> str:
+    value = str(root or "").strip()
+    if value.startswith("file://"):
+        return Path(value.removeprefix("file://")).name or value
+    return Path(value).expanduser().name or value
 
 
 def _auth_error_from_exception(exc: Exception, server: MCPServerConfig) -> MCPAuthenticationRequired | None:

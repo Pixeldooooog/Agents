@@ -43,6 +43,7 @@ from agents.kernel.capabilities.tools.mcp import (
     MCPPromptDefinition,
     MCPResourceDefinition,
     MCPServerConfig,
+    MCPStreamableHTTPClient,
     MCPToolDefinition,
     MCPToolProvider,
     build_mcp_tool_name,
@@ -3930,7 +3931,7 @@ def test_load_configured_mcp_registers_auth_tool_for_auth_required_http_settings
     assert payload["authUrl"] == "https://mcp.example.test/oauth"
 
 
-def test_load_configured_mcp_uses_streamable_http_transport(monkeypatch):
+def test_load_configured_mcp_uses_streamable_http_transport(monkeypatch, tmp_path: Path):
     created = []
 
     class FakeHTTPMCPClient(FakeMCPClient):
@@ -3956,7 +3957,7 @@ def test_load_configured_mcp_uses_streamable_http_transport(monkeypatch):
         )
     )
 
-    providers = asyncio.run(load_configured_mcp(settings, registry))
+    providers = asyncio.run(load_configured_mcp(settings, registry, roots=[str(tmp_path), str(tmp_path)]))
     result = asyncio.run(registry.execute("mcp__docs__search", {"query": "agents"}))
 
     assert len(providers) == 1
@@ -3964,8 +3965,25 @@ def test_load_configured_mcp_uses_streamable_http_transport(monkeypatch):
     assert providers[0].server.url == "https://mcp.example.test/mcp"
     assert providers[0].server.headers == {"Authorization": "Bearer token"}
     assert providers[0].server.sse_read_timeout_seconds == 120.0
+    assert providers[0].server.roots == [str(tmp_path.resolve())]
     assert json.loads(result.content)["answer"] == "agents"
     assert created[0].called == [("search", {"query": "agents"})]
+
+
+def test_mcp_session_client_lists_workspace_roots(tmp_path: Path):
+    client = MCPStreamableHTTPClient(
+        MCPServerConfig(
+            name="docs",
+            transport="http",
+            url="https://mcp.example.test/mcp",
+            roots=[str(tmp_path)],
+        )
+    )
+
+    result = asyncio.run(client._list_roots(None))
+
+    assert [str(root.uri).rstrip("/") for root in result.roots] == [tmp_path.resolve().as_uri()]
+    assert [root.name for root in result.roots] == [tmp_path.name]
 
 
 def test_load_configured_mcp_uses_sse_transport(monkeypatch):

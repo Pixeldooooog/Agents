@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shlex
+from pathlib import Path
 from typing import Any
 
 from agents.kernel.capabilities.tools.mcp import MCPSSEClient, MCPServerConfig, MCPStdioClient, MCPStreamableHTTPClient, MCPToolProvider
@@ -31,7 +32,11 @@ class _UnavailableMCPClient:
         return None
 
 
-async def load_configured_mcp(settings: Any, registry: ToolRegistry) -> list[MCPToolProvider]:
+async def load_configured_mcp(
+    settings: Any,
+    registry: ToolRegistry,
+    roots: list[str] | None = None,
+) -> list[MCPToolProvider]:
     command = str(settings.mcp.SERVER_COMMAND or "").strip()
     transport = str(getattr(settings.mcp, "SERVER_TRANSPORT", "stdio") or "stdio")
     url = str(getattr(settings.mcp, "SERVER_URL", "") or "").strip()
@@ -57,6 +62,7 @@ async def load_configured_mcp(settings: Any, registry: ToolRegistry) -> list[MCP
         auth_url=getattr(settings.mcp, "AUTH_URL", "") or "",
         auth_status=getattr(settings.mcp, "AUTH_STATUS", "") or "",
         auth_message=getattr(settings.mcp, "AUTH_MESSAGE", "") or "",
+        roots=_normalize_roots(roots),
     )
     if transport == "stdio":
         client = MCPStdioClient(server)
@@ -71,6 +77,22 @@ async def load_configured_mcp(settings: Any, registry: ToolRegistry) -> list[MCP
     provider = MCPToolProvider(client=client, server=server)
     await provider.load_tools(registry)
     return [provider]
+
+
+def _normalize_roots(roots: list[str] | None) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for root in roots or []:
+        value = str(root or "").strip()
+        if not value:
+            continue
+        if not value.startswith("file://"):
+            value = str(Path(value).expanduser().resolve())
+        if value in seen:
+            continue
+        seen.add(value)
+        normalized.append(value)
+    return normalized
 
 
 def _headers_from_settings(mcp_settings: Any) -> dict[str, str]:
