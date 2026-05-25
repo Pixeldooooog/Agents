@@ -24,6 +24,8 @@ from agents.kernel.capabilities.tools.registry import ToolRegistry
 
 _MCP_UNSAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9_-]")
 ALLOWED_IDE_TOOL_NAMES = {"mcp__ide__executeCode", "mcp__ide__getDiagnostics"}
+IDE_TRANSPORTS = {"sse-ide", "ws-ide"}
+IDE_CONNECTED_METHOD = "ide_connected"
 
 
 class MCPElicitationHandler(Protocol):
@@ -173,6 +175,7 @@ class _MCPSessionClient:
         self._transport_context: Optional[Any] = None
         self._session_context: Optional[Any] = None
         self._session: Optional[Any] = None
+        self._write_stream: Optional[Any] = None
 
     async def initialize(self) -> None:
         if self._session is not None:
@@ -181,6 +184,7 @@ class _MCPSessionClient:
             from mcp import ClientSession
 
             read, write = await self._open_transport()
+            self._write_stream = write
             self._session_context = ClientSession(
                 read,
                 write,
@@ -190,6 +194,7 @@ class _MCPSessionClient:
             )
             self._session = await self._session_context.__aenter__()
             await self._session.initialize()
+            await self._maybe_notify_ide_connected()
         except Exception as exc:
             await self.close()
             auth_error = _auth_error_from_exception(exc, self.server)
@@ -199,6 +204,27 @@ class _MCPSessionClient:
 
     async def _open_transport(self) -> tuple[Any, Any]:
         raise NotImplementedError()
+
+    async def _maybe_notify_ide_connected(self) -> None:
+        if self.server.transport not in IDE_TRANSPORTS or self._write_stream is None:
+            return
+        try:
+            from mcp import types
+            from mcp.shared.message import SessionMessage
+
+            await self._write_stream.send(
+                SessionMessage(
+                    message=types.JSONRPCMessage(
+                        types.JSONRPCNotification(
+                            jsonrpc="2.0",
+                            method=IDE_CONNECTED_METHOD,
+                            params={"pid": os.getpid()},
+                        )
+                    )
+                )
+            )
+        except Exception:
+            return
 
     async def _list_roots(self, _context: Any) -> Any:
         from mcp import types
@@ -328,6 +354,7 @@ class _MCPSessionClient:
         if self._transport_context is not None:
             await self._transport_context.__aexit__(None, None, None)
             self._transport_context = None
+        self._write_stream = None
 
 
 def _mcp_elicitation_result(response: Any) -> Any:

@@ -13,6 +13,7 @@ from agents.kernel.capabilities.tools.mcp import (
     MCPPromptDefinition,
     MCPResourceDefinition,
     MCPServerConfig,
+    MCPSSEClient,
     MCPStreamableHTTPClient,
     MCPToolDefinition,
     MCPToolProvider,
@@ -1280,6 +1281,94 @@ def test_mcp_session_client_registers_elicitation_cancel_fallback(monkeypatch, t
     assert captured["kwargs"]["message_handler"] == client._handle_message
     assert result.action == "cancel"
     assert result.content is None
+
+
+def test_mcp_session_client_notifies_ide_after_connection(monkeypatch):
+    captured = {}
+
+    class FakeWriteStream:
+        def __init__(self):
+            self.messages = []
+
+        async def send(self, message):
+            self.messages.append(message)
+
+    class FakeSessionContext:
+        def __init__(self, read, write, **kwargs):
+            captured["read"] = read
+            captured["write"] = write
+            captured["kwargs"] = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def initialize(self):
+            return None
+
+    write_stream = FakeWriteStream()
+    client = MCPSSEClient(
+        MCPServerConfig(
+            name="ide",
+            transport="sse-ide",
+            url="http://127.0.0.1:32100/sse",
+        )
+    )
+
+    async def fake_open_transport():
+        return "read-stream", write_stream
+
+    monkeypatch.setattr("mcp.ClientSession", FakeSessionContext)
+    monkeypatch.setattr(client, "_open_transport", fake_open_transport)
+
+    asyncio.run(client.initialize())
+    asyncio.run(client.close())
+
+    assert captured["read"] == "read-stream"
+    assert captured["write"] is write_stream
+    assert len(write_stream.messages) == 1
+    notification = write_stream.messages[0].message.root
+    assert notification.method == "ide_connected"
+    assert isinstance(notification.params["pid"], int)
+    assert notification.params["pid"] > 0
+
+
+def test_mcp_session_client_ignores_failed_ide_connected_notification(monkeypatch):
+    class FailingWriteStream:
+        async def send(self, message):
+            raise RuntimeError("write failed")
+
+    class FakeSessionContext:
+        def __init__(self, read, write, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def initialize(self):
+            return None
+
+    client = MCPSSEClient(
+        MCPServerConfig(
+            name="ide",
+            transport="sse-ide",
+            url="http://127.0.0.1:32100/sse",
+        )
+    )
+
+    async def fake_open_transport():
+        return "read-stream", FailingWriteStream()
+
+    monkeypatch.setattr("mcp.ClientSession", FakeSessionContext)
+    monkeypatch.setattr(client, "_open_transport", fake_open_transport)
+
+    asyncio.run(client.initialize())
+    asyncio.run(client.close())
 
 
 def test_load_configured_mcp_uses_sse_transport(monkeypatch):
