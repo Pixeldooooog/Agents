@@ -213,7 +213,7 @@ def _ide_payload(ide: DetectedIDEInfo) -> dict[str, Any]:
 
 
 def _host(value: str) -> str:
-    return str(value or os.environ.get("CLAUDE_CODE_IDE_HOST_OVERRIDE") or "127.0.0.1").strip() or "127.0.0.1"
+    return str(value or os.environ.get("CLAUDE_CODE_IDE_HOST_OVERRIDE") or "").strip()
 
 
 def _env_port() -> int | None:

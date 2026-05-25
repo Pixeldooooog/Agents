@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import json
 import os
-import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
+from agents.kernel.capabilities.ide_environment import (
+    detect_ide_host,
+    detect_ide_platform,
+    is_inside_ide_workspace,
+)
 from agents.kernel.mcp_config import MCPServerRecord, server_record_for_scope
 
 
@@ -89,10 +93,12 @@ def detect_ide_lockfiles(
     include_invalid: bool = False,
     env_port: int | None = None,
     skip_valid_check: bool = False,
-    host: str = "127.0.0.1",
+    host: str = "",
+    platform: str | None = None,
+    wsl_distro_name: str | None = None,
     fallback_name: str = "IDE",
 ) -> list[DetectedIDEInfo]:
-    cwd_text = _normalize_path(cwd)
+    platform_name = detect_ide_platform(platform)
     detected: list[DetectedIDEInfo] = []
     for lockfile in lockfiles:
         info = read_ide_lockfile(lockfile)
@@ -101,11 +107,28 @@ def detect_ide_lockfiles(
         is_valid = (
             skip_valid_check
             or (env_port is not None and info.port == env_port)
-            or any(_is_inside_workspace(cwd_text, folder) for folder in info.workspace_folders)
+            or any(
+                is_inside_ide_workspace(
+                    cwd,
+                    folder,
+                    platform=platform_name,
+                    running_in_windows=info.running_in_windows,
+                    wsl_distro_name=wsl_distro_name or os.environ.get("WSL_DISTRO_NAME"),
+                )
+                for folder in info.workspace_folders
+            )
         )
         if not is_valid and not include_invalid:
             continue
-        detected.append(_detected_ide(info, host=host, is_valid=is_valid, fallback_name=fallback_name))
+        detected.append(
+            _detected_ide(
+                info,
+                host=host,
+                platform=platform_name,
+                is_valid=is_valid,
+                fallback_name=fallback_name,
+            )
+        )
 
     if not include_invalid and env_port is not None:
         env_matches = [ide for ide in detected if ide.is_valid and ide.port == env_port]
@@ -137,11 +160,22 @@ def _detected_ide(
     info: IDELockfileInfo,
     *,
     host: str,
+    platform: str,
     is_valid: bool,
     fallback_name: str,
 ) -> DetectedIDEInfo:
     transport = "ws-ide" if info.use_websocket else "sse-ide"
-    url = "ws://%s:%s" % (host, info.port) if info.use_websocket else "http://%s:%s/sse" % (host, info.port)
+    resolved_host = detect_ide_host(
+        running_in_windows=info.running_in_windows,
+        port=info.port,
+        host_override=host,
+        platform=platform,
+    )
+    url = (
+        "ws://%s:%s" % (resolved_host, info.port)
+        if info.use_websocket
+        else "http://%s:%s/sse" % (resolved_host, info.port)
+    )
     return DetectedIDEInfo(
         name=info.ide_name or fallback_name,
         port=info.port,
@@ -187,15 +221,3 @@ def _port_from_lockfile(path: Path) -> int | None:
         return int(name.removesuffix(".lock"))
     except ValueError:
         return None
-
-
-def _is_inside_workspace(cwd: str, workspace_folder: str) -> bool:
-    if not workspace_folder:
-        return False
-    workspace = _normalize_path(workspace_folder)
-    return cwd == workspace or cwd.startswith(workspace + "/")
-
-
-def _normalize_path(path: str | Path) -> str:
-    resolved = Path(path).expanduser().resolve(strict=False)
-    return unicodedata.normalize("NFC", str(resolved)).replace("\\", "/").rstrip("/")

@@ -9,6 +9,11 @@ from agents.kernel.capabilities.ide import (
     read_ide_lockfile,
     sorted_ide_lockfiles,
 )
+from agents.kernel.capabilities.ide_environment import (
+    default_gateway_from_route_text,
+    detect_ide_host,
+    windows_path_to_wsl_path,
+)
 from agents.kernel.context.workspace import WorkspaceContext
 
 
@@ -98,6 +103,88 @@ def test_detect_ide_lockfiles_matches_current_workspace_and_builds_urls(tmp_path
     assert detected[0].url == "http://localhost:32100/sse"
     assert detected[1].url == "ws://localhost:32101"
     assert detected[1].auth_token == "token"
+
+
+def test_detect_ide_lockfiles_matches_windows_workspace_path_under_wsl(tmp_path: Path):
+    lockfile = tmp_path / "32101.lock"
+    lockfile.write_text(
+        r"""
+{
+  "workspaceFolders": ["C:\\Users\\me\\repo"],
+  "ideName": "VS Code",
+  "transport": "ws",
+  "runningInWindows": true
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    detected = detect_ide_lockfiles(
+        [lockfile],
+        cwd="/mnt/c/Users/me/repo/pkg",
+        platform="wsl",
+        wsl_distro_name="Ubuntu",
+    )
+
+    assert len(detected) == 1
+    assert detected[0].is_valid is True
+    assert detected[0].url == "ws://127.0.0.1:32101"
+
+
+def test_detect_ide_lockfiles_matches_current_wsl_unc_workspace(tmp_path: Path):
+    lockfile = tmp_path / "32101.lock"
+    lockfile.write_text(
+        r'{"workspaceFolders":["\\\\wsl.localhost\\Ubuntu\\home\\me\\repo"],"runningInWindows":true}',
+        encoding="utf-8",
+    )
+
+    detected = detect_ide_lockfiles(
+        [lockfile],
+        cwd="/home/me/repo/pkg",
+        platform="wsl",
+        wsl_distro_name="Ubuntu",
+    )
+
+    assert len(detected) == 1
+    assert detected[0].is_valid is True
+
+
+def test_detect_ide_lockfiles_rejects_other_wsl_distro_unc_workspace(tmp_path: Path):
+    lockfile = tmp_path / "32101.lock"
+    lockfile.write_text(
+        r'{"workspaceFolders":["\\\\wsl.localhost\\Debian\\home\\me\\repo"],"runningInWindows":true}',
+        encoding="utf-8",
+    )
+
+    detected = detect_ide_lockfiles(
+        [lockfile],
+        cwd="/home/me/repo/pkg",
+        platform="wsl",
+        wsl_distro_name="Ubuntu",
+    )
+
+    assert detected == []
+
+
+def test_windows_path_to_wsl_path_falls_back_without_wslpath():
+    assert windows_path_to_wsl_path(r"C:\Users\me\repo") == "/mnt/c/Users/me/repo"
+    assert windows_path_to_wsl_path(
+        r"\\wsl$\Ubuntu\home\me\repo",
+        wsl_distro_name="Ubuntu",
+    ) == "/home/me/repo"
+
+
+def test_detect_ide_host_uses_reachable_wsl_gateway():
+    host = detect_ide_host(
+        running_in_windows=True,
+        port=32101,
+        platform="wsl",
+        route_text="default via 172.30.16.1 dev eth0",
+        connect_checker=lambda gateway, port, timeout: gateway == "172.30.16.1" and port == 32101,
+    )
+
+    assert host == "172.30.16.1"
+    assert default_gateway_from_route_text("eth0\t00000000\t01001EAC\t0003") == "172.30.0.1"
 
 
 def test_detect_ide_lockfiles_filters_invalid_and_prefers_single_env_port(tmp_path: Path):
