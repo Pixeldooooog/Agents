@@ -97,6 +97,14 @@ def find_matching_tool_rule(
     return None
 
 
+def matching_blanket_tool_rule(rule: str, tool_name: str) -> str | None:
+    for alternative in split_tool_rule_alternatives(rule):
+        parsed = parse_tool_rule(alternative)
+        if parsed.rule_content is None and _tool_name_matches(parsed.tool_name, tool_name):
+            return alternative
+    return None
+
+
 def matching_tool_rule_alternative(
     rule: str,
     call: ToolCall,
@@ -390,9 +398,20 @@ def _tool_name_matches(pattern: str, tool_name: str) -> bool:
         return False
     if normalized_pattern == "*":
         return True
+    if _mcp_server_prefix_matches(normalized_pattern, normalized_tool):
+        return True
     if "*" in normalized_pattern:
         return fnmatchcase(normalized_tool, normalized_pattern)
     return normalized_tool == normalized_pattern
+
+
+def _mcp_server_prefix_matches(pattern: str, tool_name: str) -> bool:
+    if not pattern.startswith("mcp__"):
+        return False
+    server_name = pattern.removeprefix("mcp__")
+    if not server_name or "__" in server_name:
+        return False
+    return tool_name.startswith("%s__" % pattern)
 
 
 def _append_shell_segment(output: list[str], segment: list[str]) -> None:

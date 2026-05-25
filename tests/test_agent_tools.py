@@ -5240,6 +5240,7 @@ def test_permission_rules_match_src_origin_state_tool_targets():
             "TeamCreate(platform*)",
             "WebFetch(https://docs.example/*)",
             "ReadMcpResourceTool(file://docs/*)",
+            "mcp__docs",
         ],
         approval_required_tools=[
             "ToolSearch(worktree*)",
@@ -5272,6 +5273,7 @@ def test_permission_rules_match_src_origin_state_tool_targets():
         ("TeamCreate", {"team_name": "platform-core"}, "TeamCreate(platform*)", False),
         ("WebFetch", {"url": "https://docs.example/page", "prompt": "extract"}, "WebFetch(https://docs.example/*)", False),
         ("ReadMcpResourceTool", {"server": "docs", "uri": "file://docs/readme"}, "ReadMcpResourceTool(file://docs/*)", False),
+        ("mcp__docs__search", {"query": "agents"}, "mcp__docs", False),
         ("ToolSearch", {"query": "worktree tools"}, "ToolSearch(worktree*)", True),
         ("ListMcpResourcesTool", {"server": "docs"}, "ListMcpResourcesTool(docs)", True),
         ("ExitWorktree", {"action": "remove"}, "ExitWorktree(remove)", True),

@@ -23,6 +23,7 @@ from agents.kernel.models import ModelClient
 from agents.kernel.runtime import AgentRuntime, AgentSession
 from agents.kernel.runtime.checkpoints import CheckpointStore
 from agents.kernel.governance import build_tool_permission_policy
+from agents.kernel.governance.tool_rules import matching_blanket_tool_rule
 from agents.kernel.state.workspaces.factory import resolve_workspace
 from agents.kernel.state.artifacts import ArtifactBlobStore, ArtifactStore
 from agents.kernel.capabilities.tools import ToolRegistry, ToolRuntimeContext, register_builtin_tools
@@ -115,6 +116,7 @@ async def create_agent_session_async(
     )
     if _has_structured_output_schema(effective_spec):
         active_tools = _merge_unique(active_tools, ["StructuredOutput"])
+    active_tools = _filter_denied_active_tools(active_tools, effective_spec.tool_permissions.denied_tools)
     _validate_active_tools(active_tools, registry)
     tool_context.enabled_tools = list(active_tools)
     await _hydrate_schedules(tool_context)
@@ -228,6 +230,12 @@ def _validate_active_tools(active_tools: list[str], registry: ToolRegistry) -> N
     unknown = sorted({name for name in active_tools if name not in registered})
     if unknown:
         raise AgentConfigError("unknown enabled tool(s): %s" % ", ".join(unknown))
+
+
+def _filter_denied_active_tools(active_tools: list[str], denied_rules: list[str]) -> list[str]:
+    if not denied_rules:
+        return list(active_tools)
+    return [tool for tool in active_tools if not any(matching_blanket_tool_rule(rule, tool) for rule in denied_rules)]
 
 
 def _has_structured_output_schema(spec: AgentSpec) -> bool:

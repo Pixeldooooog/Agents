@@ -158,6 +158,7 @@ Agent/team alias 层覆盖 `Agent`、旧名 `Task`、`SendMessage`、`TeamCreate
 - pre/post tool hooks 对复杂 shell 解析 fail-safe：无法可靠解析时会运行匹配到 `Bash(...)` 的 hook，避免安全 hook 被绕过。
 - `Read(src/**)`、`Write(secrets/**)`、`Edit(src/**)`、`NotebookEdit(notebooks/**)`、`LSP(src/**)` 兼容 `src-origin` 的路径 wildcard 规则，分别映射到 `filesystem.read`、`filesystem.write`、`patch.apply`、`notebook.edit`、`lsp.query`。非文件类 alias 也会从 `src-origin` 参数中抽取匹配目标，例如 `TaskUpdate(task-*)` 匹配 `taskId`，`CronDelete(nightly*)` 匹配 `id`，`Agent(research*)` 匹配 `subagent_type` / `description`，`SendMessage(teammate*)` 匹配 `to`，MCP/Web 规则匹配 `server` / `uri` / `url`。
 - `Grep(TODO*)` / `Glob(*.py)` 使用工具的搜索 pattern 做 wildcard 匹配；`Glob` 已映射到 `search.glob`。
+- session assembly 会在构建模型可见 active tools 前应用 blanket deny 规则：`Read` / `Bash` / `mcp__docs` 这类无内容 deny 会隐藏对应工具或 MCP server 工具；`Bash(git *)`、`NotebookEdit(secrets/**)` 这类内容型规则仍保留工具，只在实际调用时判定。
 - `search.grep` 的 model-visible result 开始对齐 `src-origin` Grep：默认输出 `Found N files` 加文件列表，`output_mode=content` 输出 `path:line:match`，`output_mode=count` 输出每文件计数和汇总；`glob` 参数可按文件名过滤搜索范围，支持空格/逗号拆分、`*.{py,tsx}` 这类 brace pattern 和 `!*.test.py` 排除规则；`type` 提供常见文件类型过滤，`multiline=true` 支持跨行正则；`head_limit`、`offset`、`context`、`-A`、`-B`、`-C`、`-n` 和 `-i` 覆盖 GrepTool 的第一层分页、上下文、行号和大小写控制。
 - `search.glob` 的 model-visible result 和 `src-origin` 对齐为逐行文件名；无结果时返回 `No files found`，截断时追加明确提示。
 

@@ -203,6 +203,23 @@ def test_create_session_respects_explicit_enabled_tools(tmp_path, monkeypatch):
     assert session.runtime.enabled_tools == ["filesystem.read"]
 
 
+def test_create_session_filters_blanket_denied_tools_before_model_context(tmp_path, monkeypatch):
+    monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
+    settings = FakeSettings()
+    settings.server.ROOT_PATH = tmp_path
+    settings.models.openai.API_KEY = "key"
+    settings.models.openai.MODEL = "model"
+    spec = AgentSpec.from_overrides(
+        enabled_tools=["Read", "filesystem.read", "Bash", "NotebookEdit"],
+        denied_tools=["Read", "Bash(git *)", "NotebookEdit(secrets/**)"],
+    )
+
+    session = create_agent_session(settings, spec)
+
+    assert session.runtime.enabled_tools == ["Bash", "NotebookEdit"]
+    assert session.tool_context.enabled_tools == ["Bash", "NotebookEdit"]
+
+
 def test_create_session_accepts_src_origin_tool_aliases(tmp_path, monkeypatch):
     monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
     settings = FakeSettings()
