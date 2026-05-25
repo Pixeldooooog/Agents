@@ -92,6 +92,59 @@ def test_server_run_service_records_non_sdk_file_history_snapshots(tmp_path):
     assert backup_path.read_text(encoding="utf-8") == "old content\n"
 
 
+def test_server_run_service_carries_non_sdk_file_history_snapshots_between_runs(tmp_path):
+    service = RunService()
+    config_dir = tmp_path / ".claude"
+    note = tmp_path / "notes.md"
+    note.write_text("v0\n", encoding="utf-8")
+
+    def spec_for(message_id: str) -> AgentSpec:
+        return replace(
+            AgentSpec.from_overrides(agent_id="agent-1", workspace_path=str(tmp_path)),
+            metadata={
+                "claude_config_dir": str(config_dir),
+                "file_history_session_id": "history-session",
+                "file_history_message_id": message_id,
+            },
+        )
+
+    async def execute():
+        first = await service.start(spec_for("msg-1"))
+        await service.record_event(
+            first.run_id,
+            RuntimeEvent(
+                type="tool_result",
+                name="Write",
+                payload={
+                    "tool_call_id": "call-1",
+                    "raw": {"filePath": "notes.md", "type": "update", "originalFile": "v0\n"},
+                },
+            ),
+        )
+        note.write_text("v1\n", encoding="utf-8")
+        second = await service.start(spec_for("msg-2"))
+        await service.record_event(
+            second.run_id,
+            RuntimeEvent(
+                type="file_history_write",
+                name="filesystem.write",
+                payload={"path": "notes.md", "operation": "update", "checkpoint_pending": True},
+            ),
+        )
+        return await service.store.load_run(second.run_id)
+
+    record = asyncio.run(execute())
+    snapshots = [event for event in record.events if event.type == "file-history-snapshot"]
+
+    assert len(snapshots) == 1
+    assert snapshots[0].payload["messageId"] == "msg-2"
+    tracked = snapshots[0].payload["snapshot"]["trackedFileBackups"]
+    backup = tracked["notes.md"]
+    assert backup["version"] == 2
+    backup_path = Path(snapshots[0].payload["backupRoot"]) / backup["backupFileName"]
+    assert backup_path.read_text(encoding="utf-8") == "v1\n"
+
+
 def test_server_run_service_skips_sdk_file_history_snapshots(tmp_path):
     service = RunService()
     spec = replace(

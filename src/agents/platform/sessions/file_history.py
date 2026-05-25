@@ -2,34 +2,39 @@ from __future__ import annotations
 
 import hashlib
 import os
-from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from agents.kernel.schema import RuntimeEvent
 from agents.kernel.state.runs import RunRecord
+from agents.platform.sessions.file_history_carry import seed_file_history_state
 from agents.platform.sessions.file_history_payloads import (
     FileHistoryEntry,
     entries_from_tool_result,
     path_value,
 )
+from agents.platform.sessions.file_history_types import FileHistoryBackup, FileHistorySnapshotState
 
 
-@dataclass(frozen=True)
-class FileHistoryBackup:
-    backup: dict[str, Any]
+def file_history_session_id(record: RunRecord) -> str:
+    return _metadata_value(record, "file_history_session_id", "fileHistorySessionId") or record.run_id
 
 
-@dataclass
-class FileHistorySnapshotState:
-    message_id: str
-    session_id: str
-    backup_root: Path
-    backups: dict[str, dict[str, Any]] = field(default_factory=dict)
+def file_history_event_needs_related_records(record: RunRecord | None, event: RuntimeEvent) -> bool:
+    if record is None or not _should_track_run(record):
+        return False
+    if file_history_session_id(record) == record.run_id:
+        return False
+    return _is_file_history_trigger(event) and _latest_snapshot(record) is None
 
 
-def file_history_events_before_record(record: RunRecord | None, event: RuntimeEvent) -> list[RuntimeEvent]:
+def file_history_events_before_record(
+    record: RunRecord | None,
+    event: RuntimeEvent,
+    *,
+    previous_records: list[RunRecord] | None = None,
+) -> list[RuntimeEvent]:
     if record is None or not _should_track_run(record):
         return []
     if not _is_file_history_trigger(event) or _latest_snapshot(record) is not None:
@@ -37,6 +42,7 @@ def file_history_events_before_record(record: RunRecord | None, event: RuntimeEv
     state = _initial_state(record)
     if state is None:
         return []
+    _seed_state_from_previous(record, state, previous_records or [])
     return [_snapshot_event(state, is_update=False)]
 
 
@@ -85,7 +91,7 @@ def _initial_state(record: RunRecord) -> FileHistorySnapshotState | None:
     root = _workspace_root(record)
     if root is None:
         return None
-    session_id = _metadata_value(record, "file_history_session_id", "fileHistorySessionId") or record.run_id
+    session_id = file_history_session_id(record)
     message_id = _metadata_value(record, "file_history_message_id", "fileHistoryMessageId") or record.run_id
     return FileHistorySnapshotState(
         message_id=message_id,
@@ -173,6 +179,23 @@ def _backup_entry(record: RunRecord, state: FileHistorySnapshotState, entry: Fil
     (state.backup_root / backup_name).write_bytes(entry.before.encode(entry.encoding or "utf-8"))
     payload["backupFileName"] = backup_name
     return FileHistoryBackup(payload)
+
+
+def _seed_state_from_previous(
+    record: RunRecord,
+    state: FileHistorySnapshotState,
+    previous_records: list[RunRecord],
+) -> None:
+    root = _workspace_root(record)
+    if root is None or not previous_records:
+        return
+    snapshots: list[FileHistorySnapshotState] = []
+    for record in sorted(previous_records, key=lambda item: item.created_at):
+        snapshot = _latest_snapshot(record)
+        if snapshot is None or snapshot.session_id != state.session_id:
+            continue
+        snapshots.append(snapshot)
+    seed_file_history_state(state, root=root, snapshots=snapshots)
 
 
 def _workspace_root(record: RunRecord) -> Path | None:

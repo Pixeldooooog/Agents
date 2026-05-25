@@ -6,8 +6,10 @@ from agents.kernel.state.runs import InMemoryRunStore, RunRecord, RunStatus, Run
 from agents.kernel.schema import RuntimeEvent
 from agents.kernel.governance.tracing import InMemoryTraceStore, RuntimeTraceRecorder
 from agents.platform.sessions.file_history import (
+    file_history_event_needs_related_records,
     file_history_events_after_record,
     file_history_events_before_record,
+    file_history_session_id,
 )
 
 
@@ -31,7 +33,16 @@ class RunService:
 
     async def record_event(self, run_id: str, event: RuntimeEvent) -> None:
         record = await self.store.load_run(run_id)
-        for generated in file_history_events_before_record(record, event):
+        previous_records = (
+            await self._file_history_related_records(record)
+            if file_history_event_needs_related_records(record, event)
+            else []
+        )
+        for generated in file_history_events_before_record(
+            record,
+            event,
+            previous_records=previous_records,
+        ):
             await self._append_event(run_id, generated)
         await self.store.append_event(run_id, event)
         await self.trace_recorder.record_runtime_event(run_id, event)
@@ -46,6 +57,28 @@ class RunService:
     async def _append_event(self, run_id: str, event: RuntimeEvent) -> None:
         await self.store.append_event(run_id, event)
         await self.trace_recorder.record_runtime_event(run_id, event)
+
+    async def _file_history_related_records(self, record: RunRecord | None) -> list[RunRecord]:
+        if record is None:
+            return []
+        session_id = file_history_session_id(record)
+        if not session_id or session_id == record.run_id:
+            return []
+        related: list[RunRecord] = []
+        candidates = await self.store.list_runs(
+            limit=200,
+            tenant_id=record.tenant_id,
+            user_id=record.user_id,
+            agent_id=record.agent_id,
+        )
+        for candidate in candidates:
+            if candidate.run_id == record.run_id:
+                continue
+            loaded = await self.store.load_run(candidate.run_id)
+            full_record = loaded or candidate
+            if file_history_session_id(full_record) == session_id:
+                related.append(full_record)
+        return sorted(related, key=lambda item: item.created_at)
 
     async def mark_running(self, run_id: str) -> None:
         await self.store.set_status(run_id, RunStatus.RUNNING)

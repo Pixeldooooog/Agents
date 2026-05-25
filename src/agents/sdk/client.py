@@ -1953,7 +1953,12 @@ def _session_info_from_runs(records: list[RunRecord]) -> SDKSessionInfo:
 
 
 def _session_id_for_run(record: RunRecord) -> str:
-    return str(record.metadata.get("sdk_session_id") or record.run_id)
+    return str(
+        record.metadata.get("sdk_session_id")
+        or record.metadata.get("file_history_session_id")
+        or record.metadata.get("fileHistorySessionId")
+        or record.run_id
+    )
 
 
 def _runtime_fields_from_run(record: RunRecord) -> tuple[str, str, list[str]]:

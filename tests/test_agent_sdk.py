@@ -6,6 +6,7 @@ import shlex
 import shutil
 import sys
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -2741,6 +2742,89 @@ def test_sdk_control_request_rewinds_file_history_snapshot_chain(tmp_path):
     assert actual.response.response == {"canRewind": True}
     assert note_content == "before\n"
     assert created_exists is False
+
+
+def test_sdk_control_request_rewinds_non_sdk_file_history_session(tmp_path):
+    async def execute():
+        config_dir = tmp_path / "claude-config"
+        note = tmp_path / "non-sdk-note.txt"
+        note.write_text("v0\n", encoding="utf-8")
+        client = AgentSDKClient()
+        service = client.run_service
+
+        def spec_for(message_id: str) -> AgentSpec:
+            return replace(
+                AgentSpec.from_overrides(agent_id="agent-1", workspace_path=str(tmp_path)),
+                metadata={
+                    "claude_config_dir": str(config_dir),
+                    "file_history_session_id": "non-sdk-history-session",
+                    "file_history_message_id": message_id,
+                },
+            )
+
+        first = await service.start(spec_for("msg-non-sdk-1"))
+        await service.record_event(
+            first.run_id,
+            RuntimeEvent(
+                type="tool_result",
+                name="Write",
+                payload={
+                    "tool_call_id": "call-1",
+                    "raw": {"filePath": "non-sdk-note.txt", "type": "update", "originalFile": "v0\n"},
+                },
+            ),
+        )
+        note.write_text("v1\n", encoding="utf-8")
+        second = await service.start(spec_for("msg-non-sdk-2"))
+        await service.record_event(
+            second.run_id,
+            RuntimeEvent(
+                type="tool_result",
+                name="Write",
+                payload={
+                    "tool_call_id": "call-2",
+                    "raw": {
+                        "filePath": "non-sdk-note.txt",
+                        "type": "update",
+                        "originalFile": "v1\n",
+                        "content": "v2\n",
+                    },
+                },
+            ),
+        )
+        note.write_text("v2\n", encoding="utf-8")
+        options = SDKOptions(
+            session_id="non-sdk-history-session",
+            cwd=str(tmp_path),
+            metadata={"claude_config_dir": str(config_dir)},
+        )
+        dry_run = await client.handle_control_request(
+            SDKControlRequest(
+                request_id="rewind-non-sdk-file-history-dry-run",
+                request=SDKControlRewindFilesRequest(user_message_id="msg-non-sdk-2", dry_run=True),
+            ),
+            options,
+        )
+        actual = await client.handle_control_request(
+            SDKControlRequest(
+                request_id="rewind-non-sdk-file-history",
+                request=SDKControlRewindFilesRequest(user_message_id="msg-non-sdk-2"),
+            ),
+            options,
+        )
+        return dry_run, actual, note.read_text(encoding="utf-8")
+
+    dry_run, actual, note_content = asyncio.run(execute())
+
+    assert isinstance(dry_run.response, SDKControlSuccessResponse)
+    assert dry_run.response.response == {
+        "canRewind": True,
+        "filesChanged": ["non-sdk-note.txt"],
+        "insertions": 1,
+        "deletions": 1,
+    }
+    assert actual.response.response == {"canRewind": True}
+    assert note_content == "v1\n"
 
 
 def test_sdk_control_request_cancels_pending_async_messages():
