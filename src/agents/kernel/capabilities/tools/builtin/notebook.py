@@ -11,6 +11,7 @@ from agents.kernel.capabilities.tools.builtin.file_safety import (
     record_file_read,
     read_current_file,
 )
+from agents.kernel.capabilities.tools.builtin.lsp import notify_lsp_file_saved
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 
 
@@ -79,6 +80,7 @@ def notebook_edit(
         write_encoding=result.write_encoding,
         source="write",
     )
+    notify_lsp_file_saved(context, result.path, updated_content)
     return {
         "new_source": str(new_source),
         "cell_id": output_cell_id,

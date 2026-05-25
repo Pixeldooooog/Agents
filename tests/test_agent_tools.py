@@ -541,6 +541,58 @@ def test_file_write_and_patch_notify_lsp_provider_after_success(tmp_path: Path):
     ]
 
 
+def test_notebook_edit_notifies_lsp_provider_after_success(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    notebook = {
+        "cells": [
+            {
+                "cell_type": "code",
+                "id": "calc",
+                "source": "print(1)\n",
+                "outputs": [{"output_type": "stream", "text": "1\n"}],
+                "execution_count": 7,
+                "metadata": {},
+            },
+        ],
+        "metadata": {"language_info": {"name": "python"}},
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    }
+    (tmp_path / "analysis.ipynb").write_text(json.dumps(notebook), encoding="utf-8")
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    provider = _FakeLspNotificationProvider()
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+        lsp_provider=provider,
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    asyncio.run(registry.execute("filesystem.read", {"path": "analysis.ipynb"}))
+    edited = asyncio.run(
+        registry.execute(
+            "notebook.edit",
+            {"notebook_path": "analysis.ipynb", "cell_id": "calc", "new_source": "print(2)\n"},
+        )
+    )
+
+    assert edited.is_error is False
+    assert provider.events == [
+        ("clear", "file://%s" % (tmp_path / "analysis.ipynb").resolve(), "", ""),
+        ("change", "analysis.ipynb", (tmp_path / "analysis.ipynb").resolve(), edited.raw["updated_file"]),
+        ("save", "analysis.ipynb", (tmp_path / "analysis.ipynb").resolve(), ""),
+    ]
+
+
 def test_config_manage_and_src_origin_alias_update_session_config(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="tenant",
