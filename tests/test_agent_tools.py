@@ -2939,6 +2939,52 @@ def test_notebook_edit_updates_cells_with_read_before_write_safety(tmp_path: Pat
     assert "print(3)" in impact.diff_preview
 
 
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlink is not available on this platform")
+def test_notebook_edit_reports_symlink_target_for_followed_writes(tmp_path: Path):
+    workspace = WorkspaceContext(
+        tenant_id="default",
+        user_id="user-1",
+        agent_id="agent-1",
+        workspace_id="default",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    notebook = {
+        "cells": [{"cell_type": "code", "id": "calc", "source": "print(1)\n", "metadata": {}}],
+        "metadata": {"language_info": {"name": "python"}},
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    }
+    target = tmp_path / "target.ipynb"
+    link = tmp_path / "link.ipynb"
+    target.write_text(json.dumps(notebook), encoding="utf-8")
+    link.symlink_to(target.name)
+    policy = SandboxPolicy.for_workspace(workspace.path, allow_file_write=True)
+    context = ToolRuntimeContext(
+        workspace=workspace,
+        sandbox=policy,
+        sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    read = asyncio.run(registry.execute("filesystem.read", {"path": "link.ipynb"}))
+    edited = asyncio.run(
+        registry.execute(
+            "notebook.edit",
+            {"notebook_path": "link.ipynb", "cell_id": "calc", "new_source": "print(2)\n"},
+        )
+    )
+    payload = json.loads(target.read_text(encoding="utf-8"))
+
+    assert read.is_error is False
+    assert edited.is_error is False
+    assert edited.raw["filePath"] == "target.ipynb"
+    assert edited.raw["symlinkTarget"] == "target.ipynb"
+    assert link.is_symlink()
+    assert payload["cells"][0]["source"] == "print(2)\n"
+
+
 def test_notebook_edit_rejects_stale_and_invalid_notebook_edits(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="default",

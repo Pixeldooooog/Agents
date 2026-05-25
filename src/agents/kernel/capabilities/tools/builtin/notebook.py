@@ -11,6 +11,7 @@ from agents.kernel.capabilities.tools.builtin.file_safety import (
     record_file_read,
     read_current_file,
     structured_text_patch,
+    symlink_target_for_write,
 )
 from agents.kernel.capabilities.tools.builtin.lsp import notify_lsp_file_saved
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
@@ -54,6 +55,7 @@ def notebook_edit(
     edit_mode: str = "replace",
 ) -> dict[str, Any]:
     relative_path, original_content, encoding = _read_current_notebook_for_edit(context, notebook_path)
+    symlink_target = symlink_target_for_write(context, notebook_path)
     notebook = _parse_notebook(original_content, relative_path)
     cells = _notebook_cells(notebook, relative_path)
     mode = _edit_mode(edit_mode)
@@ -94,7 +96,7 @@ def notebook_edit(
         old_cell_source=old_cell_source,
         updated_cell_source=updated_cell_source,
     )
-    return {
+    payload = {
         "new_source": str(new_source),
         "cell_id": output_cell_id,
         "cell_type": result_cell_type,
@@ -111,6 +113,9 @@ def notebook_edit(
         "bytes": result.bytes,
         "encoding": result.encoding,
     }
+    if symlink_target:
+        payload["symlinkTarget"] = symlink_target
+    return payload
 
 
 def format_notebook_edit_result(result: Any) -> str:
