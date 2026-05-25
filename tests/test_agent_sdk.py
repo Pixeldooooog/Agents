@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from agents.kernel.mcp_config import MCPServerRecord
+from agents.kernel.mcp_config import InMemoryMCPConfigStore, MCPServerRecord
 from agents.kernel.schema import Message, ModelResponse, RuntimeEvent, ToolCall
 from agents.kernel.models.protocol import message_event, reasoning_delta, retry_event, text_delta
 from agents.kernel.runtime import AgentRuntime, AgentSession, ScriptedModelClient
@@ -22,6 +22,7 @@ from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.tools.builtin import register_builtin_tools
 from agents.kernel.capabilities.tools.builtin.file_safety import write_text_safely
 from agents.kernel.capabilities.tools.builtin.sleep import sleep_wait
+from agents.kernel.capabilities.tools.mcp import MCPServerConfig, MCPToolDefinition, MCPToolProvider
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.governance import SandboxPolicy
@@ -38,6 +39,7 @@ from agents.sdk import (
     SDKControlInitializeRequest,
     SDKControlInterruptRequest,
     SDKControlMcpMessageRequest,
+    SDKControlMcpReconnectRequest,
     SDKControlMcpSetServersRequest,
     SDKControlMcpStatusRequest,
     SDKControlMcpToggleRequest,
@@ -169,6 +171,42 @@ async def _session_factory(settings, spec):
         path=".",
     )
     return AgentSession(runtime, system_prompt="", workspace=workspace)
+
+
+class _AnsweringMCPClient:
+    def __init__(self, prefix: str, server=None):
+        self.prefix = prefix
+        self.server = server
+        self.called = []
+        self.closed = False
+
+    async def list_tools(self):
+        return [
+            MCPToolDefinition(
+                name="search",
+                description="Search docs",
+                parameters={"type": "object", "properties": {"query": {"type": "string"}}},
+            )
+        ]
+
+    async def call_tool(self, name, arguments):
+        self.called.append((name, arguments))
+        return {"answer": "%s:%s" % (self.prefix, arguments["query"])}
+
+    async def list_resources(self):
+        return []
+
+    async def read_resource(self, uri):
+        raise RuntimeError("resources unavailable")
+
+    async def list_prompts(self):
+        return []
+
+    async def get_prompt(self, name, arguments=None):
+        raise RuntimeError("prompts unavailable")
+
+    async def close(self):
+        self.closed = True
 
 
 async def _retry_session_factory(settings, spec):
@@ -2179,6 +2217,14 @@ def test_sdk_control_request_handler_applies_session_options_and_mcp_state():
             SDKControlRequest(request_id="mcp-status", request=SDKControlMcpStatusRequest())
         )
     )
+    mcp_reconnect = asyncio.run(
+        session.handle_control_request(
+            SDKControlRequest(
+                request_id="mcp-reconnect",
+                request=SDKControlMcpReconnectRequest(serverName="docs"),
+            )
+        )
+    )
     mcp_toggle = asyncio.run(
         session.handle_control_request(
             SDKControlRequest(
@@ -2195,8 +2241,94 @@ def test_sdk_control_request_handler_applies_session_options_and_mcp_state():
 
     assert mcp_set.response.response == {"added": ["docs"], "removed": [], "errors": {}}
     assert {"name": "docs", "status": "connected"} in mcp_status.response.response["mcpServers"]
+    assert mcp_reconnect.response.response == {
+        "serverName": "docs",
+        "status": "connected",
+        "reconnected": False,
+        "reason": "no active SDK turn is attached to this control handler",
+    }
     assert mcp_toggle.response.response == {"serverName": "docs", "enabled": False}
     assert {"name": "docs", "status": "disabled"} in mcp_status_after_toggle.response.response["mcpServers"]
+
+
+def test_sdk_control_mcp_reconnect_reloads_active_session_handlers(monkeypatch, tmp_path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    policy = SandboxPolicy.for_workspace(workspace.path)
+    store = InMemoryMCPConfigStore()
+    old_client = _AnsweringMCPClient("old")
+    new_clients = []
+
+    class FakeStdioMCPClient(_AnsweringMCPClient):
+        def __init__(self, server):
+            super().__init__("new", server=server)
+            new_clients.append(self)
+
+    async def execute():
+        await store.save(
+            MCPServerRecord(
+                name="docs",
+                command="python docs.py",
+                tenant_id="tenant",
+                user_id="user",
+                agent_id="agent",
+                workspace_id="workspace",
+            )
+        )
+        monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.MCPStdioClient", FakeStdioMCPClient)
+        context = ToolRuntimeContext(
+            workspace=workspace,
+            sandbox=policy,
+            sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
+            settings=SimpleNamespace(mcp=SimpleNamespace(CLIENT_TIMEOUT=30.0, SSE_READ_TIMEOUT=120.0)),
+            mcp_config_store=store,
+        )
+        registry = ToolRegistry()
+        register_builtin_tools(registry, context)
+        old_provider = MCPToolProvider(client=old_client, server=MCPServerConfig(name="docs"))
+        await old_provider.load_tools(registry)
+        context.mcp_providers = [old_provider]
+        runtime = AgentRuntime(
+            model_client=ScriptedModelClient([]),
+            tools=registry,
+            protocol="scripted",
+            model="scripted",
+            enabled_tools=["mcp__docs__search"],
+        )
+        agent_session = AgentSession(runtime, system_prompt="", workspace=workspace, tool_context=context)
+        client = AgentSDKClient(session_factory=_session_factory)
+        client.active_turn_sessions["sdk-session"] = agent_session
+        before = await registry.execute("mcp__docs__search", {"query": "before"})
+        response = await client.handle_control_request(
+            SDKControlRequest(
+                request_id="mcp-reconnect-active",
+                request=SDKControlMcpReconnectRequest(serverName="docs"),
+            ),
+            SDKOptions(session_id="sdk-session"),
+        )
+        after = await registry.execute("mcp__docs__search", {"query": "after"})
+        return before, response, after, runtime
+
+    before, response, after, runtime = asyncio.run(execute())
+
+    assert json.loads(before.content)["answer"] == "old:before"
+    assert json.loads(after.content)["answer"] == "new:after"
+    assert old_client.closed is True
+    assert new_clients and new_clients[0].called == [("search", {"query": "after"})]
+    assert response.response.response == {
+        "serverName": "docs",
+        "status": "connected",
+        "reconnected": True,
+        "loadedTools": ["mcp__docs__search"],
+        "removedTools": ["mcp__docs__search", "mcp_docs_search"],
+    }
+    assert runtime.config.enabled_tools == ["mcp__docs__search"]
 
 
 def test_sdk_control_request_handler_routes_sdk_mcp_messages():

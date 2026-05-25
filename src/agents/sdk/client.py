@@ -68,6 +68,7 @@ from agents.sdk.control import (
     validate_sdk_control_request,
     validate_sdk_stdin_message,
 )
+from agents.sdk.mcp_control import active_session_for_options, reconnect_mcp_server
 from agents.sdk.structured_io import SDKStructuredIO, encode_stdout_message, iter_stdin_jsonl
 from agents.sdk.transports import SDKJsonlTransport
 from agents.sdk.types import (
@@ -306,6 +307,7 @@ class AgentSDKClient:
     elicitation_handler: SDKElicitationHandler | None = None
     active_turn_tasks: dict[str, asyncio.Task[Any]] = field(default_factory=dict)
     active_turn_run_ids: dict[str, str] = field(default_factory=dict)
+    active_turn_sessions: dict[str, Any] = field(default_factory=dict)
     active_sleep_wake_events: dict[str, asyncio.Event] = field(default_factory=dict)
     async_message_queue: list[_SDKAsyncMessageQueueItem] = field(default_factory=list)
     async_message_sequence: int = 0
@@ -560,6 +562,8 @@ class AgentSDKClient:
         session_id = options.session_id or run_id
         self._install_sleep_wake_for_turn(session, session_id=session_id, run_id=run_id)
         current_task = asyncio.current_task()
+        self.active_turn_sessions[session_id] = session
+        self.active_turn_sessions[run_id] = session
         if current_task is not None:
             self.active_turn_tasks[session_id] = current_task
             self.active_turn_tasks[run_id] = current_task
@@ -681,7 +685,7 @@ class AgentSDKClient:
             close = getattr(session, "aclose", None)
             if close is not None:
                 await close()
-            self._clear_active_turn(session_id, run_id, current_task)
+            self._clear_active_turn(session_id, run_id, current_task, session=session)
 
     async def prompt(self, prompt: str, options: SDKOptions | dict[str, Any] | None = None) -> SDKResultMessage:
         result: SDKResultMessage | None = None
@@ -839,7 +843,7 @@ class AgentSDKClient:
         if isinstance(request, SDKControlMcpToggleRequest):
             return await self._mcp_toggle_control_response(request, options)
         if isinstance(request, SDKControlMcpReconnectRequest):
-            return {"serverName": request.serverName, "status": "pending"}
+            return await self._mcp_reconnect_control_response(request, options)
         if isinstance(request, SDKControlInterruptRequest):
             return self._interrupt_control_response(options)
         if isinstance(request, SDKControlGetContextUsageRequest):
@@ -1075,12 +1079,15 @@ class AgentSDKClient:
         session_id: str,
         run_id: str,
         task: asyncio.Task[Any] | None,
+        session: Any | None = None,
     ) -> None:
         for key in (session_id, run_id):
             if task is None or self.active_turn_tasks.get(key) is task:
                 self.active_turn_tasks.pop(key, None)
                 self.active_turn_run_ids.pop(key, None)
                 self.active_sleep_wake_events.pop(key, None)
+            if session is None or self.active_turn_sessions.get(key) is session:
+                self.active_turn_sessions.pop(key, None)
 
     def _install_sleep_wake_for_turn(self, session: Any, *, session_id: str, run_id: str) -> None:
         context = getattr(session, "tool_context", None)
@@ -1181,6 +1188,26 @@ class AgentSDKClient:
             )
             return {"serverName": request.serverName, "enabled": request.enabled}
         raise KeyError("MCP server not found: %s" % request.serverName)
+
+    async def _mcp_reconnect_control_response(
+        self,
+        request: SDKControlMcpReconnectRequest,
+        options: SDKOptions,
+    ) -> dict[str, Any]:
+        server_name = str(request.serverName or "").strip()
+        return await reconnect_mcp_server(
+            server_name,
+            active_session=active_session_for_options(self.active_turn_sessions, options),
+            sdk_handler_registered=server_name in self.sdk_mcp_handlers,
+            sdk_server_enabled=lambda name: self._sdk_mcp_server_enabled(name, options),
+            status_for_server=lambda name: self._mcp_status_for_server(name, options),
+        )
+
+    async def _mcp_status_for_server(self, server_name: str, options: SDKOptions) -> str | None:
+        for item in await self._mcp_statuses_for_options(options):
+            if str(item.get("name") or "") == server_name:
+                return str(item.get("status") or "")
+        return None
 
     async def _mcp_message_control_response(
         self,
