@@ -1,13 +1,3 @@
-# !/usr/bin/env python
-# -*- coding: utf-8 -*-
-# =====================================================
-# @File   ：mcp.py
-# @Date   ：2026/04/24 00:00
-# @Author ：Zegen
-#
-# 2026/04/24   Create
-# =====================================================
-
 from __future__ import annotations
 
 import inspect
@@ -441,7 +431,7 @@ class MCPSSEClient(_MCPSessionClient):
 class MCPWebSocketClient(_MCPSessionClient):
     async def _open_transport(self) -> tuple[Any, Any]:
         if self.server.headers:
-            from agents.kernel.capabilities.tools.mcp_websocket import websocket_client_with_headers
+            from agents.kernel.mcp.transports.websocket import websocket_client_with_headers
 
             self._transport_context = websocket_client_with_headers(
                 self.server.url,
@@ -457,7 +447,7 @@ class MCPWebSocketClient(_MCPSessionClient):
 
 class MCPSDKControlClient(_MCPSessionClient):
     async def _open_transport(self) -> tuple[Any, Any]:
-        from agents.kernel.capabilities.tools.mcp_sdk import sdk_control_client
+        from agents.kernel.mcp.transports.sdk_control import sdk_control_client
 
         if self.server.sdk_message_handler is None:
             raise RuntimeError("SDK MCP server is not registered: %s" % self.server.name)

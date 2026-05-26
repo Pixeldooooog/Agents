@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from agents.kernel.mcp_config import InMemoryMCPConfigStore, MCPServerRecord
+from agents.kernel.mcp.config import InMemoryMCPConfigStore, MCPServerRecord
 from agents.kernel.schema import Message, ModelResponse, RuntimeEvent, ToolCall
 from agents.kernel.models.protocol import message_event, reasoning_delta, retry_event, text_delta
 from agents.kernel.runtime import AgentRuntime, AgentSession, ScriptedModelClient
@@ -22,7 +22,7 @@ from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.tools.builtin import register_builtin_tools
 from agents.kernel.capabilities.tools.builtin.file_safety import write_text_safely
 from agents.kernel.capabilities.tools.builtin.sleep import sleep_wait
-from agents.kernel.capabilities.tools.mcp import MCPServerConfig, MCPToolDefinition, MCPToolProvider
+from agents.kernel.mcp import MCPServerConfig, MCPToolDefinition, MCPToolProvider
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.governance import SandboxPolicy
@@ -2304,7 +2304,7 @@ def test_sdk_control_mcp_reconnect_reloads_active_session_handlers(monkeypatch, 
                 workspace_id="workspace",
             )
         )
-        monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.MCPStdioClient", FakeStdioMCPClient)
+        monkeypatch.setattr("agents.kernel.mcp.loading.MCPStdioClient", FakeStdioMCPClient)
         context = ToolRuntimeContext(
             workspace=workspace,
             sandbox=policy,

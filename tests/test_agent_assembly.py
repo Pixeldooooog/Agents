@@ -13,10 +13,10 @@ import json
 
 from agents.kernel.assembly import create_agent_session, create_agent_session_async
 from agents.kernel.capabilities.memory import InMemoryMemoryStore, MemoryRecord, MemoryScope
-from agents.kernel.capabilities.tools.mcp import MCPServerConfig, MCPToolProvider
+from agents.kernel.mcp import MCPServerConfig, MCPToolProvider
 from agents.kernel.config import AgentConfigError, resolve_model_client_config
-from agents.kernel.mcp_auth import InMemoryMCPAuthTokenStore, MCPAuthTokenRecord
-from agents.kernel.mcp_config import InMemoryMCPConfigStore, MCPServerRecord
+from agents.kernel.mcp.auth import InMemoryMCPAuthTokenStore, MCPAuthTokenRecord
+from agents.kernel.mcp.config import InMemoryMCPConfigStore, MCPServerRecord
 from agents.kernel.session_state import InMemorySessionStateStore, SessionStateRecord
 from agents.kernel.specs import AgentSpec
 

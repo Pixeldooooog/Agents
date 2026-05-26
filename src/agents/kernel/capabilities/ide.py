@@ -12,7 +12,7 @@ from agents.kernel.capabilities.ide_environment import (
     is_inside_ide_workspace,
     should_keep_ide_lockfile_for_process,
 )
-from agents.kernel.mcp_config import MCPServerRecord, server_record_for_scope
+from agents.kernel.mcp.config import MCPServerRecord, server_record_for_scope
 
 
 IDE_AUTH_HEADER = "X-Claude-Code-Ide-Authorization"

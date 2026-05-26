@@ -4,7 +4,7 @@ from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import replace
 from typing import Any
 
-from agents.kernel.capabilities.tools import normalize_mcp_name
+from agents.kernel.mcp import normalize_mcp_name
 
 SDKServerEnabled = Callable[[str], Awaitable[bool]]
 MCPStatusLookup = Callable[[str], Awaitable[str | None]]
@@ -55,7 +55,7 @@ async def reconnect_mcp_server(
 
 
 async def reconnect_active_session_mcp(session: Any, server_name: str) -> dict[str, Any]:
-    from agents.kernel.capabilities.tools.builtin.mcp_management import mcp_reconnect
+    from agents.kernel.capabilities.tools.builtin.mcp.management import mcp_reconnect
 
     context = getattr(session, "tool_context", None)
     runtime = getattr(session, "runtime", None)

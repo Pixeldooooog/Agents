@@ -80,11 +80,8 @@ from agents.kernel.capabilities.tools.builtin.hooks import (
 from agents.kernel.capabilities.tools.builtin.lsp import LSP_QUERY_SCHEMA, format_lsp_result, lsp_query
 from agents.kernel.capabilities.tools.builtin.meta import (
     SKILL_DISCOVER_SCHEMA,
-    SRC_ORIGIN_TOOL_SEARCH_SCHEMA,
     TOOL_SEARCH_SCHEMA,
-    format_src_origin_tool_search_result,
     skill_discover,
-    src_origin_tool_search,
     tool_search,
 )
 from agents.kernel.capabilities.tools.builtin.memory import (
@@ -102,19 +99,19 @@ from agents.kernel.capabilities.tools.builtin.notebook import (
     format_notebook_edit_result,
     notebook_edit,
 )
-from agents.kernel.capabilities.tools.builtin.mcp_resources import (
+from agents.kernel.capabilities.tools.builtin.mcp.resources import (
     MCP_READ_RESOURCE_SCHEMA,
     MCP_RESOURCES_SCHEMA,
     mcp_read_resource,
     mcp_resources,
 )
-from agents.kernel.capabilities.tools.builtin.mcp_prompts import (
+from agents.kernel.capabilities.tools.builtin.mcp.prompts import (
     MCP_GET_PROMPT_SCHEMA,
     MCP_PROMPTS_SCHEMA,
     mcp_get_prompt,
     mcp_prompts,
 )
-from agents.kernel.capabilities.tools.builtin.mcp_management import (
+from agents.kernel.capabilities.tools.builtin.mcp.management import (
     MCP_CLEAR_SCHEMA,
     MCP_CONFIGURE_SCHEMA,
     MCP_RELOAD_SCHEMA,
@@ -129,7 +126,7 @@ from agents.kernel.capabilities.tools.builtin.mcp_management import (
     mcp_reload,
     mcp_servers,
 )
-from agents.kernel.capabilities.tools.builtin.mcp_ide import (
+from agents.kernel.capabilities.tools.builtin.mcp.ide import (
     IDE_DISCOVERY_SCHEMA,
     IDE_EXTENSION_SCHEMA,
     MCP_CONFIGURE_IDE_SCHEMA,
@@ -240,6 +237,7 @@ from agents.kernel.capabilities.tools.builtin.structured import (
     structured_output,
     structured_output_schema_from_metadata,
 )
+from agents.kernel.capabilities.tools.builtin.src_origin_discovery_aliases import register_src_origin_discovery_aliases
 from agents.kernel.capabilities.tools.builtin.src_origin_plan_aliases import register_src_origin_plan_aliases
 from agents.kernel.capabilities.tools.builtin.src_origin_schedule_aliases import register_src_origin_schedule_aliases
 from agents.kernel.capabilities.tools.builtin.src_origin_task_aliases import register_src_origin_task_aliases
@@ -287,15 +285,9 @@ from agents.kernel.capabilities.tools.builtin.user_interaction import (
     send_user_message,
 )
 from agents.kernel.capabilities.tools.builtin.web import (
-    SRC_ORIGIN_WEB_FETCH_SCHEMA,
-    SRC_ORIGIN_WEB_SEARCH_SCHEMA,
     WEB_EXTRACT_SCHEMA,
     WEB_MAP_SCHEMA,
     WEB_SEARCH_SCHEMA,
-    format_src_origin_web_fetch_result,
-    format_src_origin_web_search_result,
-    src_origin_web_fetch,
-    src_origin_web_search,
     web_extract,
     web_map,
     web_search,
@@ -1312,111 +1304,9 @@ def _register_src_origin_aliases(
         activity_title="Wait",
         activity_target_argument="duration_seconds",
     )
-    _register_builtin_tool(
-        registry,
-        name="WebSearch",
-        description="Search the web for current information. src-origin alias for web.search.",
-        parameters=SRC_ORIGIN_WEB_SEARCH_SCHEMA,
-        handler=lambda query, allowed_domains=None, blocked_domains=None: src_origin_web_search(
-            context,
-            active_web_provider,
-            query=query,
-            allowed_domains=allowed_domains,
-            blocked_domains=blocked_domains,
-        ),
-        metadata={
-            "risk": "medium",
-            "requires_network": True,
-            "external_disclosure": True,
-            "provider": getattr(active_web_provider, "name", "none"),
-            "alias_of": "web.search",
-            "src_origin_tool": "WebSearch",
-            "defer": True,
-        },
-        read_only=True,
-        max_result_size_chars=100000,
-        activity_kind="web",
-        activity_title="Search web",
-        activity_target_argument="query",
-        result_formatter=format_src_origin_web_search_result,
-    )
-    _register_builtin_tool(
-        registry,
-        name="WebFetch",
-        description="Fetch and extract content from a URL. src-origin alias for web.extract.",
-        parameters=SRC_ORIGIN_WEB_FETCH_SCHEMA,
-        handler=lambda url, prompt: src_origin_web_fetch(
-            context,
-            active_web_provider,
-            url=url,
-            prompt=prompt,
-        ),
-        metadata={
-            "risk": "medium",
-            "requires_network": True,
-            "external_disclosure": True,
-            "provider": getattr(active_web_provider, "name", "none"),
-            "alias_of": "web.extract",
-            "src_origin_tool": "WebFetch",
-            "defer": True,
-        },
-        read_only=True,
-        max_result_size_chars=100000,
-        activity_kind="web",
-        activity_title="Extract web content",
-        activity_target_argument="url",
-        result_formatter=format_src_origin_web_fetch_result,
-    )
-    _register_builtin_tool(
-        registry,
-        name="ListMcpResourcesTool",
-        description="List resources from configured MCP servers. src-origin alias for mcp.resources.",
-        parameters=MCP_RESOURCES_SCHEMA,
-        handler=lambda server="", uri_prefix="", max_results=50: mcp_resources(
-            context,
-            server=server,
-            uri_prefix=uri_prefix,
-            max_results=max_results,
-        ),
-        metadata={"risk": "low", "alias_of": "mcp.resources", "src_origin_tool": "ListMcpResourcesTool"},
-        read_only=True,
-        activity_kind="mcp",
-        activity_title="List MCP resources",
-        activity_target_argument="server",
-    )
-    _register_builtin_tool(
-        registry,
-        name="ReadMcpResourceTool",
-        description="Read a resource from a configured MCP server. src-origin alias for mcp.read_resource.",
-        parameters=MCP_READ_RESOURCE_SCHEMA,
-        handler=lambda uri, server="": mcp_read_resource(context, uri=uri, server=server),
-        metadata={"risk": "medium", "alias_of": "mcp.read_resource", "src_origin_tool": "ReadMcpResourceTool"},
-        read_only=True,
-        activity_kind="mcp",
-        activity_title="Read MCP resource",
-        activity_target_argument="uri",
-    )
+    register_src_origin_discovery_aliases(registry, context, active_web_provider)
     register_src_origin_task_aliases(registry, context)
     register_src_origin_schedule_aliases(registry, context)
-    _register_builtin_tool(
-        registry,
-        name="ToolSearch",
-        description="Search registered tools. src-origin alias for tool.search.",
-        parameters=SRC_ORIGIN_TOOL_SEARCH_SCHEMA,
-        handler=lambda query, max_results=5: src_origin_tool_search(
-            context,
-            registry,
-            query=query,
-            max_results=max_results,
-        ),
-        metadata={"risk": "low", "defer": True, "alias_of": "tool.search", "src_origin_tool": "ToolSearch"},
-        read_only=True,
-        max_result_size_chars=100000,
-        activity_kind="state",
-        activity_title="Search tools",
-        activity_target_argument="query",
-        result_formatter=format_src_origin_tool_search_result,
-    )
     register_src_origin_plan_aliases(registry, context)
     for alias_name, src_origin_tool in (("Agent", "Agent"), ("Task", "Task")):
         _register_builtin_tool(

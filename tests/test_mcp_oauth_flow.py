@@ -5,15 +5,15 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 
-from agents.kernel.mcp_auth import InMemoryMCPAuthTokenStore
-from agents.kernel.mcp_oauth_flow import (
+from agents.kernel.mcp.auth import InMemoryMCPAuthTokenStore
+from agents.kernel.mcp.oauth_flow import (
     MCPOAuthPendingAuthorization,
     complete_mcp_oauth_authorization,
     discover_mcp_oauth_server_metadata,
     start_mcp_oauth_authorization,
 )
-from agents.kernel.mcp_oauth_runtime import authenticate_mcp_oauth_server, close_mcp_oauth_waiters
-from agents.kernel.mcp_oauth import parse_mcp_oauth_callback_url
+from agents.kernel.mcp.oauth_runtime import authenticate_mcp_oauth_server, close_mcp_oauth_waiters
+from agents.kernel.mcp.oauth import parse_mcp_oauth_callback_url
 
 
 def test_start_mcp_oauth_authorization_discovers_prm_registers_client_and_builds_url():
@@ -186,7 +186,7 @@ def test_complete_mcp_oauth_authorization_exchanges_code_and_saves_token():
 
 
 def test_authenticate_mcp_oauth_server_starts_and_completes_flow(monkeypatch):
-    monkeypatch.setattr("agents.kernel.mcp_oauth_runtime.find_available_mcp_oauth_callback_port", lambda: 3118)
+    monkeypatch.setattr("agents.kernel.mcp.oauth_runtime.find_available_mcp_oauth_callback_port", lambda: 3118)
     registry = object()
     reload_calls = []
 
@@ -198,7 +198,7 @@ def test_authenticate_mcp_oauth_server_starts_and_completes_flow(monkeypatch):
             "removed_tools": [],
         }
 
-    monkeypatch.setattr("agents.kernel.capabilities.tools.builtin.mcp_management.mcp_reload", fake_reload)
+    monkeypatch.setattr("agents.kernel.capabilities.tools.builtin.mcp.management.mcp_reload", fake_reload)
 
     async def handler(request: httpx.Request) -> httpx.Response:
         url = str(request.url)
@@ -281,7 +281,7 @@ def test_authenticate_mcp_oauth_server_starts_and_completes_flow(monkeypatch):
 
 
 def test_authenticate_mcp_oauth_server_waits_for_loopback_callback_and_opens_browser(monkeypatch):
-    monkeypatch.setattr("agents.kernel.mcp_oauth_runtime.find_available_mcp_oauth_callback_port", lambda: 0)
+    monkeypatch.setattr("agents.kernel.mcp.oauth_runtime.find_available_mcp_oauth_callback_port", lambda: 0)
     opened = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -357,12 +357,12 @@ def test_authenticate_mcp_oauth_server_waits_for_loopback_callback_and_opens_bro
 
 
 def test_authenticate_mcp_oauth_server_keeps_auth_success_when_reload_fails(monkeypatch):
-    monkeypatch.setattr("agents.kernel.mcp_oauth_runtime.find_available_mcp_oauth_callback_port", lambda: 3118)
+    monkeypatch.setattr("agents.kernel.mcp.oauth_runtime.find_available_mcp_oauth_callback_port", lambda: 3118)
 
     async def fail_reload(_context, _registry):
         raise RuntimeError("reload failed")
 
-    monkeypatch.setattr("agents.kernel.capabilities.tools.builtin.mcp_management.mcp_reload", fail_reload)
+    monkeypatch.setattr("agents.kernel.capabilities.tools.builtin.mcp.management.mcp_reload", fail_reload)
 
     async def handler(request: httpx.Request) -> httpx.Response:
         url = str(request.url)

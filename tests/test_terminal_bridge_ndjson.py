@@ -13,7 +13,7 @@ from agents.kernel.capabilities.tools import ToolRuntimeContext
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.governance import SandboxPolicy
 from agents.kernel.governance.audit import InMemoryApprovalAuditStore
-from agents.kernel.mcp_config import InMemoryMCPConfigStore
+from agents.kernel.mcp.config import InMemoryMCPConfigStore
 from agents.kernel.runtime import AgentResult, AgentRuntime, AgentSession, InMemoryCheckpointStore, RuntimeCheckpoint, ScriptedModelClient, StaticToolPermissionPolicy
 from agents.kernel.schema import Message, RuntimeEvent, ToolCall
 from agents.kernel.capabilities.tools.registry import ToolRegistry
@@ -1315,7 +1315,7 @@ def test_ndjson_bridge_configures_reloads_and_clears_mcp(monkeypatch, tmp_path):
         )
         return [SimpleNamespace(server=SimpleNamespace(name="docs", transport="stdio", url="", headers={}, execution_mode="", auth_required=False))]
 
-    monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.load_configured_mcp", fake_load_configured_mcp)
+    monkeypatch.setattr("agents.kernel.mcp.loading.load_configured_mcp", fake_load_configured_mcp)
     emitted = []
 
     asyncio.run(run_slash(state, "/mcp set docs -- python server.py", emitted))

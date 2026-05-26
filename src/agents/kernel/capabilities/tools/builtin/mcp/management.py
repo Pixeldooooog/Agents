@@ -7,9 +7,9 @@ from typing import Any
 
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.tools.registry import ToolRegistry
-from agents.kernel.mcp_auth import mcp_authorization_headers_for_scope
-from agents.kernel.mcp_config import server_record_for_scope
-from agents.kernel.mcp_oauth_runtime import authenticate_mcp_oauth_server
+from agents.kernel.mcp.auth import mcp_authorization_headers_for_scope
+from agents.kernel.mcp.config import server_record_for_scope
+from agents.kernel.mcp.oauth_runtime import authenticate_mcp_oauth_server
 
 
 IDE_AUTH_HEADER = "X-Claude-Code-Ide-Authorization"
@@ -218,7 +218,7 @@ async def mcp_remove(context: ToolRuntimeContext, name: str = "") -> dict[str, A
 
 
 async def mcp_reload(context: ToolRuntimeContext, registry: Any) -> dict[str, Any]:
-    from agents.kernel.capabilities.mcp_loading import load_configured_mcp
+    from agents.kernel.mcp.loading import load_configured_mcp
 
     previous_providers = list(getattr(context, "mcp_providers", []) or [])
     previous_names = [_provider_name(provider) for provider in previous_providers]
@@ -256,7 +256,7 @@ async def mcp_reload(context: ToolRuntimeContext, registry: Any) -> dict[str, An
 
 
 async def mcp_reconnect(context: ToolRuntimeContext, registry: Any, name: str = "") -> dict[str, Any]:
-    from agents.kernel.capabilities.mcp_loading import load_configured_mcp
+    from agents.kernel.mcp.loading import load_configured_mcp
 
     target = str(name or "").strip() or str(getattr(_mcp_settings(context), "SERVER_NAME", "") or "default")
     records = await _mcp_records(context)
@@ -408,12 +408,12 @@ async def _mcp_load_kwargs(context: ToolRuntimeContext, records: list[Any], regi
         load_kwargs["sdk_mcp_handlers"] = sdk_mcp_handlers
     mcp_elicitation_handler = getattr(context, "mcp_elicitation_handler", None)
     if mcp_elicitation_handler is not None:
-        from agents.kernel.mcp_elicitation_runtime import build_mcp_elicitation_complete_handler
+        from agents.kernel.mcp.elicitation_runtime import build_mcp_elicitation_complete_handler
 
         load_kwargs["elicitation_handler"] = mcp_elicitation_handler
         load_kwargs["elicitation_complete_handler"] = build_mcp_elicitation_complete_handler(context)
     if registry is not None:
-        from agents.kernel.mcp_list_changed_runtime import build_mcp_list_changed_handler
+        from agents.kernel.mcp.list_changed_runtime import build_mcp_list_changed_handler
 
         load_kwargs["list_changed_handler"] = build_mcp_list_changed_handler(context, registry)
     auth_headers = await _mcp_auth_headers(context, records)

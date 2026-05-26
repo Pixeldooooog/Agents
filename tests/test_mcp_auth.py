@@ -2,16 +2,16 @@ import asyncio
 import time
 from types import SimpleNamespace
 
-from agents.kernel.capabilities.mcp_loading import load_configured_mcp
+from agents.kernel.mcp.loading import load_configured_mcp
 from agents.kernel.capabilities.tools.registry import ToolRegistry
-from agents.kernel.mcp_auth import (
+from agents.kernel.mcp.auth import (
     InMemoryMCPAuthTokenStore,
     MCPAuthTokenRecord,
     SQLiteMCPAuthTokenStore,
     mcp_authorization_headers_for_scope,
     merge_cached_authorization_header,
 )
-from agents.kernel.mcp_config import MCPServerRecord
+from agents.kernel.mcp.config import MCPServerRecord
 from agents.kernel.persistence import SQLiteDatabase
 
 
@@ -126,7 +126,7 @@ def test_load_configured_mcp_injects_cached_authorization_header(monkeypatch):
         async def close(self):
             return None
 
-    monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.MCPStreamableHTTPClient", FakeHTTPMCPClient)
+    monkeypatch.setattr("agents.kernel.mcp.loading.MCPStreamableHTTPClient", FakeHTTPMCPClient)
     settings = SimpleNamespace(mcp=SimpleNamespace(CLIENT_TIMEOUT=30.0, SSE_READ_TIMEOUT=120.0))
     registry = ToolRegistry()
 

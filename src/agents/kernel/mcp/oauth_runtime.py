@@ -9,20 +9,20 @@ from typing import Any, Mapping
 
 import httpx
 
-from agents.kernel.mcp_oauth import (
+from agents.kernel.mcp.oauth import (
     MCPOAuthCallbackListener,
     MCPOAuthProviderError,
     MCPOAuthStateMismatchError,
     build_mcp_oauth_redirect_uri,
     find_available_mcp_oauth_callback_port,
 )
-from agents.kernel.mcp_oauth_flow import (
+from agents.kernel.mcp.oauth_flow import (
     MCPOAuthPendingAuthorization,
     MCPOAuthFlowError,
     complete_mcp_oauth_authorization,
     start_mcp_oauth_authorization,
 )
-from agents.kernel.mcp_oauth_tokens import MCPOAuthTokenRequestError, generate_pkce_code_verifier
+from agents.kernel.mcp.oauth_tokens import MCPOAuthTokenRequestError, generate_pkce_code_verifier
 
 
 @dataclass(frozen=True)
@@ -241,7 +241,7 @@ async def _reload_registry_for_authenticated_mcp(context: Any) -> dict[str, Any]
     lock = _oauth_reload_lock(context)
     async with lock:
         try:
-            from agents.kernel.capabilities.tools.builtin.mcp_management import mcp_reload
+            from agents.kernel.capabilities.tools.builtin.mcp.management import mcp_reload
 
             result = await mcp_reload(context, registry)
         except Exception as exc:  # noqa: BLE001 - token cache has already succeeded.

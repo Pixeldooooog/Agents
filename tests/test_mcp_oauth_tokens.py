@@ -4,7 +4,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest
 
-from agents.kernel.mcp_oauth_tokens import (
+from agents.kernel.mcp.oauth_tokens import (
     MCPOAuthTokenRequestError,
     build_mcp_oauth_authorization_url,
     exchange_mcp_oauth_code,

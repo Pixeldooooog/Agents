@@ -12,13 +12,13 @@ from mcp.client.auth.oauth2 import (
     resource_url_from_server_url,
 )
 
-from agents.kernel.mcp_auth import MCPAuthTokenStore
-from agents.kernel.mcp_oauth import (
+from agents.kernel.mcp.auth import MCPAuthTokenStore
+from agents.kernel.mcp.oauth import (
     MCPOAuthProviderError,
     MCPOAuthStateMismatchError,
     parse_mcp_oauth_callback_url,
 )
-from agents.kernel.mcp_oauth_tokens import (
+from agents.kernel.mcp.oauth_tokens import (
     build_mcp_oauth_authorization_url,
     exchange_mcp_oauth_code,
     generate_pkce_code_verifier,

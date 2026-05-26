@@ -25,7 +25,7 @@ from agents.kernel.capabilities.sandbox.text import (
     public_encoding_name,
 )
 from agents.kernel.governance.factory import build_tool_permission_policy
-from agents.kernel.mcp_config import MCPServerRecord
+from agents.kernel.mcp.config import MCPServerRecord
 from agents.kernel.schema import RuntimeEvent, ToolCall
 from agents.kernel.specs import AgentSpec
 from agents.kernel.tasks import TaskEngine, TaskRecord
@@ -68,7 +68,7 @@ from agents.sdk.control import (
     validate_sdk_control_request,
     validate_sdk_stdin_message,
 )
-from agents.sdk.mcp_control import active_session_for_options, reconnect_mcp_server
+from agents.sdk.mcp.control import active_session_for_options, reconnect_mcp_server
 from agents.sdk.structured_io import SDKStructuredIO, encode_stdout_message, iter_stdin_jsonl
 from agents.sdk.transports import SDKJsonlTransport
 from agents.sdk.types import (

@@ -7,8 +7,8 @@ from agents.kernel.capabilities.sandbox import SandboxStore
 from agents.kernel.governance.audit import ApprovalAuditStore
 from agents.kernel.capabilities.memory import MemoryStore
 from agents.kernel.hooks import HookStore
-from agents.kernel.mcp_auth import MCPAuthTokenStore
-from agents.kernel.mcp_config import MCPConfigStore
+from agents.kernel.mcp.auth import MCPAuthTokenStore
+from agents.kernel.mcp.config import MCPConfigStore
 from agents.kernel.runtime import CheckpointStore
 from agents.kernel.governance import CredentialRefStore
 from agents.kernel.schedules import ScheduleStore

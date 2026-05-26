@@ -12,7 +12,7 @@ from agents.kernel.runtime import RuntimeCheckpoint
 from agents.kernel.schema import RuntimeEvent
 from agents.kernel.governance import CredentialRef
 from agents.kernel.hooks import SessionHookRegistry
-from agents.kernel.mcp_config import MCPServerRecord
+from agents.kernel.mcp.config import MCPServerRecord
 from agents.kernel.session_state import SessionStateRecord
 from agents.kernel.state import AgentProfile
 from agents.kernel.state.workspaces import WorkspaceRecord

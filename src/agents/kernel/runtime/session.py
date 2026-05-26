@@ -98,7 +98,7 @@ class AgentSession:
         tool_context = getattr(self, "tool_context", None)
         if tool_context is not None:
             try:
-                from agents.kernel.mcp_oauth_runtime import close_mcp_oauth_waiters
+                from agents.kernel.mcp.oauth_runtime import close_mcp_oauth_waiters
 
                 await close_mcp_oauth_waiters(tool_context)
             except Exception as exc:

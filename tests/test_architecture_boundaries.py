@@ -43,6 +43,19 @@ def test_agent_system_exposes_future_multi_agent_boundaries():
         "persistence",
         "state.identity",
         "tasks",
+        "mcp",
+        "mcp.auth",
+        "mcp.config",
+        "mcp.loading",
+        "mcp.oauth",
+        "mcp.oauth_flow",
+        "mcp.oauth_runtime",
+        "mcp.oauth_tokens",
+        "mcp.elicitation_runtime",
+        "mcp.list_changed_runtime",
+        "mcp.provider",
+        "mcp.transports.sdk_control",
+        "mcp.transports.websocket",
     ]
     for module in kernel_modules:
         assert importlib.util.find_spec(f"agents.kernel.{module}") is not None
@@ -90,9 +103,28 @@ def test_agent_capabilities_expose_builtin_tool_boundaries():
     assert importlib.util.find_spec("agents.kernel.capabilities.sandbox.local") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.sandbox.docker") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.registration_helpers") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_discovery_aliases") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_plan_aliases") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_task_aliases") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_schedule_aliases") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.mcp.management") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.mcp.prompts") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.mcp.resources") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.mcp.ide") is not None
+
+
+def test_mcp_implementation_is_packaged_by_domain():
+    agents_root = ROOT / "src" / "agents"
+    kernel_root = ROOT / "src" / "agents" / "kernel"
+    tools_root = kernel_root / "capabilities" / "tools"
+    builtin_root = tools_root / "builtin"
+
+    assert not list(agents_root.rglob("mcp_*.py"))
+    assert not list(kernel_root.glob("mcp_*.py"))
+    assert not list(tools_root.glob("mcp_*.py"))
+    assert not (tools_root / "mcp.py").exists()
+    assert not list(builtin_root.glob("mcp_*.py"))
+    assert not (kernel_root / "capabilities" / "mcp_loading.py").exists()
 
 
 def test_agent_models_split_protocol_adapters_and_transports():

@@ -5,11 +5,11 @@ from types import SimpleNamespace
 
 from agents.kernel.capabilities.ide import IDE_AUTH_HEADER
 from agents.kernel.capabilities.ide_extension import IDECommandResult, IDE_EXTENSION_ID
-from agents.kernel.capabilities.mcp_loading import load_configured_mcp
+from agents.kernel.mcp.loading import load_configured_mcp
 from agents.kernel.capabilities.sandbox.local import LocalSandboxProvider
 from agents.kernel.capabilities.tools import ToolRuntimeContext, register_builtin_tools
-from agents.kernel.capabilities.tools.builtin.mcp_management import mcp_reconnect
-from agents.kernel.capabilities.tools.mcp import (
+from agents.kernel.capabilities.tools.builtin.mcp.management import mcp_reconnect
+from agents.kernel.mcp import (
     MCPAuthenticationRequired,
     MCPPromptArgumentDefinition,
     MCPPromptDefinition,
@@ -24,13 +24,13 @@ from agents.kernel.capabilities.tools.mcp import (
     mcp_info_from_name,
     normalize_mcp_name,
 )
-from agents.kernel.capabilities.tools.mcp_websocket import websocket_client_with_headers
+from agents.kernel.mcp.transports.websocket import websocket_client_with_headers
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.governance import SandboxPolicy, describe_tool_impact
-from agents.kernel.mcp_config import InMemoryMCPConfigStore, MCPServerRecord
-from agents.kernel.mcp_elicitation_runtime import build_mcp_elicitation_complete_handler
-from agents.kernel.mcp_list_changed_runtime import build_mcp_list_changed_handler
+from agents.kernel.mcp.config import InMemoryMCPConfigStore, MCPServerRecord
+from agents.kernel.mcp.elicitation_runtime import build_mcp_elicitation_complete_handler
+from agents.kernel.mcp.list_changed_runtime import build_mcp_list_changed_handler
 from agents.kernel.schema import ToolCall
 
 
@@ -575,7 +575,7 @@ def test_builtin_mcp_reload_closes_old_providers_and_swaps_tool_handlers(monkeyp
             super().__init__("new", server=server)
             new_clients.append(self)
 
-    monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.MCPStdioClient", FakeStdioMCPClient)
+    monkeypatch.setattr("agents.kernel.mcp.loading.MCPStdioClient", FakeStdioMCPClient)
     context = ToolRuntimeContext(
         workspace=workspace,
         sandbox=policy,
@@ -638,7 +638,7 @@ def test_builtin_mcp_reconnect_swaps_only_target_provider(monkeypatch, tmp_path:
             super().__init__("new-%s" % server.name, server=server)
             new_clients.append(self)
 
-    monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.MCPStdioClient", FakeStdioMCPClient)
+    monkeypatch.setattr("agents.kernel.mcp.loading.MCPStdioClient", FakeStdioMCPClient)
     context = ToolRuntimeContext(
         workspace=workspace,
         sandbox=policy,
@@ -726,7 +726,7 @@ def test_builtin_mcp_reload_preserves_existing_provider_when_reconnect_fails(mon
     async def failing_load(settings, registry, roots=None, records=None, oauth_authenticator=None, list_changed_handler=None):
         raise RuntimeError("reconnect failed")
 
-    monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.load_configured_mcp", failing_load)
+    monkeypatch.setattr("agents.kernel.mcp.loading.load_configured_mcp", failing_load)
 
     async def execute():
         await store.save(
@@ -1056,7 +1056,7 @@ def test_load_configured_mcp_uses_streamable_http_transport(monkeypatch, tmp_pat
     def elicitation_complete_handler(server_name, elicitation_id):
         return None
 
-    monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.MCPStreamableHTTPClient", FakeHTTPMCPClient)
+    monkeypatch.setattr("agents.kernel.mcp.loading.MCPStreamableHTTPClient", FakeHTTPMCPClient)
     registry = ToolRegistry()
     settings = SimpleNamespace(
         mcp=SimpleNamespace(
@@ -1105,7 +1105,7 @@ def test_load_configured_mcp_loads_multiple_enabled_records(monkeypatch, tmp_pat
             self.server = server
             created.append(self)
 
-    monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.MCPStdioClient", FakeStdioMCPClient)
+    monkeypatch.setattr("agents.kernel.mcp.loading.MCPStdioClient", FakeStdioMCPClient)
     registry = ToolRegistry()
     settings = SimpleNamespace(mcp=SimpleNamespace(CLIENT_TIMEOUT=30.0, SSE_READ_TIMEOUT=120.0))
     records = [
@@ -1586,7 +1586,7 @@ def test_load_configured_mcp_uses_sse_transport(monkeypatch):
             self.server = server
             created.append(self)
 
-    monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.MCPSSEClient", FakeSSEMCPClient)
+    monkeypatch.setattr("agents.kernel.mcp.loading.MCPSSEClient", FakeSSEMCPClient)
     registry = ToolRegistry()
     settings = SimpleNamespace(
         mcp=SimpleNamespace(
@@ -1621,7 +1621,7 @@ def test_load_configured_mcp_uses_sse_ide_transport(monkeypatch):
             self.server = server
             created.append(self)
 
-    monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.MCPSSEClient", FakeSSEMCPClient)
+    monkeypatch.setattr("agents.kernel.mcp.loading.MCPSSEClient", FakeSSEMCPClient)
     registry = ToolRegistry()
     settings = SimpleNamespace(
         mcp=SimpleNamespace(
@@ -1657,7 +1657,7 @@ def test_load_configured_mcp_uses_websocket_transport(monkeypatch):
             self.server = server
             created.append(self)
 
-    monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.MCPWebSocketClient", FakeWebSocketMCPClient)
+    monkeypatch.setattr("agents.kernel.mcp.loading.MCPWebSocketClient", FakeWebSocketMCPClient)
     registry = ToolRegistry()
     settings = SimpleNamespace(
         mcp=SimpleNamespace(
@@ -1694,7 +1694,7 @@ def test_load_configured_mcp_uses_ws_ide_transport(monkeypatch):
             self.server = server
             created.append(self)
 
-    monkeypatch.setattr("agents.kernel.capabilities.mcp_loading.MCPWebSocketClient", FakeWebSocketMCPClient)
+    monkeypatch.setattr("agents.kernel.mcp.loading.MCPWebSocketClient", FakeWebSocketMCPClient)
     registry = ToolRegistry()
     settings = SimpleNamespace(
         mcp=SimpleNamespace(
@@ -1853,7 +1853,7 @@ def test_mcp_websocket_client_opens_header_transport(monkeypatch):
         return FakeContext()
 
     monkeypatch.setattr(
-        "agents.kernel.capabilities.tools.mcp_websocket.websocket_client_with_headers",
+        "agents.kernel.mcp.transports.websocket.websocket_client_with_headers",
         fake_websocket_client_with_headers,
     )
     client = MCPWebSocketClient(
@@ -1901,7 +1901,7 @@ def test_websocket_client_with_headers_passes_handshake_headers(monkeypatch):
         captured["kwargs"] = kwargs
         return FakeWebSocketContext()
 
-    monkeypatch.setattr("agents.kernel.capabilities.tools.mcp_websocket.ws_connect", fake_ws_connect)
+    monkeypatch.setattr("agents.kernel.mcp.transports.websocket.ws_connect", fake_ws_connect)
 
     async def run_client():
         async with websocket_client_with_headers(

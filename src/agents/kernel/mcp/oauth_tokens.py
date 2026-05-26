@@ -10,7 +10,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from agents.kernel.mcp_auth import MCPAuthTokenRecord
+from agents.kernel.mcp.auth import MCPAuthTokenRecord
 
 
 MCP_OAUTH_TOKEN_TIMEOUT_SECONDS = 30.0

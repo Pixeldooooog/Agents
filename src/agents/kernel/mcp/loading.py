@@ -6,8 +6,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from agents.kernel.mcp_auth import merge_cached_authorization_header
-from agents.kernel.capabilities.tools.mcp import (
+from agents.kernel.mcp.auth import merge_cached_authorization_header
+from agents.kernel.mcp.provider import (
     MCPOAuthAuthenticator,
     MCPElicitationCompleteHandler,
     MCPElicitationHandler,

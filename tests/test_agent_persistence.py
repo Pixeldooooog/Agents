@@ -3,7 +3,7 @@ import asyncio
 from agents.kernel.specs import AgentSpec
 from agents.kernel.governance.audit import ApprovalAuditRecord, SQLiteApprovalAuditStore
 from agents.kernel.hooks import SQLiteHookStore, SessionHookRegistry
-from agents.kernel.mcp_config import MCPServerRecord, SQLiteMCPConfigStore
+from agents.kernel.mcp.config import MCPServerRecord, SQLiteMCPConfigStore
 from agents.kernel.session_state import SessionStateRecord, SQLiteSessionStateStore
 from agents.kernel.state.identity import SQLiteIdentityStore, TenantRecord, UserRecord
 from agents.kernel.capabilities.memory import MemoryRecord, MemoryScope, SQLiteMemoryStore

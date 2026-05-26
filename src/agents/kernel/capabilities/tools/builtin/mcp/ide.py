@@ -11,7 +11,7 @@ from agents.kernel.capabilities.ide import (
     detect_ide_lockfiles,
     sorted_ide_lockfiles,
 )
-from agents.kernel.capabilities.tools.builtin.mcp_management import mcp_configure
+from agents.kernel.capabilities.tools.builtin.mcp.management import mcp_configure
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 
 

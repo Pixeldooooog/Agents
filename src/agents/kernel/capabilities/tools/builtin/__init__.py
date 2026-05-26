@@ -94,19 +94,19 @@ from agents.kernel.capabilities.tools.builtin.memory import (
     memory_list,
 )
 from agents.kernel.capabilities.tools.builtin.notebook import NOTEBOOK_EDIT_SCHEMA, notebook_edit
-from agents.kernel.capabilities.tools.builtin.mcp_resources import (
+from agents.kernel.capabilities.tools.builtin.mcp.resources import (
     MCP_READ_RESOURCE_SCHEMA,
     MCP_RESOURCES_SCHEMA,
     mcp_read_resource,
     mcp_resources,
 )
-from agents.kernel.capabilities.tools.builtin.mcp_prompts import (
+from agents.kernel.capabilities.tools.builtin.mcp.prompts import (
     MCP_GET_PROMPT_SCHEMA,
     MCP_PROMPTS_SCHEMA,
     mcp_get_prompt,
     mcp_prompts,
 )
-from agents.kernel.capabilities.tools.builtin.mcp_management import (
+from agents.kernel.capabilities.tools.builtin.mcp.management import (
     MCP_CLEAR_SCHEMA,
     MCP_CONFIGURE_SCHEMA,
     MCP_RELOAD_SCHEMA,

@@ -11,8 +11,8 @@ from agents.kernel.governance.audit import (
 )
 from agents.kernel.hooks import HookStore, InMemoryHookStore, SQLiteHookStore
 from agents.kernel.capabilities.memory import InMemoryMemoryStore, MemoryStore, SQLiteMemoryStore
-from agents.kernel.mcp_auth import InMemoryMCPAuthTokenStore, MCPAuthTokenStore, SQLiteMCPAuthTokenStore
-from agents.kernel.mcp_config import InMemoryMCPConfigStore, MCPConfigStore, SQLiteMCPConfigStore
+from agents.kernel.mcp.auth import InMemoryMCPAuthTokenStore, MCPAuthTokenStore, SQLiteMCPAuthTokenStore
+from agents.kernel.mcp.config import InMemoryMCPConfigStore, MCPConfigStore, SQLiteMCPConfigStore
 from agents.kernel.persistence import SQLiteDatabase, resolve_database_path
 from agents.kernel.runtime import CheckpointStore, InMemoryCheckpointStore, SQLiteCheckpointStore
 from agents.kernel.schedules import InMemoryScheduleStore, ScheduleStore, SQLiteScheduleStore

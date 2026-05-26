@@ -4,7 +4,7 @@ import socket
 
 import pytest
 
-from agents.kernel.mcp_oauth import (
+from agents.kernel.mcp.oauth import (
     MCP_OAUTH_CALLBACK_FALLBACK_PORT,
     MCPOAuthCallbackListener,
     MCPOAuthProviderError,

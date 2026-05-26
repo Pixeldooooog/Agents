@@ -27,7 +27,7 @@ from agents.kernel.capabilities.tools.builtin.commands import (
     command_save,
 )
 from agents.kernel.capabilities.tools.builtin.hooks import hook_add, hook_delete, hook_list
-from agents.kernel.capabilities.tools.builtin.mcp_management import mcp_clear, mcp_configure, mcp_disable, mcp_enable, mcp_reload, mcp_remove
+from agents.kernel.capabilities.tools.builtin.mcp.management import mcp_clear, mcp_configure, mcp_disable, mcp_enable, mcp_reload, mcp_remove
 from agents.kernel.capabilities.tools.builtin.planning import plan_clear, plan_enter, plan_exit, todo_write
 from agents.kernel.capabilities.tools.builtin.extensions import skill_install, skill_uninstall
 from agents.kernel.capabilities.tools.builtin.permissions import permission_add_rule, permission_remove_rule, permission_sources
