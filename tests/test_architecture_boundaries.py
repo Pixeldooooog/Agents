@@ -177,6 +177,24 @@ def test_sdk_client_stays_split_by_responsibility():
         assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
 
 
+def test_sdk_transports_stay_split_by_protocol():
+    sdk_root = ROOT / "src" / "agents" / "sdk"
+    for module in ["transports", "transport_types", "transport_queue", "transport_sse", "transport_websocket", "transport_hybrid"]:
+        assert importlib.util.find_spec(f"agents.sdk.{module}") is not None
+
+    limits = {
+        sdk_root / "transports.py": 120,
+        sdk_root / "transport_types.py": 120,
+        sdk_root / "transport_queue.py": 80,
+        sdk_root / "transport_sse.py": 520,
+        sdk_root / "transport_websocket.py": 650,
+        sdk_root / "transport_hybrid.py": 420,
+    }
+
+    for path, max_lines in limits.items():
+        assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
+
+
 def test_agent_models_split_protocol_adapters_and_transports():
     assert importlib.util.find_spec("agents.kernel.models.adapters") is not None
     assert importlib.util.find_spec("agents.kernel.models.protocol") is not None
