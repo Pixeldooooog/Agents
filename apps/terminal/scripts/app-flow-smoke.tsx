@@ -50,6 +50,11 @@ function settle(ms = 40): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+async function clearPromptInput(): Promise<void> {
+  stdin.press('\u0015')
+  await settle()
+}
+
 class TestInput extends Readable {
   isTTY = true
   isRaw = false
@@ -207,6 +212,7 @@ try {
   }
 
   const beforeStreamScroll = stdout.content.length
+  await clearPromptInput()
   stdin.press('stream scroll')
   await settle()
   stdin.press('\r')
@@ -253,6 +259,7 @@ try {
   await settle()
 
   const beforeDoneOnly = stdout.content.length
+  await clearPromptInput()
   stdin.press('done only')
   await settle()
   stdin.press('\r')
@@ -260,6 +267,7 @@ try {
   await waitForOutputAfter(stdout, 'done', beforeDoneOnly)
 
   const beforeErrorTurn = stdout.content.length
+  await clearPromptInput()
   stdin.press('error turn')
   await settle()
   stdin.press('\r')
@@ -267,6 +275,7 @@ try {
   await waitForOutputAfter(stdout, 'stopped', beforeErrorTurn)
 
   const beforeLoopExceeded = stdout.content.length
+  await clearPromptInput()
   stdin.press('loop exceeded')
   await settle()
   stdin.press('\r')
@@ -275,6 +284,7 @@ try {
   await waitForOutputAfter(stdout, 'stopped', beforeLoopExceeded)
 
   const beforeAfterFailure = stdout.content.length
+  await clearPromptInput()
   stdin.press('after failure')
   await settle()
   stdin.press('\r')
@@ -282,10 +292,12 @@ try {
   await waitForOutputAfter(stdout, 'done', beforeAfterFailure)
 
   const beforeApproval = stdout.content.length
+  await clearPromptInput()
   stdin.press('approval please')
   await settle()
   stdin.press('\r')
   await waitForOutputAfter(stdout, 'Permission Request', beforeApproval)
+  await settle(120)
   stdin.press('y')
   await waitForOutputAfter(stdout, 'fixture approval granted', beforeApproval)
   await waitForOutputAfter(stdout, 'done', beforeApproval)

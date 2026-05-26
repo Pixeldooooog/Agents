@@ -75,6 +75,7 @@ approval 事件和 audit 记录会附带 `impact`：
 - git、test、shell 工具声明 git/terminal activity，并把非并发安全的命令类工具串行化。
 - web/browser 工具声明 web/browser activity、网络需求和 artifact/path 目标。
 - `src-origin` aliases 通过同一套 `ToolDefinition` 注册，metadata 带 `alias_of` 和 `src_origin_tool`，因此 SDK/UI 可以显示原始工具名，同时权限和执行复用 canonical tool 行为。
+- builtin tool 注册入口保持为 orchestration layer：`registration.py` 只串联核心注册函数，执行类 canonical tools 在 `execution_registration.py`，MCP builtin tools 在 `mcp/registration.py`，src-origin agent/team/user/worktree alias 在 `src_origin_agent_aliases.py`。架构测试会限制这些注册文件的行数，避免重新长成单个大注册表。
 - `config.manage` 提供 `src-origin` `Config` 的第一层 parity：输入为 `setting` 加可选 `value`，省略 `value` 时读取配置并自动允许，带 `value` 时写入 session-scoped config override 并要求 approval。当前覆盖了 `supportedSettings.ts` 中的 theme/editor/notification/model/permission/language/teammate/voice/remote/notification keys；`model` 会更新当前 `AgentSpec` 和可用 runtime config，`permissions.defaultMode` 会映射到本地 permission policy 并持久化到 session state metadata。
 - `todo.write` / `TodoWrite` 对齐 `src-origin` 的第一层 todo lifecycle：schema 严格拒绝未知字段，tool metadata 暴露 `defer=true`，结果保留 `oldTodos` / `newTodos` / `verificationNudgeNeeded` 结构化 payload，但模型可见输出使用 `src-origin` 的固定成功提示而不是 JSON dump；传入空列表或全 completed 列表都会清空 active todo state。
 - `WebSearch` / `WebFetch` 对齐 `src-origin` 的第一层 web alias lifecycle：alias schema 严格拒绝未知字段，tool metadata 暴露 `defer=true`，结果限制为 100k 字符；`WebSearch` 继续保留 provider `sources`，并额外生成 `results`、`durationSeconds` 和带 citation reminder 的模型可见输出；`WebFetch` 继续保留 extract payload，并额外生成 `result`、`bytes`、`code`、`codeText`、`durationMs` 和模型可见正文。
@@ -157,7 +158,7 @@ streaming runtime 中的长前台 `shell.run` 会按 `src-origin` BashTool 的�
 
 计划任务 alias 层覆盖 `CronCreate`、`CronList` 和 `CronDelete`，使用 strict `src-origin` alias schema、`defer=true` 和 100k 结果上限。`CronCreate` 会校验 5-field cron 表达式，并把 canonical schedule 记录适配为 `id` / `humanSchedule` / `recurring` / `durable` 结构化 payload 与 `src-origin` 风格模型可见文本；`CronList` / `CronDelete` 也保留 canonical schedule payload，同时输出 schedule job 列表或取消确认文本。对应注册逻辑在 `src_origin_schedule_aliases.py`。
 
-Agent/team alias 层覆盖 `Agent`、旧名 `Task`、`SendMessage`、`TeamCreate` 和 `TeamDelete`。`Agent` / `Task` 复用 `agent.run` 的 child-session 边界；`TeamCreate` 会创建带 `team-lead` 成员的 Python-native team；`SendMessage` 路由到 `team.send`；`TeamDelete` 通过 canonical `team.delete` 清理 team record 和 queued messages。
+Agent/team alias 层覆盖 `Agent`、旧名 `Task`、`SendMessage`、`TeamCreate` 和 `TeamDelete`。`Agent` / `Task` 复用 `agent.run` 的 child-session 边界；`TeamCreate` 会创建带 `team-lead` 成员的 Python-native team；`SendMessage` 路由到 `team.send`；`TeamDelete` 通过 canonical `team.delete` 清理 team record 和 queued messages。对应注册逻辑在 `src_origin_agent_aliases.py`，避免主注册表继续持有所有 alias contract。
 
 为贴近 `src-origin` 的 Bash/Sleep 分工，foreground `shell.run` 会拒绝 `sleep N` 这类 2 秒及以上的 standalone/leading sleep 命令，并提示改用 `sleep.wait` 或 `run_in_background=true`。短暂的 `sleep 1`、小数秒 sleep、pipeline 内 sleep 和显式后台 shell 命令不受这个 guard 影响。
 

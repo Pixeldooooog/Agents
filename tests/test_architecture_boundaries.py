@@ -102,15 +102,31 @@ def test_agent_capabilities_expose_builtin_tool_boundaries():
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.context") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.sandbox.local") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.sandbox.docker") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.execution_registration") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.registration_helpers") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_agent_aliases") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_discovery_aliases") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_plan_aliases") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_task_aliases") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_schedule_aliases") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.mcp.registration") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.mcp.management") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.mcp.prompts") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.mcp.resources") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.mcp.ide") is not None
+
+
+def test_builtin_tool_registration_stays_modular():
+    builtin_root = ROOT / "src" / "agents" / "kernel" / "capabilities" / "tools" / "builtin"
+    limits = {
+        builtin_root / "registration.py": 1500,
+        builtin_root / "execution_registration.py": 900,
+        builtin_root / "src_origin_agent_aliases.py": 900,
+        builtin_root / "mcp" / "registration.py": 400,
+    }
+
+    for path, max_lines in limits.items():
+        assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
 
 
 def test_mcp_implementation_is_packaged_by_domain():
