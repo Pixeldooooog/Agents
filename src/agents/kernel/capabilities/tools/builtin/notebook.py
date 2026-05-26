@@ -63,6 +63,9 @@ def notebook_edit(
     if mode == "insert" and requested_cell_type is None:
         raise ValueError("Cell type is required when using edit_mode=insert.")
     cell_index = _cell_index(cells, cell_id, edit_mode=mode)
+    if mode == "replace" and cell_index == len(cells):
+        mode = "insert"
+        requested_cell_type = requested_cell_type or "code"
     old_cell_source = "" if mode == "insert" else _cell_source(cells[cell_index])
     updated_cell_source = "" if mode == "delete" else str(new_source)
     language = str((notebook.get("metadata") or {}).get("language_info", {}).get("name") or "python")
@@ -242,6 +245,8 @@ def _cell_index(cells: list[dict[str, Any]], cell_id: str | None, *, edit_mode: 
     parsed_index = _parse_cell_id(cell_id_text)
     if parsed_index is None:
         raise ValueError('Cell with ID "%s" not found in notebook.' % cell_id_text)
+    if parsed_index == len(cells) and edit_mode == "replace":
+        return parsed_index
     if parsed_index < 0 or parsed_index >= len(cells):
         raise ValueError("Cell with index %d does not exist in notebook." % parsed_index)
     return parsed_index + 1 if edit_mode == "insert" else parsed_index

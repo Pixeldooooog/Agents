@@ -2907,6 +2907,12 @@ def test_notebook_edit_updates_cells_with_read_before_write_safety(tmp_path: Pat
             {"notebook_path": "analysis.ipynb", "cell_id": inserted_id, "new_source": "", "edit_mode": "delete"},
         )
     )
+    append_insert = asyncio.run(
+        registry.execute(
+            "notebook.edit",
+            {"notebook_path": "analysis.ipynb", "cell_id": "cell-2", "new_source": "print(3)\n"},
+        )
+    )
     payload = json.loads((tmp_path / "analysis.ipynb").read_text(encoding="utf-8"))
 
     assert unread.is_error is True
@@ -2959,10 +2965,20 @@ def test_notebook_edit_updates_cells_with_read_before_write_safety(tmp_path: Pat
     assert deleted.content == "Deleted cell %s" % inserted_id
     assert deleted.raw["newString"] == ""
     assert deleted.raw["structuredPatch"][0]["lines"] == ["-Inserted note"]
-    assert len(payload["cells"]) == 2
+    assert append_insert.is_error is False
+    assert append_insert.raw["edit_mode"] == "insert"
+    assert append_insert.raw["cell_type"] == "code"
+    assert append_insert.raw["oldString"] == ""
+    assert append_insert.raw["newString"] == "print(3)\n"
+    assert append_insert.content == "Inserted cell %s with print(3)\n" % append_insert.raw["cell_id"]
+    assert len(payload["cells"]) == 3
     assert payload["cells"][1]["source"] == "print(2)\n"
     assert payload["cells"][1]["execution_count"] is None
     assert payload["cells"][1]["outputs"] == []
+    assert payload["cells"][2]["cell_type"] == "code"
+    assert payload["cells"][2]["source"] == "print(3)\n"
+    assert payload["cells"][2]["execution_count"] is None
+    assert payload["cells"][2]["outputs"] == []
 
     impact = describe_tool_impact(
         ToolCall(
