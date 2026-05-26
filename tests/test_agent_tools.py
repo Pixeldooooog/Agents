@@ -329,6 +329,7 @@ def test_src_origin_alias_tools_execute_against_canonical_implementations(tmp_pa
     assert alias_specs["MultiEdit"].raw["metadata"]["alias_of"] == "patch.apply"
     assert alias_specs["Bash"].raw["metadata"]["alias_of"] == "shell.run"
     assert alias_specs["BashOutputTool"].raw["metadata"]["alias_of"] == "shell.output"
+    assert alias_specs["TodoWrite"].raw["metadata"]["defer"] is True
     assert alias_specs["NotebookEdit"].raw["metadata"]["alias_of"] == "notebook.edit"
     assert alias_specs["LSP"].raw["metadata"]["alias_of"] == "lsp.query"
     assert alias_specs["EnterWorktree"].raw["metadata"]["alias_of"] == "worktree.enter"
@@ -351,6 +352,11 @@ def test_src_origin_alias_tools_execute_against_canonical_implementations(tmp_pa
     assert bash_output.raw["task"]["task_type"] == "local_bash"
     assert bash_output.raw["task"]["output"].strip() == "later"
     assert context.todos[0]["content"] == "Check aliases"
+    assert todos.content == (
+        "Todos have been modified successfully. "
+        "Ensure that you continue to use the todo list to track your progress. "
+        "Please proceed with the current tasks if applicable"
+    )
     assert todos.raw["newTodos"][0]["activeForm"] == "Checking aliases"
     assert slept.raw["reason"] == "alias test"
     assert notebook_edit.is_error is False
@@ -4270,6 +4276,7 @@ def test_builtin_planning_tools_manage_todos_and_plan_mode(tmp_path: Path):
         {"content": "Add planning tools", "status": "in_progress", "activeForm": "Adding planning tools"},
         {"content": "Run checks", "status": "pending", "activeForm": "Running checks"},
     ]
+    todo_contract = registry.describe_call("todo.write", {"todos": todos})
     written = asyncio.run(registry.execute("todo.write", {"todos": todos}))
     read = asyncio.run(registry.execute("todo.read", {}))
     entered = asyncio.run(registry.execute("plan.enter", {}))
@@ -4285,7 +4292,15 @@ def test_builtin_planning_tools_manage_todos_and_plan_mode(tmp_path: Path):
     status = asyncio.run(registry.execute("plan.status", {}))
 
     assert written.is_error is False
+    assert written.content == (
+        "Todos have been modified successfully. "
+        "Ensure that you continue to use the todo list to track your progress. "
+        "Please proceed with the current tasks if applicable"
+    )
     assert written.raw["newTodos"][1]["activeForm"] == "Adding planning tools"
+    assert written.raw["verificationNudgeNeeded"] is False
+    assert todo_contract["metadata"]["defer"] is True
+    assert todo_contract["activity"]["kind"] == "state"
     assert read.raw["summary"] == {"pending": 1, "in_progress": 1, "completed": 1}
     assert entered.raw["mode"] == "plan"
     assert exited.raw["mode"] == "default"
@@ -4308,6 +4323,13 @@ def test_builtin_planning_tools_manage_todos_and_plan_mode(tmp_path: Path):
     )
     assert cleared.raw["cleared"] is True
     assert context.todos == []
+
+    empty = asyncio.run(registry.execute("todo.write", {"todos": []}))
+    assert empty.raw["cleared"] is True
+
+    unexpected = asyncio.run(registry.execute("todo.write", {"todos": [], "extra": True}))
+    assert unexpected.is_error is True
+    assert unexpected.raw["details"] == "unexpected argument: extra"
 
 
 def test_builtin_planning_tools_persist_session_state(tmp_path: Path):

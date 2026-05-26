@@ -144,6 +144,7 @@ from agents.kernel.capabilities.tools.builtin.planning import (
     PLAN_STATUS_SCHEMA,
     TODO_READ_SCHEMA,
     TODO_WRITE_SCHEMA,
+    format_todo_write_result,
     plan_enter,
     plan_exit,
     plan_status,
@@ -1590,11 +1591,19 @@ def _register_src_origin_aliases(
         description="Update the structured todo list for the current session. src-origin alias for todo.write.",
         parameters=TODO_WRITE_SCHEMA,
         handler=lambda todos: todo_write(context, todos=todos),
-        metadata={"risk": "low", "writes_state": True, "alias_of": "todo.write", "src_origin_tool": "TodoWrite"},
+        metadata={
+            "risk": "low",
+            "writes_state": True,
+            "defer": True,
+            "alias_of": "todo.write",
+            "src_origin_tool": "TodoWrite",
+        },
         writes_state=True,
         concurrency_safe=False,
+        max_result_size_chars=100000,
         activity_kind="state",
         activity_title="Update todos",
+        result_formatter=format_todo_write_result,
     )
     _register_builtin_tool(
         registry,
@@ -2926,19 +2935,30 @@ def _register_tests(registry: ToolRegistry, context: ToolRuntimeContext) -> None
 
 
 def _register_planning(registry: ToolRegistry, context: ToolRuntimeContext) -> None:
-    registry.register(
-        "todo.write",
-        "Update the structured todo list for the current session.",
-        TODO_WRITE_SCHEMA,
-        lambda todos: todo_write(context, todos=todos),
-        metadata={"risk": "low", "writes_state": True},
+    _register_builtin_tool(
+        registry,
+        name="todo.write",
+        description="Update the structured todo list for the current session.",
+        parameters=TODO_WRITE_SCHEMA,
+        handler=lambda todos: todo_write(context, todos=todos),
+        metadata={"risk": "low", "writes_state": True, "defer": True},
+        writes_state=True,
+        concurrency_safe=False,
+        max_result_size_chars=100000,
+        activity_kind="state",
+        activity_title="Update todos",
+        result_formatter=format_todo_write_result,
     )
-    registry.register(
-        "todo.read",
-        "Read the structured todo list for the current session.",
-        TODO_READ_SCHEMA,
-        lambda: todo_read(context),
+    _register_builtin_tool(
+        registry,
+        name="todo.read",
+        description="Read the structured todo list for the current session.",
+        parameters=TODO_READ_SCHEMA,
+        handler=lambda: todo_read(context),
         metadata={"risk": "low"},
+        read_only=True,
+        activity_kind="state",
+        activity_title="Read todos",
     )
     registry.register(
         "plan.enter",

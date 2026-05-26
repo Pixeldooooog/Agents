@@ -29,12 +29,24 @@ TODO_WRITE_SCHEMA = {
         }
     },
     "required": ["todos"],
+    "additionalProperties": False,
 }
 
 TODO_READ_SCHEMA = {
     "type": "object",
     "properties": {},
+    "additionalProperties": False,
 }
+
+TODO_WRITE_RESULT_MESSAGE = (
+    "Todos have been modified successfully. "
+    "Ensure that you continue to use the todo list to track your progress. "
+    "Please proceed with the current tasks if applicable"
+)
+TODO_VERIFICATION_NUDGE = (
+    "\n\nNOTE: You just closed out 3+ tasks and none of them was a verification step. "
+    'Before writing your final summary, spawn the verification agent (subagent_type="verification").'
+)
 
 PLAN_ENTER_SCHEMA = {
     "type": "object",
@@ -71,12 +83,13 @@ PLAN_EXIT_SCHEMA = {
 async def todo_write(context: ToolRuntimeContext, todos: list[dict[str, Any]]) -> dict[str, Any]:
     old_todos = [dict(item) for item in context.todos]
     new_todos = _normalize_todos(todos)
-    all_done = bool(new_todos) and all(item["status"] == "completed" for item in new_todos)
+    all_done = all(item["status"] == "completed" for item in new_todos)
     context.todos = [] if all_done else [dict(item) for item in new_todos]
     await persist_planning_state(context)
     return {
         "oldTodos": old_todos,
         "newTodos": new_todos,
+        "verificationNudgeNeeded": False,
         "activeTodos": [dict(item) for item in context.todos],
         "cleared": all_done,
         "summary": _todo_summary(context.todos),
@@ -190,6 +203,13 @@ def _normalize_allowed_prompts(prompts: list[dict[str, Any]] | None) -> list[dic
 
 def _todo_summary(todos: list[dict[str, str]]) -> dict[str, int]:
     return {status: len([item for item in todos if item.get("status") == status]) for status in TODO_STATUS_VALUES}
+
+
+def format_todo_write_result(result: Any) -> str:
+    payload = result if isinstance(result, dict) else {}
+    if payload.get("verificationNudgeNeeded"):
+        return TODO_WRITE_RESULT_MESSAGE + TODO_VERIFICATION_NUDGE
+    return TODO_WRITE_RESULT_MESSAGE
 
 
 def _required_text(value: Any, name: str) -> str:
