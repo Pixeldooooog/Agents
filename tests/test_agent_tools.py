@@ -4855,6 +4855,36 @@ def test_bash_permission_rules_strip_simple_output_redirections_for_matching():
     assert quoted_argument.metadata["rule"] == "allowlist"
 
 
+def test_bash_literal_permission_rules_still_match_output_redirections():
+    policy = StaticToolPermissionPolicy(
+        allowed_tools=["Bash(python script.py > out.txt)"],
+    )
+
+    exact_redirect = asyncio.run(
+        policy.authorize(
+            ToolCall(
+                id="1",
+                name="shell.run",
+                arguments={"command": "python script.py > out.txt"},
+            )
+        )
+    )
+    no_redirect = asyncio.run(
+        policy.authorize(
+            ToolCall(
+                id="2",
+                name="shell.run",
+                arguments={"command": "python script.py"},
+            )
+        )
+    )
+
+    assert exact_redirect.allowed is True
+    assert exact_redirect.metadata["matched_rule"] == "Bash(python script.py > out.txt)"
+    assert no_redirect.allowed is False
+    assert no_redirect.metadata["rule"] == "allowlist"
+
+
 def test_builtin_permission_rules_match_legacy_path_and_pattern_rules(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="tenant",

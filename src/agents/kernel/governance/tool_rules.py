@@ -225,6 +225,17 @@ def shell_command_matches_rule(
     for subcommand in parsed.subcommands:
         if shell_subcommand_matches_rule(subcommand, pattern):
             return True
+    if _is_literal_shell_rule(pattern):
+        unstripped = split_shell_subcommands(
+            command,
+            shell_env_mode=shell_env_mode,
+            strip_output_redirections=False,
+        )
+        if unstripped.parse_error and parse_error_matches:
+            return True
+        for subcommand in unstripped.subcommands:
+            if shell_subcommand_matches_rule(subcommand, pattern):
+                return True
     if parsed.too_complex and parse_error_matches:
         return True
     return False
@@ -356,7 +367,12 @@ def shell_rule_extract_prefix(pattern: str) -> str | None:
     return match.group(1) if match else None
 
 
-def split_shell_subcommands(command: str, *, shell_env_mode: ShellEnvMode = "all") -> ShellCommandParts:
+def split_shell_subcommands(
+    command: str,
+    *,
+    shell_env_mode: ShellEnvMode = "all",
+    strip_output_redirections: bool = True,
+) -> ShellCommandParts:
     value = str(command or "").strip()
     if not value:
         return ShellCommandParts(subcommands=())
@@ -371,11 +387,21 @@ def split_shell_subcommands(command: str, *, shell_env_mode: ShellEnvMode = "all
     current: list[str] = []
     for token in tokens:
         if _is_shell_separator(token):
-            _append_shell_segment(subcommands, current, shell_env_mode=shell_env_mode)
+            _append_shell_segment(
+                subcommands,
+                current,
+                shell_env_mode=shell_env_mode,
+                strip_output_redirections=strip_output_redirections,
+            )
             current = []
             continue
         current.append(token)
-    _append_shell_segment(subcommands, current, shell_env_mode=shell_env_mode)
+    _append_shell_segment(
+        subcommands,
+        current,
+        shell_env_mode=shell_env_mode,
+        strip_output_redirections=strip_output_redirections,
+    )
     return ShellCommandParts(subcommands=tuple(subcommands), too_complex=too_complex)
 
 
@@ -428,8 +454,18 @@ def _mcp_server_prefix_matches(pattern: str, tool_name: str) -> bool:
     return tool_name.startswith("%s__" % pattern)
 
 
-def _append_shell_segment(output: list[str], segment: list[str], *, shell_env_mode: ShellEnvMode) -> None:
-    normalized = normalize_shell_segment(segment, env_mode=shell_env_mode)
+def _append_shell_segment(
+    output: list[str],
+    segment: list[str],
+    *,
+    shell_env_mode: ShellEnvMode,
+    strip_output_redirections: bool,
+) -> None:
+    normalized = normalize_shell_segment(
+        segment,
+        env_mode=shell_env_mode,
+        strip_output_redirections=strip_output_redirections,
+    )
     if normalized:
         output.append(normalized)
 
@@ -441,6 +477,10 @@ def _is_shell_separator(token: str) -> bool:
 
 def _shell_command_too_complex_for_match(command: str) -> bool:
     return any(marker in command for marker in ("$(", "`", "<(", ">(")) or "\n" in command or "\r" in command
+
+
+def _is_literal_shell_rule(pattern: str) -> bool:
+    return shell_rule_extract_prefix(pattern) is None and "*" not in str(pattern or "")
 
 
 def _wildcard_tokens(pattern: str) -> list[tuple[str, str]]:

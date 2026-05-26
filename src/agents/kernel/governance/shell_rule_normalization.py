@@ -80,13 +80,28 @@ def merge_shell_redirection_tokens(tokens: list[str]) -> list[str]:
     return merged
 
 
-def normalize_shell_segment(tokens: list[str], *, env_mode: ShellEnvMode = "all") -> str:
+def normalize_shell_segment(
+    tokens: list[str],
+    *,
+    env_mode: ShellEnvMode = "all",
+    strip_output_redirections: bool = True,
+) -> str:
     if env_mode == "safe":
-        return _normalize_shell_segment_for_allow(tokens)
-    return _normalize_shell_segment_for_deny_or_ask(tokens)
+        return _normalize_shell_segment_for_allow(
+            tokens,
+            strip_output_redirections=strip_output_redirections,
+        )
+    return _normalize_shell_segment_for_deny_or_ask(
+        tokens,
+        strip_output_redirections=strip_output_redirections,
+    )
 
 
-def _normalize_shell_segment_for_deny_or_ask(tokens: list[str]) -> str:
+def _normalize_shell_segment_for_deny_or_ask(
+    tokens: list[str],
+    *,
+    strip_output_redirections: bool,
+) -> str:
     index = 0
     previous_index = -1
     while index != previous_index and index < len(tokens):
@@ -94,10 +109,14 @@ def _normalize_shell_segment_for_deny_or_ask(tokens: list[str]) -> str:
         while index < len(tokens) and _is_env_assignment(tokens[index]):
             index += 1
         index = _skip_safe_shell_wrapper(tokens, index)
-    return " ".join(_strip_simple_output_redirections(tokens[index:])).strip()
+    return _join_shell_tokens(tokens[index:], strip_output_redirections=strip_output_redirections)
 
 
-def _normalize_shell_segment_for_allow(tokens: list[str]) -> str:
+def _normalize_shell_segment_for_allow(
+    tokens: list[str],
+    *,
+    strip_output_redirections: bool,
+) -> str:
     index = 0
     while index < len(tokens) and _is_safe_env_assignment(tokens[index]):
         index += 1
@@ -106,7 +125,7 @@ def _normalize_shell_segment_for_allow(tokens: list[str]) -> str:
     while index != previous_index and index < len(tokens):
         previous_index = index
         index = _skip_safe_shell_wrapper(tokens, index)
-    return " ".join(_strip_simple_output_redirections(tokens[index:])).strip()
+    return _join_shell_tokens(tokens[index:], strip_output_redirections=strip_output_redirections)
 
 
 def _skip_safe_shell_wrapper(tokens: list[str], index: int) -> int:
@@ -181,6 +200,11 @@ def _skip_stdbuf_wrapper(tokens: list[str], index: int) -> int:
 
 def _skip_optional_double_dash(tokens: list[str], index: int) -> int:
     return index + 1 if index < len(tokens) and tokens[index] == "--" else index
+
+
+def _join_shell_tokens(tokens: list[str], *, strip_output_redirections: bool) -> str:
+    normalized = _strip_simple_output_redirections(tokens) if strip_output_redirections else tokens
+    return " ".join(normalized).strip()
 
 
 def _strip_simple_output_redirections(tokens: list[str]) -> list[str]:
