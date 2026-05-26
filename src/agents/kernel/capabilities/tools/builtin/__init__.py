@@ -74,7 +74,15 @@ from agents.kernel.capabilities.tools.builtin.hooks import (
     hook_list,
 )
 from agents.kernel.capabilities.tools.builtin.lsp import LSP_QUERY_SCHEMA, format_lsp_result, lsp_query, notify_lsp_file_saved
-from agents.kernel.capabilities.tools.builtin.meta import SKILL_DISCOVER_SCHEMA, TOOL_SEARCH_SCHEMA, skill_discover, tool_search
+from agents.kernel.capabilities.tools.builtin.meta import (
+    SKILL_DISCOVER_SCHEMA,
+    SRC_ORIGIN_TOOL_SEARCH_SCHEMA,
+    TOOL_SEARCH_SCHEMA,
+    format_src_origin_tool_search_result,
+    skill_discover,
+    src_origin_tool_search,
+    tool_search,
+)
 from agents.kernel.capabilities.tools.builtin.memory import (
     MEMORY_ADD_SCHEMA,
     MEMORY_EDIT_SCHEMA,
@@ -431,6 +439,8 @@ __all__ = [
     "TODO_READ_SCHEMA",
     "TODO_WRITE_SCHEMA",
     "format_todo_write_result",
+    "format_src_origin_tool_search_result",
+    "SRC_ORIGIN_TOOL_SEARCH_SCHEMA",
     "TOOL_SEARCH_SCHEMA",
     "USER_MESSAGE_SCHEMA",
     "TEST_DISCOVER_SCHEMA",
@@ -562,6 +572,7 @@ __all__ = [
     "src_origin_task_output",
     "src_origin_task_stop",
     "src_origin_task_update",
+    "src_origin_tool_search",
     "src_origin_web_fetch",
     "src_origin_web_search",
     "task_background",

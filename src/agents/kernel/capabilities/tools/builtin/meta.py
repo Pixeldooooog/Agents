@@ -18,6 +18,16 @@ TOOL_SEARCH_SCHEMA = {
     },
 }
 
+SRC_ORIGIN_TOOL_SEARCH_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "query": {"type": "string", "description": "Deferred tool name or keyword query."},
+        "max_results": {"type": "integer", "minimum": 1, "maximum": 50},
+    },
+    "required": ["query"],
+    "additionalProperties": False,
+}
+
 SKILL_DISCOVER_SCHEMA = {
     "type": "object",
     "properties": {
@@ -47,6 +57,33 @@ async def tool_search(
         "total_registered_tools": len(registry.names()),
         "total_enabled_tools": len(enabled),
     }
+
+
+async def src_origin_tool_search(
+    _context: ToolRuntimeContext,
+    registry: ToolRegistry,
+    query: str,
+    max_results: int = 5,
+) -> dict[str, Any]:
+    specs = registry.specs()
+    deferred_specs = [spec for spec in specs if _metadata(spec).get("defer") is True]
+    return {
+        "query": str(query or ""),
+        "matches": _src_origin_tool_matches(specs, deferred_specs, query=query, max_results=max_results),
+        "total_deferred_tools": len(deferred_specs),
+    }
+
+
+def format_src_origin_tool_search_result(result: Any) -> str:
+    if not isinstance(result, dict):
+        return str(result)
+    matches = [str(name) for name in result.get("matches") or []]
+    if matches:
+        return "\n".join(matches)
+    pending_servers = [str(server) for server in result.get("pending_mcp_servers") or []]
+    if pending_servers:
+        return "No matching deferred tools found\nPending MCP servers: " + ", ".join(pending_servers)
+    return "No matching deferred tools found"
 
 
 async def skill_discover(
@@ -104,6 +141,39 @@ def _ranked_skill_matches(manifests: list[dict[str, Any]], *, query: str, max_re
         selected.append((score, str(manifest.get("name") or ""), manifest))
     selected.sort(key=lambda item: (-item[0], item[1]))
     return [manifest for _, _, manifest in selected[: _limit(max_results)]]
+
+
+def _src_origin_tool_matches(
+    specs: list[Any],
+    deferred_specs: list[Any],
+    *,
+    query: str,
+    max_results: int,
+) -> list[str]:
+    selected_names = _select_names(query)
+    if selected_names:
+        return _select_tool_names([*deferred_specs, *specs], selected_names, max_results=max_results)
+    return [
+        match["name"]
+        for match in _ranked_tool_matches(deferred_specs, query=query, max_results=max_results, enabled=set())
+    ]
+
+
+def _select_tool_names(specs: list[Any], names: list[str], *, max_results: int) -> list[str]:
+    lookup: dict[str, str] = {}
+    for spec in specs:
+        lookup.setdefault(spec.name.lower(), spec.name)
+    selected: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        match = lookup.get(name.lower())
+        if match is None or match in seen:
+            continue
+        selected.append(match)
+        seen.add(match)
+        if len(selected) >= _limit(max_results):
+            break
+    return selected
 
 
 def _skill_manifests(context: ToolRuntimeContext, *, include_prompt: bool) -> list[dict[str, Any]]:
@@ -211,6 +281,14 @@ def _query_terms(query: str) -> list[str]:
 def _select_exact(query: str) -> str:
     value = str(query or "").strip().lower()
     return value.removeprefix("select:").strip() if value.startswith("select:") else ""
+
+
+def _select_names(query: str) -> list[str]:
+    value = str(query or "").strip()
+    if not value.lower().startswith("select:"):
+        return []
+    selected = value.split(":", 1)[1]
+    return [name.strip() for name in selected.split(",") if name.strip()]
 
 
 def _limit(value: int) -> int:

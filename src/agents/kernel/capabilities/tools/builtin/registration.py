@@ -78,7 +78,15 @@ from agents.kernel.capabilities.tools.builtin.hooks import (
     hook_list,
 )
 from agents.kernel.capabilities.tools.builtin.lsp import LSP_QUERY_SCHEMA, format_lsp_result, lsp_query
-from agents.kernel.capabilities.tools.builtin.meta import SKILL_DISCOVER_SCHEMA, TOOL_SEARCH_SCHEMA, skill_discover, tool_search
+from agents.kernel.capabilities.tools.builtin.meta import (
+    SKILL_DISCOVER_SCHEMA,
+    SRC_ORIGIN_TOOL_SEARCH_SCHEMA,
+    TOOL_SEARCH_SCHEMA,
+    format_src_origin_tool_search_result,
+    skill_discover,
+    src_origin_tool_search,
+    tool_search,
+)
 from agents.kernel.capabilities.tools.builtin.memory import (
     MEMORY_ADD_SCHEMA,
     MEMORY_EDIT_SCHEMA,
@@ -1657,19 +1665,20 @@ def _register_src_origin_aliases(
         registry,
         name="ToolSearch",
         description="Search registered tools. src-origin alias for tool.search.",
-        parameters=TOOL_SEARCH_SCHEMA,
-        handler=lambda query="", max_results=5, include_all=False: tool_search(
+        parameters=SRC_ORIGIN_TOOL_SEARCH_SCHEMA,
+        handler=lambda query, max_results=5: src_origin_tool_search(
             context,
             registry,
             query=query,
             max_results=max_results,
-            include_all=include_all,
         ),
-        metadata={"risk": "low", "alias_of": "tool.search", "src_origin_tool": "ToolSearch"},
+        metadata={"risk": "low", "defer": True, "alias_of": "tool.search", "src_origin_tool": "ToolSearch"},
         read_only=True,
+        max_result_size_chars=100000,
         activity_kind="state",
         activity_title="Search tools",
         activity_target_argument="query",
+        result_formatter=format_src_origin_tool_search_result,
     )
     _register_builtin_tool(
         registry,
