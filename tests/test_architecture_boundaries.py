@@ -195,6 +195,23 @@ def test_sdk_transports_stay_split_by_protocol():
         assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
 
 
+def test_bridge_slash_commands_stay_split_by_domain():
+    bridge_root = ROOT / "src" / "agents" / "interfaces" / "bridge"
+    for module in ["common", "tasks", "schedules", "workflows"]:
+        assert importlib.util.find_spec(f"agents.interfaces.bridge.slash_commands.{module}") is not None
+
+    limits = {
+        bridge_root / "slash.py": 2200,
+        bridge_root / "slash_commands" / "common.py": 180,
+        bridge_root / "slash_commands" / "tasks.py": 420,
+        bridge_root / "slash_commands" / "schedules.py": 180,
+        bridge_root / "slash_commands" / "workflows.py": 300,
+    }
+
+    for path, max_lines in limits.items():
+        assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
+
+
 def test_agent_models_split_protocol_adapters_and_transports():
     assert importlib.util.find_spec("agents.kernel.models.adapters") is not None
     assert importlib.util.find_spec("agents.kernel.models.protocol") is not None

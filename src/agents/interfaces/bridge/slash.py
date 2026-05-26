@@ -13,13 +13,6 @@ from uuid import uuid4
 from agents.kernel.capabilities.memory import MemoryScope
 from agents.kernel.capabilities.skills import SkillLoader
 from agents.kernel.capabilities.tools.builtin.memory import memory_add, memory_edit, memory_forget
-from agents.kernel.capabilities.tools.builtin.workflows import (
-    workflow_delete,
-    workflow_read,
-    workflow_run_saved,
-    workflow_save,
-    workflow_validate,
-)
 from agents.kernel.capabilities.tools.builtin.commands import (
     command_delete,
     command_read,
@@ -34,23 +27,13 @@ from agents.kernel.capabilities.tools.builtin.permissions import permission_add_
 from agents.kernel.capabilities.tools.builtin.plugins import plugin_install, plugin_uninstall
 from agents.kernel.capabilities.tools.builtin.prompts import prompt_delete, prompt_render, prompt_save
 from agents.kernel.capabilities.tools.builtin.session_context import session_summary
-from agents.kernel.capabilities.tools.builtin.schedules import (
-    schedule_create,
-    schedule_delete,
-    schedule_list,
-    schedule_run,
-)
-from agents.kernel.assembly.session import create_agent_session_async
 from agents.kernel.config import resolve_model_profile
 from agents.kernel.context import ContextLayer, ContextTraceItem
 from agents.kernel.governance import build_tool_permission_policy
 from agents.kernel.governance.permissions import ToolPermissionDecision
 from agents.kernel.schema import ToolCall
 from agents.kernel.session_state import save_session_state
-from agents.kernel.specs import AgentSpec
 from agents.kernel.state import AgentProfile
-from agents.kernel.tasks import InMemoryTaskQueue, TaskEngine, TaskQueue, TaskRunner, TaskStatus, TaskStepStatus
-from agents.platform.sessions import RunService
 from agents.platform.profiles import permission_settings
 from agents.interfaces.bridge.payloads import (
     agents_payload,
@@ -69,23 +52,32 @@ from agents.interfaces.bridge.payloads import (
     plugins_payload,
     prompt_payload,
     runtime_payload,
-    schedules_payload,
     session_records_payload,
     session_payload,
     short_session_id,
     skills_payload,
     status_payload,
-    tasks_payload,
     todo_payload,
     trace_payload,
     tools_payload,
     workspace_payload,
-    workflows_payload,
 )
 from agents.interfaces.bridge.sessions import save_session_snapshot
+from agents.interfaces.bridge.slash_commands.common import (
+    BridgeWriter,
+    agent_spec_for_state as _agent_spec_for_state,
+    create_session_from_agent_profile as _create_session_from_agent_profile,
+    error_message as _error_message,
+    merge_unique as _merge_unique,
+    split_once as _split_once,
+    split_once_preserve as _split_once_preserve,
+    tool_context as _tool_context,
+)
+from agents.interfaces.bridge.slash_commands.schedules import handle_schedules_command as _handle_schedules_command
+from agents.interfaces.bridge.slash_commands.tasks import handle_tasks_command as _handle_tasks_command
+from agents.interfaces.bridge.slash_commands.workflows import handle_workflows_command as _handle_workflows_command
 from agents.interfaces.bridge.workspace_diff import diff_rows
 
-BridgeWriter = Callable[[dict[str, Any]], None]
 MakeSession = Callable[..., Awaitable[Any]]
 CloseSessionModelClient = Callable[[Any], Awaitable[None]]
 
@@ -1133,55 +1125,6 @@ async def _handle_memory_command(state: Any, argument: str, *, write: BridgeWrit
     write({"type": "error", "message": "unknown memory command: %s" % action})
 
 
-async def _handle_tasks_command(state: Any, argument: str, *, write: BridgeWriter) -> None:
-    action, rest = _split_once(argument)
-    if not action:
-        write({"type": "tasks", "tasks": await tasks_payload(state)})
-        return
-    if action == "create":
-        await _handle_task_create(state, rest, write=write)
-        return
-    if action == "run":
-        await _handle_task_run(state, rest, write=write)
-        return
-    if action in {"start", "background", "bg"}:
-        await _handle_task_start_background(state, rest, write=write)
-        return
-    if action == "enqueue":
-        await _handle_task_enqueue(state, rest, write=write)
-        return
-    if action == "queue":
-        write({"type": "task_queue", "queue": await _task_queue_payload(state)})
-        return
-    if action == "drain":
-        await _handle_task_drain(state, rest, write=write)
-        return
-    if action == "cancel":
-        await _handle_task_cancel(state, rest, write=write)
-        return
-    write({"type": "error", "message": "unknown tasks command: %s" % action})
-
-
-async def _handle_schedules_command(state: Any, argument: str, *, write: BridgeWriter) -> None:
-    action, rest = _split_once(argument)
-    if not action or action in {"list", "ls"}:
-        await _write_schedules(state, write=write)
-        return
-    if action == "create":
-        await _handle_schedule_create(state, rest, write=write)
-        return
-    if action in {"delete", "remove", "rm", "cancel"}:
-        await _handle_schedule_delete(state, rest, write=write)
-        return
-    if action == "run":
-        await _handle_schedule_run(state, rest, background=False, write=write)
-        return
-    if action in {"start", "background", "bg"}:
-        await _handle_schedule_run(state, rest, background=True, write=write)
-        return
-    write({"type": "error", "message": "unknown schedules command: %s" % action})
-
-
 async def _handle_hooks_command(state: Any, argument: str, *, write: BridgeWriter) -> None:
     action, rest = _split_once(argument)
     if not action or action in {"list", "ls"}:
@@ -1247,78 +1190,6 @@ async def _write_hooks(state: Any, *, write: BridgeWriter) -> None:
     write({"type": "hooks", "hooks": hooks_payload(state)})
 
 
-async def _handle_schedule_create(state: Any, rest: str, *, write: BridgeWriter) -> None:
-    context = _tool_context(state)
-    if context is None:
-        write({"type": "error", "message": "tool context is not available"})
-        return
-    title, schedule, input_text = _parse_schedule_create(rest)
-    if not title or not schedule:
-        write({"type": "error", "message": "usage: /schedules create <title> -- <schedule> [-- input]"})
-        return
-    try:
-        payload = await schedule_create(
-            context,
-            title=title,
-            schedule=schedule,
-            input=input_text,
-            metadata={"source": "terminal"},
-        )
-    except Exception as exc:  # noqa: BLE001 - validation errors should be slash output.
-        write({"type": "error", "message": "schedule create failed: %s" % exc})
-        return
-    write({"type": "notice", "message": "schedule created: %s" % payload["schedule"]["short_id"]})
-    write({"type": "schedules", "schedules": schedules_payload(state)})
-
-
-async def _handle_schedule_delete(state: Any, rest: str, *, write: BridgeWriter) -> None:
-    context = _tool_context(state)
-    target = rest.strip()
-    if context is None:
-        write({"type": "error", "message": "tool context is not available"})
-        return
-    if not target:
-        write({"type": "error", "message": "usage: /schedules delete <id>"})
-        return
-    try:
-        payload = await schedule_delete(context, target)
-    except Exception as exc:  # noqa: BLE001 - lookup errors should be slash output.
-        write({"type": "error", "message": "schedule delete failed: %s" % exc})
-        return
-    if not payload.get("deleted"):
-        write({"type": "error", "message": "schedule not found: %s" % target})
-        return
-    write({"type": "notice", "message": "schedule deleted: %s" % payload["schedule"]["short_id"]})
-    write({"type": "schedules", "schedules": schedules_payload(state)})
-
-
-async def _handle_schedule_run(state: Any, rest: str, *, background: bool, write: BridgeWriter) -> None:
-    context = _tool_context(state)
-    target = rest.strip()
-    if context is None:
-        write({"type": "error", "message": "tool context is not available"})
-        return
-    if not target:
-        write({"type": "error", "message": "usage: /schedules %s <id>" % ("start" if background else "run")})
-        return
-    try:
-        payload = await schedule_run(context, target, background=background)
-    except Exception as exc:  # noqa: BLE001 - task/schedule failures should be slash output.
-        write({"type": "error", "message": "schedule run failed: %s" % exc})
-        return
-    mode = "started" if background else "queued"
-    write({"type": "notice", "message": "schedule %s: %s" % (mode, _short_task_id(payload["task"]["task_id"]))})
-    write({"type": "schedules", "schedules": schedules_payload(state)})
-    write({"type": "tasks", "tasks": await tasks_payload(state)})
-
-
-async def _write_schedules(state: Any, *, write: BridgeWriter) -> None:
-    context = _tool_context(state)
-    if context is not None:
-        await schedule_list(context, limit=30)
-    write({"type": "schedules", "schedules": schedules_payload(state)})
-
-
 async def _handle_todo_command(state: Any, argument: str, *, write: BridgeWriter) -> None:
     action, _ = _split_once(argument)
     context = _tool_context(state)
@@ -1367,136 +1238,6 @@ async def _handle_plan_command(state: Any, argument: str, *, write: BridgeWriter
         write({"type": "plan", "plan": plan_payload(state)})
         return
     write({"type": "error", "message": "unknown plan command: %s" % action})
-
-
-async def _handle_workflows_command(state: Any, argument: str, *, write: BridgeWriter) -> None:
-    action, rest = _split_once(argument)
-    if not action or action in {"list", "ls"}:
-        write({"type": "workflows", "workflows": workflows_payload(state)})
-        return
-    if action in {"read", "show", "view"}:
-        _handle_workflow_read(state, rest, write=write)
-        return
-    if action == "save":
-        _handle_workflow_save(state, rest, write=write)
-        return
-    if action in {"delete", "remove", "rm"}:
-        _handle_workflow_delete(state, rest, write=write)
-        return
-    if action in {"run", "start"}:
-        await _handle_workflow_run(state, rest, write=write)
-        return
-    if action == "validate":
-        await _handle_workflow_validate(state, rest, write=write)
-        return
-    write({"type": "error", "message": "unknown workflows command: %s" % action})
-
-
-def _handle_workflow_read(state: Any, rest: str, *, write: BridgeWriter) -> None:
-    context = _tool_context(state)
-    name = rest.strip()
-    if context is None:
-        write({"type": "error", "message": "tool context is not available"})
-        return
-    if not name:
-        write({"type": "error", "message": "usage: /workflows read <name>"})
-        return
-    try:
-        payload = workflow_read(context, name)
-    except Exception as exc:  # noqa: BLE001 - slash commands should surface file/validation errors.
-        write({"type": "error", "message": "workflow read failed: %s" % exc})
-        return
-    write({"type": "workflows", "workflows": _workflow_detail_rows(payload)})
-
-
-def _handle_workflow_save(state: Any, rest: str, *, write: BridgeWriter) -> None:
-    context = _tool_context(state)
-    name, content = _split_once_preserve(rest)
-    if context is None:
-        write({"type": "error", "message": "tool context is not available"})
-        return
-    if not name or not content.strip():
-        write({"type": "error", "message": "usage: /workflows save <name> <workflow_json>"})
-        return
-    try:
-        payload = _parse_workflow_json_arg(content)
-        saved = workflow_save(
-            context,
-            name=name,
-            workflow_id=str(payload.get("workflow_id") or name),
-            nodes=list(payload.get("nodes") or []),
-            edges=list(payload.get("edges") or []),
-            metadata=dict(payload.get("metadata") or {}),
-            overwrite=bool(payload.get("overwrite", False)),
-        )
-    except Exception as exc:  # noqa: BLE001 - validation and sandbox errors are command output.
-        write({"type": "error", "message": "workflow save failed: %s" % exc})
-        return
-    write({"type": "notice", "message": "workflow saved: %s" % saved["name"]})
-    write({"type": "workflows", "workflows": workflows_payload(state)})
-
-
-def _handle_workflow_delete(state: Any, rest: str, *, write: BridgeWriter) -> None:
-    context = _tool_context(state)
-    name = rest.strip()
-    if context is None:
-        write({"type": "error", "message": "tool context is not available"})
-        return
-    if not name:
-        write({"type": "error", "message": "usage: /workflows delete <name>"})
-        return
-    try:
-        deleted = workflow_delete(context, name)
-    except Exception as exc:  # noqa: BLE001 - validation and sandbox errors are command output.
-        write({"type": "error", "message": "workflow delete failed: %s" % exc})
-        return
-    if not deleted.get("deleted"):
-        write({"type": "error", "message": "workflow not found: %s" % deleted["name"]})
-        return
-    write({"type": "notice", "message": "workflow deleted: %s" % deleted["name"]})
-    write({"type": "workflows", "workflows": workflows_payload(state)})
-
-
-async def _handle_workflow_run(state: Any, rest: str, *, write: BridgeWriter) -> None:
-    context = _tool_context(state)
-    name = rest.strip()
-    if context is None:
-        write({"type": "error", "message": "tool context is not available"})
-        return
-    if not name:
-        write({"type": "error", "message": "usage: /workflows run <name>"})
-        return
-    try:
-        result = await workflow_run_saved(context, name)
-    except Exception as exc:  # noqa: BLE001 - workflow runtime failures are command output.
-        write({"type": "error", "message": "workflow run failed: %s" % exc})
-        return
-    write({"type": "notice", "message": "workflow %s: %s" % (result["name"], result["status"])})
-    write({"type": "workflows", "workflows": _workflow_result_rows(result)})
-
-
-async def _handle_workflow_validate(state: Any, rest: str, *, write: BridgeWriter) -> None:
-    context = _tool_context(state)
-    name = rest.strip()
-    if context is None:
-        write({"type": "error", "message": "tool context is not available"})
-        return
-    if not name:
-        write({"type": "error", "message": "usage: /workflows validate <name>"})
-        return
-    try:
-        payload = workflow_read(context, name)["workflow"]
-        validated = await workflow_validate(
-            context,
-            nodes=list(payload.get("nodes") or []),
-            workflow_id=str(payload.get("workflow_id") or name),
-            edges=list(payload.get("edges") or []),
-            metadata=dict(payload.get("metadata") or {}),
-        )
-    except Exception as exc:  # noqa: BLE001 - validation errors are command output.
-        write({"type": "error", "message": "workflow validation failed: %s" % exc})
-        return
-    write({"type": "workflows", "workflows": [["order", " -> ".join(validated["order"])], ["nodes", str(len(validated["nodes"]))]]})
 
 
 async def _handle_agents_command(
@@ -1576,264 +1317,6 @@ async def _handle_agent_use(
     write({"type": "permissions", "permissions": permissions_payload(state)})
 
 
-async def _handle_task_create(state: Any, rest: str, *, write: BridgeWriter) -> None:
-    store = getattr(getattr(state, "persistence", None), "tasks", None)
-    if store is None or not hasattr(store, "create_task"):
-        write({"type": "error", "message": "task store is not available"})
-        return
-    title, input_text = _parse_task_create(rest)
-    if not title:
-        write({"type": "error", "message": "usage: /tasks create <title> -- <input>"})
-        return
-    task = await store.create_task(_agent_spec_for_state(state), title=title, input=input_text or title, metadata={"source": "terminal"})
-    write({"type": "notice", "message": "task created: %s" % _short_task_id(task.task_id)})
-    write({"type": "tasks", "tasks": await tasks_payload(state)})
-
-
-async def _handle_task_cancel(state: Any, rest: str, *, write: BridgeWriter) -> None:
-    store = getattr(getattr(state, "persistence", None), "tasks", None)
-    target = rest.strip()
-    if store is None or not hasattr(store, "list_tasks") or not hasattr(store, "set_task_status"):
-        write({"type": "error", "message": "task store is not available"})
-        return
-    if not target:
-        write({"type": "error", "message": "usage: /tasks cancel <id>"})
-        return
-    matches = await _matching_tasks(state, store, target, write=write)
-    if matches is None:
-        return
-    if not matches:
-        write({"type": "error", "message": "task not found: %s" % target})
-        return
-    if len(matches) > 1:
-        write({"type": "error", "message": "task id is ambiguous: %s" % target})
-        return
-    updated = await TaskEngine(store).cancel_task(matches[0].task_id)
-    background = _background_task_handles(state).pop(matches[0].task_id, None)
-    if background is not None and not background.done():
-        background.cancel()
-    write({"type": "notice", "message": "task canceled: %s" % _short_task_id(matches[0].task_id)})
-    write({"type": "tasks", "tasks": await tasks_payload(state)})
-
-
-async def _handle_task_start_background(state: Any, rest: str, *, write: BridgeWriter) -> None:
-    store = getattr(getattr(state, "persistence", None), "tasks", None)
-    target = rest.strip()
-    if store is None or not hasattr(store, "list_tasks"):
-        write({"type": "error", "message": "task store is not available"})
-        return
-    if not target:
-        write({"type": "error", "message": "usage: /tasks start <id>"})
-        return
-    matches = await _matching_tasks(state, store, target, write=write)
-    if matches is None:
-        return
-    if not matches:
-        write({"type": "error", "message": "task not found: %s" % target})
-        return
-    if len(matches) > 1:
-        write({"type": "error", "message": "task id is ambiguous: %s" % target})
-        return
-    task = matches[0]
-    handles = _background_task_handles(state)
-    existing = handles.get(task.task_id)
-    if existing is not None and not existing.done():
-        write({"type": "error", "message": "task already running in background: %s" % _short_task_id(task.task_id)})
-        return
-    handles[task.task_id] = asyncio.create_task(_run_task_background(state, task.task_id, write=write))
-    write({"type": "notice", "message": "task started in background: %s" % _short_task_id(task.task_id)})
-    write({"type": "tasks", "tasks": await tasks_payload(state)})
-
-
-async def _handle_task_enqueue(state: Any, rest: str, *, write: BridgeWriter) -> None:
-    store = getattr(getattr(state, "persistence", None), "tasks", None)
-    target = rest.strip()
-    if store is None or not hasattr(store, "list_tasks"):
-        write({"type": "error", "message": "task store is not available"})
-        return
-    if not target:
-        write({"type": "error", "message": "usage: /tasks enqueue <id>"})
-        return
-    matches = await _matching_tasks(state, store, target, write=write)
-    if matches is None:
-        return
-    if not matches:
-        write({"type": "error", "message": "task not found: %s" % target})
-        return
-    if len(matches) > 1:
-        write({"type": "error", "message": "task id is ambiguous: %s" % target})
-        return
-    task = matches[0]
-    await _task_queue(state).enqueue(task.task_id, metadata={"source": "terminal"}, **_task_queue_scope(state))
-    write({"type": "notice", "message": "task queued: %s" % _short_task_id(task.task_id)})
-    write({"type": "task_queue", "queue": await _task_queue_payload(state)})
-
-
-async def _handle_task_drain(state: Any, rest: str, *, write: BridgeWriter) -> None:
-    queue = _task_queue(state)
-    limit = parse_positive_int(rest)
-    if rest.strip() and limit is None:
-        write({"type": "error", "message": "usage: /tasks drain [limit]"})
-        return
-    ran = 0
-    while limit is None or ran < limit:
-        item = await queue.dequeue(**_task_queue_scope(state))
-        if item is None:
-            break
-        await _handle_task_run(state, item.task_id, write=write)
-        ran += 1
-    write({"type": "notice", "message": "task queue drained: %d" % ran})
-    write({"type": "task_queue", "queue": await _task_queue_payload(state)})
-
-
-async def _handle_task_run(state: Any, rest: str, *, write: BridgeWriter) -> None:
-    store = getattr(getattr(state, "persistence", None), "tasks", None)
-    target = rest.strip()
-    if store is None or not hasattr(store, "list_tasks"):
-        write({"type": "error", "message": "task store is not available"})
-        return
-    if not target:
-        write({"type": "error", "message": "usage: /tasks run <id>"})
-        return
-    matches = await _matching_tasks(state, store, target, write=write)
-    if matches is None:
-        return
-    if not matches:
-        write({"type": "error", "message": "task not found: %s" % target})
-        return
-    if len(matches) > 1:
-        write({"type": "error", "message": "task id is ambiguous: %s" % target})
-        return
-    task = matches[0]
-    engine = TaskEngine(store)
-    run_id = "run_%s" % uuid4().hex
-    step = await engine.add_step(task.task_id, name="terminal", input=task.input, run_id=run_id, metadata={"source": "terminal"})
-    await engine.start_step(step.step_id, run_id=run_id)
-    write({"type": "turn_started", "run_id": run_id})
-    try:
-        result = await state.session.send(step.input, run_id=run_id, task_id=task.task_id)
-    except Exception as exc:
-        await engine.fail_step(step.step_id, str(exc))
-        write({"type": "runtime_event", "event": {"type": "error", "name": "task", "payload": {"message": str(exc)}}})
-        write({"type": "turn_finished", "status": "error", "run_id": run_id})
-        write({"type": "tasks", "tasks": await tasks_payload(state)})
-        return
-    for event in result.events:
-        write({"type": "runtime_event", "event": event.to_dict()})
-    status = _task_result_status(result)
-    if status == "awaiting_approval":
-        await store.update_step_status(step.step_id, TaskStepStatus.AWAITING_APPROVAL)
-        await store.set_task_status(task.task_id, TaskStatus.AWAITING_APPROVAL)
-    elif status == "finished":
-        await engine.finish_step(step.step_id, output=result.content)
-        await engine.finish_task(task.task_id)
-    else:
-        await engine.fail_step(step.step_id, result.content or "task failed")
-    save_session_snapshot(state)
-    write({"type": "turn_finished", "status": status, "run_id": run_id})
-    write({"type": "tasks", "tasks": await tasks_payload(state)})
-
-
-def _task_queue(state: Any) -> TaskQueue:
-    persistent_queue = getattr(getattr(state, "persistence", None), "task_queue", None)
-    if persistent_queue is not None:
-        return persistent_queue
-    queue = getattr(state, "task_queue", None)
-    if queue is None:
-        queue = InMemoryTaskQueue()
-        setattr(state, "task_queue", queue)
-    return queue
-
-
-def _background_task_handles(state: Any) -> dict[str, asyncio.Task]:
-    handles = getattr(state, "background_tasks", None)
-    if handles is None:
-        handles = {}
-        setattr(state, "background_tasks", handles)
-    return handles
-
-
-async def _run_task_background(state: Any, task_id: str, *, write: BridgeWriter) -> None:
-    store = getattr(getattr(state, "persistence", None), "tasks", None)
-    if store is None:
-        write({"type": "error", "message": "task store is not available"})
-        return
-    try:
-        result = await TaskRunner(store, _task_run_service(state), _task_session_factory(state)).run_task(task_id)
-    except asyncio.CancelledError:
-        write({"type": "notice", "message": "background task canceled: %s" % _short_task_id(task_id)})
-        write({"type": "tasks", "tasks": await tasks_payload(state)})
-        return
-    except Exception as exc:  # noqa: BLE001 - background task failures must be surfaced in the TUI.
-        write({"type": "runtime_event", "event": {"type": "error", "name": "task", "payload": {"message": str(exc)}}})
-        write({"type": "notice", "message": "background task failed: %s" % _short_task_id(task_id)})
-        write({"type": "tasks", "tasks": await tasks_payload(state)})
-        return
-    finally:
-        handle = _background_task_handles(state).get(task_id)
-        if handle is asyncio.current_task():
-            _background_task_handles(state).pop(task_id, None)
-    write(
-        {
-            "type": "notice",
-            "message": "background task finished: %s · %s" % (_short_task_id(task_id), result.result.status),
-        }
-    )
-    write({"type": "tasks", "tasks": await tasks_payload(state)})
-
-
-def _task_run_service(state: Any) -> RunService:
-    service = getattr(state, "task_run_service", None)
-    if service is not None:
-        return service
-    persistence = getattr(state, "persistence", None)
-    service = RunService(
-        getattr(persistence, "runs", None),
-        sandbox_store=getattr(persistence, "sandboxes", None),
-    )
-    setattr(state, "task_run_service", service)
-    return service
-
-
-def _task_session_factory(state: Any):
-    factory = getattr(state, "task_session_factory", None)
-    if factory is not None:
-        return factory
-    return _BridgeTaskSessionFactory(state)
-
-
-class _BridgeTaskSessionFactory:
-    def __init__(self, state: Any):
-        self.state = state
-
-    async def create(self, task: Any) -> Any:
-        return await _create_session_from_agent_profile(self.state, task.to_agent_spec())
-
-
-async def _task_queue_payload(state: Any) -> list[tuple[str, str]]:
-    rows: list[tuple[str, str]] = []
-    store = getattr(getattr(state, "persistence", None), "tasks", None)
-    for index, item in enumerate(await _task_queue(state).items(**_task_queue_scope(state)), start=1):
-        details = item.metadata.get("source", "terminal")
-        if store is not None and hasattr(store, "load_task"):
-            task = await store.load_task(item.task_id)
-            if task is not None:
-                status = getattr(task.status, "value", str(task.status))
-                details = "%s · %s" % (task.title, status)
-        rows.append((_short_task_id(item.task_id), "#%d · %s" % (index, details)))
-    return rows or [("queue", "empty")]
-
-
-def _task_queue_scope(state: Any) -> dict[str, str]:
-    workspace = getattr(getattr(state, "session", None), "workspace", None)
-    return {
-        "tenant_id": str(getattr(workspace, "tenant_id", "") or ""),
-        "user_id": str(getattr(workspace, "user_id", "") or ""),
-        "agent_id": str(getattr(workspace, "agent_id", "") or ""),
-        "workspace_id": str(getattr(workspace, "workspace_id", "") or ""),
-    }
-
-
 async def _handle_memory_add(state: Any, rest: str, *, write: BridgeWriter) -> None:
     workspace = getattr(state.session, "workspace", None)
     if workspace is None or not getattr(workspace, "tenant_id", "") or not getattr(workspace, "user_id", ""):
@@ -1891,10 +1374,6 @@ def _memory_tool_context(state: Any) -> Any:
             context.memory_store = store
         return context
     return SimpleNamespace(workspace=getattr(getattr(state, "session", None), "workspace", None), memory_store=store)
-
-
-def _error_message(exc: Exception) -> str:
-    return str(exc).strip("'") or exc.__class__.__name__
 
 
 def _parse_memory_add(rest: str, workspace: Any) -> tuple[MemoryScope, str]:
@@ -1960,27 +1439,6 @@ def _set_runtime_permission_policy(state: Any) -> None:
     if orchestrator is None:
         return
     orchestrator.permission_policy = build_tool_permission_policy(_agent_spec_for_state(state))
-
-
-async def _create_session_from_agent_profile(state: Any, spec: AgentSpec) -> Any:
-    persistence = getattr(state, "persistence", None)
-    return await create_agent_session_async(
-        state.settings,
-        spec=spec,
-        checkpoint_store=getattr(persistence, "checkpoints", None),
-        memory_store=getattr(persistence, "memories", None),
-        schedule_store=getattr(persistence, "schedules", None),
-        team_store=getattr(persistence, "teams", None),
-        hook_store=getattr(persistence, "hooks", None),
-        mcp_config_store=getattr(persistence, "mcp_configs", None),
-        session_state_store=getattr(persistence, "session_states", None),
-        sandbox_store=getattr(persistence, "sandboxes", None),
-        artifact_store=getattr(persistence, "artifacts", None),
-        artifact_blob_store=getattr(persistence, "artifact_blobs", None),
-        task_store=getattr(persistence, "tasks", None),
-        run_service=_task_run_service(state),
-        agent_profile_store=getattr(persistence, "agent_profiles", None),
-    )
 
 
 def _append_skill_prompt(session: Any, skill_name: str, fragments: list[str]) -> None:
@@ -2265,68 +1723,11 @@ def _sync_permission_state_from_context(state: Any) -> None:
     state.approval_tools = [str(tool) for tool in list(getattr(context, "approval_required_tools_override", []) or [])]
 
 
-def _agent_spec_for_state(state: Any, *, agent_id: str = "") -> AgentSpec:
-    workspace = getattr(state.session, "workspace", None)
-    runtime = getattr(state.session, "runtime", None)
-    resolved_agent_id = agent_id or str(getattr(workspace, "agent_id", "") or "")
-    context = _tool_context(state)
-    denied_tools = [str(tool) for tool in list(getattr(context, "permission_denied_tools_override", []) or [])] if context is not None else []
-    approval_tools = [str(tool) for tool in list(getattr(state, "approval_tools", []) or [])]
-    if not approval_tools and context is not None:
-        approval_tools = [str(tool) for tool in list(getattr(context, "approval_required_tools_override", []) or [])]
-    permission_profile = str(getattr(state, "permission", "") or getattr(state, "permission_mode", "") or "auto")
-    permission_mode = str(getattr(state, "permission_mode", "") or permission_profile or "auto")
-    spec = AgentSpec.from_overrides(
-        protocol=str(getattr(runtime, "protocol", "") or ""),
-        model=str(getattr(runtime, "model", "") or ""),
-        enabled_tools=list(getattr(state, "active_tools", []) or []),
-        tenant_id=str(getattr(workspace, "tenant_id", "") or ""),
-        user_id=str(getattr(workspace, "user_id", "") or ""),
-        agent_id=resolved_agent_id,
-        workspace_id=str(getattr(workspace, "workspace_id", "") or ""),
-        workspace_path=str(getattr(workspace, "path", "") or getattr(state, "active_workspace", "") or ""),
-        permission_profile=permission_profile,
-        approval_required_tools=approval_tools,
-        denied_tools=denied_tools,
-    )
-    if spec.tool_permissions.mode != permission_mode:
-        spec = replace(spec, tool_permissions=replace(spec.tool_permissions, mode=permission_mode))
-    if context is None or not bool(getattr(context, "permission_restrict_allowed_tools", False)):
-        return spec
-    return replace(
-        spec,
-        tool_permissions=replace(
-            spec.tool_permissions,
-            allowed_tools=[str(tool) for tool in list(getattr(context, "permission_allowed_tools_override", []) or [])],
-        ),
-    )
-
-
 def _parse_permission_remove(rest: str) -> tuple[str, str]:
     behavior, tool = _split_once(rest)
     if behavior in {"allow", "deny", "ask"}:
         return behavior, tool.strip()
     return "", str(rest or "").strip()
-
-
-def _parse_task_create(rest: str) -> tuple[str, str]:
-    text = str(rest or "").strip()
-    if " -- " in text:
-        title, input_text = text.split(" -- ", 1)
-        return title.strip(), input_text.strip()
-    return text, text
-
-
-def _parse_schedule_create(rest: str) -> tuple[str, str, str]:
-    text = str(rest or "").strip()
-    if " -- " not in text:
-        return "", "", ""
-    parts = [part.strip() for part in text.split(" -- ")]
-    if len(parts) < 2:
-        return "", "", ""
-    title, schedule = parts[0], parts[1]
-    input_text = " -- ".join(parts[2:]).strip() if len(parts) > 2 else title
-    return title, schedule, input_text
 
 
 def _parse_hook_add(rest: str) -> tuple[str, str, str, str, str]:
@@ -2347,54 +1748,6 @@ def _parse_hook_add(rest: str) -> tuple[str, str, str, str, str]:
             name_tokens.append(token)
     name = " ".join(name_tokens).strip()
     return event.strip(), action.strip(), name, tool, content.strip()
-
-
-async def _matching_tasks(state: Any, store: Any, target: str, *, write: BridgeWriter) -> list[Any] | None:
-    workspace = getattr(state.session, "workspace", None)
-    if workspace is None or not getattr(workspace, "tenant_id", "") or not getattr(workspace, "user_id", ""):
-        write({"type": "error", "message": "task identity scope is not available"})
-        return None
-    tasks = await store.list_tasks(
-        workspace.tenant_id,
-        user_id=workspace.user_id,
-        agent_id=getattr(workspace, "agent_id", ""),
-    )
-    return [task for task in tasks if _task_id_matches(task.task_id, target)]
-
-
-def _task_result_status(result: Any) -> str:
-    if getattr(result, "status", "") == "awaiting_approval" or any(event.type == "tool_approval_required" for event in getattr(result, "events", []) or []):
-        return "awaiting_approval"
-    if getattr(result, "status", "") and getattr(result, "status", "") != "finished":
-        return str(getattr(result, "status"))
-    if any(event.type == "error" for event in getattr(result, "events", []) or []):
-        return "error"
-    return "finished"
-
-
-def _task_id_matches(task_id: str, target: str) -> bool:
-    normalized = str(target).strip()
-    short_id = _short_task_id(task_id)
-    return task_id == normalized or short_id == normalized or short_id.startswith(normalized)
-
-
-def _short_task_id(task_id: str) -> str:
-    return str(task_id).replace("task_", "", 1)[:12]
-
-
-def _merge_unique(*groups: list[str]) -> list[str]:
-    values: list[str] = []
-    seen: set[str] = set()
-    for group in groups:
-        for item in group:
-            if item and item not in seen:
-                seen.add(item)
-                values.append(item)
-    return values
-
-
-def _tool_context(state: Any) -> Any | None:
-    return getattr(getattr(state, "session", None), "tool_context", None)
 
 
 async def _execute_slash_tool(
@@ -2652,87 +2005,6 @@ def _prompt_delete_local(state: Any, name: str) -> dict[str, Any]:
     return {"name": name, "path": str(path), "deleted": True}
 
 
-def _parse_workflow_json_arg(value: str) -> dict[str, Any]:
-    raw = json.loads(value)
-    if isinstance(raw, list):
-        return {"nodes": raw}
-    if not isinstance(raw, dict):
-        raise ValueError("workflow JSON must be an object or node array")
-    if not isinstance(raw.get("nodes"), list):
-        raise ValueError("workflow JSON must include nodes")
-    return raw
-
-
-def _workflow_detail_rows(payload: dict[str, Any]) -> list[list[str]]:
-    workflow = dict(payload.get("workflow") or {})
-    rows = [
-        ["name", str(payload.get("name") or "")],
-        ["workflow_id", str(workflow.get("workflow_id") or "")],
-        ["path", str(payload.get("path") or "")],
-        ["nodes", str(len(workflow.get("nodes") or []))],
-    ]
-    metadata = workflow.get("metadata") if isinstance(workflow.get("metadata"), dict) else {}
-    if metadata:
-        rows.append(["metadata", ", ".join("%s=%s" % (key, value) for key, value in sorted(metadata.items()))])
-    for node in list(workflow.get("nodes") or [])[:20]:
-        if not isinstance(node, dict):
-            continue
-        detail = " · ".join(
-            part
-            for part in [
-                str(node.get("kind") or ""),
-                str(node.get("name") or ""),
-                _compact_workflow_text(str(node.get("input") or node.get("prompt") or "")),
-            ]
-            if part
-        )
-        rows.append([str(node.get("node_id") or "node"), detail])
-    return rows
-
-
-def _workflow_result_rows(result: dict[str, Any]) -> list[list[str]]:
-    workflow = dict(result.get("workflow") or {})
-    rows = [
-        ["workflow", str(workflow.get("workflow_id") or result.get("name") or "")],
-        ["status", str(result.get("status") or "")],
-    ]
-    for node_result in list(result.get("results") or [])[:30]:
-        if not isinstance(node_result, dict):
-            continue
-        detail = " · ".join(
-            part
-            for part in [
-                str(node_result.get("kind") or ""),
-                str(node_result.get("status") or ""),
-                _compact_workflow_text(str(node_result.get("content") or node_result.get("message") or node_result.get("error") or "")),
-            ]
-            if part
-        )
-        rows.append([str(node_result.get("node_id") or "node"), detail])
-    return rows
-
-
-def _compact_workflow_text(value: str, limit: int = 120) -> str:
-    text = " ".join(str(value or "").split())
-    if len(text) <= limit:
-        return text
-    return text[: limit - 3].rstrip() + "..."
-
-
 def _safe_file_stem(value: str) -> str:
     text = str(value or "").strip()
     return "".join(ch for ch in text if ch.isalnum() or ch in {"-", "_"}).strip("-_")
-
-
-def _split_once_preserve(value: str) -> tuple[str, str]:
-    parts = str(value or "").strip().split(maxsplit=1)
-    if not parts:
-        return "", ""
-    return parts[0], parts[1] if len(parts) > 1 else ""
-
-
-def _split_once(value: str) -> tuple[str, str]:
-    parts = str(value or "").strip().split(maxsplit=1)
-    if not parts:
-        return "", ""
-    return parts[0].lower(), parts[1] if len(parts) > 1 else ""

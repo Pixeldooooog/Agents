@@ -2548,7 +2548,7 @@ def test_ndjson_bridge_switches_to_saved_agent_profile(monkeypatch, tmp_path):
             ),
         )
 
-    monkeypatch.setattr("agents.interfaces.bridge.slash.create_agent_session_async", fake_create_agent_session_async)
+    monkeypatch.setattr("agents.interfaces.bridge.slash_commands.common.create_agent_session_async", fake_create_agent_session_async)
     state = ndjson.BridgeState(
         args=SimpleNamespace(),
         profile="coding",
