@@ -53,6 +53,12 @@ PLAN_ENTER_SCHEMA = {
     "properties": {},
 }
 
+SRC_ORIGIN_PLAN_ENTER_SCHEMA = {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": False,
+}
+
 PLAN_STATUS_SCHEMA = {
     "type": "object",
     "properties": {},
@@ -77,6 +83,29 @@ PLAN_EXIT_SCHEMA = {
         },
     },
     "required": ["plan"],
+}
+
+SRC_ORIGIN_PLAN_EXIT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "plan": {"type": "string", "description": "Concrete implementation plan to present before coding."},
+        "allowedPrompts": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "tool": {"type": "string"},
+                    "prompt": {"type": "string"},
+                },
+                "required": ["tool", "prompt"],
+                "additionalProperties": False,
+            },
+            "description": "Prompt-based permissions requested by the plan.",
+        },
+        "planFilePath": {"type": "string", "description": "Optional plan file path supplied by SDK normalization."},
+    },
+    "required": ["plan"],
+    "additionalProperties": False,
 }
 
 
@@ -115,6 +144,14 @@ async def plan_enter(context: ToolRuntimeContext) -> dict[str, Any]:
     }
 
 
+async def src_origin_plan_enter(context: ToolRuntimeContext) -> dict[str, Any]:
+    result = await plan_enter(context)
+    return {
+        **result,
+        "message": "Entered plan mode. You should now focus on exploring the codebase and designing an implementation approach.",
+    }
+
+
 async def plan_status(context: ToolRuntimeContext) -> dict[str, Any]:
     return {
         "mode": "plan" if context.plan_mode else "default",
@@ -144,6 +181,23 @@ async def plan_exit(
         "allowedPrompts": [dict(item) for item in prompts],
         "message": "Exited plan mode. Continue only after the plan is accepted by the caller or approval policy.",
     }
+
+
+async def src_origin_plan_exit(
+    context: ToolRuntimeContext,
+    plan: str,
+    allowedPrompts: list[dict[str, Any]] | None = None,
+    planFilePath: str | None = None,
+) -> dict[str, Any]:
+    result = await plan_exit(context, plan=plan, allowedPrompts=allowedPrompts)
+    payload = {
+        **result,
+        "isAgent": bool(context.subagent_depth or context.current_task_id),
+    }
+    file_path = str(planFilePath or "").strip()
+    if file_path:
+        payload["filePath"] = file_path
+    return payload
 
 
 async def plan_clear(context: ToolRuntimeContext) -> dict[str, Any]:
@@ -210,6 +264,66 @@ def format_todo_write_result(result: Any) -> str:
     if payload.get("verificationNudgeNeeded"):
         return TODO_WRITE_RESULT_MESSAGE + TODO_VERIFICATION_NUDGE
     return TODO_WRITE_RESULT_MESSAGE
+
+
+def format_src_origin_plan_enter_result(result: Any) -> str:
+    payload = result if isinstance(result, dict) else {}
+    message = str(payload.get("message") or "Entered plan mode.")
+    return (
+        f"{message}\n\n"
+        "In plan mode, you should:\n"
+        "1. Thoroughly explore the codebase to understand existing patterns\n"
+        "2. Identify similar features and architectural approaches\n"
+        "3. Consider multiple approaches and their trade-offs\n"
+        "4. Use AskUserQuestion if you need to clarify the approach\n"
+        "5. Design a concrete implementation strategy\n"
+        "6. When ready, use ExitPlanMode to present your plan for approval\n\n"
+        "Remember: DO NOT write or edit any files yet. This is a read-only exploration and planning phase."
+    )
+
+
+def format_src_origin_plan_exit_result(result: Any) -> str:
+    payload = result if isinstance(result, dict) else {}
+    if payload.get("awaitingLeaderApproval"):
+        return _format_plan_approval_request(payload)
+    if payload.get("isAgent"):
+        return 'User has approved the plan. There is nothing else needed from you now. Please respond with "ok"'
+    plan = str(payload.get("plan") or "").strip()
+    if not plan:
+        return "User has approved exiting plan mode. You can now proceed."
+    lines = ["User has approved your plan. You can now start coding. Start with updating your todo list if applicable"]
+    file_path = str(payload.get("filePath") or "").strip()
+    if file_path:
+        lines.extend(
+            [
+                "",
+                f"Your plan has been saved to: {file_path}",
+                "You can refer back to it if needed during implementation.",
+            ]
+        )
+    if payload.get("hasTaskTool"):
+        lines.append(
+            "\nIf this plan can be broken down into multiple independent tasks, consider using the TeamCreate tool to create a team and parallelize the work."
+        )
+    plan_label = "Approved Plan (edited by user)" if payload.get("planWasEdited") else "Approved Plan"
+    lines.extend(["", f"## {plan_label}:", plan])
+    return "\n".join(lines)
+
+
+def _format_plan_approval_request(payload: dict[str, Any]) -> str:
+    file_path = str(payload.get("filePath") or "")
+    request_id = str(payload.get("requestId") or "")
+    return (
+        "Your plan has been submitted to the team lead for approval.\n\n"
+        f"Plan file: {file_path}\n\n"
+        "**What happens next:**\n"
+        "1. Wait for the team lead to review your plan\n"
+        "2. You will receive a message in your inbox with approval/rejection\n"
+        "3. If approved, you can proceed with implementation\n"
+        "4. If rejected, refine your plan based on the feedback\n\n"
+        "**Important:** Do NOT proceed until you receive approval. Check your inbox for response.\n\n"
+        f"Request ID: {request_id}"
+    )
 
 
 def _required_text(value: Any, name: str) -> str:

@@ -228,6 +228,7 @@ from agents.kernel.capabilities.tools.builtin.session_context import (
     session_status,
 )
 from agents.kernel.capabilities.tools.builtin.sleep import SLEEP_WAIT_SCHEMA, sleep_wait
+from agents.kernel.capabilities.tools.builtin.registration_helpers import register_builtin_tool as _register_builtin_tool
 from agents.kernel.capabilities.tools.builtin.shell import (
     RUN_COMMAND_SCHEMA,
     SHELL_BACKGROUNDS_SCHEMA,
@@ -248,6 +249,7 @@ from agents.kernel.capabilities.tools.builtin.structured import (
     structured_output,
     structured_output_schema_from_metadata,
 )
+from agents.kernel.capabilities.tools.builtin.src_origin_plan_aliases import register_src_origin_plan_aliases
 from agents.kernel.capabilities.tools.builtin.tasks import (
     SRC_ORIGIN_TASK_CREATE_SCHEMA,
     SRC_ORIGIN_TASK_GET_SCHEMA,
@@ -346,7 +348,7 @@ from agents.kernel.capabilities.tools.builtin.workflows import (
 )
 from agents.kernel.capabilities.sandbox.text import DEFAULT_TEXT_READ_MAX_BYTES
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
-from agents.kernel.capabilities.tools.registry import ToolActivity, ToolDefinition, ToolRegistry
+from agents.kernel.capabilities.tools.registry import ToolRegistry
 from agents.kernel.capabilities.web import NullWebSearchProvider, WebSearchProvider
 
 
@@ -561,54 +563,6 @@ def register_builtin_tools(
     _register_teams(registry, context)
     _register_agents(registry, context)
     return list(BUILTIN_TOOL_NAMES)
-
-
-def _register_builtin_tool(
-    registry: ToolRegistry,
-    *,
-    name: str,
-    description: str,
-    parameters: dict,
-    handler,
-    metadata: dict | None = None,
-    read_only: bool = False,
-    destructive: bool = False,
-    writes_state: bool = False,
-    concurrency_safe: bool = True,
-    interrupt_behavior: str = "block",
-    cancels_siblings_on_error: bool = False,
-    max_result_size_chars: int | None = None,
-    path_parameters: tuple[str, ...] = (),
-    activity_kind: str = "generic",
-    activity_title: str = "",
-    activity_target_argument: str = "",
-    activity_summary: str = "",
-    result_formatter=None,
-) -> None:
-    registry.register_definition(
-        ToolDefinition(
-            name=name,
-            description=description,
-            parameters=parameters,
-            handler=handler,
-            metadata=dict(metadata or {}),
-            read_only=read_only,
-            destructive=destructive,
-            writes_state=writes_state,
-            concurrency_safe=concurrency_safe,
-            interrupt_behavior=interrupt_behavior,
-            cancels_siblings_on_error=cancels_siblings_on_error,
-            max_result_size_chars=max_result_size_chars,
-            path_parameters=path_parameters,
-            activity=ToolActivity(
-                kind=activity_kind,
-                title=activity_title,
-                target_argument=activity_target_argument,
-                summary=activity_summary,
-            ),
-            result_formatter=result_formatter,
-        )
-    )
 
 
 def _register_filesystem(registry: ToolRegistry, context: ToolRuntimeContext) -> None:
@@ -1680,40 +1634,7 @@ def _register_src_origin_aliases(
         activity_target_argument="query",
         result_formatter=format_src_origin_tool_search_result,
     )
-    _register_builtin_tool(
-        registry,
-        name="EnterPlanMode",
-        description="Enter plan mode. src-origin alias for plan.enter.",
-        parameters=PLAN_ENTER_SCHEMA,
-        handler=lambda: plan_enter(context),
-        metadata={"risk": "low", "writes_state": True, "alias_of": "plan.enter", "src_origin_tool": "EnterPlanMode"},
-        writes_state=True,
-        activity_kind="state",
-        activity_title="Enter plan mode",
-    )
-    _register_builtin_tool(
-        registry,
-        name="ExitPlanMode",
-        description="Exit plan mode with a concrete plan. src-origin alias for plan.exit.",
-        parameters=PLAN_EXIT_SCHEMA,
-        handler=lambda plan, allowedPrompts=None, allowed_prompts=None: plan_exit(
-            context,
-            plan=plan,
-            allowedPrompts=allowedPrompts,
-            allowed_prompts=allowed_prompts,
-        ),
-        metadata={
-            "risk": "medium",
-            "writes_state": True,
-            "requires_approval": True,
-            "alias_of": "plan.exit",
-            "src_origin_tool": "ExitPlanMode",
-        },
-        writes_state=True,
-        activity_kind="state",
-        activity_title="Exit plan mode",
-        activity_target_argument="plan",
-    )
+    register_src_origin_plan_aliases(registry, context)
     for alias_name, src_origin_tool in (("Agent", "Agent"), ("Task", "Task")):
         _register_builtin_tool(
             registry,

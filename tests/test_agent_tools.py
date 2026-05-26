@@ -3904,11 +3904,32 @@ def test_src_origin_task_schedule_toolsearch_and_plan_aliases(tmp_path: Path):
     assert cron_delete.raw["id"] == cron_id
     assert cron_delete.content == "Cancelled job %s." % cron_id
 
+    invalid_entered = asyncio.run(registry.execute("EnterPlanMode", {"unused": True}))
     entered = asyncio.run(registry.execute("EnterPlanMode", {}))
-    exited = asyncio.run(registry.execute("ExitPlanMode", {"plan": "1. Add aliases\n2. Run tests"}))
+    exited = asyncio.run(
+        registry.execute(
+            "ExitPlanMode",
+            {
+                "plan": "1. Add aliases\n2. Run tests",
+                "allowedPrompts": [{"tool": "Bash", "prompt": "run tests"}],
+                "planFilePath": ".agents/plans/current.md",
+            },
+        )
+    )
+    invalid_exited = asyncio.run(
+        registry.execute("ExitPlanMode", {"plan": "1. Bad field", "allowed_prompts": []})
+    )
+    invalid_reentered = asyncio.run(registry.execute("ExitPlanMode", {"plan": "1. Not in plan mode"}))
     assert entered.raw["mode"] == "plan"
+    assert invalid_entered.raw["details"] == "unexpected argument: unused"
     assert exited.raw["mode"] == "default"
+    assert exited.raw["allowedPrompts"] == [{"tool": "Bash", "prompt": "run tests"}]
+    assert exited.raw["filePath"] == ".agents/plans/current.md"
+    assert "User has approved your plan. You can now start coding." in exited.content
+    assert "## Approved Plan:" in exited.content
     assert context.plan_text == "1. Add aliases\n2. Run tests"
+    assert invalid_exited.raw["details"] == "unexpected argument: allowed_prompts"
+    assert invalid_reentered.content == "not in plan mode"
 
     specs = {
         spec.name: spec.raw["metadata"]
@@ -3947,6 +3968,10 @@ def test_src_origin_task_schedule_toolsearch_and_plan_aliases(tmp_path: Path):
     assert specs["CronList"]["defer"] is True
     assert specs["CronDelete"]["defer"] is True
     assert specs["ToolSearch"]["defer"] is True
+    assert specs["EnterPlanMode"]["defer"] is True
+    assert specs["ExitPlanMode"]["defer"] is True
+    assert specs["EnterPlanMode"]["max_result_size_chars"] == 100000
+    assert specs["ExitPlanMode"]["max_result_size_chars"] == 100000
 
     impact = describe_tool_impact(
         ToolCall(
