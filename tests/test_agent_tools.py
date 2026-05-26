@@ -3872,13 +3872,29 @@ def test_src_origin_task_schedule_toolsearch_and_plan_aliases(tmp_path: Path):
     )
     cron_id = cron.raw["schedule"]["short_id"]
     cron_list = asyncio.run(registry.execute("CronList", {}))
+    invalid_cron_create = asyncio.run(registry.execute("CronCreate", {"cron": "bad", "prompt": "reject"}))
+    invalid_cron_list = asyncio.run(registry.execute("CronList", {"unused": True}))
+    invalid_cron_delete = asyncio.run(registry.execute("CronDelete", {"id": cron_id, "unused": True}))
     cron_delete = asyncio.run(registry.execute("CronDelete", {"id": cron_id}))
 
     assert cron.raw["schedule"]["schedule"] == "0 9 * * *"
     assert cron.raw["schedule"]["input"] == "Check repository health"
     assert cron.raw["schedule"]["metadata"]["recurring"] == "true"
+    assert cron.raw["srcOriginCron"]["id"] == cron_id
+    assert cron.content == (
+        "Scheduled recurring job %s (0 9 * * *). "
+        "Session-only (not written to disk, dies when Claude exits). "
+        "Auto-expires after 30 days. Use CronDelete to cancel sooner."
+    ) % cron_id
     assert cron_list.raw["schedules"][0]["short_id"] == cron_id
+    assert cron_list.content == "%s - 0 9 * * * (recurring) [session-only]: Check repository health" % cron_id
+    assert invalid_cron_create.is_error is True
+    assert "Invalid cron expression 'bad'" in invalid_cron_create.content
+    assert invalid_cron_list.raw["details"] == "unexpected argument: unused"
+    assert invalid_cron_delete.raw["details"] == "unexpected argument: unused"
     assert cron_delete.raw["deleted"] is True
+    assert cron_delete.raw["id"] == cron_id
+    assert cron_delete.content == "Cancelled job %s." % cron_id
 
     entered = asyncio.run(registry.execute("EnterPlanMode", {}))
     exited = asyncio.run(registry.execute("ExitPlanMode", {"plan": "1. Add aliases\n2. Run tests"}))
@@ -3895,6 +3911,8 @@ def test_src_origin_task_schedule_toolsearch_and_plan_aliases(tmp_path: Path):
                 "TaskGet",
                 "TaskUpdate",
                 "CronCreate",
+                "CronList",
+                "CronDelete",
                 "ToolSearch",
                 "EnterPlanMode",
                 "ExitPlanMode",
@@ -3907,6 +3925,8 @@ def test_src_origin_task_schedule_toolsearch_and_plan_aliases(tmp_path: Path):
         "TaskGet": "task.get",
         "TaskUpdate": "task.update",
         "CronCreate": "schedule.create",
+        "CronList": "schedule.list",
+        "CronDelete": "schedule.delete",
         "ToolSearch": "tool.search",
         "EnterPlanMode": "plan.enter",
         "ExitPlanMode": "plan.exit",
@@ -3915,6 +3935,9 @@ def test_src_origin_task_schedule_toolsearch_and_plan_aliases(tmp_path: Path):
     assert specs["TaskList"]["defer"] is True
     assert specs["TaskGet"]["defer"] is True
     assert specs["TaskUpdate"]["defer"] is True
+    assert specs["CronCreate"]["defer"] is True
+    assert specs["CronList"]["defer"] is True
+    assert specs["CronDelete"]["defer"] is True
 
     impact = describe_tool_impact(
         ToolCall(

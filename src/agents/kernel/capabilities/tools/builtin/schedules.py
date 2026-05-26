@@ -45,6 +45,33 @@ SCHEDULE_RUN_SCHEMA = {
     "required": ["schedule_id"],
 }
 
+SRC_ORIGIN_CRON_CREATE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "cron": {"type": "string", "description": "Standard 5-field cron expression."},
+        "prompt": {"type": "string", "description": "The prompt to enqueue at each fire time."},
+        "recurring": {"type": "boolean"},
+        "durable": {"type": "boolean"},
+    },
+    "required": ["cron", "prompt"],
+    "additionalProperties": False,
+}
+
+SRC_ORIGIN_CRON_LIST_SCHEMA = {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": False,
+}
+
+SRC_ORIGIN_CRON_DELETE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "string", "description": "Job ID returned by CronCreate."},
+    },
+    "required": ["id"],
+    "additionalProperties": False,
+}
+
 
 async def schedule_create(
     context: ToolRuntimeContext,
@@ -111,6 +138,78 @@ async def schedule_run(
     updated = record.with_last_run(str(payload["task"]["task_id"]))
     await _save_schedule(context, updated)
     return {"schedule": updated.to_dict(), **payload}
+
+
+async def src_origin_cron_create(
+    context: ToolRuntimeContext,
+    *,
+    cron: str,
+    prompt: str,
+    recurring: bool = True,
+    durable: bool = False,
+) -> dict[str, Any]:
+    cron_text = _valid_cron_expression(cron)
+    payload = await schedule_create(
+        context,
+        title=_src_origin_prompt_title(prompt),
+        input=prompt,
+        schedule=cron_text,
+        enabled=True,
+        metadata={
+            "recurring": str(bool(recurring)).lower(),
+            "durable": str(bool(durable)).lower(),
+        },
+    )
+    schedule = payload.get("schedule") if isinstance(payload.get("schedule"), dict) else {}
+    payload["srcOriginCron"] = _src_origin_cron_job(schedule)
+    return payload
+
+
+async def src_origin_cron_list(context: ToolRuntimeContext) -> dict[str, Any]:
+    payload = await schedule_list(context)
+    payload["srcOriginJobs"] = [
+        _src_origin_cron_job(schedule)
+        for schedule in payload.get("schedules") or []
+        if isinstance(schedule, dict)
+    ]
+    return payload
+
+
+async def src_origin_cron_delete(context: ToolRuntimeContext, *, id: str) -> dict[str, Any]:
+    payload = await schedule_delete(context, schedule_id=id)
+    schedule = payload.get("schedule") if isinstance(payload.get("schedule"), dict) else {}
+    payload["id"] = _src_origin_cron_id(schedule) or str(id)
+    return payload
+
+
+def format_src_origin_cron_create_result(result: Any) -> str:
+    payload = result if isinstance(result, dict) else {}
+    job = payload.get("srcOriginCron") if isinstance(payload.get("srcOriginCron"), dict) else {}
+    location = _src_origin_cron_location(job)
+    if job.get("recurring", True):
+        return (
+            "Scheduled recurring job %s (%s). %s. "
+            "Auto-expires after 30 days. Use CronDelete to cancel sooner."
+            % (job.get("id") or "", job.get("humanSchedule") or "", location)
+        )
+    return "Scheduled one-shot task %s (%s). %s. It will fire once then auto-delete." % (
+        job.get("id") or "",
+        job.get("humanSchedule") or "",
+        location,
+    )
+
+
+def format_src_origin_cron_list_result(result: Any) -> str:
+    payload = result if isinstance(result, dict) else {}
+    jobs = [job for job in payload.get("srcOriginJobs") or [] if isinstance(job, dict)]
+    if not jobs:
+        return "No scheduled jobs."
+    return "\n".join(_format_src_origin_cron_job(job) for job in jobs)
+
+
+def format_src_origin_cron_delete_result(result: Any) -> str:
+    payload = result if isinstance(result, dict) else {}
+    return "Cancelled job %s." % str(payload.get("id") or "")
 
 
 async def _resolve_schedule(context: ToolRuntimeContext, schedule_id: str) -> ScheduleRecord:
@@ -213,6 +312,72 @@ def _required_text(value: Any, name: str) -> str:
     if not text:
         raise ValueError("%s is required" % name)
     return text
+
+
+def _valid_cron_expression(value: Any) -> str:
+    expression = _required_text(value, "cron")
+    parts = expression.split()
+    if len(parts) != 5:
+        raise ValueError(
+            "Invalid cron expression '%s'. Expected 5 fields: M H DoM Mon DoW."
+            % expression
+        )
+    return expression
+
+
+def _src_origin_prompt_title(prompt: str) -> str:
+    text = str(prompt or "").strip()
+    first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
+    return first_line[:80] or "Scheduled prompt"
+
+
+def _src_origin_cron_job(schedule: dict[str, Any]) -> dict[str, Any]:
+    metadata = schedule.get("metadata") if isinstance(schedule.get("metadata"), dict) else {}
+    recurring = str(metadata.get("recurring", "true")).lower() != "false"
+    durable = str(metadata.get("durable", "false")).lower() == "true"
+    cron = str(schedule.get("schedule") or "")
+    return {
+        "id": _src_origin_cron_id(schedule),
+        "cron": cron,
+        "humanSchedule": _src_origin_cron_human(cron),
+        "prompt": str(schedule.get("input") or ""),
+        "recurring": recurring,
+        "durable": durable,
+    }
+
+
+def _src_origin_cron_id(schedule: dict[str, Any]) -> str:
+    return str(schedule.get("short_id") or schedule.get("schedule_id") or "")
+
+
+def _src_origin_cron_human(cron: str) -> str:
+    return str(cron or "")
+
+
+def _src_origin_cron_location(job: dict[str, Any]) -> str:
+    return (
+        "Persisted to .claude/scheduled_tasks.json"
+        if bool(job.get("durable"))
+        else "Session-only (not written to disk, dies when Claude exits)"
+    )
+
+
+def _format_src_origin_cron_job(job: dict[str, Any]) -> str:
+    mode = "recurring" if job.get("recurring", True) else "one-shot"
+    location = " [session-only]" if not bool(job.get("durable")) else ""
+    return "%s - %s (%s)%s: %s" % (
+        job.get("id") or "",
+        job.get("humanSchedule") or "",
+        mode,
+        location,
+        _truncate_text(str(job.get("prompt") or ""), 80),
+    )
+
+
+def _truncate_text(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)] + "..."
 
 
 def _string_metadata(metadata: Any) -> dict[str, str]:

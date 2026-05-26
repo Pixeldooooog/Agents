@@ -189,10 +189,19 @@ from agents.kernel.capabilities.tools.builtin.schedules import (
     SCHEDULE_DELETE_SCHEMA,
     SCHEDULE_LIST_SCHEMA,
     SCHEDULE_RUN_SCHEMA,
+    SRC_ORIGIN_CRON_CREATE_SCHEMA,
+    SRC_ORIGIN_CRON_DELETE_SCHEMA,
+    SRC_ORIGIN_CRON_LIST_SCHEMA,
+    format_src_origin_cron_create_result,
+    format_src_origin_cron_delete_result,
+    format_src_origin_cron_list_result,
     schedule_create,
     schedule_delete,
     schedule_list,
     schedule_run,
+    src_origin_cron_create,
+    src_origin_cron_delete,
+    src_origin_cron_list,
 )
 from agents.kernel.capabilities.tools.builtin.session_context import (
     CONTEXT_COMPACT_SCHEMA,
@@ -977,25 +986,6 @@ SRC_ORIGIN_MULTI_EDIT_SCHEMA = {
     "required": ["file_path", "edits"],
 }
 
-SRC_ORIGIN_CRON_CREATE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "cron": {"type": "string", "description": "Standard 5-field cron expression."},
-        "prompt": {"type": "string", "description": "The prompt to enqueue at each fire time."},
-        "recurring": {"type": "boolean"},
-        "durable": {"type": "boolean"},
-    },
-    "required": ["cron", "prompt"],
-}
-
-SRC_ORIGIN_CRON_DELETE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "id": {"type": "string", "description": "Job ID returned by CronCreate."},
-    },
-    "required": ["id"],
-}
-
 SRC_ORIGIN_EMPTY_SCHEMA = {"type": "object", "properties": {}}
 
 SRC_ORIGIN_AGENT_SCHEMA = {
@@ -1046,30 +1036,6 @@ def _src_origin_metadata(metadata: dict[str, Any] | None, **extra: Any) -> dict[
         if value not in (None, ""):
             payload[key] = value
     return payload
-
-
-def _src_origin_prompt_title(prompt: str) -> str:
-    text = str(prompt or "").strip()
-    first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
-    return first_line[:80] or "Scheduled prompt"
-
-
-async def _src_origin_cron_create(
-    context: ToolRuntimeContext,
-    *,
-    cron: str,
-    prompt: str,
-    recurring: bool = True,
-    durable: bool = False,
-) -> dict:
-    return await schedule_create(
-        context,
-        title=_src_origin_prompt_title(prompt),
-        input=prompt,
-        schedule=cron,
-        enabled=True,
-        metadata={"recurring": str(bool(recurring)).lower(), "durable": str(bool(durable)).lower()},
-    )
 
 
 async def _src_origin_agent(
@@ -1633,41 +1599,59 @@ def _register_src_origin_aliases(
         name="CronCreate",
         description="Schedule a recurring or one-shot prompt. src-origin alias for schedule.create.",
         parameters=SRC_ORIGIN_CRON_CREATE_SCHEMA,
-        handler=lambda cron, prompt, recurring=True, durable=False: _src_origin_cron_create(
+        handler=lambda cron, prompt, recurring=True, durable=False: src_origin_cron_create(
             context,
             cron=cron,
             prompt=prompt,
             recurring=recurring,
             durable=durable,
         ),
-        metadata={"risk": "medium", "writes_state": True, "alias_of": "schedule.create", "src_origin_tool": "CronCreate"},
+        metadata={
+            "risk": "medium",
+            "writes_state": True,
+            "defer": True,
+            "alias_of": "schedule.create",
+            "src_origin_tool": "CronCreate",
+        },
         writes_state=True,
+        max_result_size_chars=100000,
         activity_kind="state",
         activity_title="Create schedule",
         activity_target_argument="cron",
+        result_formatter=format_src_origin_cron_create_result,
     )
     _register_builtin_tool(
         registry,
         name="CronList",
         description="List scheduled prompts. src-origin alias for schedule.list.",
-        parameters=SRC_ORIGIN_EMPTY_SCHEMA,
-        handler=lambda: schedule_list(context),
-        metadata={"risk": "low", "alias_of": "schedule.list", "src_origin_tool": "CronList"},
+        parameters=SRC_ORIGIN_CRON_LIST_SCHEMA,
+        handler=lambda: src_origin_cron_list(context),
+        metadata={"risk": "low", "defer": True, "alias_of": "schedule.list", "src_origin_tool": "CronList"},
         read_only=True,
+        max_result_size_chars=100000,
         activity_kind="state",
         activity_title="List schedules",
+        result_formatter=format_src_origin_cron_list_result,
     )
     _register_builtin_tool(
         registry,
         name="CronDelete",
         description="Delete a scheduled prompt. src-origin alias for schedule.delete.",
         parameters=SRC_ORIGIN_CRON_DELETE_SCHEMA,
-        handler=lambda id: schedule_delete(context, schedule_id=id),
-        metadata={"risk": "medium", "writes_state": True, "alias_of": "schedule.delete", "src_origin_tool": "CronDelete"},
+        handler=lambda id: src_origin_cron_delete(context, id=id),
+        metadata={
+            "risk": "medium",
+            "writes_state": True,
+            "defer": True,
+            "alias_of": "schedule.delete",
+            "src_origin_tool": "CronDelete",
+        },
         writes_state=True,
+        max_result_size_chars=100000,
         activity_kind="state",
         activity_title="Delete schedule",
         activity_target_argument="id",
+        result_formatter=format_src_origin_cron_delete_result,
     )
     _register_builtin_tool(
         registry,
