@@ -4885,6 +4885,46 @@ def test_bash_literal_permission_rules_still_match_output_redirections():
     assert no_redirect.metadata["rule"] == "allowlist"
 
 
+def test_bash_allow_prefix_rules_reject_operator_bearing_candidates():
+    allow_policy = StaticToolPermissionPolicy(allowed_tools=["Bash(cd:*)", "Bash(echo *)"])
+    escaped_prefix_compound = asyncio.run(
+        allow_policy.authorize(
+            ToolCall(
+                id="1",
+                name="shell.run",
+                arguments={"command": r"cd src\&\& python3 hello.py"},
+            )
+        )
+    )
+    escaped_wildcard_compound = asyncio.run(
+        allow_policy.authorize(
+            ToolCall(
+                id="2",
+                name="shell.run",
+                arguments={"command": r"echo ok\|cat secrets.txt"},
+            )
+        )
+    )
+
+    deny_policy = StaticToolPermissionPolicy(denied_tools=["Bash(cd:*)"])
+    denied_escaped_compound = asyncio.run(
+        deny_policy.authorize(
+            ToolCall(
+                id="3",
+                name="shell.run",
+                arguments={"command": r"cd src\&\& python3 hello.py"},
+            )
+        )
+    )
+
+    assert escaped_prefix_compound.allowed is False
+    assert escaped_prefix_compound.metadata["rule"] == "allowlist"
+    assert escaped_wildcard_compound.allowed is False
+    assert escaped_wildcard_compound.metadata["rule"] == "allowlist"
+    assert denied_escaped_compound.allowed is False
+    assert denied_escaped_compound.metadata["matched_rule"] == "Bash(cd:*)"
+
+
 def test_builtin_permission_rules_match_legacy_path_and_pattern_rules(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="tenant",

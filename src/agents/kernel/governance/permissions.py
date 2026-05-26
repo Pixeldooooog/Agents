@@ -82,6 +82,7 @@ class StaticToolPermissionPolicy:
             call,
             shell_parse_error_matches=False,
             shell_env_mode="safe",
+            shell_reject_compound_prefix=True,
         )
         if self.restrict_allowed_tools and allowed_rule is None:
             return ToolPermissionDecision(

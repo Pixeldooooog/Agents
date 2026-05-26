@@ -90,6 +90,7 @@ def find_matching_tool_rule(
     *,
     shell_parse_error_matches: bool = False,
     shell_env_mode: ShellEnvMode = "all",
+    shell_reject_compound_prefix: bool = False,
 ) -> str | None:
     for rule in rules:
         matched = matching_tool_rule_alternative(
@@ -97,6 +98,7 @@ def find_matching_tool_rule(
             call,
             shell_parse_error_matches=shell_parse_error_matches,
             shell_env_mode=shell_env_mode,
+            shell_reject_compound_prefix=shell_reject_compound_prefix,
         )
         if matched is not None:
             return matched
@@ -117,6 +119,7 @@ def matching_tool_rule_alternative(
     *,
     shell_parse_error_matches: bool = False,
     shell_env_mode: ShellEnvMode = "all",
+    shell_reject_compound_prefix: bool = False,
 ) -> str | None:
     for alternative in split_tool_rule_alternatives(rule):
         if tool_rule_matches_call(
@@ -124,6 +127,7 @@ def matching_tool_rule_alternative(
             call,
             shell_parse_error_matches=shell_parse_error_matches,
             shell_env_mode=shell_env_mode,
+            shell_reject_compound_prefix=shell_reject_compound_prefix,
         ):
             return alternative
     return None
@@ -135,6 +139,7 @@ def tool_rule_matches_call(
     *,
     shell_parse_error_matches: bool = False,
     shell_env_mode: ShellEnvMode = "all",
+    shell_reject_compound_prefix: bool = False,
 ) -> bool:
     parsed = parse_tool_rule(rule)
     if not _tool_name_matches(parsed.tool_name, call.name):
@@ -148,6 +153,7 @@ def tool_rule_matches_call(
         parsed.rule_content,
         parse_error_matches=shell_parse_error_matches,
         shell_env_mode=shell_env_mode,
+        reject_compound_prefix=shell_reject_compound_prefix,
     )
 
 
@@ -218,12 +224,17 @@ def shell_command_matches_rule(
     *,
     parse_error_matches: bool = False,
     shell_env_mode: ShellEnvMode = "all",
+    reject_compound_prefix: bool = False,
 ) -> bool:
     parsed = split_shell_subcommands(command, shell_env_mode=shell_env_mode)
     if parsed.parse_error and parse_error_matches:
         return True
     for subcommand in parsed.subcommands:
-        if shell_subcommand_matches_rule(subcommand, pattern):
+        if shell_subcommand_matches_rule(
+            subcommand,
+            pattern,
+            reject_compound_prefix=reject_compound_prefix,
+        ):
             return True
     if _is_literal_shell_rule(pattern):
         unstripped = split_shell_subcommands(
@@ -234,7 +245,11 @@ def shell_command_matches_rule(
         if unstripped.parse_error and parse_error_matches:
             return True
         for subcommand in unstripped.subcommands:
-            if shell_subcommand_matches_rule(subcommand, pattern):
+            if shell_subcommand_matches_rule(
+                subcommand,
+                pattern,
+                reject_compound_prefix=reject_compound_prefix,
+            ):
                 return True
     if parsed.too_complex and parse_error_matches:
         return True
@@ -245,14 +260,23 @@ def tool_call_content_matches_rule(call: ToolCall, pattern: str) -> bool:
     return any(match_wildcard_pattern(pattern, target) for target in _tool_rule_targets(call))
 
 
-def shell_subcommand_matches_rule(subcommand: str, pattern: str) -> bool:
+def shell_subcommand_matches_rule(
+    subcommand: str,
+    pattern: str,
+    *,
+    reject_compound_prefix: bool = False,
+) -> bool:
     prefix = shell_rule_extract_prefix(pattern)
     command = str(subcommand or "").strip()
     if prefix is not None:
+        if reject_compound_prefix and _shell_subcommand_has_operator(command):
+            return False
         if command == prefix or command.startswith("%s " % prefix):
             return True
         xargs_prefix = "xargs %s" % prefix
         return command == xargs_prefix or command.startswith("%s " % xargs_prefix)
+    if reject_compound_prefix and "*" in str(pattern or "") and _shell_subcommand_has_operator(command):
+        return False
     return match_wildcard_pattern(pattern, command)
 
 
@@ -477,6 +501,10 @@ def _is_shell_separator(token: str) -> bool:
 
 def _shell_command_too_complex_for_match(command: str) -> bool:
     return any(marker in command for marker in ("$(", "`", "<(", ">(")) or "\n" in command or "\r" in command
+
+
+def _shell_subcommand_has_operator(command: str) -> bool:
+    return any(operator in str(command or "") for operator in ("&&", "||", ";", "|"))
 
 
 def _is_literal_shell_rule(pattern: str) -> bool:
