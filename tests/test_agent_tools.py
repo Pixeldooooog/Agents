@@ -1708,10 +1708,21 @@ def test_tool_registry_validates_json_schema_before_execution():
         },
         lambda text: calls.append(text) or text,
     )
+    registry.register(
+        "empty",
+        "No arguments",
+        {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+        lambda: "empty",
+    )
 
     missing = asyncio.run(registry.execute("echo", {}))
     wrong_type = asyncio.run(registry.execute("echo", {"text": 1}))
     extra = asyncio.run(registry.execute("echo", {"text": "ok", "unused": True}))
+    empty_extra = asyncio.run(registry.execute("empty", {"unused": True}))
     ok = asyncio.run(registry.execute("echo", {"text": "ok"}))
 
     assert missing.is_error is True
@@ -1720,6 +1731,8 @@ def test_tool_registry_validates_json_schema_before_execution():
     assert "text must be string" in wrong_type.content
     assert extra.is_error is True
     assert "unexpected argument: unused" in extra.content
+    assert empty_extra.is_error is True
+    assert "unexpected argument: unused" in empty_extra.content
     assert ok.content == "ok"
     assert calls == ["ok"]
 
@@ -3810,7 +3823,7 @@ def test_src_origin_task_schedule_toolsearch_and_plan_aliases(tmp_path: Path):
                 "taskId": short_id,
                 "subject": "Build more aliases",
                 "description": "Cover task update parity",
-                "status": "running",
+                "status": "in_progress",
                 "owner": "agent",
                 "metadata": {"kind": "parity-v2"},
             },
@@ -3818,15 +3831,37 @@ def test_src_origin_task_schedule_toolsearch_and_plan_aliases(tmp_path: Path):
     )
     listed = asyncio.run(registry.execute("TaskList", {}))
     loaded = asyncio.run(registry.execute("TaskGet", {"taskId": short_id}))
+    invalid_created = asyncio.run(
+        registry.execute(
+            "TaskCreate",
+            {"subject": "Bad alias", "description": "Reject extra fields", "unused": True},
+        )
+    )
+    invalid_listed = asyncio.run(registry.execute("TaskList", {"unused": True}))
+    invalid_loaded = asyncio.run(registry.execute("TaskGet", {"taskId": short_id, "unused": True}))
+    invalid_updated = asyncio.run(registry.execute("TaskUpdate", {"taskId": short_id, "status": "running"}))
     searched = asyncio.run(registry.execute("ToolSearch", {"query": "TaskCreate", "max_results": 3, "include_all": True}))
 
     assert created.is_error is False
+    assert created.content == "Task #%s created successfully: Build aliases" % short_id
     assert listed.raw["tasks"][0]["task_id"] == task_id
+    assert listed.content == "#%s [in_progress] Build more aliases (agent)" % short_id
+    assert loaded.content == (
+        "Task #%s: Build more aliases\n"
+        "Status: in_progress\n"
+        "Description: Cover task update parity"
+    ) % short_id
+    assert updated.content == "Updated task #%s subject, description, status, owner, metadata" % short_id
     assert updated.raw["task"]["title"] == "Build more aliases"
     assert updated.raw["task"]["input"] == "Cover task update parity"
     assert updated.raw["task"]["status"] == "running"
     assert updated.raw["task"]["metadata"]["owner"] == "agent"
+    assert updated.raw["statusChange"] == {"from": "pending", "to": "in_progress"}
     assert loaded.raw["task"]["metadata"]["kind"] == "parity-v2"
+    assert invalid_created.raw["details"] == "unexpected argument: unused"
+    assert invalid_listed.raw["details"] == "unexpected argument: unused"
+    assert invalid_loaded.raw["details"] == "unexpected argument: unused"
+    assert invalid_updated.raw["details"] == "status must be one of pending, in_progress, completed, deleted"
     assert any(match["name"] == "TaskCreate" for match in searched.raw["matches"])
 
     cron = asyncio.run(
@@ -3852,17 +3887,34 @@ def test_src_origin_task_schedule_toolsearch_and_plan_aliases(tmp_path: Path):
     assert context.plan_text == "1. Add aliases\n2. Run tests"
 
     specs = {
-        spec.name: spec.raw["metadata"]["alias_of"]
-        for spec in registry.specs(["TaskCreate", "TaskUpdate", "CronCreate", "ToolSearch", "EnterPlanMode", "ExitPlanMode"])
+        spec.name: spec.raw["metadata"]
+        for spec in registry.specs(
+            [
+                "TaskCreate",
+                "TaskList",
+                "TaskGet",
+                "TaskUpdate",
+                "CronCreate",
+                "ToolSearch",
+                "EnterPlanMode",
+                "ExitPlanMode",
+            ]
+        )
     }
-    assert specs == {
+    assert {name: metadata["alias_of"] for name, metadata in specs.items()} == {
         "TaskCreate": "task.create",
+        "TaskList": "task.list",
+        "TaskGet": "task.get",
         "TaskUpdate": "task.update",
         "CronCreate": "schedule.create",
         "ToolSearch": "tool.search",
         "EnterPlanMode": "plan.enter",
         "ExitPlanMode": "plan.exit",
     }
+    assert specs["TaskCreate"]["defer"] is True
+    assert specs["TaskList"]["defer"] is True
+    assert specs["TaskGet"]["defer"] is True
+    assert specs["TaskUpdate"]["defer"] is True
 
     impact = describe_tool_impact(
         ToolCall(

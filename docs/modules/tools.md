@@ -150,7 +150,7 @@ streaming runtime 中的长前台 `shell.run` 会按 `src-origin` BashTool 的�
 
 `sleep.wait` 提供 `src-origin` Sleep 工具的基础能力：模型需要等待时可使用专用 wait tool，而不是用 `shell.run` 执行 `sleep` 占住 shell 进程。该工具是只读、并发安全、可被 interrupt 取消的低风险工具；SDK session 会把同 session 的 async user/task notifications 绑定为 Sleep wake signal，`next` / `later` 消息到达时可提前唤醒 Sleep 并在本次 session query 后继续 drain。
 
-任务工具的 alias 层覆盖 `TaskCreate`、`TaskList`、`TaskGet`、`TaskUpdate`、`TaskOutput`、`TaskStop` 以及旧名 `AgentOutputTool` / `BashOutputTool` / `KillShell`。其中 `TaskOutput` / `TaskStop` 使用 strict `src-origin` alias schema、`defer=true` 和 100k 结果上限，并把 canonical task/shell 输出适配回 `retrieval_status` / typed `task` 或 stop `message` payload；`task.update` 已扩展为可更新 title/input/status/metadata，`TaskUpdate.subject`、`description`、`activeForm`、`owner` 和依赖数组会通过 adapter 映射到 Python-native task store。
+任务工具的 alias 层覆盖 `TaskCreate`、`TaskList`、`TaskGet`、`TaskUpdate`、`TaskOutput`、`TaskStop` 以及旧名 `AgentOutputTool` / `BashOutputTool` / `KillShell`。其中 `TaskCreate` / `TaskList` / `TaskGet` / `TaskUpdate` / `TaskOutput` / `TaskStop` 使用 strict `src-origin` alias schema、`defer=true` 和 100k 结果上限，并把 canonical task/shell 输出适配回 `src-origin` 模型可见文本与结构化 payload；`TaskUpdate.subject`、`description`、`activeForm`、`owner` 和依赖数组会通过 adapter 映射到 Python-native task store。
 
 Agent/team alias 层覆盖 `Agent`、旧名 `Task`、`SendMessage`、`TeamCreate` 和 `TeamDelete`。`Agent` / `Task` 复用 `agent.run` 的 child-session 边界；`TeamCreate` 会创建带 `team-lead` 成员的 Python-native team；`SendMessage` 路由到 `team.send`；`TeamDelete` 通过 canonical `team.delete` 清理 team record 和 queued messages。
 

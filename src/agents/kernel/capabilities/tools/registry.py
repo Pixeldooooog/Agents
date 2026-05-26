@@ -667,7 +667,7 @@ def _validate_tool_arguments(tool: ToolDefinition, arguments: Dict[str, Any]) ->
     for key in required:
         if key not in arguments:
             return "missing required argument: %s" % key
-    if properties and schema.get("additionalProperties") is False:
+    if schema.get("additionalProperties") is False:
         for key in arguments:
             if key not in properties:
                 return "unexpected argument: %s" % key
@@ -697,7 +697,7 @@ def _validate_json_schema_value(path: str, value: Any, schema: Dict[str, Any]) -
         for key in schema.get("required") or []:
             if key not in value:
                 return "missing required argument: %s.%s" % (path, key)
-        if properties and schema.get("additionalProperties") is False:
+        if schema.get("additionalProperties") is False:
             for key in value:
                 if key not in properties:
                     return "unexpected argument: %s.%s" % (path, key)

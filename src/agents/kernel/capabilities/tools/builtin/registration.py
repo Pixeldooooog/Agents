@@ -232,8 +232,12 @@ from agents.kernel.capabilities.tools.builtin.structured import (
     structured_output_schema_from_metadata,
 )
 from agents.kernel.capabilities.tools.builtin.tasks import (
+    SRC_ORIGIN_TASK_CREATE_SCHEMA,
+    SRC_ORIGIN_TASK_GET_SCHEMA,
+    SRC_ORIGIN_TASK_LIST_SCHEMA,
     SRC_ORIGIN_TASK_OUTPUT_SCHEMA,
     SRC_ORIGIN_TASK_STOP_SCHEMA,
+    SRC_ORIGIN_TASK_UPDATE_SCHEMA,
     TASK_CREATE_SCHEMA,
     TASK_BACKGROUND_SCHEMA,
     TASK_BACKGROUNDS_SCHEMA,
@@ -243,6 +247,10 @@ from agents.kernel.capabilities.tools.builtin.tasks import (
     TASK_RUN_SCHEMA,
     TASK_STOP_SCHEMA,
     TASK_UPDATE_SCHEMA,
+    format_src_origin_task_create_result,
+    format_src_origin_task_get_result,
+    format_src_origin_task_list_result,
+    format_src_origin_task_update_result,
     task_create,
     task_background,
     task_backgrounds,
@@ -250,8 +258,12 @@ from agents.kernel.capabilities.tools.builtin.tasks import (
     task_list,
     task_output,
     task_run,
+    src_origin_task_create,
+    src_origin_task_get,
+    src_origin_task_list,
     src_origin_task_output,
     src_origin_task_stop,
+    src_origin_task_update,
     task_stop,
     task_update,
 )
@@ -965,45 +977,6 @@ SRC_ORIGIN_MULTI_EDIT_SCHEMA = {
     "required": ["file_path", "edits"],
 }
 
-SRC_ORIGIN_TASK_CREATE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "subject": {"type": "string", "description": "A brief title for the task."},
-        "description": {"type": "string", "description": "What needs to be done."},
-        "activeForm": {"type": "string", "description": "Present-continuous status label."},
-        "metadata": {"type": "object", "additionalProperties": True},
-    },
-    "required": ["subject", "description"],
-}
-
-SRC_ORIGIN_TASK_GET_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "taskId": {"type": "string", "description": "The task ID to get."},
-    },
-    "required": ["taskId"],
-}
-
-SRC_ORIGIN_TASK_UPDATE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "taskId": {"type": "string", "description": "The ID of the task to update."},
-        "subject": {"type": "string", "description": "New subject for the task."},
-        "description": {"type": "string", "description": "New description for the task."},
-        "activeForm": {"type": "string", "description": "Present-continuous status label."},
-        "status": {
-            "type": "string",
-            "enum": ["pending", "running", "completed", "failed", "killed", "deleted"],
-            "description": "New src-origin task status.",
-        },
-        "owner": {"type": "string"},
-        "addBlocks": {"type": "array", "items": {"type": "string"}},
-        "addBlockedBy": {"type": "array", "items": {"type": "string"}},
-        "metadata": {"type": "object", "additionalProperties": True},
-    },
-    "required": ["taskId"],
-}
-
 SRC_ORIGIN_CRON_CREATE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -1075,68 +1048,10 @@ def _src_origin_metadata(metadata: dict[str, Any] | None, **extra: Any) -> dict[
     return payload
 
 
-def _src_origin_task_status(status: str) -> str:
-    mapping = {
-        "pending": "created",
-        "running": "running",
-        "completed": "finished",
-        "failed": "error",
-        "killed": "canceled",
-        "deleted": "canceled",
-    }
-    value = str(status or "").strip()
-    return mapping.get(value, value)
-
-
 def _src_origin_prompt_title(prompt: str) -> str:
     text = str(prompt or "").strip()
     first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
     return first_line[:80] or "Scheduled prompt"
-
-
-async def _src_origin_task_create(
-    context: ToolRuntimeContext,
-    *,
-    subject: str,
-    description: str,
-    activeForm: str = "",
-    metadata: dict[str, Any] | None = None,
-) -> dict:
-    return await task_create(
-        context,
-        title=subject,
-        input=description,
-        metadata=_src_origin_metadata(metadata, activeForm=activeForm),
-    )
-
-
-async def _src_origin_task_update(
-    context: ToolRuntimeContext,
-    *,
-    taskId: str,
-    subject: str = "",
-    description: str = "",
-    activeForm: str = "",
-    status: str = "",
-    owner: str = "",
-    addBlocks: list[str] | None = None,
-    addBlockedBy: list[str] | None = None,
-    metadata: dict[str, Any] | None = None,
-) -> dict:
-    return await task_update(
-        context,
-        task_id=taskId,
-        title=subject,
-        input=description,
-        status=_src_origin_task_status(status),
-        metadata=_src_origin_metadata(
-            metadata,
-            activeForm=activeForm,
-            owner=owner,
-            blocks=",".join(addBlocks or []),
-            blockedBy=",".join(addBlockedBy or []),
-        ),
-    )
 
 
 async def _src_origin_cron_create(
@@ -1625,41 +1540,53 @@ def _register_src_origin_aliases(
         name="TaskCreate",
         description="Create a tracked task. src-origin alias for task.create.",
         parameters=SRC_ORIGIN_TASK_CREATE_SCHEMA,
-        handler=lambda subject, description, activeForm="", metadata=None: _src_origin_task_create(
+        handler=lambda subject, description, activeForm="", metadata=None: src_origin_task_create(
             context,
             subject=subject,
             description=description,
             activeForm=activeForm,
             metadata=metadata,
         ),
-        metadata={"risk": "medium", "writes_state": True, "alias_of": "task.create", "src_origin_tool": "TaskCreate"},
+        metadata={
+            "risk": "medium",
+            "writes_state": True,
+            "defer": True,
+            "alias_of": "task.create",
+            "src_origin_tool": "TaskCreate",
+        },
         writes_state=True,
+        max_result_size_chars=100000,
         activity_kind="state",
         activity_title="Create task",
         activity_target_argument="subject",
+        result_formatter=format_src_origin_task_create_result,
     )
     _register_builtin_tool(
         registry,
         name="TaskList",
         description="List tracked tasks. src-origin alias for task.list.",
-        parameters=SRC_ORIGIN_EMPTY_SCHEMA,
-        handler=lambda: task_list(context),
-        metadata={"risk": "low", "alias_of": "task.list", "src_origin_tool": "TaskList"},
+        parameters=SRC_ORIGIN_TASK_LIST_SCHEMA,
+        handler=lambda: src_origin_task_list(context),
+        metadata={"risk": "low", "defer": True, "alias_of": "task.list", "src_origin_tool": "TaskList"},
         read_only=True,
+        max_result_size_chars=100000,
         activity_kind="state",
         activity_title="List tasks",
+        result_formatter=format_src_origin_task_list_result,
     )
     _register_builtin_tool(
         registry,
         name="TaskGet",
         description="Load a tracked task by id. src-origin alias for task.get.",
         parameters=SRC_ORIGIN_TASK_GET_SCHEMA,
-        handler=lambda taskId: task_get(context, task_id=taskId),
-        metadata={"risk": "low", "alias_of": "task.get", "src_origin_tool": "TaskGet"},
+        handler=lambda taskId: src_origin_task_get(context, taskId=taskId),
+        metadata={"risk": "low", "defer": True, "alias_of": "task.get", "src_origin_tool": "TaskGet"},
         read_only=True,
+        max_result_size_chars=100000,
         activity_kind="state",
         activity_title="Read task",
         activity_target_argument="taskId",
+        result_formatter=format_src_origin_task_get_result,
     )
     _register_builtin_tool(
         registry,
@@ -1674,7 +1601,7 @@ def _register_src_origin_aliases(
         owner="",
         addBlocks=None,
         addBlockedBy=None,
-        metadata=None: _src_origin_task_update(
+        metadata=None: src_origin_task_update(
             context,
             taskId=taskId,
             subject=subject,
@@ -1686,12 +1613,20 @@ def _register_src_origin_aliases(
             addBlockedBy=addBlockedBy,
             metadata=metadata,
         ),
-        metadata={"risk": "medium", "writes_state": True, "alias_of": "task.update", "src_origin_tool": "TaskUpdate"},
+        metadata={
+            "risk": "medium",
+            "writes_state": True,
+            "defer": True,
+            "alias_of": "task.update",
+            "src_origin_tool": "TaskUpdate",
+        },
         writes_state=True,
         concurrency_safe=False,
+        max_result_size_chars=100000,
         activity_kind="state",
         activity_title="Update task",
         activity_target_argument="taskId",
+        result_formatter=format_src_origin_task_update_result,
     )
     _register_builtin_tool(
         registry,
