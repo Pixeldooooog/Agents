@@ -7,7 +7,11 @@ from fnmatch import fnmatchcase
 from typing import Iterable
 
 from agents.kernel.schema import ToolCall
-from agents.kernel.governance.shell_rule_normalization import ShellEnvMode, normalize_shell_segment
+from agents.kernel.governance.shell_rule_normalization import (
+    ShellEnvMode,
+    merge_shell_redirection_tokens,
+    normalize_shell_segment,
+)
 
 
 SHELL_RUN_TOOL = "shell.run"
@@ -360,7 +364,7 @@ def split_shell_subcommands(command: str, *, shell_env_mode: ShellEnvMode = "all
     try:
         lexer = shlex.shlex(value, posix=True, punctuation_chars=";&|")
         lexer.whitespace_split = True
-        tokens = list(lexer)
+        tokens = merge_shell_redirection_tokens(list(lexer))
     except ValueError:
         return ShellCommandParts(subcommands=(), parse_error=True, too_complex=too_complex)
     subcommands: list[str] = []

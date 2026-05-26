@@ -12,6 +12,10 @@ _SAFE_TIMEOUT_VALUE_RE = re.compile(r"^[A-Za-z0-9_.+-]+$")
 _TIMEOUT_DURATION_RE = re.compile(r"^\d+(?:\.\d+)?[smhd]?$")
 _NICE_LEVEL_RE = re.compile(r"^-?\d+$")
 _STDBUF_OPTION_RE = re.compile(r"^-[ioe][LN0-9]+$")
+_FD_REDIRECT_PREFIX_RE = re.compile(r"^\d+>>?$")
+_REDIRECT_PREFIX_RE = re.compile(r"^(?:1)?>>?$")
+_FUSED_REDIRECT_RE = re.compile(r"^(?:1)?>>?.+")
+_SIMPLE_REDIRECT_TARGET_RE = re.compile(r"^[A-Za-z0-9_./:@%+=,-]+$")
 _SAFE_ENV_VARS = frozenset(
     {
         "ANTHROPIC_API_KEY",
@@ -50,6 +54,32 @@ _SAFE_ENV_VARS = frozenset(
 )
 
 
+def merge_shell_redirection_tokens(tokens: list[str]) -> list[str]:
+    merged: list[str] = []
+    index = 0
+    while index < len(tokens):
+        token = str(tokens[index] or "")
+        next_token = str(tokens[index + 1] or "") if index + 1 < len(tokens) else ""
+        next_next_token = str(tokens[index + 2] or "") if index + 2 < len(tokens) else ""
+
+        if _FD_REDIRECT_PREFIX_RE.match(token) and next_token == "&" and next_next_token.isdigit():
+            merged.append("%s&%s" % (token, next_next_token))
+            index += 3
+            continue
+        if token == "&" and next_token in {">", ">>"}:
+            merged.append("%s%s" % (token, next_token))
+            index += 2
+            continue
+        if token in {">", ">>"} and next_token == "&":
+            merged.append("%s%s" % (token, next_token))
+            index += 2
+            continue
+
+        merged.append(token)
+        index += 1
+    return merged
+
+
 def normalize_shell_segment(tokens: list[str], *, env_mode: ShellEnvMode = "all") -> str:
     if env_mode == "safe":
         return _normalize_shell_segment_for_allow(tokens)
@@ -64,7 +94,7 @@ def _normalize_shell_segment_for_deny_or_ask(tokens: list[str]) -> str:
         while index < len(tokens) and _is_env_assignment(tokens[index]):
             index += 1
         index = _skip_safe_shell_wrapper(tokens, index)
-    return " ".join(tokens[index:]).strip()
+    return " ".join(_strip_simple_output_redirections(tokens[index:])).strip()
 
 
 def _normalize_shell_segment_for_allow(tokens: list[str]) -> str:
@@ -76,7 +106,7 @@ def _normalize_shell_segment_for_allow(tokens: list[str]) -> str:
     while index != previous_index and index < len(tokens):
         previous_index = index
         index = _skip_safe_shell_wrapper(tokens, index)
-    return " ".join(tokens[index:]).strip()
+    return " ".join(_strip_simple_output_redirections(tokens[index:])).strip()
 
 
 def _skip_safe_shell_wrapper(tokens: list[str], index: int) -> int:
@@ -153,6 +183,32 @@ def _skip_optional_double_dash(tokens: list[str], index: int) -> int:
     return index + 1 if index < len(tokens) and tokens[index] == "--" else index
 
 
+def _strip_simple_output_redirections(tokens: list[str]) -> list[str]:
+    stripped: list[str] = []
+    index = 0
+    while index < len(tokens):
+        token = str(tokens[index] or "")
+        next_token = str(tokens[index + 1] or "") if index + 1 < len(tokens) else ""
+
+        if _REDIRECT_PREFIX_RE.match(token) and _is_simple_redirect_target(next_token):
+            index += 2
+            continue
+        if _FUSED_REDIRECT_RE.match(token):
+            target = token[token.find(">") + 1 :]
+            if target.startswith(">"):
+                target = target[1:]
+            if _is_simple_redirect_target(target):
+                index += 1
+                continue
+        if token in {"&>", "&>>", ">&", ">>&"} and _is_simple_redirect_target(next_token):
+            index += 2
+            continue
+
+        stripped.append(token)
+        index += 1
+    return stripped
+
+
 def _is_env_assignment(token: str) -> bool:
     return bool(_ENV_ASSIGNMENT_RE.match(str(token or "")))
 
@@ -160,3 +216,7 @@ def _is_env_assignment(token: str) -> bool:
 def _is_safe_env_assignment(token: str) -> bool:
     match = _SAFE_ENV_ASSIGNMENT_RE.match(str(token or ""))
     return bool(match and match.group(1) in _SAFE_ENV_VARS)
+
+
+def _is_simple_redirect_target(token: str) -> bool:
+    return bool(token and _SIMPLE_REDIRECT_TARGET_RE.match(str(token)))

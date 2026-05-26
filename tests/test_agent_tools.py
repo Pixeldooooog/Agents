@@ -4784,6 +4784,77 @@ def test_bash_allow_rules_only_strip_safe_env_prefixes():
     assert denied_unsafe_env.metadata["matched_rule"] == "Bash(docker ps:*)"
 
 
+def test_bash_permission_rules_strip_simple_output_redirections_for_matching():
+    policy = StaticToolPermissionPolicy(
+        allowed_tools=["Bash(python script.py)", "Bash(echo hi)"],
+    )
+
+    separated_stdout = asyncio.run(
+        policy.authorize(
+            ToolCall(
+                id="1",
+                name="shell.run",
+                arguments={"command": "python script.py > out.txt"},
+            )
+        )
+    )
+    fused_stdout = asyncio.run(
+        policy.authorize(
+            ToolCall(
+                id="2",
+                name="shell.run",
+                arguments={"command": "python script.py >out.txt"},
+            )
+        )
+    )
+    stdout_append = asyncio.run(
+        policy.authorize(
+            ToolCall(
+                id="3",
+                name="shell.run",
+                arguments={"command": "python script.py 1>>logs/out.txt"},
+            )
+        )
+    )
+    combined_stdout_stderr = asyncio.run(
+        policy.authorize(
+            ToolCall(
+                id="4",
+                name="shell.run",
+                arguments={"command": "python script.py &> out.txt"},
+            )
+        )
+    )
+    dynamic_target = asyncio.run(
+        policy.authorize(
+            ToolCall(
+                id="5",
+                name="shell.run",
+                arguments={"command": "python script.py > $OUT"},
+            )
+        )
+    )
+    quoted_argument = asyncio.run(
+        policy.authorize(
+            ToolCall(
+                id="6",
+                name="shell.run",
+                arguments={"command": 'echo "hi > out.txt"'},
+            )
+        )
+    )
+
+    assert separated_stdout.allowed is True
+    assert separated_stdout.metadata["matched_rule"] == "Bash(python script.py)"
+    assert fused_stdout.allowed is True
+    assert stdout_append.allowed is True
+    assert combined_stdout_stderr.allowed is True
+    assert dynamic_target.allowed is False
+    assert dynamic_target.metadata["rule"] == "allowlist"
+    assert quoted_argument.allowed is False
+    assert quoted_argument.metadata["rule"] == "allowlist"
+
+
 def test_builtin_permission_rules_match_legacy_path_and_pattern_rules(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="tenant",

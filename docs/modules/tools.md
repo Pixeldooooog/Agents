@@ -162,6 +162,7 @@ Agent/team alias 层覆盖 `Agent`、旧名 `Task`、`SendMessage`、`TeamCreate
 - allow 规则只会剥离 `src-origin` 认可的安全 env，例如 `NODE_ENV=prod npm test` 可以命中 `Bash(npm test:*)`，但 `DOCKER_HOST=... docker ps`、`NODE_OPTIONS=... npm test` 不会因为 env 被隐藏而自动命中 allow。
 - `Bash(git:*)` 保留 legacy prefix 语义，匹配 bare `git` 和 `git ...`。
 - `timeout`、`time`、`nice`、`stdbuf`、`nohup` 等安全 wrapper 会在匹配前归一化，例如 `timeout 10 npm install foo` 会命中 `Bash(npm install:*)`；allow 规则不会把 wrapper 后面的 `FOO=bar` 当作 shell env assignment 剥离。
+- 简单 stdout 重定向会在权限匹配前剥离，例如 `python script.py > out.txt` 可以命中 `Bash(python script.py)`；动态 target 如 `> $OUT` 不会被剥离，避免把需要额外判断的写入隐藏掉。
 - bare `xargs <command>` 会参与 legacy prefix 匹配，例如 `xargs rm -f` 会命中 `Bash(rm:*)`；带 flag 的 `xargs -n1 rm` 暂不展开，避免过度推断。
 - 复合命令按 subcommand 匹配，例如 `npm test && git status` 会命中 `Bash(git *)`。
 - pre/post tool hooks 对复杂 shell 解析 fail-safe：无法可靠解析时会运行匹配到 `Bash(...)` 的 hook，避免安全 hook 被绕过。
