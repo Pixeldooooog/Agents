@@ -4730,6 +4730,60 @@ def test_builtin_permission_rules_match_bash_command_patterns(tmp_path: Path):
     assert npm_ask.raw["decision"]["metadata"]["matched_rule"] == "Bash(npm:*)"
 
 
+def test_bash_allow_rules_only_strip_safe_env_prefixes():
+    allow_policy = StaticToolPermissionPolicy(
+        allowed_tools=["Bash(npm test:*)", "Bash(docker ps:*)"],
+    )
+
+    safe_env = asyncio.run(
+        allow_policy.authorize(
+            ToolCall(
+                id="1",
+                name="shell.run",
+                arguments={"command": "NODE_ENV=prod npm test -- --watch"},
+            )
+        )
+    )
+    unsafe_env = asyncio.run(
+        allow_policy.authorize(
+            ToolCall(
+                id="2",
+                name="shell.run",
+                arguments={"command": "DOCKER_HOST=tcp://evil.invalid docker ps"},
+            )
+        )
+    )
+    wrapper_env = asyncio.run(
+        allow_policy.authorize(
+            ToolCall(
+                id="3",
+                name="shell.run",
+                arguments={"command": "nice FOO=bar npm test -- --watch"},
+            )
+        )
+    )
+
+    deny_policy = StaticToolPermissionPolicy(denied_tools=["Bash(docker ps:*)"])
+    denied_unsafe_env = asyncio.run(
+        deny_policy.authorize(
+            ToolCall(
+                id="4",
+                name="shell.run",
+                arguments={"command": "DOCKER_HOST=tcp://evil.invalid docker ps"},
+            )
+        )
+    )
+
+    assert safe_env.allowed is True
+    assert safe_env.metadata["matched_rule"] == "Bash(npm test:*)"
+    assert unsafe_env.allowed is False
+    assert unsafe_env.metadata["rule"] == "allowlist"
+    assert wrapper_env.allowed is False
+    assert wrapper_env.metadata["rule"] == "allowlist"
+    assert denied_unsafe_env.allowed is False
+    assert denied_unsafe_env.metadata["matched_rule"] == "Bash(docker ps:*)"
+
+
 def test_builtin_permission_rules_match_legacy_path_and_pattern_rules(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="tenant",

@@ -1,22 +1,80 @@
 from __future__ import annotations
 
 import re
+from typing import Literal
 
+
+ShellEnvMode = Literal["all", "safe"]
 
 _ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
+_SAFE_ENV_ASSIGNMENT_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=([A-Za-z0-9_./:-]+)$")
 _SAFE_TIMEOUT_VALUE_RE = re.compile(r"^[A-Za-z0-9_.+-]+$")
 _TIMEOUT_DURATION_RE = re.compile(r"^\d+(?:\.\d+)?[smhd]?$")
 _NICE_LEVEL_RE = re.compile(r"^-?\d+$")
 _STDBUF_OPTION_RE = re.compile(r"^-[ioe][LN0-9]+$")
+_SAFE_ENV_VARS = frozenset(
+    {
+        "ANTHROPIC_API_KEY",
+        "BLOCK_SIZE",
+        "BLOCKSIZE",
+        "CGO_ENABLED",
+        "CHARSET",
+        "COLORTERM",
+        "FORCE_COLOR",
+        "GCC_COLORS",
+        "GO111MODULE",
+        "GOARCH",
+        "GOEXPERIMENT",
+        "GOOS",
+        "GREP_COLOR",
+        "GREP_COLORS",
+        "LANG",
+        "LANGUAGE",
+        "LC_ALL",
+        "LC_CTYPE",
+        "LC_TIME",
+        "LSCOLORS",
+        "LS_COLORS",
+        "NODE_ENV",
+        "NO_COLOR",
+        "PYTEST_DEBUG",
+        "PYTEST_DISABLE_PLUGIN_AUTOLOAD",
+        "PYTHONDONTWRITEBYTECODE",
+        "PYTHONUNBUFFERED",
+        "RUST_BACKTRACE",
+        "RUST_LOG",
+        "TERM",
+        "TIME_STYLE",
+        "TZ",
+    }
+)
 
 
-def normalize_shell_segment(tokens: list[str]) -> str:
+def normalize_shell_segment(tokens: list[str], *, env_mode: ShellEnvMode = "all") -> str:
+    if env_mode == "safe":
+        return _normalize_shell_segment_for_allow(tokens)
+    return _normalize_shell_segment_for_deny_or_ask(tokens)
+
+
+def _normalize_shell_segment_for_deny_or_ask(tokens: list[str]) -> str:
     index = 0
     previous_index = -1
     while index != previous_index and index < len(tokens):
         previous_index = index
         while index < len(tokens) and _is_env_assignment(tokens[index]):
             index += 1
+        index = _skip_safe_shell_wrapper(tokens, index)
+    return " ".join(tokens[index:]).strip()
+
+
+def _normalize_shell_segment_for_allow(tokens: list[str]) -> str:
+    index = 0
+    while index < len(tokens) and _is_safe_env_assignment(tokens[index]):
+        index += 1
+
+    previous_index = -1
+    while index != previous_index and index < len(tokens):
+        previous_index = index
         index = _skip_safe_shell_wrapper(tokens, index)
     return " ".join(tokens[index:]).strip()
 
@@ -97,3 +155,8 @@ def _skip_optional_double_dash(tokens: list[str], index: int) -> int:
 
 def _is_env_assignment(token: str) -> bool:
     return bool(_ENV_ASSIGNMENT_RE.match(str(token or "")))
+
+
+def _is_safe_env_assignment(token: str) -> bool:
+    match = _SAFE_ENV_ASSIGNMENT_RE.match(str(token or ""))
+    return bool(match and match.group(1) in _SAFE_ENV_VARS)

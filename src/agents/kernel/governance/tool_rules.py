@@ -7,7 +7,7 @@ from fnmatch import fnmatchcase
 from typing import Iterable
 
 from agents.kernel.schema import ToolCall
-from agents.kernel.governance.shell_rule_normalization import normalize_shell_segment
+from agents.kernel.governance.shell_rule_normalization import ShellEnvMode, normalize_shell_segment
 
 
 SHELL_RUN_TOOL = "shell.run"
@@ -85,12 +85,14 @@ def find_matching_tool_rule(
     call: ToolCall,
     *,
     shell_parse_error_matches: bool = False,
+    shell_env_mode: ShellEnvMode = "all",
 ) -> str | None:
     for rule in rules:
         matched = matching_tool_rule_alternative(
             str(rule),
             call,
             shell_parse_error_matches=shell_parse_error_matches,
+            shell_env_mode=shell_env_mode,
         )
         if matched is not None:
             return matched
@@ -110,12 +112,14 @@ def matching_tool_rule_alternative(
     call: ToolCall,
     *,
     shell_parse_error_matches: bool = False,
+    shell_env_mode: ShellEnvMode = "all",
 ) -> str | None:
     for alternative in split_tool_rule_alternatives(rule):
         if tool_rule_matches_call(
             alternative,
             call,
             shell_parse_error_matches=shell_parse_error_matches,
+            shell_env_mode=shell_env_mode,
         ):
             return alternative
     return None
@@ -126,6 +130,7 @@ def tool_rule_matches_call(
     call: ToolCall,
     *,
     shell_parse_error_matches: bool = False,
+    shell_env_mode: ShellEnvMode = "all",
 ) -> bool:
     parsed = parse_tool_rule(rule)
     if not _tool_name_matches(parsed.tool_name, call.name):
@@ -138,6 +143,7 @@ def tool_rule_matches_call(
         str(call.arguments.get("command") or ""),
         parsed.rule_content,
         parse_error_matches=shell_parse_error_matches,
+        shell_env_mode=shell_env_mode,
     )
 
 
@@ -207,8 +213,9 @@ def shell_command_matches_rule(
     pattern: str,
     *,
     parse_error_matches: bool = False,
+    shell_env_mode: ShellEnvMode = "all",
 ) -> bool:
-    parsed = split_shell_subcommands(command)
+    parsed = split_shell_subcommands(command, shell_env_mode=shell_env_mode)
     if parsed.parse_error and parse_error_matches:
         return True
     for subcommand in parsed.subcommands:
@@ -345,7 +352,7 @@ def shell_rule_extract_prefix(pattern: str) -> str | None:
     return match.group(1) if match else None
 
 
-def split_shell_subcommands(command: str) -> ShellCommandParts:
+def split_shell_subcommands(command: str, *, shell_env_mode: ShellEnvMode = "all") -> ShellCommandParts:
     value = str(command or "").strip()
     if not value:
         return ShellCommandParts(subcommands=())
@@ -360,11 +367,11 @@ def split_shell_subcommands(command: str) -> ShellCommandParts:
     current: list[str] = []
     for token in tokens:
         if _is_shell_separator(token):
-            _append_shell_segment(subcommands, current)
+            _append_shell_segment(subcommands, current, shell_env_mode=shell_env_mode)
             current = []
             continue
         current.append(token)
-    _append_shell_segment(subcommands, current)
+    _append_shell_segment(subcommands, current, shell_env_mode=shell_env_mode)
     return ShellCommandParts(subcommands=tuple(subcommands), too_complex=too_complex)
 
 
@@ -417,8 +424,8 @@ def _mcp_server_prefix_matches(pattern: str, tool_name: str) -> bool:
     return tool_name.startswith("%s__" % pattern)
 
 
-def _append_shell_segment(output: list[str], segment: list[str]) -> None:
-    normalized = normalize_shell_segment(segment)
+def _append_shell_segment(output: list[str], segment: list[str], *, shell_env_mode: ShellEnvMode) -> None:
+    normalized = normalize_shell_segment(segment, env_mode=shell_env_mode)
     if normalized:
         output.append(normalized)
 

@@ -60,7 +60,12 @@ class StaticToolPermissionPolicy:
         name = normalize_tool_name(call.name)
         config_read = name == "config.manage" and "value" not in dict(call.arguments or {})
         user_question = name == "user.ask"
-        denied_rule = find_matching_tool_rule(self.denied_tools, call, shell_parse_error_matches=True)
+        denied_rule = find_matching_tool_rule(
+            self.denied_tools,
+            call,
+            shell_parse_error_matches=True,
+            shell_env_mode="all",
+        )
         if denied_rule is not None:
             return ToolPermissionDecision(
                 allowed=False,
@@ -72,14 +77,24 @@ class StaticToolPermissionPolicy:
                 allowed=True,
                 metadata={"source": "tool_policy", "rule": "allow", "tool": call.name, "operation": "config_read"},
             )
-        allowed_rule = find_matching_tool_rule(self.allowed_tools, call, shell_parse_error_matches=False)
+        allowed_rule = find_matching_tool_rule(
+            self.allowed_tools,
+            call,
+            shell_parse_error_matches=False,
+            shell_env_mode="safe",
+        )
         if self.restrict_allowed_tools and allowed_rule is None:
             return ToolPermissionDecision(
                 allowed=False,
                 reason="tool is not in the allowed tool set",
                 metadata={"source": "agent_spec", "rule": "allowlist", "tool": call.name},
             )
-        approval_rule = find_matching_tool_rule(self.approval_required_tools, call, shell_parse_error_matches=True)
+        approval_rule = find_matching_tool_rule(
+            self.approval_required_tools,
+            call,
+            shell_parse_error_matches=True,
+            shell_env_mode="all",
+        )
         config_write_requires_approval = name == "config.manage" and "value" in dict(call.arguments or {}) and allowed_rule is None
         user_question_requires_approval = user_question and allowed_rule is None
         worktree_remove_requires_approval = (
