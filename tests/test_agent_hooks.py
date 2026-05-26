@@ -215,6 +215,41 @@ class TestSessionStateHooks:
         assert compound_exc.value.reason == "git blocked"
         assert hook.run_count == 2
 
+    def test_pre_tool_hook_matches_full_literal_bash_compound_command(self):
+        registry = SessionHookRegistry()
+        hook = registry.add(
+            event="pre_tool_use",
+            name="block-exact-compound",
+            action="deny_tool",
+            content="compound blocked",
+            tool="Bash(npm test && git status)",
+        )
+        hooks = SessionStateHooks(registry)
+
+        allowed = asyncio.run(
+            hooks.before_tool_use(
+                ToolCall(
+                    id="1",
+                    name="shell.run",
+                    arguments={"command": "npm test"},
+                )
+            )
+        )
+        with pytest.raises(ToolHookDenied) as exc_info:
+            asyncio.run(
+                hooks.before_tool_use(
+                    ToolCall(
+                        id="2",
+                        name="shell.run",
+                        arguments={"command": "npm test && git status"},
+                    )
+                )
+            )
+
+        assert allowed.name == "shell.run"
+        assert exc_info.value.reason == "compound blocked"
+        assert hook.run_count == 1
+
     def test_pre_tool_hook_matches_legacy_edit_path_patterns(self):
         registry = SessionHookRegistry()
         hook = registry.add(

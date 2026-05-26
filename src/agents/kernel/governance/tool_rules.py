@@ -277,6 +277,9 @@ def shell_command_matches_rule(
     shell_env_mode: ShellEnvMode = "all",
     reject_compound_prefix: bool = False,
 ) -> bool:
+    if _shell_literal_matches_command(pattern, command):
+        return True
+
     parsed = split_shell_subcommands(command, shell_env_mode=shell_env_mode)
     if parsed.parse_error and parse_error_matches:
         return True
@@ -600,6 +603,13 @@ def _shell_subcommand_has_operator(command: str) -> bool:
 
 def _is_literal_shell_rule(pattern: str) -> bool:
     return shell_rule_extract_prefix(pattern) is None and "*" not in str(pattern or "")
+
+
+def _shell_literal_matches_command(pattern: str, command: str) -> bool:
+    return (
+        _is_literal_shell_rule(pattern)
+        and str(pattern or "").strip() == str(command or "").strip()
+    )
 
 
 def _wildcard_tokens(pattern: str) -> list[tuple[str, str]]:

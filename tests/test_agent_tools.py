@@ -4967,6 +4967,50 @@ def test_bash_allow_rules_require_every_compound_subcommand_to_match():
     assert exact.metadata["matched_rule"] == "Bash(npm test && git status)"
 
 
+def test_bash_literal_compound_rules_match_full_command_for_deny_and_ask():
+    command = "npm test && git status"
+    deny_policy = StaticToolPermissionPolicy(
+        denied_tools=["Bash(npm test && git status)"],
+    )
+    ask_policy = StaticToolPermissionPolicy(
+        approval_required_tools=["Bash(npm test && git status)"],
+    )
+
+    denied = asyncio.run(
+        deny_policy.authorize(
+            ToolCall(
+                id="1",
+                name="shell.run",
+                arguments={"command": command},
+            )
+        )
+    )
+    ask = asyncio.run(
+        ask_policy.authorize(
+            ToolCall(
+                id="2",
+                name="shell.run",
+                arguments={"command": command},
+            )
+        )
+    )
+    subcommand = asyncio.run(
+        deny_policy.authorize(
+            ToolCall(
+                id="3",
+                name="shell.run",
+                arguments={"command": "npm test"},
+            )
+        )
+    )
+
+    assert denied.allowed is False
+    assert denied.metadata["matched_rule"] == "Bash(npm test && git status)"
+    assert ask.requires_approval is True
+    assert ask.metadata["matched_rule"] == "Bash(npm test && git status)"
+    assert subcommand.allowed is True
+
+
 def test_builtin_permission_rules_match_legacy_path_and_pattern_rules(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="tenant",
