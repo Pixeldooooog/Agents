@@ -152,9 +152,9 @@ streaming runtime 中的长前台 `shell.run` 会按 `src-origin` BashTool 的�
 
 `sleep.wait` 提供 `src-origin` Sleep 工具的基础能力：模型需要等待时可使用专用 wait tool，而不是用 `shell.run` 执行 `sleep` 占住 shell 进程。该工具是只读、并发安全、可被 interrupt 取消的低风险工具；SDK session 会把同 session 的 async user/task notifications 绑定为 Sleep wake signal，`next` / `later` 消息到达时可提前唤醒 Sleep 并在本次 session query 后继续 drain。
 
-任务工具的 alias 层覆盖 `TaskCreate`、`TaskList`、`TaskGet`、`TaskUpdate`、`TaskOutput`、`TaskStop` 以及旧名 `AgentOutputTool` / `BashOutputTool` / `KillShell`。其中 `TaskCreate` / `TaskList` / `TaskGet` / `TaskUpdate` / `TaskOutput` / `TaskStop` 使用 strict `src-origin` alias schema、`defer=true` 和 100k 结果上限，并把 canonical task/shell 输出适配回 `src-origin` 模型可见文本与结构化 payload；`TaskUpdate.subject`、`description`、`activeForm`、`owner` 和依赖数组会通过 adapter 映射到 Python-native task store。
+任务工具的 alias 层覆盖 `TaskCreate`、`TaskList`、`TaskGet`、`TaskUpdate`、`TaskOutput`、`TaskStop` 以及旧名 `AgentOutputTool` / `BashOutputTool` / `KillShell`。其中 `TaskCreate` / `TaskList` / `TaskGet` / `TaskUpdate` / `TaskOutput` / `TaskStop` 使用 strict `src-origin` alias schema、`defer=true` 和 100k 结果上限，并把 canonical task/shell 输出适配回 `src-origin` 模型可见文本与结构化 payload；`TaskUpdate.subject`、`description`、`activeForm`、`owner` 和依赖数组会通过 adapter 映射到 Python-native task store。对应注册逻辑在 `src_origin_task_aliases.py`，避免继续扩大总注册表。
 
-计划任务 alias 层覆盖 `CronCreate`、`CronList` 和 `CronDelete`，使用 strict `src-origin` alias schema、`defer=true` 和 100k 结果上限。`CronCreate` 会校验 5-field cron 表达式，并把 canonical schedule 记录适配为 `id` / `humanSchedule` / `recurring` / `durable` 结构化 payload 与 `src-origin` 风格模型可见文本；`CronList` / `CronDelete` 也保留 canonical schedule payload，同时输出 schedule job 列表或取消确认文本。
+计划任务 alias 层覆盖 `CronCreate`、`CronList` 和 `CronDelete`，使用 strict `src-origin` alias schema、`defer=true` 和 100k 结果上限。`CronCreate` 会校验 5-field cron 表达式，并把 canonical schedule 记录适配为 `id` / `humanSchedule` / `recurring` / `durable` 结构化 payload 与 `src-origin` 风格模型可见文本；`CronList` / `CronDelete` 也保留 canonical schedule payload，同时输出 schedule job 列表或取消确认文本。对应注册逻辑在 `src_origin_schedule_aliases.py`。
 
 Agent/team alias 层覆盖 `Agent`、旧名 `Task`、`SendMessage`、`TeamCreate` 和 `TeamDelete`。`Agent` / `Task` 复用 `agent.run` 的 child-session 边界；`TeamCreate` 会创建带 `team-lead` 成员的 Python-native team；`SendMessage` 路由到 `team.send`；`TeamDelete` 通过 canonical `team.delete` 清理 team record 和 queued messages。
 

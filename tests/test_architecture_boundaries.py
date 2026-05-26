@@ -89,6 +89,10 @@ def test_agent_capabilities_expose_builtin_tool_boundaries():
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.context") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.sandbox.local") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.sandbox.docker") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.registration_helpers") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_plan_aliases") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_task_aliases") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_schedule_aliases") is not None
 
 
 def test_agent_models_split_protocol_adapters_and_transports():
