@@ -5,7 +5,11 @@ from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Iterable, Protocol, Union
 
 from agents.kernel.schema import ToolCall
-from agents.kernel.governance.tool_rules import find_matching_tool_rule, normalize_tool_name
+from agents.kernel.governance.tool_rules import (
+    find_matching_shell_allow_rule,
+    find_matching_tool_rule,
+    normalize_tool_name,
+)
 
 
 @dataclass(frozen=True)
@@ -77,10 +81,9 @@ class StaticToolPermissionPolicy:
                 allowed=True,
                 metadata={"source": "tool_policy", "rule": "allow", "tool": call.name, "operation": "config_read"},
             )
-        allowed_rule = find_matching_tool_rule(
+        allowed_rule = find_matching_shell_allow_rule(
             self.allowed_tools,
             call,
-            shell_parse_error_matches=False,
             shell_env_mode="safe",
             shell_reject_compound_prefix=True,
         )

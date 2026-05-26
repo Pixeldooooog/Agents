@@ -105,6 +105,57 @@ def find_matching_tool_rule(
     return None
 
 
+def find_matching_shell_allow_rule(
+    rules: Iterable[str],
+    call: ToolCall,
+    *,
+    shell_env_mode: ShellEnvMode = "safe",
+    shell_reject_compound_prefix: bool = True,
+) -> str | None:
+    if normalize_tool_name(call.name) != SHELL_RUN_TOOL:
+        return find_matching_tool_rule(
+            rules,
+            call,
+            shell_parse_error_matches=False,
+            shell_env_mode=shell_env_mode,
+            shell_reject_compound_prefix=shell_reject_compound_prefix,
+        )
+
+    command = str(call.arguments.get("command") or "").strip()
+    if not command:
+        return None
+
+    parsed_rules = _matching_shell_rule_alternatives(rules)
+    for parsed in parsed_rules:
+        if parsed.rule_content is None:
+            return parsed.raw
+        if _is_literal_shell_rule(parsed.rule_content) and parsed.rule_content == command:
+            return parsed.raw
+
+    parsed = split_shell_subcommands(command, shell_env_mode=shell_env_mode)
+    if parsed.parse_error or not parsed.subcommands:
+        return None
+    unstripped = split_shell_subcommands(
+        command,
+        shell_env_mode=shell_env_mode,
+        strip_output_redirections=False,
+    )
+
+    matched_rules: list[str] = []
+    for index, subcommand in enumerate(parsed.subcommands):
+        original_subcommand = unstripped.subcommands[index] if index < len(unstripped.subcommands) else ""
+        matched = _matching_shell_allow_subcommand_rule(
+            parsed_rules,
+            subcommand,
+            original_subcommand,
+            reject_compound_prefix=shell_reject_compound_prefix,
+        )
+        if matched is None:
+            return None
+        matched_rules.append(matched)
+    return matched_rules[0] if matched_rules else None
+
+
 def matching_blanket_tool_rule(rule: str, tool_name: str) -> str | None:
     for alternative in split_tool_rule_alternatives(rule):
         parsed = parse_tool_rule(alternative)
@@ -330,6 +381,46 @@ def _tool_rule_targets(call: ToolCall) -> tuple[str, ...]:
     if name == "worktree.exit":
         return _argument_values(arguments, "action")
     return _argument_values(arguments, "path", "file_path", "pattern", "setting")
+
+
+def _matching_shell_rule_alternatives(rules: Iterable[str]) -> tuple[ParsedToolRule, ...]:
+    alternatives: list[ParsedToolRule] = []
+    for rule in rules:
+        for alternative in split_tool_rule_alternatives(str(rule)):
+            parsed = parse_tool_rule(alternative)
+            if _tool_name_matches(parsed.tool_name, SHELL_RUN_TOOL):
+                alternatives.append(parsed)
+    return tuple(alternatives)
+
+
+def _matching_shell_allow_subcommand_rule(
+    rules: Iterable[ParsedToolRule],
+    subcommand: str,
+    original_subcommand: str,
+    *,
+    reject_compound_prefix: bool,
+) -> str | None:
+    for rule in rules:
+        content = rule.rule_content
+        if content is None:
+            return rule.raw
+        if shell_subcommand_matches_rule(
+            subcommand,
+            content,
+            reject_compound_prefix=reject_compound_prefix,
+        ):
+            return rule.raw
+        if (
+            original_subcommand
+            and _is_literal_shell_rule(content)
+            and shell_subcommand_matches_rule(
+                original_subcommand,
+                content,
+                reject_compound_prefix=reject_compound_prefix,
+            )
+        ):
+            return rule.raw
+    return None
 
 
 def _argument_values(arguments: dict, *names: str) -> tuple[str, ...]:

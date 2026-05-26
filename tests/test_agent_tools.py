@@ -4925,6 +4925,48 @@ def test_bash_allow_prefix_rules_reject_operator_bearing_candidates():
     assert denied_escaped_compound.metadata["matched_rule"] == "Bash(cd:*)"
 
 
+def test_bash_allow_rules_require_every_compound_subcommand_to_match():
+    partial_policy = StaticToolPermissionPolicy(allowed_tools=["Bash(npm:*)"])
+    partial = asyncio.run(
+        partial_policy.authorize(
+            ToolCall(
+                id="1",
+                name="shell.run",
+                arguments={"command": "npm test && git status"},
+            )
+        )
+    )
+
+    full_policy = StaticToolPermissionPolicy(allowed_tools=["Bash(npm:*)", "Bash(git:*)"])
+    full = asyncio.run(
+        full_policy.authorize(
+            ToolCall(
+                id="2",
+                name="shell.run",
+                arguments={"command": "npm test && git status"},
+            )
+        )
+    )
+
+    exact_policy = StaticToolPermissionPolicy(allowed_tools=["Bash(npm test && git status)"])
+    exact = asyncio.run(
+        exact_policy.authorize(
+            ToolCall(
+                id="3",
+                name="shell.run",
+                arguments={"command": "npm test && git status"},
+            )
+        )
+    )
+
+    assert partial.allowed is False
+    assert partial.metadata["rule"] == "allowlist"
+    assert full.allowed is True
+    assert full.metadata["matched_rule"] == "Bash(npm:*)"
+    assert exact.allowed is True
+    assert exact.metadata["matched_rule"] == "Bash(npm test && git status)"
+
+
 def test_builtin_permission_rules_match_legacy_path_and_pattern_rules(tmp_path: Path):
     workspace = WorkspaceContext(
         tenant_id="tenant",

@@ -164,8 +164,9 @@ Agent/team alias 层覆盖 `Agent`、旧名 `Task`、`SendMessage`、`TeamCreate
 - `timeout`、`time`、`nice`、`stdbuf`、`nohup` 等安全 wrapper 会在匹配前归一化，例如 `timeout 10 npm install foo` 会命中 `Bash(npm install:*)`；allow 规则不会把 wrapper 后面的 `FOO=bar` 当作 shell env assignment 剥离。
 - 简单 stdout 重定向会在权限匹配前剥离，例如 `python script.py > out.txt` 可以命中 `Bash(python script.py)`；literal exact 规则也会保留原始重定向形态参与匹配，例如 `Bash(python script.py > out.txt)` 仍可命中同一命令。动态 target 如 `> $OUT` 不会被剥离，避免把需要额外判断的写入隐藏掉。
 - allow 规则的 prefix/wildcard 不会匹配仍含 shell operator 的候选命令，例如 `cd src\&\& python3 hello.py` 不会被 `Bash(cd:*)` 自动放行；deny/ask 规则仍会匹配这类候选，避免安全规则被转义形式绕过。
+- 复合命令的 allow 判定要求每个 subcommand 都被允许，例如只有 `Bash(npm:*)` 不会放行 `npm test && git status`，需要同时有 `Bash(git:*)` 或整条 literal exact 规则。
 - bare `xargs <command>` 会参与 legacy prefix 匹配，例如 `xargs rm -f` 会命中 `Bash(rm:*)`；带 flag 的 `xargs -n1 rm` 暂不展开，避免过度推断。
-- 复合命令按 subcommand 匹配，例如 `npm test && git status` 会命中 `Bash(git *)`。
+- deny/ask/hook 对复合命令按 subcommand 匹配，例如 `npm test && git status` 会命中 `Bash(git *)`。
 - pre/post tool hooks 对复杂 shell 解析 fail-safe：无法可靠解析时会运行匹配到 `Bash(...)` 的 hook，避免安全 hook 被绕过。
 - `Read(src/**)`、`Write(secrets/**)`、`Edit(src/**)`、`NotebookEdit(notebooks/**)`、`LSP(src/**)` 兼容 `src-origin` 的路径 wildcard 规则，分别映射到 `filesystem.read`、`filesystem.write`、`patch.apply`、`notebook.edit`、`lsp.query`。非文件类 alias 也会从 `src-origin` 参数中抽取匹配目标，例如 `TaskUpdate(task-*)` 匹配 `taskId`，`CronDelete(nightly*)` 匹配 `id`，`Agent(research*)` 匹配 `subagent_type` / `description`，`SendMessage(teammate*)` 匹配 `to`，MCP/Web 规则匹配 `server` / `uri` / `url`。
 - `Grep(TODO*)` / `Glob(*.py)` 使用工具的搜索 pattern 做 wildcard 匹配；`Glob` 已映射到 `search.glob`。
