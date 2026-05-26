@@ -275,9 +275,15 @@ from agents.kernel.capabilities.tools.builtin.user_interaction import (
     send_user_message,
 )
 from agents.kernel.capabilities.tools.builtin.web import (
+    SRC_ORIGIN_WEB_FETCH_SCHEMA,
+    SRC_ORIGIN_WEB_SEARCH_SCHEMA,
     WEB_EXTRACT_SCHEMA,
     WEB_MAP_SCHEMA,
     WEB_SEARCH_SCHEMA,
+    format_src_origin_web_fetch_result,
+    format_src_origin_web_search_result,
+    src_origin_web_fetch,
+    src_origin_web_search,
     web_extract,
     web_map,
     web_search,
@@ -955,25 +961,6 @@ SRC_ORIGIN_MULTI_EDIT_SCHEMA = {
     "required": ["file_path", "edits"],
 }
 
-SRC_ORIGIN_WEB_SEARCH_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "query": {"type": "string", "description": "The search query to use."},
-        "allowed_domains": {"type": "array", "items": {"type": "string"}},
-        "blocked_domains": {"type": "array", "items": {"type": "string"}},
-    },
-    "required": ["query"],
-}
-
-SRC_ORIGIN_WEB_FETCH_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "url": {"type": "string", "description": "The URL to fetch content from."},
-        "prompt": {"type": "string", "description": "The prompt to run on the fetched content."},
-    },
-    "required": ["url", "prompt"],
-}
-
 SRC_ORIGIN_TASK_OUTPUT_SCHEMA = {
     "type": "object",
     "properties": {
@@ -1278,42 +1265,6 @@ async def _src_origin_team_create(
         }
     )
     return payload
-
-
-async def _src_origin_web_search(
-    context: ToolRuntimeContext,
-    provider: WebSearchProvider,
-    *,
-    query: str,
-    allowed_domains: list[str] | None = None,
-    blocked_domains: list[str] | None = None,
-) -> dict:
-    if allowed_domains and blocked_domains:
-        raise ValueError("Cannot specify both allowed_domains and blocked_domains")
-    return await web_search(
-        context,
-        provider,
-        query=query,
-        include_domains=allowed_domains,
-        exclude_domains=blocked_domains,
-    )
-
-
-async def _src_origin_web_fetch(
-    context: ToolRuntimeContext,
-    provider: WebSearchProvider,
-    *,
-    url: str,
-    prompt: str,
-) -> dict:
-    return await web_extract(
-        context,
-        provider,
-        urls=[url],
-        query=prompt,
-        extract_depth="basic",
-        format="markdown",
-    )
 
 
 async def _src_origin_task_output(
@@ -1650,7 +1601,7 @@ def _register_src_origin_aliases(
         name="WebSearch",
         description="Search the web for current information. src-origin alias for web.search.",
         parameters=SRC_ORIGIN_WEB_SEARCH_SCHEMA,
-        handler=lambda query, allowed_domains=None, blocked_domains=None: _src_origin_web_search(
+        handler=lambda query, allowed_domains=None, blocked_domains=None: src_origin_web_search(
             context,
             active_web_provider,
             query=query,
@@ -1664,18 +1615,21 @@ def _register_src_origin_aliases(
             "provider": getattr(active_web_provider, "name", "none"),
             "alias_of": "web.search",
             "src_origin_tool": "WebSearch",
+            "defer": True,
         },
         read_only=True,
+        max_result_size_chars=100000,
         activity_kind="web",
         activity_title="Search web",
         activity_target_argument="query",
+        result_formatter=format_src_origin_web_search_result,
     )
     _register_builtin_tool(
         registry,
         name="WebFetch",
         description="Fetch and extract content from a URL. src-origin alias for web.extract.",
         parameters=SRC_ORIGIN_WEB_FETCH_SCHEMA,
-        handler=lambda url, prompt: _src_origin_web_fetch(
+        handler=lambda url, prompt: src_origin_web_fetch(
             context,
             active_web_provider,
             url=url,
@@ -1688,11 +1642,14 @@ def _register_src_origin_aliases(
             "provider": getattr(active_web_provider, "name", "none"),
             "alias_of": "web.extract",
             "src_origin_tool": "WebFetch",
+            "defer": True,
         },
         read_only=True,
+        max_result_size_chars=100000,
         activity_kind="web",
         activity_title="Extract web content",
         activity_target_argument="url",
+        result_formatter=format_src_origin_web_fetch_result,
     )
     _register_builtin_tool(
         registry,

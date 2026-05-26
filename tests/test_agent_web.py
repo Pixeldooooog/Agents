@@ -164,10 +164,21 @@ def test_src_origin_web_aliases_route_to_control_plane_provider(tmp_path: Path):
     )
 
     assert search.is_error is False
+    assert search.content.startswith('Web search results for query: "agents"')
+    assert "Links:" in search.content
+    assert "https://example.com/result" in search.content
+    assert "REMINDER: You MUST include the sources above" in search.content
     assert search.raw["sources"][0]["url"] == "https://example.com/result"
+    assert search.raw["results"][0]["content"][0]["url"] == "https://example.com/result"
+    assert search.raw["durationSeconds"] >= 0
     assert provider.run_ids == ["run-web-alias"]
     assert fetch.is_error is False
+    assert fetch.content == "fetched content"
     assert fetch.raw["sources"][0]["content"] == "fetched content"
+    assert fetch.raw["result"] == "fetched content"
+    assert fetch.raw["bytes"] == len("fetched content".encode("utf-8"))
+    assert fetch.raw["code"] == 200
+    assert fetch.raw["url"] == "https://example.com/doc"
     request, run_id = provider.extract_requests[0]
     assert request.urls == ("https://example.com/doc",)
     assert request.query == "summarize the page"
@@ -175,6 +186,20 @@ def test_src_origin_web_aliases_route_to_control_plane_provider(tmp_path: Path):
     specs = {item.name: item.raw["metadata"] for item in registry.specs(["WebSearch", "WebFetch"])}
     assert specs["WebSearch"]["alias_of"] == "web.search"
     assert specs["WebFetch"]["alias_of"] == "web.extract"
+    assert specs["WebSearch"]["defer"] is True
+    assert specs["WebFetch"]["defer"] is True
+
+    bad_search = asyncio.run(registry.execute("WebSearch", {"query": "agents", "unused": True}))
+    bad_fetch = asyncio.run(
+        registry.execute(
+            "WebFetch",
+            {"url": "https://example.com/doc", "prompt": "summarize the page", "unused": True},
+        )
+    )
+    assert bad_search.is_error is True
+    assert bad_search.raw["details"] == "unexpected argument: unused"
+    assert bad_fetch.is_error is True
+    assert bad_fetch.raw["details"] == "unexpected argument: unused"
 
 
 def test_src_origin_web_alias_impact_maps_domains_and_urls():
