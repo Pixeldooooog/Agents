@@ -161,6 +161,22 @@ def test_mcp_provider_stays_split_by_responsibility():
         assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
 
 
+def test_sdk_client_stays_split_by_responsibility():
+    sdk_root = ROOT / "src" / "agents" / "sdk"
+    for module in ["client", "event_projection", "file_history", "file_rewind"]:
+        assert importlib.util.find_spec(f"agents.sdk.{module}") is not None
+
+    limits = {
+        sdk_root / "client.py": 2400,
+        sdk_root / "event_projection.py": 1100,
+        sdk_root / "file_history.py": 900,
+        sdk_root / "file_rewind.py": 600,
+    }
+
+    for path, max_lines in limits.items():
+        assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
+
+
 def test_agent_models_split_protocol_adapters_and_transports():
     assert importlib.util.find_spec("agents.kernel.models.adapters") is not None
     assert importlib.util.find_spec("agents.kernel.models.protocol") is not None
