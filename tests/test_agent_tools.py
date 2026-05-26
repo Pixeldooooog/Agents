@@ -266,6 +266,7 @@ def test_src_origin_alias_tools_execute_against_canonical_implementations(tmp_pa
                 "Read",
                 "Write",
                 "Edit",
+                "MultiEdit",
                 "Bash",
                 "BashOutputTool",
                 "Glob",
@@ -280,9 +281,21 @@ def test_src_origin_alias_tools_execute_against_canonical_implementations(tmp_pa
         )
     }
     read = asyncio.run(registry.execute("Read", {"file_path": "notes.txt"}))
-    written = asyncio.run(registry.execute("Write", {"file_path": "draft.txt", "content": "alpha\n"}))
+    written = asyncio.run(registry.execute("Write", {"file_path": "draft.txt", "content": "alpha\nsecond\n"}))
     edited = asyncio.run(
         registry.execute("Edit", {"file_path": "draft.txt", "old_string": "alpha\n", "new_string": "beta\n"})
+    )
+    multi_edited = asyncio.run(
+        registry.execute(
+            "MultiEdit",
+            {
+                "file_path": "draft.txt",
+                "edits": [
+                    {"old_string": "beta", "new_string": "gamma"},
+                    {"old_string": "second", "new_string": "third"},
+                ],
+            },
+        )
     )
     globbed = asyncio.run(registry.execute("Glob", {"pattern": "*.txt", "path": "."}))
     grepped = asyncio.run(registry.execute("Grep", {"pattern": "needle", "path": ".", "output_mode": "content"}))
@@ -313,6 +326,7 @@ def test_src_origin_alias_tools_execute_against_canonical_implementations(tmp_pa
 
     assert alias_specs["Read"].raw["metadata"]["alias_of"] == "filesystem.read"
     assert alias_specs["Edit"].raw["metadata"]["alias_of"] == "patch.apply"
+    assert alias_specs["MultiEdit"].raw["metadata"]["alias_of"] == "patch.apply"
     assert alias_specs["Bash"].raw["metadata"]["alias_of"] == "shell.run"
     assert alias_specs["BashOutputTool"].raw["metadata"]["alias_of"] == "shell.output"
     assert alias_specs["NotebookEdit"].raw["metadata"]["alias_of"] == "notebook.edit"
@@ -326,7 +340,10 @@ def test_src_origin_alias_tools_execute_against_canonical_implementations(tmp_pa
     assert written.raw["path"] == "draft.txt"
     assert edited.is_error is False
     assert edited.raw["filePath"] == "draft.txt"
-    assert (tmp_path / "draft.txt").read_text(encoding="utf-8") == "beta\n"
+    assert multi_edited.is_error is False
+    assert multi_edited.content == "The file draft.txt has been updated successfully. 2 edits applied."
+    assert multi_edited.raw["files"][0]["path"] == "draft.txt"
+    assert (tmp_path / "draft.txt").read_text(encoding="utf-8") == "gamma\nthird\n"
     assert "draft.txt" in globbed.raw["filenames"]
     assert grepped.content == "notes.txt:2:needle"
     assert bashed.raw["stdout"] == "ok\n"
@@ -354,6 +371,20 @@ def test_src_origin_alias_tools_execute_against_canonical_implementations(tmp_pa
     assert impact.risk == "medium"
     assert impact.operations == ["file_patch"]
     assert impact.paths == ["draft.txt"]
+
+    multi_impact = describe_tool_impact(
+        ToolCall(
+            id="call-multi-edit",
+            name="MultiEdit",
+            arguments={
+                "file_path": "draft.txt",
+                "edits": [{"old_string": "third", "new_string": "fourth"}],
+            },
+        )
+    )
+    assert multi_impact.risk == "medium"
+    assert multi_impact.operations == ["file_patch"]
+    assert multi_impact.paths == ["draft.txt"]
 
     lsp_impact = describe_tool_impact(
         ToolCall(id="call-lsp", name="LSP", arguments={"operation": "hover", "filePath": "notes.txt", "line": 1, "character": 1})
@@ -5044,6 +5075,7 @@ def test_builtin_permission_rules_match_legacy_path_and_pattern_rules(tmp_path: 
     asyncio.run(registry.execute("permission.add_rule", {"behavior": "allow", "tool": "search.grep"}))
     asyncio.run(registry.execute("permission.add_rule", {"behavior": "allow", "tool": "Glob(*.py)"}))
     asyncio.run(registry.execute("permission.add_rule", {"behavior": "deny", "tool": "Write(secrets/**)"}))
+    asyncio.run(registry.execute("permission.add_rule", {"behavior": "deny", "tool": "MultiEdit(secrets/**)"}))
     asyncio.run(registry.execute("permission.add_rule", {"behavior": "deny", "tool": "NotebookEdit(secrets/**)"}))
     asyncio.run(registry.execute("permission.add_rule", {"behavior": "ask", "tool": "Grep(TODO*)"}))
 
@@ -5060,6 +5092,18 @@ def test_builtin_permission_rules_match_legacy_path_and_pattern_rules(tmp_path: 
     )
     glob_allowed = asyncio.run(
         registry.execute("permission.explain", {"tool": "search.glob", "arguments": {"pattern": "*.py", "path": "src"}})
+    )
+    multi_edit_denied = asyncio.run(
+        registry.execute(
+            "permission.explain",
+            {
+                "tool": "MultiEdit",
+                "arguments": {
+                    "file_path": "secrets/config.py",
+                    "edits": [{"old_string": "old", "new_string": "new"}],
+                },
+            },
+        )
     )
     notebook_denied = asyncio.run(
         registry.execute(
@@ -5080,6 +5124,8 @@ def test_builtin_permission_rules_match_legacy_path_and_pattern_rules(tmp_path: 
     assert grep_allowed.raw["decision"]["metadata"]["matched_rule"] == "search.grep"
     assert glob_allowed.raw["decision"]["allowed"] is True
     assert glob_allowed.raw["decision"]["metadata"]["matched_rule"] == "Glob(*.py)"
+    assert multi_edit_denied.raw["decision"]["allowed"] is False
+    assert multi_edit_denied.raw["decision"]["metadata"]["matched_rule"] == "MultiEdit(secrets/**)"
     assert notebook_denied.raw["decision"]["allowed"] is False
     assert notebook_denied.raw["decision"]["metadata"]["matched_rule"] == "NotebookEdit(secrets/**)"
 

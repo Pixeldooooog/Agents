@@ -134,7 +134,9 @@ from agents.kernel.capabilities.tools.builtin.patch import (
     PATCH_APPLY_SCHEMA,
     apply_patch,
     apply_src_origin_edit,
+    apply_src_origin_multi_edit,
     format_src_origin_edit_result,
+    format_src_origin_multi_edit_result,
 )
 from agents.kernel.capabilities.tools.builtin.planning import (
     PLAN_ENTER_SCHEMA,
@@ -328,6 +330,7 @@ BUILTIN_TOOL_NAMES = [
     "Read",
     "Write",
     "Edit",
+    "MultiEdit",
     "Bash",
     "Glob",
     "Grep",
@@ -931,6 +934,26 @@ SRC_ORIGIN_EDIT_SCHEMA = {
     "required": ["file_path", "old_string", "new_string"],
 }
 
+SRC_ORIGIN_MULTI_EDIT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "file_path": {"type": "string", "description": "Path to the file to edit."},
+        "edits": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "old_string": {"type": "string", "description": "Text to replace."},
+                    "new_string": {"type": "string", "description": "Replacement text."},
+                    "replace_all": {"type": "boolean", "description": "Replace all occurrences."},
+                },
+                "required": ["old_string", "new_string"],
+            },
+        },
+    },
+    "required": ["file_path", "edits"],
+}
+
 SRC_ORIGIN_WEB_SEARCH_SCHEMA = {
     "type": "object",
     "properties": {
@@ -1449,6 +1472,31 @@ def _register_src_origin_aliases(
         activity_title="Edit file",
         activity_target_argument="file_path",
         result_formatter=format_src_origin_edit_result,
+    )
+    _register_builtin_tool(
+        registry,
+        name="MultiEdit",
+        description="Apply multiple text replacements to one file. src-origin alias for patch.apply.",
+        parameters=SRC_ORIGIN_MULTI_EDIT_SCHEMA,
+        handler=lambda file_path, edits: apply_src_origin_multi_edit(
+            context,
+            file_path=file_path,
+            edits=edits,
+        ),
+        metadata={
+            "risk": "medium",
+            "writes_files": True,
+            "alias_of": "patch.apply",
+            "src_origin_tool": "MultiEdit",
+        },
+        writes_state=True,
+        concurrency_safe=False,
+        max_result_size_chars=100000,
+        path_parameters=("file_path",),
+        activity_kind="edit",
+        activity_title="Edit file",
+        activity_target_argument="file_path",
+        result_formatter=format_src_origin_multi_edit_result,
     )
     _register_builtin_tool(
         registry,

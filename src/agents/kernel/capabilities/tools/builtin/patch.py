@@ -154,6 +154,33 @@ def apply_src_origin_edit(
     )
 
 
+def apply_src_origin_multi_edit(
+    context: ToolRuntimeContext,
+    file_path: str,
+    edits: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    path = _required_text(file_path, "file_path")
+    if not edits:
+        raise ValueError("MultiEdit requires at least one edit.")
+    _reject_oversized_src_origin_edit_file(context, path)
+    _reject_missing_src_origin_edit_file(context, path)
+    _reject_src_origin_notebook_edit(context, path)
+    return apply_patch(
+        context,
+        edits=[
+            {
+                "path": path,
+                "old_text": _required_string(edit, "old_string"),
+                "new_text": str(edit.get("new_string") or ""),
+                "replace_all": bool(edit.get("replace_all")),
+            }
+            for edit in edits
+            if isinstance(edit, dict)
+        ],
+        src_origin_error_messages=True,
+    )
+
+
 def _reject_missing_src_origin_edit_file(context: ToolRuntimeContext, file_path: str) -> None:
     resolved = context.sandbox.resolve_workspace_path(file_path)
     if not resolved.exists():
@@ -475,6 +502,18 @@ def format_src_origin_edit_result(result: Any) -> str:
             modified_note,
         )
     return "The file %s has been updated successfully%s." % (file_path, modified_note)
+
+
+def format_src_origin_multi_edit_result(result: Any) -> str:
+    if not isinstance(result, dict):
+        return str(result)
+    files = result.get("files") if isinstance(result.get("files"), list) else []
+    first_file = files[0] if files and isinstance(files[0], dict) else {}
+    file_path = str(first_file.get("path") or "")
+    if not file_path:
+        return str(result)
+    edit_count = sum(int(item.get("edits") or 0) for item in files if isinstance(item, dict))
+    return "The file %s has been updated successfully. %d edits applied." % (file_path, edit_count)
 
 
 def _combined_diff(files: list[_PlannedFile]) -> str:

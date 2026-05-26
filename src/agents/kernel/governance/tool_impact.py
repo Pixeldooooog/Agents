@@ -391,6 +391,19 @@ def _canonical_arguments(original_name: str, canonical_name: str, arguments: dic
                 }
             ]
         }
+    if original_name == "MultiEdit" and canonical_name == "patch.apply":
+        file_path = _string(arguments.get("file_path"))
+        return {
+            "edits": [
+                {
+                    "path": file_path,
+                    "old_text": _string(edit.get("old_string")),
+                    "new_text": _string(edit.get("new_string")),
+                    "replace_all": bool(edit.get("replace_all")),
+                }
+                for edit in _list_of_dicts(arguments.get("edits"))
+            ]
+        }
     if original_name == "WebSearch" and canonical_name == "web.search":
         payload = dict(arguments)
         if "include_domains" not in payload and "allowed_domains" in payload:
