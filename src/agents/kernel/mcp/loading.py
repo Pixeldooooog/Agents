@@ -7,18 +7,20 @@ from pathlib import Path
 from typing import Any
 
 from agents.kernel.mcp.auth import merge_cached_authorization_header
-from agents.kernel.mcp.provider import (
+from agents.kernel.mcp.clients import (
+    MCPSSEClient,
+    MCPSDKControlClient,
+    MCPStdioClient,
+    MCPStreamableHTTPClient,
+    MCPWebSocketClient,
+)
+from agents.kernel.mcp.provider import MCPToolProvider
+from agents.kernel.mcp.types import (
     MCPOAuthAuthenticator,
     MCPElicitationCompleteHandler,
     MCPElicitationHandler,
     MCPListChangedHandler,
-    MCPSSEClient,
-    MCPSDKControlClient,
     MCPServerConfig,
-    MCPStdioClient,
-    MCPStreamableHTTPClient,
-    MCPToolProvider,
-    MCPWebSocketClient,
 )
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 

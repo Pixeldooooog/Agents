@@ -53,7 +53,11 @@ def test_agent_system_exposes_future_multi_agent_boundaries():
         "mcp.oauth_tokens",
         "mcp.elicitation_runtime",
         "mcp.list_changed_runtime",
+        "mcp.clients",
+        "mcp.naming",
         "mcp.provider",
+        "mcp.results",
+        "mcp.types",
         "mcp.transports.sdk_control",
         "mcp.transports.websocket",
     ]
@@ -141,6 +145,20 @@ def test_mcp_implementation_is_packaged_by_domain():
     assert not (tools_root / "mcp.py").exists()
     assert not list(builtin_root.glob("mcp_*.py"))
     assert not (kernel_root / "capabilities" / "mcp_loading.py").exists()
+
+
+def test_mcp_provider_stays_split_by_responsibility():
+    mcp_root = ROOT / "src" / "agents" / "kernel" / "mcp"
+    limits = {
+        mcp_root / "provider.py": 450,
+        mcp_root / "clients.py": 450,
+        mcp_root / "types.py": 220,
+        mcp_root / "results.py": 180,
+        mcp_root / "naming.py": 100,
+    }
+
+    for path, max_lines in limits.items():
+        assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
 
 
 def test_agent_models_split_protocol_adapters_and_transports():
