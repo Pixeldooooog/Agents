@@ -48,6 +48,11 @@ def short_task_id(task_id: str) -> str:
     return str(task_id).replace("task_", "", 1)[:12]
 
 
+def safe_file_stem(value: str) -> str:
+    text = str(value or "").strip()
+    return "".join(ch for ch in text if ch.isalnum() or ch in {"-", "_"}).strip("-_")
+
+
 def task_run_service(state: Any) -> RunService:
     service = getattr(state, "task_run_service", None)
     if service is not None:

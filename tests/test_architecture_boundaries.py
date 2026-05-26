@@ -197,12 +197,13 @@ def test_sdk_transports_stay_split_by_protocol():
 
 def test_bridge_slash_commands_stay_split_by_domain():
     bridge_root = ROOT / "src" / "agents" / "interfaces" / "bridge"
-    for module in ["common", "tasks", "schedules", "workflows"]:
+    for module in ["common", "sessions", "tasks", "schedules", "workflows"]:
         assert importlib.util.find_spec(f"agents.interfaces.bridge.slash_commands.{module}") is not None
 
     limits = {
-        bridge_root / "slash.py": 2200,
+        bridge_root / "slash.py": 1850,
         bridge_root / "slash_commands" / "common.py": 180,
+        bridge_root / "slash_commands" / "sessions.py": 380,
         bridge_root / "slash_commands" / "tasks.py": 420,
         bridge_root / "slash_commands" / "schedules.py": 180,
         bridge_root / "slash_commands" / "workflows.py": 300,
