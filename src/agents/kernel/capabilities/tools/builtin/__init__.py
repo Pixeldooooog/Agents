@@ -209,6 +209,8 @@ from agents.kernel.capabilities.tools.builtin.structured import (
     structured_output,
 )
 from agents.kernel.capabilities.tools.builtin.tasks import (
+    SRC_ORIGIN_TASK_OUTPUT_SCHEMA,
+    SRC_ORIGIN_TASK_STOP_SCHEMA,
     TASK_BACKGROUND_SCHEMA,
     TASK_BACKGROUNDS_SCHEMA,
     TASK_CREATE_SCHEMA,
@@ -225,6 +227,8 @@ from agents.kernel.capabilities.tools.builtin.tasks import (
     task_list,
     task_output,
     task_run,
+    src_origin_task_output,
+    src_origin_task_stop,
     task_stop,
     task_update,
 )
@@ -379,6 +383,8 @@ __all__ = [
     "SKILL_INVOKE_SCHEMA",
     "SKILL_UNINSTALL_SCHEMA",
     "SKILL_DISCOVER_SCHEMA",
+    "SRC_ORIGIN_TASK_OUTPUT_SCHEMA",
+    "SRC_ORIGIN_TASK_STOP_SCHEMA",
     "TASK_BACKGROUND_SCHEMA",
     "TASK_BACKGROUNDS_SCHEMA",
     "TASK_CREATE_SCHEMA",
@@ -512,6 +518,8 @@ __all__ = [
     "shell_output",
     "sleep_wait",
     "structured_output",
+    "src_origin_task_output",
+    "src_origin_task_stop",
     "src_origin_web_fetch",
     "src_origin_web_search",
     "task_background",

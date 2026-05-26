@@ -78,6 +78,26 @@ TASK_OUTPUT_SCHEMA = {
     "required": ["task_id"],
 }
 
+SRC_ORIGIN_TASK_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "task_id": {"type": "string", "description": "The task ID to get output from."},
+        "block": {"type": "boolean", "description": "Whether to wait for completion."},
+        "timeout": {"type": "number", "minimum": 0, "maximum": 600000, "description": "Max wait time in milliseconds."},
+    },
+    "required": ["task_id"],
+    "additionalProperties": False,
+}
+
+SRC_ORIGIN_TASK_STOP_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "task_id": {"type": "string", "description": "The ID of the background task to stop."},
+        "shell_id": {"type": "string", "description": "Deprecated shell task id alias."},
+    },
+    "additionalProperties": False,
+}
+
 TASK_RUN_SCHEMA = {
     "type": "object",
     "properties": {
@@ -208,6 +228,52 @@ async def task_output(context: ToolRuntimeContext, task_id: str, max_bytes: int 
     }
 
 
+async def src_origin_task_output(
+    context: ToolRuntimeContext,
+    *,
+    task_id: str,
+    block: bool = True,
+    timeout: float = 30000,
+) -> dict[str, Any]:
+    task_id = str(task_id or "")
+    max_bytes = 100000
+    if task_id.startswith("shell_"):
+        from agents.kernel.capabilities.tools.builtin.shell import shell_output
+
+        result = await shell_output(
+            context,
+            task_id=task_id,
+            block=block,
+            timeout_seconds=float(timeout or 0) / 1000.0,
+            max_bytes=max_bytes,
+        )
+        return _src_origin_shell_output_payload(result)
+    result = await task_output(context, task_id=task_id, max_bytes=max_bytes)
+    return _src_origin_tracked_task_output_payload(result)
+
+
+async def src_origin_task_stop(
+    context: ToolRuntimeContext,
+    *,
+    task_id: str = "",
+    shell_id: str = "",
+) -> dict[str, Any]:
+    resolved_task_id = str(task_id or shell_id or "")
+    if not resolved_task_id:
+        raise ValueError("Missing required parameter: task_id")
+    if resolved_task_id.startswith("shell_"):
+        from agents.kernel.capabilities.tools.builtin.shell import shell_kill
+
+        result = await shell_kill(context, task_id=resolved_task_id)
+        task = result.get("task") if isinstance(result.get("task"), dict) else {}
+        if not result.get("killed"):
+            raise ValueError("Task %s is not running (status: %s)" % (resolved_task_id, task.get("status") or "unknown"))
+        return _src_origin_task_stop_payload(task, task_type="local_bash")
+    result = await task_stop(context, task_id=resolved_task_id)
+    task = result.get("task") if isinstance(result.get("task"), dict) else {}
+    return _src_origin_task_stop_payload(task, task_type=_src_origin_tracked_task_type(task))
+
+
 async def task_run(
     context: ToolRuntimeContext,
     task_id: str = "",
@@ -305,6 +371,53 @@ def _task_store(context: ToolRuntimeContext):
     if store is None:
         raise RuntimeError("task store is not available")
     return store
+
+
+def _src_origin_shell_output_payload(result: dict[str, Any]) -> dict[str, Any]:
+    task = result.get("task") if isinstance(result.get("task"), dict) else {}
+    output = str(result.get("output") or "")
+    payload = {
+        "task_id": str(task.get("task_id") or ""),
+        "task_type": "local_bash",
+        "status": str(task.get("status") or ""),
+        "description": str(task.get("command") or ""),
+        "output": output,
+    }
+    if task.get("exit_code") is not None:
+        payload["exitCode"] = task.get("exit_code")
+    return {"retrieval_status": str(result.get("retrieval_status") or "success"), "task": payload}
+
+
+def _src_origin_tracked_task_output_payload(result: dict[str, Any]) -> dict[str, Any]:
+    task = result.get("task") if isinstance(result.get("task"), dict) else {}
+    output = str(result.get("output") or "")
+    return {
+        "retrieval_status": "success",
+        "task": {
+            "task_id": str(task.get("task_id") or ""),
+            "task_type": _src_origin_tracked_task_type(task),
+            "status": str(task.get("status") or ""),
+            "description": str(task.get("title") or task.get("input") or ""),
+            "prompt": str(task.get("input") or ""),
+            "output": output,
+        },
+    }
+
+
+def _src_origin_task_stop_payload(task: dict[str, Any], *, task_type: str) -> dict[str, Any]:
+    task_id = str(task.get("task_id") or "")
+    command = str(task.get("command") or task.get("title") or task.get("input") or "")
+    return {
+        "message": "Successfully stopped task: %s (%s)" % (task_id, command),
+        "task_id": task_id,
+        "task_type": task_type,
+        "command": command,
+    }
+
+
+def _src_origin_tracked_task_type(task: dict[str, Any]) -> str:
+    metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
+    return str(metadata.get("task_type") or metadata.get("type") or metadata.get("source") or "task")
 
 
 def _run_coordinator(context: ToolRuntimeContext):

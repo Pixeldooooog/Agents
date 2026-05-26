@@ -268,7 +268,10 @@ def test_src_origin_alias_tools_execute_against_canonical_implementations(tmp_pa
                 "Edit",
                 "MultiEdit",
                 "Bash",
+                "TaskOutput",
                 "BashOutputTool",
+                "TaskStop",
+                "KillShell",
                 "Glob",
                 "Grep",
                 "TodoWrite",
@@ -305,9 +308,12 @@ def test_src_origin_alias_tools_execute_against_canonical_implementations(tmp_pa
         output_result = await registry.execute(
             "BashOutputTool", {"task_id": backgrounded_result.raw["backgroundTaskId"], "block": True}
         )
-        return backgrounded_result, output_result
+        invalid_output = await registry.execute(
+            "BashOutputTool", {"task_id": backgrounded_result.raw["backgroundTaskId"], "max_bytes": 10}
+        )
+        return backgrounded_result, output_result, invalid_output
 
-    backgrounded, bash_output = asyncio.run(run_background_alias())
+    backgrounded, bash_output, bad_bash_output = asyncio.run(run_background_alias())
     todos = asyncio.run(
         registry.execute(
             "TodoWrite",
@@ -329,6 +335,10 @@ def test_src_origin_alias_tools_execute_against_canonical_implementations(tmp_pa
     assert alias_specs["MultiEdit"].raw["metadata"]["alias_of"] == "patch.apply"
     assert alias_specs["Bash"].raw["metadata"]["alias_of"] == "shell.run"
     assert alias_specs["BashOutputTool"].raw["metadata"]["alias_of"] == "shell.output"
+    assert alias_specs["TaskOutput"].raw["metadata"]["defer"] is True
+    assert alias_specs["BashOutputTool"].raw["metadata"]["defer"] is True
+    assert alias_specs["TaskStop"].raw["metadata"]["defer"] is True
+    assert alias_specs["KillShell"].raw["metadata"]["defer"] is True
     assert alias_specs["TodoWrite"].raw["metadata"]["defer"] is True
     assert alias_specs["NotebookEdit"].raw["metadata"]["alias_of"] == "notebook.edit"
     assert alias_specs["LSP"].raw["metadata"]["alias_of"] == "lsp.query"
@@ -351,6 +361,8 @@ def test_src_origin_alias_tools_execute_against_canonical_implementations(tmp_pa
     assert bash_output.raw["retrieval_status"] == "success"
     assert bash_output.raw["task"]["task_type"] == "local_bash"
     assert bash_output.raw["task"]["output"].strip() == "later"
+    assert bad_bash_output.is_error is True
+    assert bad_bash_output.raw["details"] == "unexpected argument: max_bytes"
     assert context.todos[0]["content"] == "Check aliases"
     assert todos.content == (
         "Todos have been modified successfully. "
@@ -1477,12 +1489,15 @@ def test_kill_shell_alias_returns_src_origin_stop_shape(tmp_path: Path):
             },
         )
         await asyncio.sleep(0.1)
+        invalid = await registry.execute("KillShell", {"shell_id": started.raw["task_id"], "unused": True})
         killed = await registry.execute("KillShell", {"shell_id": started.raw["task_id"]})
-        return started, killed
+        return started, invalid, killed
 
-    started, killed = asyncio.run(execute())
+    started, invalid, killed = asyncio.run(execute())
 
     assert started.is_error is False
+    assert invalid.is_error is True
+    assert invalid.raw["details"] == "unexpected argument: unused"
     assert killed.is_error is False
     assert killed.raw["task_id"] == started.raw["task_id"]
     assert killed.raw["task_type"] == "local_bash"

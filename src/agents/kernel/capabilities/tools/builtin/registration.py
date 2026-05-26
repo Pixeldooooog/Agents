@@ -232,6 +232,8 @@ from agents.kernel.capabilities.tools.builtin.structured import (
     structured_output_schema_from_metadata,
 )
 from agents.kernel.capabilities.tools.builtin.tasks import (
+    SRC_ORIGIN_TASK_OUTPUT_SCHEMA,
+    SRC_ORIGIN_TASK_STOP_SCHEMA,
     TASK_CREATE_SCHEMA,
     TASK_BACKGROUND_SCHEMA,
     TASK_BACKGROUNDS_SCHEMA,
@@ -248,6 +250,8 @@ from agents.kernel.capabilities.tools.builtin.tasks import (
     task_list,
     task_output,
     task_run,
+    src_origin_task_output,
+    src_origin_task_stop,
     task_stop,
     task_update,
 )
@@ -961,25 +965,6 @@ SRC_ORIGIN_MULTI_EDIT_SCHEMA = {
     "required": ["file_path", "edits"],
 }
 
-SRC_ORIGIN_TASK_OUTPUT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "task_id": {"type": "string", "description": "Background task id."},
-        "block": {"type": "boolean", "description": "Whether to wait for completion."},
-        "timeout": {"type": "number", "minimum": 0, "maximum": 600000, "description": "Max wait time in milliseconds."},
-        "max_bytes": {"type": "integer", "minimum": 1, "maximum": 200000},
-    },
-    "required": ["task_id"],
-}
-
-SRC_ORIGIN_TASK_STOP_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "task_id": {"type": "string", "description": "The ID of the background task to stop."},
-        "shell_id": {"type": "string", "description": "Deprecated shell task id alias."},
-    },
-}
-
 SRC_ORIGIN_TASK_CREATE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -1265,95 +1250,6 @@ async def _src_origin_team_create(
         }
     )
     return payload
-
-
-async def _src_origin_task_output(
-    context: ToolRuntimeContext,
-    *,
-    task_id: str,
-    block: bool = True,
-    timeout: float = 30000,
-    max_bytes: int = 20000,
-) -> dict:
-    task_id = str(task_id or "")
-    if task_id.startswith("shell_"):
-        result = await shell_output(
-            context,
-            task_id=task_id,
-            block=block,
-            timeout_seconds=float(timeout or 0) / 1000.0,
-            max_bytes=max_bytes,
-        )
-        return _src_origin_shell_output_payload(result)
-    result = await task_output(context, task_id=task_id, max_bytes=max_bytes)
-    return _src_origin_tracked_task_output_payload(result)
-
-
-async def _src_origin_task_stop(
-    context: ToolRuntimeContext,
-    *,
-    task_id: str = "",
-    shell_id: str = "",
-) -> dict:
-    resolved_task_id = str(task_id or shell_id or "")
-    if not resolved_task_id:
-        raise ValueError("Missing required parameter: task_id")
-    if resolved_task_id.startswith("shell_"):
-        result = await shell_kill(context, task_id=resolved_task_id)
-        task = result.get("task") if isinstance(result.get("task"), dict) else {}
-        if not result.get("killed"):
-            raise ValueError("Task %s is not running (status: %s)" % (resolved_task_id, task.get("status") or "unknown"))
-        return _src_origin_task_stop_payload(task, task_type="local_bash")
-    result = await task_stop(context, task_id=resolved_task_id)
-    task = result.get("task") if isinstance(result.get("task"), dict) else {}
-    return _src_origin_task_stop_payload(task, task_type=_src_origin_tracked_task_type(task))
-
-
-def _src_origin_shell_output_payload(result: dict) -> dict:
-    task = result.get("task") if isinstance(result.get("task"), dict) else {}
-    output = str(result.get("output") or "")
-    payload = {
-        "task_id": str(task.get("task_id") or ""),
-        "task_type": "local_bash",
-        "status": str(task.get("status") or ""),
-        "description": str(task.get("command") or ""),
-        "output": output,
-    }
-    if task.get("exit_code") is not None:
-        payload["exitCode"] = task.get("exit_code")
-    return {"retrieval_status": str(result.get("retrieval_status") or "success"), "task": payload}
-
-
-def _src_origin_tracked_task_output_payload(result: dict) -> dict:
-    task = result.get("task") if isinstance(result.get("task"), dict) else {}
-    output = str(result.get("output") or "")
-    return {
-        "retrieval_status": "success",
-        "task": {
-            "task_id": str(task.get("task_id") or ""),
-            "task_type": _src_origin_tracked_task_type(task),
-            "status": str(task.get("status") or ""),
-            "description": str(task.get("title") or task.get("input") or ""),
-            "prompt": str(task.get("input") or ""),
-            "output": output,
-        },
-    }
-
-
-def _src_origin_task_stop_payload(task: dict, *, task_type: str) -> dict:
-    task_id = str(task.get("task_id") or "")
-    command = str(task.get("command") or task.get("title") or task.get("input") or "")
-    return {
-        "message": "Successfully stopped task: %s (%s)" % (task_id, command),
-        "task_id": task_id,
-        "task_type": task_type,
-        "command": command,
-    }
-
-
-def _src_origin_tracked_task_type(task: dict) -> str:
-    metadata = task.get("metadata") if isinstance(task.get("metadata"), dict) else {}
-    return str(metadata.get("task_type") or metadata.get("type") or metadata.get("source") or "task")
 
 
 def _register_src_origin_aliases(
@@ -1690,15 +1586,15 @@ def _register_src_origin_aliases(
             name=alias_name,
             description="Read output from a tracked or background task. src-origin alias for task.output/shell.output.",
             parameters=SRC_ORIGIN_TASK_OUTPUT_SCHEMA,
-            handler=lambda task_id, block=True, timeout=30000, max_bytes=20000: _src_origin_task_output(
+            handler=lambda task_id, block=True, timeout=30000: src_origin_task_output(
                 context,
                 task_id=task_id,
                 block=block,
                 timeout=timeout,
-                max_bytes=max_bytes,
             ),
-            metadata={"risk": "low", "alias_of": alias_of, "src_origin_tool": src_origin_tool},
+            metadata={"risk": "low", "defer": True, "alias_of": alias_of, "src_origin_tool": src_origin_tool},
             read_only=True,
+            max_result_size_chars=100000,
             activity_kind="state",
             activity_title="Read task output",
             activity_target_argument="task_id",
@@ -1709,10 +1605,17 @@ def _register_src_origin_aliases(
             name=alias_name,
             description="Stop a tracked or background task. src-origin alias for task.stop/shell.kill.",
             parameters=SRC_ORIGIN_TASK_STOP_SCHEMA,
-            handler=lambda task_id="", shell_id="": _src_origin_task_stop(context, task_id=task_id, shell_id=shell_id),
-            metadata={"risk": "medium", "writes_state": True, "alias_of": "task.stop", "src_origin_tool": src_origin_tool},
+            handler=lambda task_id="", shell_id="": src_origin_task_stop(context, task_id=task_id, shell_id=shell_id),
+            metadata={
+                "risk": "medium",
+                "writes_state": True,
+                "defer": True,
+                "alias_of": "task.stop",
+                "src_origin_tool": src_origin_tool,
+            },
             writes_state=True,
             concurrency_safe=False,
+            max_result_size_chars=100000,
             activity_kind="state",
             activity_title="Stop task",
             activity_target_argument="task_id",
