@@ -8,6 +8,9 @@ BUN ?= $(shell command -v bun 2>/dev/null)
 HOST_PIP ?= $(shell command -v pip3 2>/dev/null || command -v pip 2>/dev/null)
 PYTHON ?= $(VENV)/bin/python
 PIP ?= $(PYTHON) -m pip
+PYTHONDONTWRITEBYTECODE ?= 1
+
+export PYTHONDONTWRITEBYTECODE
 
 .PHONY: check-python venv setup setup-tui setup-terminal run tui web gui terminal terminal-fixture terminal-fixture-fullscreen terminal-manual-smoke manual-smoke terminal-audit terminal-audit-complete cli bridge-fallback dev-web stop test test-terminal check doctor package build-web build up down log
 
