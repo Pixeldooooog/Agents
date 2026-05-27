@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import json
-import os
-import subprocess
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from agents.kernel.capabilities.tools.builtin.worktree_hook_commands import (
+    WorktreeHookCommand,
+    hydrate_worktree_hook_commands,
+    mark_worktree_hook_ran,
+    run_worktree_hook,
+    worktree_hook_commands,
+    worktree_hook_error,
+    worktree_hook_failure,
+)
 from agents.kernel.capabilities.tools.builtin.worktree_naming import worktree_branch_name
 from agents.kernel.capabilities.tools.builtin.worktree_state import switch_workspace
 from agents.kernel.capabilities.tools.builtin.worktree_tmux import (
@@ -18,15 +24,9 @@ from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.session_state import save_session_state
 
 
-@dataclass(frozen=True)
-class WorktreeHookCommandResult:
-    returncode: int
-    stdout: str = ""
-    stderr: str = ""
-
-
-def has_worktree_create_hook(context: ToolRuntimeContext) -> bool:
-    return bool(_hook_command(context, "create"))
+async def has_worktree_create_hook(context: ToolRuntimeContext) -> bool:
+    await hydrate_worktree_hook_commands(context)
+    return bool(worktree_hook_commands(context, "create"))
 
 
 async def enter_hook_worktree(
@@ -36,13 +36,15 @@ async def enter_hook_worktree(
     pr_number: int | None,
 ) -> dict[str, Any]:
     original_cwd = Path(context.workspace.path).expanduser().resolve()
-    command = _hook_command(context, "create")
-    result = _run_worktree_hook(command, original_cwd, _create_env(slug, pr_number, original_cwd))
-    if result.returncode != 0:
-        raise RuntimeError("WorktreeCreate hook failed: %s" % _hook_error(result))
-    worktree_path = _worktree_path_from_output(result.stdout, original_cwd)
-    if not worktree_path.is_dir():
-        raise RuntimeError("WorktreeCreate hook returned a path that is not a directory: %s" % worktree_path)
+    await hydrate_worktree_hook_commands(context)
+    hook, worktree_path = await _run_create_hooks(
+        context,
+        worktree_hook_commands(context, "create"),
+        original_cwd,
+        slug,
+        pr_number,
+    )
+    await mark_worktree_hook_ran(context, hook)
 
     branch = worktree_branch_name(slug)
     tmux = create_worktree_tmux_session(context, original_cwd, worktree_path, branch)
@@ -87,14 +89,17 @@ async def exit_hook_worktree(
     if action == "remove" and not discard_changes:
         raise RuntimeError("Could not verify hook-based worktree changes. Re-run with discard_changes=true to remove it.")
     if action == "remove":
-        command = _hook_command(context, "remove")
-        if command:
-            result = _run_worktree_hook(command, original_cwd, _remove_env(session, original_cwd, worktree_path))
-            if result.returncode != 0:
-                raise RuntimeError("WorktreeRemove hook failed: %s" % _hook_error(result))
+        await hydrate_worktree_hook_commands(context)
+        ran = await _run_remove_hooks(
+            context,
+            worktree_hook_commands(context, "remove"),
+            original_cwd,
+            session,
+            worktree_path,
+        )
         tmux = kill_worktree_tmux_session(tmux_name)
     else:
-        command = None
+        ran = False
         tmux = {}
 
     switch_workspace(context, original_cwd)
@@ -111,7 +116,6 @@ async def exit_hook_worktree(
             "message": "Exited hook-based worktree. Your work is preserved at %s. Session is now back in %s.%s"
             % (worktree_path, original_cwd, tmux_keep_note(tmux_name)),
         }
-    ran = command is not None
     return {
         "action": "remove",
         "hookBased": True,
@@ -123,7 +127,11 @@ async def exit_hook_worktree(
         "tmuxTerminated": bool(tmux.get("tmuxTerminated", False)),
         "tmuxError": str(tmux.get("tmuxError") or ""),
         "message": "Exited hook-based worktree at %s. Session is now back in %s.%s"
-        % (worktree_path, original_cwd, "" if ran else " No WorktreeRemove hook was configured; the directory was left in place."),
+        % (
+            worktree_path,
+            original_cwd,
+            "" if ran else " No WorktreeRemove hook was configured; the directory was left in place.",
+        ),
     }
 
 
@@ -157,33 +165,48 @@ def _last_output_line(text: str) -> str:
     return lines[-1] if lines else text
 
 
-def _hook_command(context: ToolRuntimeContext, kind: str) -> str | list[str]:
-    worktree = _worktree_metadata(context)
-    hooks = worktree.get("hooks") if isinstance(worktree.get("hooks"), dict) else {}
-    names = ("create", "WorktreeCreate", "create_hook", "createHook") if kind == "create" else (
-        "remove",
-        "WorktreeRemove",
-        "remove_hook",
-        "removeHook",
-    )
-    for name in names:
-        value = hooks.get(name) or worktree.get(name)
-        if value:
-            return value
-    return _settings_value(context, "WORKTREE_CREATE_HOOK" if kind == "create" else "WORKTREE_REMOVE_HOOK")
+async def _run_create_hooks(
+    context: ToolRuntimeContext,
+    hooks: list[WorktreeHookCommand],
+    original_cwd: Path,
+    slug: str,
+    pr_number: int | None,
+) -> tuple[WorktreeHookCommand, Path]:
+    errors: list[str] = []
+    for hook in hooks:
+        result = run_worktree_hook(hook.command, original_cwd, _create_env(slug, pr_number, original_cwd))
+        if result.returncode != 0:
+            errors.append(worktree_hook_failure(hook, worktree_hook_error(result)))
+            continue
+        try:
+            worktree_path = _worktree_path_from_output(result.stdout, original_cwd)
+        except RuntimeError as exc:
+            errors.append(worktree_hook_failure(hook, str(exc)))
+            continue
+        if not worktree_path.is_dir():
+            errors.append(worktree_hook_failure(hook, "returned a path that is not a directory: %s" % worktree_path))
+            continue
+        return hook, worktree_path
+    detail = "; ".join(errors) if errors else "no hook command configured"
+    raise RuntimeError("WorktreeCreate hook failed: %s" % detail)
 
 
-def _run_worktree_hook(command: str | list[str], cwd: Path, env: dict[str, str]) -> WorktreeHookCommandResult:
-    run_env = dict(os.environ)
-    run_env.update(env)
-    try:
-        if isinstance(command, (list, tuple)):
-            result = subprocess.run([str(item) for item in command], cwd=str(cwd), env=run_env, text=True, capture_output=True, timeout=60)
-        else:
-            result = subprocess.run(str(command), cwd=str(cwd), env=run_env, text=True, capture_output=True, shell=True, timeout=60)
-    except (OSError, subprocess.SubprocessError) as exc:
-        return WorktreeHookCommandResult(returncode=1, stderr=str(exc))
-    return WorktreeHookCommandResult(returncode=result.returncode, stdout=result.stdout, stderr=result.stderr)
+async def _run_remove_hooks(
+    context: ToolRuntimeContext,
+    hooks: list[WorktreeHookCommand],
+    original_cwd: Path,
+    session: dict[str, Any],
+    worktree_path: Path,
+) -> bool:
+    ran = False
+    for hook in hooks:
+        result = run_worktree_hook(hook.command, original_cwd, _remove_env(session, original_cwd, worktree_path))
+        if result.returncode != 0:
+            detail = worktree_hook_failure(hook, worktree_hook_error(result))
+            raise RuntimeError("WorktreeRemove hook failed: %s" % detail)
+        await mark_worktree_hook_ran(context, hook)
+        ran = True
+    return ran
 
 
 def _create_env(slug: str, pr_number: int | None, original_cwd: Path) -> dict[str, str]:
@@ -201,18 +224,3 @@ def _remove_env(session: dict[str, Any], original_cwd: Path, worktree_path: Path
         "AGENTS_WORKTREE_PATH": str(worktree_path),
         "AGENTS_WORKTREE_ORIGINAL_CWD": str(original_cwd),
     }
-
-
-def _hook_error(result: WorktreeHookCommandResult) -> str:
-    return (result.stderr or result.stdout or "hook command failed").strip()
-
-
-def _worktree_metadata(context: ToolRuntimeContext) -> dict[str, Any]:
-    metadata = getattr(getattr(context, "agent_spec", None), "metadata", None)
-    worktree = metadata.get("worktree") if isinstance(metadata, dict) else {}
-    return worktree if isinstance(worktree, dict) else {}
-
-
-def _settings_value(context: ToolRuntimeContext, name: str) -> Any:
-    agent = getattr(getattr(context, "settings", None), "agent", None)
-    return getattr(agent, name, None) if agent is not None else None

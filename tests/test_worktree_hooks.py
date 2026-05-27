@@ -93,6 +93,79 @@ def test_hook_based_worktree_session_restore_uses_saved_path(tmp_path: Path):
     assert restored_context.workspace.path == worktree_path.resolve()
 
 
+def test_worktree_create_hook_can_come_from_session_registry(tmp_path: Path):
+    context = _tool_context(tmp_path, AgentSpec())
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    added = asyncio.run(
+        registry.execute(
+            "hook.add",
+            {
+                "event": "worktree_create",
+                "name": "registry-create",
+                "action": "run_command",
+                "content": _python_hook(
+                    "import os, pathlib\n"
+                    "path = pathlib.Path(os.environ['AGENTS_WORKTREE_ORIGINAL_CWD']) / 'registry-worktree'\n"
+                    "path.mkdir(parents=True, exist_ok=True)\n"
+                    "print(path)\n"
+                ),
+            },
+        )
+    )
+    entered = asyncio.run(registry.execute("worktree.enter", {"name": "registry"}))
+    listed = asyncio.run(registry.execute("hook.list", {"event": "worktree_create"}))
+
+    assert added.raw["hook"]["event"] == "worktree_create"
+    assert added.raw["hook"]["action"] == "run_command"
+    assert entered.is_error is False
+    assert entered.raw["hookBased"] is True
+    assert Path(entered.raw["worktreePath"]) == (tmp_path / "registry-worktree").resolve()
+    assert listed.raw["hooks"][0]["run_count"] == 1
+
+
+def test_worktree_remove_hook_can_come_from_session_registry(tmp_path: Path):
+    context = _tool_context(tmp_path, AgentSpec())
+    context.hook_registry.add(
+        event="WorktreeCreate",
+        name="registry-create",
+        action="command",
+        content=_python_hook(
+            "import os, pathlib\n"
+            "path = pathlib.Path(os.environ['AGENTS_WORKTREE_ORIGINAL_CWD']) / 'registry-remove-worktree'\n"
+            "path.mkdir(parents=True, exist_ok=True)\n"
+            "print(path)\n"
+        ),
+    )
+    context.hook_registry.add(
+        event="WorktreeRemove",
+        name="registry-remove",
+        action="run_command",
+        content=_python_hook(
+            "import os, pathlib, shutil\n"
+            "path = pathlib.Path(os.environ['AGENTS_WORKTREE_PATH'])\n"
+            "shutil.rmtree(path)\n"
+            "print('removed')\n"
+        ),
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    entered = asyncio.run(registry.execute("worktree.enter", {"name": "registry-remove"}))
+    blocked = asyncio.run(registry.execute("worktree.exit", {"action": "remove"}))
+    removed = asyncio.run(registry.execute("worktree.exit", {"action": "remove", "discard_changes": True}))
+
+    worktree_path = Path(entered.raw["worktreePath"])
+    remove_hooks = context.hook_registry.list(event="worktree_remove", enabled=True)
+    assert blocked.is_error is True
+    assert "discard_changes=true" in blocked.content
+    assert removed.is_error is False
+    assert removed.raw["worktreeRemoveHookRan"] is True
+    assert not worktree_path.exists()
+    assert remove_hooks[0].run_count == 1
+
+
 def _tool_context(tmp_path: Path, agent_spec: AgentSpec, store: InMemorySessionStateStore | None = None) -> ToolRuntimeContext:
     workspace = WorkspaceContext(
         tenant_id="tenant",

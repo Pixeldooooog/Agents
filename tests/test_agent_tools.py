@@ -5397,7 +5397,15 @@ def test_builtin_hook_tools_manage_session_hooks(tmp_path: Path):
     listed = asyncio.run(registry.execute("hook.list", {}))
     deleted = asyncio.run(registry.execute("hook.delete", {"hook_id": short_id}))
 
-    assert events.raw["events"] == ["before_request", "after_response", "pre_tool_use", "post_tool_use"]
+    assert events.raw["events"] == [
+        "before_request",
+        "after_response",
+        "pre_tool_use",
+        "post_tool_use",
+        "worktree_create",
+        "worktree_remove",
+    ]
+    assert "run_command" in events.raw["actions"]
     assert added.raw["hook"]["metadata"]["source"] == "tool"
     assert added.raw["hook"]["tool"] == "shell.run"
     assert added.raw["hook"]["metadata"]["tool"] == "shell.run"

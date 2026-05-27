@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional, Protocol
+from typing import Any, List, Optional, Protocol
 
 from agents.kernel.hooks.registry import HookRecord
 from agents.kernel.persistence import SQLiteDatabase, json_dict, json_dumps
@@ -35,6 +35,42 @@ class HookStore(Protocol):
         workspace_id: str = "",
     ) -> None:
         raise NotImplementedError()
+
+
+async def hydrate_hook_registry(registry: Any, store: Optional[HookStore], workspace: Any) -> None:
+    if store is None:
+        return
+    hooks = await store.list_for_scope(
+        workspace.tenant_id,
+        user_id=workspace.user_id,
+        agent_id=workspace.agent_id,
+        workspace_id=workspace.workspace_id,
+    )
+    registry.replace_all(hooks)
+
+
+async def save_hook_record(hook: HookRecord, store: Optional[HookStore], workspace: Any) -> None:
+    if store is None:
+        return
+    await store.save(
+        hook,
+        workspace.tenant_id,
+        user_id=workspace.user_id,
+        agent_id=workspace.agent_id,
+        workspace_id=workspace.workspace_id,
+    )
+
+
+async def delete_hook_record(hook_id: str, store: Optional[HookStore], workspace: Any) -> None:
+    if store is None:
+        return
+    await store.delete(
+        hook_id,
+        workspace.tenant_id,
+        user_id=workspace.user_id,
+        agent_id=workspace.agent_id,
+        workspace_id=workspace.workspace_id,
+    )
 
 
 class InMemoryHookStore:

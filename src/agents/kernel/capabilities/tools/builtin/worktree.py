@@ -98,7 +98,7 @@ async def enter_worktree(
         raise RuntimeError("Already in a worktree session at %s" % session.get("worktreePath", "unknown"))
 
     slug, resolved_pr_number = worktree_request(name, pr_number=pr_number, pr_number_alias=pr_number_alias)
-    if has_worktree_create_hook(context):
+    if await has_worktree_create_hook(context):
         return await enter_hook_worktree(context, slug=slug, pr_number=resolved_pr_number)
 
     repo_root = git_root(context.workspace.path)

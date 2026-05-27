@@ -12,8 +12,15 @@ from agents.kernel.governance.tool_rules import tool_rule_matches_call
 from agents.kernel.schema import Message, ModelResponse, RuntimeEvent, ToolCall, ToolResult
 
 
-HOOK_EVENTS = ["before_request", "after_response", "pre_tool_use", "post_tool_use"]
-HOOK_ACTIONS = ["append_system", "append_user", "record", "deny_tool"]
+HOOK_EVENTS = [
+    "before_request",
+    "after_response",
+    "pre_tool_use",
+    "post_tool_use",
+    "worktree_create",
+    "worktree_remove",
+]
+HOOK_ACTIONS = ["append_system", "append_user", "record", "deny_tool", "run_command"]
 
 
 @dataclass
@@ -288,6 +295,8 @@ def _sdk_hook_event(event: str) -> str:
         "after_response": "AfterResponse",
         "pre_tool_use": "PreToolUse",
         "post_tool_use": "PostToolUse",
+        "worktree_create": "WorktreeCreate",
+        "worktree_remove": "WorktreeRemove",
     }.get(event, event)
 
 
@@ -304,6 +313,11 @@ def _event(value: str) -> str:
         "posttooluse": "post_tool_use",
         "post_tool_use": "post_tool_use",
         "posttool": "post_tool_use",
+        "worktreecreate": "worktree_create",
+        "worktree_create": "worktree_create",
+        "worktree": "worktree_create",
+        "worktreeremove": "worktree_remove",
+        "worktree_remove": "worktree_remove",
     }
     event = aliases.get(normalized, normalized)
     if event not in HOOK_EVENTS:
@@ -313,6 +327,7 @@ def _event(value: str) -> str:
 
 def _action(value: str) -> str:
     action = str(value or "").strip().replace("-", "_").lower()
+    action = {"command": "run_command", "runcommand": "run_command"}.get(action, action)
     if action not in HOOK_ACTIONS:
         raise ValueError("unknown hook action: %s" % value)
     return action

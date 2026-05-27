@@ -107,7 +107,7 @@ platform      -> kernel
 - 执行单个或多个工具调用。
 - 管理并发、超时和错误转 tool result。
 - 接入 builtin tools 和 MCP tools。
-- builtin 工具按 registration/wiring 与 domain implementation 分层；例如 filesystem 的 schema/薄门面在 `filesystem.py`，读取流程、媒体交付、预算、memory freshness 和结果格式化分别在 `filesystem_read.py`、`filesystem_media.py`、`filesystem_limits.py`、`filesystem_memory.py`、`filesystem_results.py`；patch/edit 入口编排在 `patch.py`，规划、文本匹配和结果 shaping 分别在 `patch_planner.py`、`patch_text.py`、`patch_payload.py`；worktree 入口编排在 `worktree.py`，命名、Git、初始化和状态切换分别在 `worktree_naming.py`、`worktree_git.py`、`worktree_setup.py`、`worktree_state.py`；builtin MCP management 的 settings、store、runtime 也拆在 `builtin/mcp/` 子域内。
+- builtin 工具按 registration/wiring 与 domain implementation 分层；例如 filesystem 的 schema/薄门面在 `filesystem.py`，读取流程、媒体交付、预算、memory freshness 和结果格式化分别在 `filesystem_read.py`、`filesystem_media.py`、`filesystem_limits.py`、`filesystem_memory.py`、`filesystem_results.py`；patch/edit 入口编排在 `patch.py`，规划、文本匹配和结果 shaping 分别在 `patch_planner.py`、`patch_text.py`、`patch_payload.py`；worktree 入口编排在 `worktree.py`，命名、Git、初始化、状态切换、tmux 生命周期、hook adapter 编排和 hook 命令来源/执行分别在 `worktree_naming.py`、`worktree_git.py`、`worktree_setup.py`、`worktree_state.py`、`worktree_tmux.py`、`worktree_hooks.py`、`worktree_hook_commands.py`；builtin MCP management 的 settings、store、runtime 也拆在 `builtin/mcp/` 子域内。
 
 为什么这样做：
 

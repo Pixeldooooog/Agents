@@ -4,6 +4,7 @@ from typing import Any
 
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.hooks import HOOK_ACTIONS, HOOK_EVENTS
+from agents.kernel.hooks.store import delete_hook_record, hydrate_hook_registry, save_hook_record
 
 
 HOOK_EVENTS_SCHEMA = {"type": "object", "properties": {}}
@@ -86,45 +87,15 @@ async def hook_delete(context: ToolRuntimeContext, hook_id: str) -> dict[str, An
 
 
 async def _hydrate_hooks(context: ToolRuntimeContext) -> None:
-    store = getattr(context, "hook_store", None)
-    if store is None:
-        return
-    workspace = context.workspace
-    hooks = await store.list_for_scope(
-        workspace.tenant_id,
-        user_id=workspace.user_id,
-        agent_id=workspace.agent_id,
-        workspace_id=workspace.workspace_id,
-    )
-    context.hook_registry.replace_all(hooks)
+    await hydrate_hook_registry(context.hook_registry, getattr(context, "hook_store", None), context.workspace)
 
 
 async def _save_hook(context: ToolRuntimeContext, hook) -> None:
-    store = getattr(context, "hook_store", None)
-    if store is None:
-        return
-    workspace = context.workspace
-    await store.save(
-        hook,
-        workspace.tenant_id,
-        user_id=workspace.user_id,
-        agent_id=workspace.agent_id,
-        workspace_id=workspace.workspace_id,
-    )
+    await save_hook_record(hook, getattr(context, "hook_store", None), context.workspace)
 
 
 async def _delete_hook(context: ToolRuntimeContext, hook_id: str) -> None:
-    store = getattr(context, "hook_store", None)
-    if store is None:
-        return
-    workspace = context.workspace
-    await store.delete(
-        hook_id,
-        workspace.tenant_id,
-        user_id=workspace.user_id,
-        agent_id=workspace.agent_id,
-        workspace_id=workspace.workspace_id,
-    )
+    await delete_hook_record(hook_id, getattr(context, "hook_store", None), context.workspace)
 
 
 def _string_metadata(metadata: dict[str, Any] | None) -> dict[str, str]:
