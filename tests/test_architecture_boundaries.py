@@ -53,6 +53,10 @@ BUILTIN_IMPLEMENTATION_FILES = {
     "meta.py",
     "notebook.py",
     "patch.py",
+    "patch_payload.py",
+    "patch_planner.py",
+    "patch_text.py",
+    "patch_types.py",
     "permissions.py",
     "planning.py",
     "plugins.py",
@@ -285,6 +289,10 @@ def test_agent_capabilities_expose_builtin_tool_boundaries():
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.execution_registration") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.extension_registration") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.interaction_registration") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.patch_payload") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.patch_planner") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.patch_text") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.patch_types") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.registration_helpers") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.runtime_registration") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.state_registration") is not None
@@ -397,6 +405,19 @@ def test_builtin_task_domain_stays_split_by_responsibility():
         BUILTIN_TOOL_ROOT / "task_src_origin.py": 430,
         BUILTIN_TOOL_ROOT / "task_schemas.py": 190,
         BUILTIN_TOOL_ROOT / "src_origin_task_aliases.py": 900,
+    }
+
+    for path, max_lines in limits.items():
+        assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
+
+
+def test_builtin_patch_domain_stays_split_by_responsibility():
+    limits = {
+        BUILTIN_TOOL_ROOT / "patch.py": 260,
+        BUILTIN_TOOL_ROOT / "patch_payload.py": 150,
+        BUILTIN_TOOL_ROOT / "patch_planner.py": 240,
+        BUILTIN_TOOL_ROOT / "patch_text.py": 180,
+        BUILTIN_TOOL_ROOT / "patch_types.py": 60,
     }
 
     for path, max_lines in limits.items():
