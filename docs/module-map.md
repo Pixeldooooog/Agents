@@ -119,6 +119,25 @@ platform      -> kernel
 - 工具执行事件统一写入 trace。
 - tool result schema validation。
 
+## agents.sdk
+
+职责：
+
+- `client.py` 保留 `AgentSDKClient` facade、run-store wiring 和模块级兼容入口。
+- `sessions.py` 保留稳定 session handle 与 session-scoped query/control 操作。
+- `stdin_runner.py` 负责 structured stdin、JSONL frame pump 和 transport runner。
+- `runtime_io.py` / `structured_io.py` 只保留 runner 可复用的 IO helpers 和 structured stdout/control-request FIFO。
+
+为什么这样做：
+
+- SDK facade 是外部入口，不应该吸收 stdin/jsonl 协议循环、transport pumping 或 session 内部状态。
+- stdin/jsonl runner 是协议执行层，变化频率不同于 run-store/session facade，单独命名后调用链更容易解释。
+- README 和 architecture tests 明确 facade/wiring、contract、implementation 三类文件，避免后续继续把核心实现塞回注册或入口文件。
+
+后续方向：
+
+- 后续 remote stdin listener、telemetry 或 runtime cleanup parity 应优先扩展 `stdin_runner.py` 或更细的 transport 子模块，而不是扩大 `client.py`。
+
 ## agents.sdk.file_history
 
 职责：

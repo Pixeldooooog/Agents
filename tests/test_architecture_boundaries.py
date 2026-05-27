@@ -145,6 +145,7 @@ SDK_IMPLEMENTATION_FILES = {
     "runtime_io.py",
     "session_records.py",
     "structured_io.py",
+    "stdin_runner.py",
     "transport_hybrid.py",
     "transport_queue.py",
     "transport_sse.py",
@@ -543,11 +544,12 @@ def test_sdk_client_stays_split_by_responsibility():
         "runtime_io",
         "session_records",
         "sessions",
+        "stdin_runner",
     ]:
         assert importlib.util.find_spec(f"agents.sdk.{module}") is not None
 
     limits = {
-        SDK_ROOT / "client.py": 820,
+        SDK_ROOT / "client.py": 700,
         SDK_ROOT / "async_messages.py": 100,
         SDK_ROOT / "control_handlers.py": 760,
         SDK_ROOT / "control_payloads.py": 420,
@@ -570,6 +572,7 @@ def test_sdk_client_stays_split_by_responsibility():
         SDK_ROOT / "runtime_io.py": 140,
         SDK_ROOT / "session_records.py": 140,
         SDK_ROOT / "sessions.py": 140,
+        SDK_ROOT / "stdin_runner.py": 170,
     }
 
     for path, max_lines in limits.items():
