@@ -119,6 +119,27 @@ platform      -> kernel
 - 工具执行事件统一写入 trace。
 - tool result schema validation。
 
+## agents.sdk.file_history
+
+职责：
+
+- `file_history.py` 保留 SDK file-history 的兼容导出面。
+- `file_history_recorder.py` 负责 SDK turn 的 snapshot recorder、读缓存和 backup 写入。
+- `file_history_snapshots.py` 负责 `file-history-snapshot` payload 解析、backup ref 归一化和 snapshot 链查询。
+- `file_history_paths.py` 负责 backup 名称、版本号、候选根目录和 session id 解析。
+- `file_history_migration.py` 负责 fork session 时迁移 snapshot event 和 hard-link/copy backup 文件。
+- `file_history_rewind.py` 负责从 snapshot 链重建 `rewind_files` 的 `_RewindFileEntry`。
+- `file_history_types.py` 只保存这些子模块共享的小型数据结构。
+
+为什么这样做：
+
+- file-history 是 `src-origin` SDK rewind parity 的核心链路，recorder、snapshot payload、backup storage、fork migration 和 rewind reconstruction 的变化频率不同，混在一个文件里会让安全性和可解释性下降。
+- facade 保持现有 `AgentSDKClient` / control handler 的私有导入面不变，降低拆分风险。
+
+后续方向：
+
+- 扩展更多 `src-origin` file-history edge case 时，优先落到对应子域，不扩大 facade。
+
 ## agents.kernel.capabilities.sandbox
 
 职责：
