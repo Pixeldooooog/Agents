@@ -282,11 +282,13 @@ agents/kernel/capabilities/sandbox/
 - credential refs。
 - sandbox policy。
 - secret redaction 和 payload protection protocol。
+- `tool_rules.py` 保留 permission/hook 规则匹配的公共协调入口；`tool_rule_names.py` 负责 alias/canonical name；`tool_rule_parser.py` 负责规则字符串解析；`tool_rule_shell.py` 负责 Bash/shell 子命令匹配；`tool_rule_targets.py` 负责从各类工具参数抽取可匹配目标；`tool_rule_patterns.py` 负责 wildcard/escape 匹配；`tool_rule_types.py` 只保存共享小类型。
 
 为什么这样做：
 
 - 安全、权限、审计不是 runtime 的附属逻辑，必须有独立治理域。
 - 凭证引用和真实密钥应分离。
+- tool permission/hook 规则同时覆盖 alias、MCP、shell、path、task、team 等多类语义，必须按子职责拆开，避免一个治理文件同时承担解析、归一化、shell parsing 和参数提取。
 
 后续方向：
 

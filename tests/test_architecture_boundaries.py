@@ -270,6 +270,33 @@ def test_governance_tool_impact_stays_split_by_responsibility():
         assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
 
 
+def test_governance_tool_rules_stay_split_by_responsibility():
+    governance_root = ROOT / "src" / "agents" / "kernel" / "governance"
+    for module in [
+        "tool_rules",
+        "tool_rule_names",
+        "tool_rule_parser",
+        "tool_rule_patterns",
+        "tool_rule_shell",
+        "tool_rule_targets",
+        "tool_rule_types",
+    ]:
+        assert importlib.util.find_spec(f"agents.kernel.governance.{module}") is not None
+
+    limits = {
+        governance_root / "tool_rules.py": 180,
+        governance_root / "tool_rule_names.py": 120,
+        governance_root / "tool_rule_parser.py": 110,
+        governance_root / "tool_rule_patterns.py": 90,
+        governance_root / "tool_rule_shell.py": 230,
+        governance_root / "tool_rule_targets.py": 150,
+        governance_root / "tool_rule_types.py": 40,
+    }
+
+    for path, max_lines in limits.items():
+        assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
+
+
 def test_session_assembly_stays_split_by_responsibility():
     assembly_root = ROOT / "src" / "agents" / "kernel" / "assembly"
     limits = {
