@@ -1,26 +1,32 @@
 from __future__ import annotations
 
 import asyncio
-import json
-from dataclasses import replace
-from pathlib import Path
 from typing import Any, Optional
 
 from agents.kernel.capabilities.memory import MemoryStore
 from agents.kernel.capabilities.sandbox.store import SandboxStore
 from agents.kernel.capabilities.sandbox.recording import SandboxToolExecutionRecorder
-from agents.kernel.capabilities.skills import SkillLoader, SkillRegistry
 from agents.kernel.capabilities.web import create_web_search_provider
-from agents.kernel.config import AgentConfigError, resolve_model_client_config
+from agents.kernel.assembly.active_tools import resolve_session_active_tools
+from agents.kernel.assembly.plugins import plugin_context_fragments
+from agents.kernel.assembly.session_state import (
+    hydrate_hooks,
+    hydrate_mcp_config,
+    hydrate_schedules,
+    hydrate_session_state,
+    hydrate_teams,
+    mcp_auth_headers,
+    mcp_config_records,
+    memory_fragments,
+)
+from agents.kernel.assembly.spec_overrides import effective_spec_from_session_state, skill_registry_with_session_state
+from agents.kernel.config import resolve_model_client_config
 from agents.kernel.context.builder import ContextBuilder
-from agents.kernel.context.memory import MemoryContextRetriever, MemoryRetrievalScope
-from agents.kernel.context.pack import ContextFragment, ContextLayer, ContextScope
 from agents.kernel.context.sources import build_context_pack
 from agents.kernel.specs import AgentSpec
 from agents.kernel.hooks import AgentHooks, CompositeHooks, SessionStateHooks, hooks_from_settings
-from agents.kernel.capabilities import load_configured_skills, resolve_active_tools
+from agents.kernel.capabilities import load_configured_skills
 from agents.kernel.mcp.loading import load_configured_mcp
-from agents.kernel.mcp.auth import mcp_authorization_headers_for_scope
 from agents.kernel.mcp.elicitation_runtime import build_mcp_elicitation_complete_handler
 from agents.kernel.mcp.list_changed_runtime import build_mcp_list_changed_handler
 from agents.kernel.mcp.oauth_runtime import authenticate_mcp_oauth_server
@@ -28,11 +34,9 @@ from agents.kernel.models import ModelClient
 from agents.kernel.runtime import AgentRuntime, AgentSession
 from agents.kernel.runtime.checkpoints import CheckpointStore
 from agents.kernel.governance import build_tool_permission_policy
-from agents.kernel.governance.tool_rules import matching_blanket_tool_rule
 from agents.kernel.state.workspaces.factory import resolve_workspace
 from agents.kernel.state.artifacts import ArtifactBlobStore, ArtifactStore
 from agents.kernel.capabilities.tools import ToolRegistry, ToolRuntimeContext, register_builtin_tools
-from agents.kernel.capabilities.tools.builtin.worktree import restore_active_worktree_session
 
 
 async def create_agent_session_async(
@@ -116,10 +120,10 @@ async def create_agent_session_async(
     registry.set_execution_observer(SandboxToolExecutionRecorder(tool_context, sandbox_store))
     web_provider = create_web_search_provider(settings)
     builtin_tools = register_builtin_tools(registry, tool_context, web_provider=web_provider)
-    await _hydrate_session_state(tool_context)
-    mcp_records = await _mcp_config_records(tool_context)
-    await _hydrate_mcp_config(tool_context, records=mcp_records)
-    mcp_auth_headers = await _mcp_auth_headers(tool_context, records=mcp_records)
+    await hydrate_session_state(tool_context)
+    mcp_records = await mcp_config_records(tool_context)
+    await hydrate_mcp_config(tool_context, records=mcp_records)
+    auth_headers = await mcp_auth_headers(tool_context, records=mcp_records)
     mcp_load_kwargs: dict[str, Any] = {
         "roots": [str(tool_context.workspace.path)],
         "records": mcp_records if mcp_records else None,
@@ -130,34 +134,32 @@ async def create_agent_session_async(
         mcp_load_kwargs["elicitation_handler"] = mcp_elicitation_handler
         mcp_load_kwargs["elicitation_complete_handler"] = build_mcp_elicitation_complete_handler(tool_context)
     mcp_load_kwargs["list_changed_handler"] = build_mcp_list_changed_handler(tool_context, registry)
-    if mcp_auth_headers:
-        mcp_load_kwargs["auth_headers"] = mcp_auth_headers
     mcp_load_kwargs["oauth_authenticator"] = lambda server, arguments: authenticate_mcp_oauth_server(
         tool_context,
         server,
         arguments,
     )
-    tool_context.mcp_providers = await load_configured_mcp(settings, registry, **mcp_load_kwargs)
+    if auth_headers:
+        mcp_load_kwargs["auth_headers"] = auth_headers
 
-    skill_registry = _skill_registry_with_session_state(settings, skill_registry, tool_context)
+    tool_context.mcp_providers = await load_configured_mcp(settings, registry, **mcp_load_kwargs)
+    skill_registry = skill_registry_with_session_state(settings, skill_registry, tool_context)
     tool_context.skill_registry = skill_registry
-    effective_spec = _effective_spec_from_session_state(resolved_spec, tool_context)
+    effective_spec = effective_spec_from_session_state(resolved_spec, tool_context)
     tool_context.agent_spec = effective_spec
-    active_tools = _merge_unique(
-        _resolve_active_tools(settings, skill_registry, effective_spec.enabled_tools, builtin_tools),
-        _loaded_mcp_canonical_tools(registry),
-        _managed_extension_tools(tool_context),
-        _plugin_enabled_tools(settings, tool_context),
+    active_tools = resolve_session_active_tools(
+        settings,
+        skill_registry,
+        effective_spec,
+        builtin_tools,
+        registry,
+        tool_context,
     )
-    if _has_structured_output_schema(effective_spec):
-        active_tools = _merge_unique(active_tools, ["StructuredOutput"])
-    active_tools = _filter_denied_active_tools(active_tools, effective_spec.tool_permissions.denied_tools)
-    _validate_active_tools(active_tools, registry)
     tool_context.enabled_tools = list(active_tools)
-    await _hydrate_schedules(tool_context)
-    await _hydrate_teams(tool_context)
-    await _hydrate_hooks(tool_context)
-    memory_fragments = await _memory_fragments(settings, memory_store, tool_context.workspace)
+    await hydrate_schedules(tool_context)
+    await hydrate_teams(tool_context)
+    await hydrate_hooks(tool_context)
+    memory_context_fragments = await memory_fragments(settings, memory_store, tool_context.workspace)
     system_prompt = settings.agent.SYSTEM_PROMPT if effective_spec.system_prompt is None else effective_spec.system_prompt
     if tool_context.system_prompt_overridden:
         system_prompt = tool_context.system_prompt_override
@@ -166,8 +168,8 @@ async def create_agent_session_async(
         skill_registry=skill_registry,
         enabled_tools=active_tools,
         workspace=tool_context.workspace,
-        memory_fragments=memory_fragments,
-        extension_fragments=_plugin_context_fragments(settings, tool_context),
+        memory_fragments=memory_context_fragments,
+        extension_fragments=plugin_context_fragments(settings, tool_context),
     )
     compiled_context = ContextBuilder().compile(context_pack, budget_tokens=settings.agent.MAX_CONTEXT_TOKENS)
     active_hooks = _session_hooks(hooks if hooks is not None else hooks_from_settings(settings), tool_context)
@@ -253,401 +255,6 @@ def create_agent_session(
             )
         )
     raise RuntimeError("create_agent_session cannot run inside an active event loop; use create_agent_session_async")
-
-
-def _resolve_active_tools(settings: Any, skill_registry, enabled_tools: Optional[list[str]], builtin_tools: list[str]) -> list[str]:
-    if enabled_tools is not None:
-        return resolve_active_tools(settings, skill_registry, enabled_tools)
-    configured_tools = str(getattr(settings.agent, "ENABLED_TOOLS", "") or "").strip()
-    active_tools = resolve_active_tools(settings, skill_registry, None)
-    if configured_tools:
-        return active_tools
-    builtin_defaults = [name for name in _csv_setting(getattr(settings.agent, "BUILTIN_TOOLS", "")) if name in builtin_tools]
-    return _merge_unique(builtin_defaults, active_tools)
-
-
-def _validate_active_tools(active_tools: list[str], registry: ToolRegistry) -> None:
-    registered = set(registry.names())
-    unknown = sorted({name for name in active_tools if name not in registered})
-    if unknown:
-        raise AgentConfigError("unknown enabled tool(s): %s" % ", ".join(unknown))
-
-
-def _filter_denied_active_tools(active_tools: list[str], denied_rules: list[str]) -> list[str]:
-    if not denied_rules:
-        return list(active_tools)
-    return [tool for tool in active_tools if not any(matching_blanket_tool_rule(rule, tool) for rule in denied_rules)]
-
-
-def _has_structured_output_schema(spec: AgentSpec) -> bool:
-    metadata = getattr(spec, "metadata", {}) or {}
-    return isinstance(metadata.get("structured_output_schema"), dict)
-
-
-def _skill_registry_with_session_state(settings: Any, skill_registry: SkillRegistry, tool_context: ToolRuntimeContext) -> SkillRegistry:
-    base_names = skill_registry.names()
-    persisted = [name for name in _merge_unique(list(getattr(tool_context, "enabled_skills", set()) or [])) if name not in base_names]
-    if not persisted:
-        return skill_registry
-    loader = SkillLoader(settings.server.ROOT_PATH)
-    skills = list(skill_registry.skills)
-    seen = {skill.name for skill in skills}
-    for name in persisted:
-        try:
-            loaded = SkillRegistry.load(loader, [name])
-        except FileNotFoundError:
-            continue
-        for skill in loaded.skills:
-            if skill.name in seen:
-                continue
-            seen.add(skill.name)
-            skills.append(skill)
-    return SkillRegistry(skills)
-
-
-def _managed_extension_tools(tool_context: ToolRuntimeContext) -> list[str]:
-    groups: list[list[str]] = []
-    for mapping_name in ("skill_tools", "plugin_tools"):
-        mapping = dict(getattr(tool_context, mapping_name, {}) or {})
-        groups.extend([list(tools or []) for tools in mapping.values()])
-    return _merge_unique(*groups)
-
-
-def _loaded_mcp_canonical_tools(registry: ToolRegistry) -> list[str]:
-    names: list[str] = []
-    definitions = registry.definitions_matching(
-        lambda definition: isinstance(definition.metadata.get("mcp_info"), dict)
-    )
-    for definition in definitions:
-        name = str(definition.name or "")
-        if name.startswith("mcp__"):
-            names.append(name)
-    return names
-
-
-def _plugin_enabled_tools(settings: Any, tool_context: ToolRuntimeContext) -> list[str]:
-    enabled = sorted({str(name) for name in getattr(tool_context, "enabled_plugins", set()) or set() if str(name)})
-    if not enabled:
-        return []
-    manifests = _plugin_manifests(settings, tool_context)
-    groups = []
-    for plugin_name in enabled:
-        manifest = manifests.get(plugin_name)
-        if manifest is None:
-            continue
-        raw = dict(manifest.get("raw") or {})
-        groups.append([str(tool) for tool in raw.get("tools", []) or [] if str(tool)])
-    return _merge_unique(*groups)
-
-
-def _plugin_context_fragments(settings: Any, tool_context: ToolRuntimeContext) -> list[ContextFragment]:
-    fragments: list[ContextFragment] = []
-    enabled = sorted({str(name) for name in getattr(tool_context, "enabled_plugins", set()) or set() if str(name)})
-    if not enabled:
-        return fragments
-    manifests = _plugin_manifests(settings, tool_context)
-    for plugin_name in enabled:
-        manifest = manifests.get(plugin_name)
-        if manifest is None:
-            continue
-        for index, text in enumerate(_plugin_prompt_fragments(manifest)):
-            if not text.strip():
-                continue
-            fragments.append(
-                ContextFragment(
-                    id="plugin.%s.%s" % (plugin_name, index),
-                    layer=ContextLayer.SKILLS,
-                    text=text.strip(),
-                    source="plugin:%s" % plugin_name,
-                    priority=55,
-                    scope=ContextScope.SESSION,
-                )
-            )
-    return fragments
-
-
-def _plugin_manifests(settings: Any, tool_context: ToolRuntimeContext) -> dict[str, dict[str, Any]]:
-    roots = _unique_paths(
-        [
-            getattr(tool_context.workspace, "path", ""),
-            getattr(getattr(settings, "server", None), "ROOT_PATH", ""),
-        ]
-    )
-    manifests: dict[str, dict[str, Any]] = {}
-    for root in roots:
-        for manifest_path in _plugin_manifest_paths(root):
-            try:
-                raw = json.loads(manifest_path.read_text(encoding="utf-8"))
-            except Exception:
-                continue
-            plugin_dir = manifest_path.parent.parent if manifest_path.parent.name == ".codex-plugin" else manifest_path.parent
-            plugin_name = str(raw.get("name") or plugin_dir.name)
-            manifests.setdefault(plugin_name, {"raw": raw, "path": manifest_path, "plugin_dir": plugin_dir})
-    return manifests
-
-
-def _plugin_manifest_paths(root: Path) -> list[Path]:
-    paths: list[Path] = []
-    for plugins_dir in [root / ".agents" / "plugins", root / "plugins"]:
-        if not plugins_dir.exists():
-            continue
-        paths.extend(sorted(plugins_dir.glob("*/.codex-plugin/plugin.json")))
-        paths.extend(sorted(plugins_dir.glob("*/plugin.json")))
-    return paths
-
-
-def _plugin_prompt_fragments(manifest: dict[str, Any]) -> list[str]:
-    raw = dict(manifest.get("raw") or {})
-    plugin_dir = Path(manifest["plugin_dir"]).resolve()
-    fragments = [str(raw.get("prompt") or "").strip()]
-    for relative_path in raw.get("prompt_fragments", []) or []:
-        path = (plugin_dir / str(relative_path)).resolve()
-        if not _is_relative_to(path, plugin_dir):
-            continue
-        try:
-            fragments.append(path.read_text(encoding="utf-8").strip())
-        except Exception:
-            continue
-    return [fragment for fragment in fragments if fragment]
-
-
-def _unique_paths(values: list[Any]) -> list[Path]:
-    paths: list[Path] = []
-    seen: set[Path] = set()
-    for value in values:
-        if not value:
-            continue
-        path = Path(str(value)).expanduser().resolve()
-        if path in seen:
-            continue
-        seen.add(path)
-        paths.append(path)
-    return paths
-
-
-def _is_relative_to(path: Path, root: Path) -> bool:
-    try:
-        path.relative_to(root)
-        return True
-    except ValueError:
-        return False
-
-
-def _effective_spec_from_session_state(resolved_spec: AgentSpec, tool_context: ToolRuntimeContext) -> AgentSpec:
-    spec = _effective_spec_from_config_overrides(resolved_spec, tool_context)
-    if not tool_context.permission_overridden:
-        return spec
-    mode = tool_context.permission_mode_override or spec.tool_permissions.mode or "auto"
-    profile = tool_context.permission_profile_override or mode
-    return replace(
-        spec,
-        permission_profile=profile,
-        tool_permissions=replace(
-            spec.tool_permissions,
-            mode=mode,
-            allowed_tools=list(tool_context.permission_allowed_tools_override) if tool_context.permission_restrict_allowed_tools else None,
-            denied_tools=list(tool_context.permission_denied_tools_override),
-            approval_required_tools=list(tool_context.approval_required_tools_override),
-        ),
-    )
-
-
-def _effective_spec_from_config_overrides(resolved_spec: AgentSpec, tool_context: ToolRuntimeContext) -> AgentSpec:
-    overrides = getattr(tool_context, "config_overrides", {}) or {}
-    model_value = _config_override_value(overrides, "model")
-    if model_value is None:
-        return resolved_spec
-    model = str(model_value or "").strip()
-    return replace(
-        resolved_spec,
-        model=replace(resolved_spec.model, model=model or None),
-    )
-
-
-def _config_override_value(overrides: dict[str, str], setting: str) -> Any | None:
-    raw = overrides.get("config.%s" % setting)
-    if raw is None:
-        return None
-    try:
-        return json.loads(raw)
-    except (TypeError, ValueError):
-        return raw
-
-
-async def _memory_fragments(settings: Any, memory_store: Optional[MemoryStore], workspace) -> list:
-    if memory_store is None or not workspace.tenant_id or not workspace.user_id:
-        return []
-    limit = int(getattr(settings.agent, "MEMORY_CONTEXT_LIMIT", 20) or 0)
-    if limit <= 0:
-        return []
-    return await MemoryContextRetriever(memory_store).fragments_for_scope(
-        MemoryRetrievalScope(
-            tenant_id=workspace.tenant_id,
-            user_id=workspace.user_id,
-            agent_id=workspace.agent_id,
-            workspace_id=workspace.workspace_id,
-            limit=limit,
-        )
-    )
-
-
-async def _hydrate_schedules(tool_context: ToolRuntimeContext) -> None:
-    store = getattr(tool_context, "schedule_store", None)
-    if store is None:
-        return
-    workspace = tool_context.workspace
-    schedules = await store.list_for_scope(
-        workspace.tenant_id,
-        user_id=workspace.user_id,
-        agent_id=workspace.agent_id,
-        workspace_id=workspace.workspace_id,
-    )
-    tool_context.scheduled_tasks = {schedule.schedule_id: schedule.to_dict() for schedule in schedules}
-
-
-async def _hydrate_teams(tool_context: ToolRuntimeContext) -> None:
-    store = getattr(tool_context, "team_store", None)
-    if store is None:
-        return
-    workspace = tool_context.workspace
-    teams = await store.list_teams(
-        workspace.tenant_id,
-        user_id=workspace.user_id,
-        agent_id=workspace.agent_id,
-        workspace_id=workspace.workspace_id,
-    )
-    tool_context.teams = {team.team_id: team.to_dict() for team in teams}
-
-
-async def _hydrate_hooks(tool_context: ToolRuntimeContext) -> None:
-    store = getattr(tool_context, "hook_store", None)
-    if store is None:
-        return
-    workspace = tool_context.workspace
-    hooks = await store.list_for_scope(
-        workspace.tenant_id,
-        user_id=workspace.user_id,
-        agent_id=workspace.agent_id,
-        workspace_id=workspace.workspace_id,
-    )
-    tool_context.hook_registry.replace_all(hooks)
-
-
-async def _mcp_config_records(tool_context: ToolRuntimeContext) -> list[Any]:
-    store = getattr(tool_context, "mcp_config_store", None)
-    if store is None:
-        return []
-    workspace = tool_context.workspace
-    return await store.list_for_scope(
-        workspace.tenant_id,
-        user_id=workspace.user_id,
-        agent_id=workspace.agent_id,
-        workspace_id=workspace.workspace_id,
-    )
-
-
-async def _hydrate_mcp_config(tool_context: ToolRuntimeContext, records: list[Any] | None = None) -> None:
-    if records is None:
-        records = await _mcp_config_records(tool_context)
-    active = next((record for record in records if record.enabled), None)
-    if active is None:
-        return
-    mcp = getattr(tool_context.settings, "mcp", None)
-    if mcp is None:
-        return
-    mcp.SERVER_NAME = active.name
-    mcp.SERVER_COMMAND = active.command
-    mcp.SERVER_TRANSPORT = active.transport
-    mcp.SERVER_URL = active.url
-    mcp.SERVER_HEADERS = dict(active.headers)
-    mcp.SERVER_HEADERS_JSON = json.dumps(active.headers, ensure_ascii=False, sort_keys=True) if active.headers else ""
-    mcp.EXECUTION_MODE = active.execution_mode
-    mcp.SANDBOX_PROFILE = active.sandbox_profile
-    mcp.AUTH_REQUIRED = active.auth_required
-    mcp.AUTH_URL = active.auth_url
-    mcp.AUTH_STATUS = active.auth_status
-    mcp.AUTH_MESSAGE = active.auth_message
-
-
-async def _mcp_auth_headers(tool_context: ToolRuntimeContext, records: list[Any] | None = None) -> dict[str, str]:
-    store = getattr(tool_context, "mcp_auth_store", None)
-    if store is None:
-        return {}
-    workspace = tool_context.workspace
-    names = _mcp_auth_names(tool_context.settings, records)
-    return await mcp_authorization_headers_for_scope(
-        store,
-        names=names,
-        tenant_id=workspace.tenant_id,
-        user_id=workspace.user_id,
-        agent_id=workspace.agent_id,
-        workspace_id=workspace.workspace_id,
-    )
-
-
-def _mcp_auth_names(settings: Any, records: list[Any] | None) -> list[str]:
-    if records:
-        return [str(getattr(record, "name", "") or "") for record in records if bool(getattr(record, "enabled", True))]
-    mcp = getattr(settings, "mcp", None)
-    if mcp is None:
-        return []
-    command = str(getattr(mcp, "SERVER_COMMAND", "") or "").strip()
-    transport = str(getattr(mcp, "SERVER_TRANSPORT", "stdio") or "stdio")
-    url = str(getattr(mcp, "SERVER_URL", "") or "").strip()
-    if transport == "stdio" and not command:
-        return []
-    if transport != "stdio" and not url:
-        return []
-    return [str(getattr(mcp, "SERVER_NAME", "") or "default")]
-
-
-async def _hydrate_session_state(tool_context: ToolRuntimeContext) -> None:
-    store = getattr(tool_context, "session_state_store", None)
-    if store is None:
-        return
-    workspace = tool_context.workspace
-    record = await store.load_for_scope(
-        workspace.tenant_id,
-        user_id=workspace.user_id,
-        agent_id=workspace.agent_id,
-        workspace_id=workspace.workspace_id,
-    )
-    if record is None:
-        return
-    tool_context.todos = [dict(item) for item in record.todos]
-    tool_context.plan_mode = bool(record.plan_mode)
-    tool_context.plan_text = record.plan_text
-    tool_context.plan_allowed_prompts = [dict(item) for item in record.plan_allowed_prompts]
-    tool_context.system_prompt_override = record.system_prompt_override
-    tool_context.system_prompt_overridden = bool(record.system_prompt_overridden)
-    tool_context.permission_profile_override = record.permission_profile_override
-    tool_context.permission_mode_override = record.permission_mode_override
-    tool_context.permission_restrict_allowed_tools = bool(record.permission_restrict_allowed_tools)
-    tool_context.permission_allowed_tools_override = list(record.permission_allowed_tools_override)
-    tool_context.permission_denied_tools_override = list(record.permission_denied_tools_override)
-    tool_context.approval_required_tools_override = list(record.approval_required_tools_override)
-    tool_context.permission_overridden = bool(record.permission_overridden)
-    tool_context.enabled_skills = set(record.enabled_skills)
-    tool_context.enabled_plugins = set(record.enabled_plugins)
-    tool_context.skill_tools = {name: list(tools) for name, tools in record.skill_tools.items()}
-    tool_context.plugin_tools = {name: list(tools) for name, tools in record.plugin_tools.items()}
-    restore_active_worktree_session(tool_context, record.active_worktree_session)
-    tool_context.config_overrides = dict(record.metadata)
-
-
-def _csv_setting(raw: str) -> list[str]:
-    return [item.strip() for item in str(raw or "").split(",") if item.strip()]
-
-
-def _merge_unique(*groups: list[str]) -> list[str]:
-    names: list[str] = []
-    seen = set()
-    for group in groups:
-        for name in group:
-            if name not in seen:
-                seen.add(name)
-                names.append(name)
-    return names
 
 
 def _session_hooks(base_hooks: AgentHooks, tool_context: ToolRuntimeContext) -> AgentHooks:

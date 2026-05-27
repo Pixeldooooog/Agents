@@ -27,11 +27,13 @@ platform      -> kernel
 - 分配 workspace。
 - 创建 tool registry。
 - 装配 skills、MCP、memory、context、hooks、permission policy。
+- `session.py` 保持 sync/async session facade；active tool 选择在 `active_tools.py`，plugin manifest/context 在 `plugins.py`，session/MCP/store hydration 在 `session_state.py`，session-state spec override 在 `spec_overrides.py`，共享 list/config helpers 在 `common.py`。
 
 为什么这样做：
 
 - 保留一个明确的 SDK 入口，避免 server、bridge、测试各自拼 session。
 - 让 agent 内核可以被外部项目直接作为库使用。
+- 装配层允许编排多个领域，但不承载具体规则实现；规则 helper 必须按职责落到子模块。
 
 后续方向：
 

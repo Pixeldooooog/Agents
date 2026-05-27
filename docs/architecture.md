@@ -58,7 +58,7 @@ graph TB
 
 - `agents.kernel.schema`: Message、ToolCall、ToolSpec、ModelRequest、ModelResponse、RuntimeEvent 等核心数据结构。
 - `agents.kernel.specs`: Agent 规格层。`AgentSpec` 统一描述模型、工具、skills、workspace、权限 profile、记忆 profile 和 metadata。
-- `agents.kernel.assembly`: SDK 装配入口。负责把 settings、模型配置、工具、skills、MCP、workspace、context 和 hooks 组装成 `AgentSession`，并提供 sync/async 两种入口。
+- `agents.kernel.assembly`: SDK 装配入口。负责把 settings、模型配置、工具、skills、MCP、workspace、context 和 hooks 组装成 `AgentSession`，并提供 sync/async 两种入口。`session.py` 只保留 facade/编排，active tool 选择、plugin context、session-state hydration 和 spec override 分别在 assembly 子模块内维护。
 - `agents.kernel.config`: 共享配置边界。负责项目 defaults/local/env 读取、模型 protocol fallback、API key/base URL/model/proxy 解析，以及 terminal/Web 可选择的 model profile 解析。
 - `agents.kernel.capabilities`: 能力域聚合包。收束 tools、skills、MCP 装配、web search 和 memory store，避免能力相关代码散落在 `agent` 顶层。
 - `agents.kernel.capabilities.web`: control-plane web search 能力。当前内置 Tavily REST provider，统一输出 sources、usage 和 request_id；API key 不进入 sandbox。

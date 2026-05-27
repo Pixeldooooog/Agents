@@ -167,6 +167,11 @@ def test_agent_system_exposes_future_multi_agent_boundaries():
         "capabilities.skills",
         "capabilities.tools",
         "assembly",
+        "assembly.active_tools",
+        "assembly.common",
+        "assembly.plugins",
+        "assembly.session_state",
+        "assembly.spec_overrides",
         "state.runs",
         "persistence",
         "state.identity",
@@ -236,6 +241,21 @@ def test_governance_tool_impact_stays_split_by_responsibility():
         governance_root / "tool_impact_arguments.py": 160,
         governance_root / "tool_impact_common.py": 220,
         governance_root / "tool_impact_domains.py": 360,
+    }
+
+    for path, max_lines in limits.items():
+        assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
+
+
+def test_session_assembly_stays_split_by_responsibility():
+    assembly_root = ROOT / "src" / "agents" / "kernel" / "assembly"
+    limits = {
+        assembly_root / "session.py": 360,
+        assembly_root / "active_tools.py": 120,
+        assembly_root / "common.py": 60,
+        assembly_root / "plugins.py": 160,
+        assembly_root / "session_state.py": 220,
+        assembly_root / "spec_overrides.py": 100,
     }
 
     for path, max_lines in limits.items():
