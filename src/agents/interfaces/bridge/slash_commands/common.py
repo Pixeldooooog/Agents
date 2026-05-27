@@ -53,6 +53,31 @@ def safe_file_stem(value: str) -> str:
     return "".join(ch for ch in text if ch.isalnum() or ch in {"-", "_"}).strip("-_")
 
 
+def set_session_prompt(session: Any, text: str) -> None:
+    setter = getattr(session, "set_system_prompt", None)
+    if setter is not None:
+        setter(text)
+        return
+    context_window = getattr(session, "context_window", None)
+    if context_window is not None:
+        context_window.system_prompt = str(text or "").strip()
+
+
+def replace_runtime_enabled_tools(state: Any, tools: list[str]) -> None:
+    runtime = getattr(state.session, "runtime", None)
+    config = getattr(runtime, "config", None)
+    if config is not None:
+        runtime.config = replace(config, enabled_tools=merge_unique(list(getattr(config, "enabled_tools", []) or []), tools))
+
+
+def remove_runtime_enabled_tools(state: Any, tools: list[str]) -> None:
+    runtime = getattr(state.session, "runtime", None)
+    config = getattr(runtime, "config", None)
+    if config is not None:
+        removed = set(tools)
+        runtime.config = replace(config, enabled_tools=[tool for tool in list(getattr(config, "enabled_tools", []) or []) if tool not in removed])
+
+
 def task_run_service(state: Any) -> RunService:
     service = getattr(state, "task_run_service", None)
     if service is not None:

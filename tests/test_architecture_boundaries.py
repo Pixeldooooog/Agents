@@ -123,14 +123,48 @@ def test_agent_capabilities_expose_builtin_tool_boundaries():
 def test_builtin_tool_registration_stays_modular():
     builtin_root = ROOT / "src" / "agents" / "kernel" / "capabilities" / "tools" / "builtin"
     limits = {
-        builtin_root / "registration.py": 1500,
+        builtin_root / "registration.py": 950,
         builtin_root / "execution_registration.py": 900,
         builtin_root / "src_origin_agent_aliases.py": 900,
         builtin_root / "mcp" / "registration.py": 400,
+        builtin_root / "web_registration.py": 140,
+        builtin_root / "tool_names.py": 220,
     }
 
     for path, max_lines in limits.items():
         assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
+
+
+def test_builtin_tool_registry_wiring_is_separate_from_implementation_modules():
+    builtin_root = ROOT / "src" / "agents" / "kernel" / "capabilities" / "tools" / "builtin"
+    registration_files = {
+        builtin_root / "registration.py",
+        builtin_root / "execution_registration.py",
+        builtin_root / "registration_helpers.py",
+        builtin_root / "src_origin_agent_aliases.py",
+        builtin_root / "src_origin_discovery_aliases.py",
+        builtin_root / "src_origin_plan_aliases.py",
+        builtin_root / "src_origin_task_aliases.py",
+        builtin_root / "src_origin_schedule_aliases.py",
+        builtin_root / "mcp" / "registration.py",
+        builtin_root / "web_registration.py",
+    }
+
+    class_defs = []
+    for path in registration_files:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        class_defs.extend("%s:%s" % (path.relative_to(ROOT), node.name) for node in tree.body if isinstance(node, ast.ClassDef))
+    assert not class_defs
+
+    offenders = []
+    for path in builtin_root.rglob("*.py"):
+        if "__pycache__" in path.parts or path.name == "__init__.py" or path in registration_files:
+            continue
+        names = _top_level_function_names(path)
+        register_names = [name for name in names if name.startswith("register_") or name.startswith("_register_")]
+        if register_names:
+            offenders.append("%s:%s" % (path.relative_to(ROOT), ",".join(register_names)))
+    assert not offenders
 
 
 def test_mcp_implementation_is_packaged_by_domain():
@@ -197,15 +231,33 @@ def test_sdk_transports_stay_split_by_protocol():
 
 def test_bridge_slash_commands_stay_split_by_domain():
     bridge_root = ROOT / "src" / "agents" / "interfaces" / "bridge"
-    for module in ["common", "sessions", "tasks", "schedules", "workflows"]:
+    for module in [
+        "commands",
+        "common",
+        "extensions",
+        "mcp",
+        "permissions",
+        "prompts",
+        "schedules",
+        "sessions",
+        "tasks",
+        "tool_execution",
+        "workflows",
+    ]:
         assert importlib.util.find_spec(f"agents.interfaces.bridge.slash_commands.{module}") is not None
 
     limits = {
-        bridge_root / "slash.py": 1850,
+        bridge_root / "slash.py": 650,
         bridge_root / "slash_commands" / "common.py": 180,
+        bridge_root / "slash_commands" / "commands.py": 220,
+        bridge_root / "slash_commands" / "extensions.py": 500,
+        bridge_root / "slash_commands" / "mcp.py": 260,
+        bridge_root / "slash_commands" / "permissions.py": 220,
+        bridge_root / "slash_commands" / "prompts.py": 260,
         bridge_root / "slash_commands" / "sessions.py": 380,
         bridge_root / "slash_commands" / "tasks.py": 420,
         bridge_root / "slash_commands" / "schedules.py": 180,
+        bridge_root / "slash_commands" / "tool_execution.py": 160,
         bridge_root / "slash_commands" / "workflows.py": 300,
     }
 
@@ -287,3 +339,8 @@ def _imports_under(root: Path) -> set[str]:
             elif isinstance(node, ast.ImportFrom) and node.module:
                 imports.add(node.module)
     return imports
+
+
+def _top_level_function_names(path: Path) -> list[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return [node.name for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
