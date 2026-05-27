@@ -40,6 +40,62 @@ class ContextWindowManager:
         if compacted and self.estimate_tokens(compacted) <= self.max_context_tokens:
             return compacted
 
+        return self._trim_complete_turns(messages)
+
+    async def afit(self, messages: List[Message]) -> List[Message]:
+        """Async variant that can use a model-backed compactor."""
+        if not messages:
+            return messages
+        if self.estimate_tokens(messages) <= self.max_context_tokens:
+            return messages
+
+        compacted = await self._acompact_messages(messages)
+        if compacted and self.estimate_tokens(compacted) <= self.max_context_tokens:
+            return compacted
+
+        return self._trim_complete_turns(messages)
+
+    def compact(self, messages: List[Message], target_tokens: int | None = None) -> List[Message]:
+        if not messages:
+            return messages
+        target = target_tokens or self.compaction_target_tokens
+        compacted = self._compact_messages(messages, force=True, target_tokens=target)
+        return compacted or messages
+
+    async def acompact(self, messages: List[Message], target_tokens: int | None = None) -> List[Message]:
+        if not messages:
+            return messages
+        target = target_tokens or self.compaction_target_tokens
+        compacted = await self._acompact_messages(messages, force=True, target_tokens=target)
+        return compacted or messages
+
+    def _compact_messages(self, messages: List[Message], *, force: bool = False, target_tokens: int | None = None) -> List[Message]:
+        system_messages: List[Message] = []
+        rest = list(messages)
+        if rest and rest[0].role == "system":
+            system_messages = [rest.pop(0)]
+        max_tokens = 0 if force else self.max_context_tokens
+        compaction = self.compactor.compact(rest, max_tokens, target_tokens or self.compaction_target_tokens)
+        if not compaction.summary:
+            return []
+        return system_messages + [Message.from_text("system", compaction.summary)] + compaction.kept_messages
+
+    async def _acompact_messages(self, messages: List[Message], *, force: bool = False, target_tokens: int | None = None) -> List[Message]:
+        system_messages: List[Message] = []
+        rest = list(messages)
+        if rest and rest[0].role == "system":
+            system_messages = [rest.pop(0)]
+        max_tokens = 0 if force else self.max_context_tokens
+        compact = getattr(self.compactor, "acompact", None)
+        if compact is None:
+            compaction = self.compactor.compact(rest, max_tokens, target_tokens or self.compaction_target_tokens)
+        else:
+            compaction = await compact(rest, max_tokens, target_tokens or self.compaction_target_tokens)
+        if not compaction.summary:
+            return []
+        return system_messages + [Message.from_text("system", compaction.summary)] + compaction.kept_messages
+
+    def _trim_complete_turns(self, messages: List[Message]) -> List[Message]:
         system_messages: List[Message] = []
         rest = list(messages)
         if rest and rest[0].role == "system":
@@ -62,24 +118,6 @@ class ContextWindowManager:
             turns.pop(0)
 
         return system_messages + _flatten(turns)
-
-    def compact(self, messages: List[Message], target_tokens: int | None = None) -> List[Message]:
-        if not messages:
-            return messages
-        target = target_tokens or self.compaction_target_tokens
-        compacted = self._compact_messages(messages, force=True, target_tokens=target)
-        return compacted or messages
-
-    def _compact_messages(self, messages: List[Message], *, force: bool = False, target_tokens: int | None = None) -> List[Message]:
-        system_messages: List[Message] = []
-        rest = list(messages)
-        if rest and rest[0].role == "system":
-            system_messages = [rest.pop(0)]
-        max_tokens = 0 if force else self.max_context_tokens
-        compaction = self.compactor.compact(rest, max_tokens, target_tokens or self.compaction_target_tokens)
-        if not compaction.summary:
-            return []
-        return system_messages + [Message.from_text("system", compaction.summary)] + compaction.kept_messages
 
 
 def _flatten(turns: List[List[Message]]) -> List[Message]:

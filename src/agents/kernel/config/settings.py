@@ -39,6 +39,7 @@ class AgentConfig(BaseSettings):
     MAX_CONCURRENT_REQUESTS: int = config_value("agent", "MAX_CONCURRENT_REQUESTS", 20)
     TOOL_TIMEOUT: float = config_value("agent", "TOOL_TIMEOUT", 60.0)
     TOOL_USE_SUMMARY_MODEL: str = config_value("agent", "TOOL_USE_SUMMARY_MODEL", "")
+    CONTEXT_COMPACTION_MODEL: str = config_value("agent", "CONTEXT_COMPACTION_MODEL", "")
     GUIDED_TOOLS: str = config_value("agent", "GUIDED_TOOLS", "")
     BUILTIN_TOOLS: str = config_value("agent", "BUILTIN_TOOLS", "filesystem.read,filesystem.list")
     WORKSPACE_LAYOUT: str = config_value("agent", "WORKSPACE_LAYOUT", "auto")

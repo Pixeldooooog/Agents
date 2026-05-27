@@ -152,13 +152,13 @@ def context_messages(
     }
 
 
-def context_compact(context: ToolRuntimeContext, target_tokens: int | None = None) -> dict[str, Any]:
+async def context_compact(context: ToolRuntimeContext, target_tokens: int | None = None) -> dict[str, Any]:
     session = _session(context)
-    compact = getattr(session, "compact", None)
+    compact = getattr(session, "async_compact", None) or getattr(session, "compact", None)
     if compact is None:
         raise RuntimeError("session does not support context compaction")
     target = int(target_tokens or 0) or None
-    return compact(target)
+    return await _maybe_await(compact(target))
 
 
 def context_rewind(context: ToolRuntimeContext, drop_last: int = 1) -> dict[str, Any]:
@@ -179,6 +179,12 @@ def _session(context: ToolRuntimeContext) -> Any:
     if session is None:
         raise RuntimeError("session is not available")
     return session
+
+
+async def _maybe_await(value: Any) -> Any:
+    if hasattr(value, "__await__"):
+        return await value
+    return value
 
 
 def _trace_item_payload(item: Any, *, include_text: bool, max_chars: int) -> dict[str, Any]:

@@ -45,6 +45,7 @@ AGENTS_LOCAL_CONFIG=config/local.toml
 | `AGENT_RUN_STORE` | `memory`, `file`, or `sqlite` | `memory` |
 | `AGENT_RUN_ROOT` | JSON file storage path | `.agents/runs` |
 | `AGENT_DB_PATH` | SQLite database path | `.agents/agents.db` |
+| `AGENT_CONTEXT_COMPACTION_MODEL` | Optional model for model-backed compact summaries | (none) |
 
 ### OpenAI Chat Completions
 

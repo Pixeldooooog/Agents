@@ -13,6 +13,7 @@ class ConversationCompaction:
     kept_messages: List[Message]
     dropped_messages: int
     source_token_estimate: int
+    summary_source: str = "heuristic"
 
     def as_fragment(self, fragment_id: str = "conversation.summary") -> ContextFragment:
         return ContextFragment(
@@ -25,7 +26,17 @@ class ConversationCompaction:
             metadata={
                 "dropped_messages": str(self.dropped_messages),
                 "source_token_estimate": str(self.source_token_estimate),
+                "summary_source": self.summary_source,
             },
+        )
+
+    def with_summary_source(self, summary_source: str) -> "ConversationCompaction":
+        return ConversationCompaction(
+            summary=self.summary,
+            kept_messages=self.kept_messages,
+            dropped_messages=self.dropped_messages,
+            source_token_estimate=self.source_token_estimate,
+            summary_source=summary_source,
         )
 
 

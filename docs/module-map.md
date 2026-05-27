@@ -85,7 +85,7 @@ platform      -> kernel
 - 管理 system、project instructions、runtime policy、skills、memory、tool hints、task context。
 - 编译 `ContextPack` 为最终 system text 和 trace。
 - 管理上下文窗口和压缩。
-- `window.py` 负责 token fitting，`compaction.py` 负责摘要式 message compaction，`compaction_metadata.py` 负责 compact boundary 的 SDK 元数据和 preserved-segment UUID 锚点。
+- `window.py` 负责 token fitting，`compaction.py` 负责摘要式 message compaction 的基础数据结构和启发式 fallback，`compaction_model.py` / `compaction_prompts.py` 负责可配置的模型摘要生成和提示词格式，`compaction_metadata.py` 负责 compact boundary 的 SDK 元数据和 preserved-segment UUID 锚点。
 
 为什么这样做：
 
@@ -266,11 +266,12 @@ agents/kernel/capabilities/sandbox/
 - 生成 tool batch 摘要事件。
 - 处理 checkpoint、resume、approval pause。
 - 维护 session 历史和 context window。
+- `session.py` 保持会话 facade，compact boundary/stats helper 落在 `session_compaction.py`，模型回合、工具回合和 tool-use 摘要分别在 `turns/` 子域内。
 
 为什么这样做：
 
 - runtime 是内核，不关心 HTTP、web UI、Terminal。
-- 模型回合、工具回合和 tool-use 摘要生成拆开，方便测试和扩展。
+- session facade、compact bookkeeping、模型回合、工具回合和 tool-use 摘要生成拆开，方便测试和扩展。
 
 后续方向：
 

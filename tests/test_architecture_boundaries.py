@@ -256,8 +256,11 @@ def test_agent_runtime_is_split_into_explicit_kernel_modules():
         "governance.permissions",
         "runtime.checkpoints",
         "runtime.state",
+        "runtime.session_compaction",
         "context.compaction",
         "context.compaction_metadata",
+        "context.compaction_model",
+        "context.compaction_prompts",
         "context.memory",
         "governance.sandbox",
         "governance.security",
@@ -274,10 +277,13 @@ def test_agent_runtime_modules_stay_split_by_responsibility():
         runtime_root / "turns" / "tools.py": 320,
         runtime_root / "turns" / "tool_summary.py": 240,
         runtime_root / "checkpoints.py": 190,
+        runtime_root / "session_compaction.py": 60,
         runtime_root / "state.py": 40,
     }
     context_root = ROOT / "src" / "agents" / "kernel" / "context"
     limits[context_root / "compaction_metadata.py"] = 90
+    limits[context_root / "compaction_model.py"] = 120
+    limits[context_root / "compaction_prompts.py"] = 120
 
     for path, max_lines in limits.items():
         assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path

@@ -23,6 +23,7 @@ from agents.kernel.assembly.session_state import (
 from agents.kernel.assembly.spec_overrides import effective_spec_from_session_state, skill_registry_with_session_state
 from agents.kernel.config import resolve_model_client_config
 from agents.kernel.context.builder import ContextBuilder
+from agents.kernel.context.compaction_model import ModelContextCompactor
 from agents.kernel.context.sources import build_context_pack
 from agents.kernel.specs import AgentSpec
 from agents.kernel.hooks import AgentHooks, CompositeHooks, SessionStateHooks, hooks_from_settings
@@ -185,6 +186,7 @@ async def create_agent_session_async(
     )
     model_client = ModelClient(config)
     summary_generator = _tool_use_summary_generator(settings, config)
+    context_compactor = _context_compactor(settings, config)
     runtime = AgentRuntime(
         model_client=model_client,
         tools=registry,
@@ -205,6 +207,7 @@ async def create_agent_session_async(
         context_trace=compiled_context.trace,
         workspace=tool_context.workspace,
         tool_context=tool_context,
+        context_compactor=context_compactor,
     )
 
 
@@ -271,6 +274,19 @@ def _tool_use_summary_generator(settings: Any, config: Any) -> ModelToolUseSumma
         ModelClient(summary_config),
         protocol=summary_config.protocol,
         model=summary_config.model,
+    )
+
+
+def _context_compactor(settings: Any, config: Any) -> ModelContextCompactor | None:
+    compaction_model = str(getattr(settings.agent, "CONTEXT_COMPACTION_MODEL", "") or "").strip()
+    if not compaction_model:
+        return None
+    compaction_config = replace(config, model=compaction_model, max_tokens=min(int(config.max_tokens or 2048), 2048))
+    return ModelContextCompactor(
+        ModelClient(compaction_config),
+        protocol=compaction_config.protocol,
+        model=compaction_config.model,
+        max_summary_tokens=compaction_config.max_tokens,
     )
 
 

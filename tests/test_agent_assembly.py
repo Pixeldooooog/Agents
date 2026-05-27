@@ -51,6 +51,7 @@ class FakeAgentConfig:
     MAX_CONCURRENT_REQUESTS = 20
     TOOL_TIMEOUT = 60.0
     TOOL_USE_SUMMARY_MODEL = ""
+    CONTEXT_COMPACTION_MODEL = ""
     GUIDED_TOOLS = ""
     BUILTIN_TOOLS = ""
     SANDBOX_ALLOW_FILE_WRITE = False
@@ -195,6 +196,28 @@ def test_create_session_wires_configured_tool_use_summary_model(tmp_path, monkey
     assert generator is not None
     assert generator.model == "haiku-summary"
     assert [config.model for config in created_configs] == ["main-model", "haiku-summary"]
+
+
+def test_create_session_wires_configured_context_compaction_model(tmp_path, monkeypatch):
+    created_configs = []
+
+    def fake_model_client(config):
+        created_configs.append(config)
+        return FakeRuntimeClient()
+
+    monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", fake_model_client)
+    settings = FakeSettings()
+    settings.server.ROOT_PATH = tmp_path
+    settings.models.openai.API_KEY = "key"
+    settings.models.openai.MODEL = "main-model"
+    settings.agent.CONTEXT_COMPACTION_MODEL = "compact-model"
+
+    session = create_agent_session(settings, AgentSpec())
+
+    compactor = session.context_window.compactor
+    assert compactor is not None
+    assert compactor.model == "compact-model"
+    assert [config.model for config in created_configs] == ["main-model", "compact-model"]
 
 
 def test_create_session_composes_skill_prompt_and_declared_tools(tmp_path, monkeypatch):

@@ -4,13 +4,13 @@ import inspect
 from typing import AsyncIterable, List, Mapping, Optional
 from typing import Any
 
-from agents.kernel.context.compaction_metadata import compact_boundary_payload
 from agents.kernel.context.window import ContextWindowManager
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.runtime.loop import AgentRuntime
+from agents.kernel.runtime.session_compaction import compact_boundary_event, compact_stats
 from agents.kernel.runtime.types import AgentResult
 from agents.kernel.schema import Message, RuntimeEvent
-from agents.kernel.context import ContextTraceItem
+from agents.kernel.context.pack import ContextTraceItem
 
 
 class AgentSession:
@@ -23,6 +23,7 @@ class AgentSession:
         context_trace: Optional[List[ContextTraceItem]] = None,
         workspace: Optional[WorkspaceContext] = None,
         tool_context: Any | None = None,
+        context_compactor: Any | None = None,
     ):
         self.runtime = runtime
         self.context_trace = list(context_trace or [])
@@ -30,7 +31,12 @@ class AgentSession:
         self.tool_context = tool_context
         if self.tool_context is not None:
             self.tool_context.session = self
-        self.context_window = ContextWindowManager(system_prompt, max_context_tokens, compaction_target_tokens)
+        self.context_window = ContextWindowManager(
+            system_prompt,
+            max_context_tokens,
+            compaction_target_tokens,
+            compactor=context_compactor,
+        )
         self.messages: List[Message] = []
         self.clear()
 
@@ -58,26 +64,28 @@ class AgentSession:
     def _estimate_tokens(self, messages: List[Message]) -> int:
         return self.context_window.estimate_tokens(messages)
 
-    def _truncate_messages(self, messages: List[Message]) -> List[Message]:
-        return self.context_window.fit(messages)
-
     def _fit_with_boundary(self, messages: List[Message], *, trigger: str = "auto") -> tuple[List[Message], RuntimeEvent | None]:
-        before_messages = len(messages)
         before_tokens = self._estimate_tokens(messages)
         fitted = self.context_window.fit(messages)
         after_tokens = self._estimate_tokens(fitted)
-        if len(fitted) == before_messages and after_tokens >= before_tokens:
-            return fitted, None
-        return fitted, RuntimeEvent(
-            type="compact_boundary",
-            name="context",
-            payload=compact_boundary_payload(
-                messages,
-                fitted,
-                trigger=trigger,
-                pre_tokens=before_tokens,
-                post_tokens=after_tokens,
-            ),
+        return fitted, compact_boundary_event(
+            messages,
+            fitted,
+            trigger=trigger,
+            pre_tokens=before_tokens,
+            post_tokens=after_tokens,
+        )
+
+    async def _afit_with_boundary(self, messages: List[Message], *, trigger: str = "auto") -> tuple[List[Message], RuntimeEvent | None]:
+        before_tokens = self._estimate_tokens(messages)
+        fitted = await self.context_window.afit(messages)
+        after_tokens = self._estimate_tokens(fitted)
+        return fitted, compact_boundary_event(
+            messages,
+            fitted,
+            trigger=trigger,
+            pre_tokens=before_tokens,
+            post_tokens=after_tokens,
         )
 
     def compact(self, target_tokens: int | None = None) -> dict[str, int]:
@@ -85,13 +93,24 @@ class AgentSession:
         before_tokens = self._estimate_tokens(self.messages)
         self.messages = self.context_window.compact(self.messages, target_tokens)
         after_tokens = self._estimate_tokens(self.messages)
-        return {
-            "before_messages": before_messages,
-            "after_messages": len(self.messages),
-            "dropped_messages": max(0, before_messages - len(self.messages)),
-            "before_tokens": before_tokens,
-            "after_tokens": after_tokens,
-        }
+        return compact_stats(
+            before_messages=before_messages,
+            before_tokens=before_tokens,
+            after_messages=len(self.messages),
+            after_tokens=after_tokens,
+        )
+
+    async def async_compact(self, target_tokens: int | None = None) -> dict[str, int]:
+        before_messages = len(self.messages)
+        before_tokens = self._estimate_tokens(self.messages)
+        self.messages = await self.context_window.acompact(self.messages, target_tokens)
+        after_tokens = self._estimate_tokens(self.messages)
+        return compact_stats(
+            before_messages=before_messages,
+            before_tokens=before_tokens,
+            after_messages=len(self.messages),
+            after_tokens=after_tokens,
+        )
 
     async def aclose(self) -> None:
         first_error: Exception | None = None
@@ -135,12 +154,20 @@ class AgentSession:
             except Exception as exc:
                 if first_error is None:
                     first_error = exc
+        context_compactor = getattr(self.context_window, "compactor", None)
+        close = getattr(context_compactor, "async_close", None)
+        if close is not None and getattr(context_compactor, "model_client", None) is not model_client:
+            try:
+                await close()
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
         if first_error is not None:
             raise first_error
 
     async def send(self, text: str, run_id: str | None = None, task_id: str | None = None) -> AgentResult:
         candidate = self.messages + [Message.from_text("user", text)]
-        candidate = self.context_window.fit(candidate)
+        candidate = await self.context_window.afit(candidate)
         result = await self.runtime.run(candidate, run_id=run_id, task_id=task_id)
         self.messages = list(result.messages)
         return result
@@ -193,7 +220,7 @@ class AgentSession:
         task_id: str | None = None,
     ) -> AsyncIterable[RuntimeEvent]:
         candidate = self.messages + [Message.from_text("user", text)]
-        candidate, boundary_event = self._fit_with_boundary(candidate)
+        candidate, boundary_event = await self._afit_with_boundary(candidate)
         if boundary_event is not None:
             yield boundary_event
         async for event in self.runtime.stream(candidate, run_id=run_id, task_id=task_id):
