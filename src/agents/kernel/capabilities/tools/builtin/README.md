@@ -20,14 +20,17 @@ These files should only bind schemas, aliases, metadata, and handlers into `Tool
 - `workspace_registration.py`
 - `tool_names.py`
 - `task_schemas.py`
+- `src_origin_aliases.py`
 - `src_origin_agent_aliases.py`
+- `src_origin_core_aliases.py`
 - `src_origin_discovery_aliases.py`
 - `src_origin_plan_aliases.py`
 - `src_origin_schedule_aliases.py`
+- `src_origin_session_aliases.py`
 - `src_origin_task_aliases.py`
 - `mcp/registration.py`
 
-Registration files should stay thin. They should not own business behavior, persistent state transitions, protocol clients, or large helper classes.
+Registration files should stay thin. They should not own business behavior, persistent state transitions, protocol clients, or large helper classes. `src_origin_*_aliases.py` files are compatibility wiring for existing canonical tools; the behavior stays in the implementation modules below.
 
 ## Core Implementation
 

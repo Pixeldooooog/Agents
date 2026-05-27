@@ -7,7 +7,7 @@ from agents.kernel.capabilities.tools.builtin.extension_registration import (
 )
 from agents.kernel.capabilities.tools.builtin.interaction_registration import register_interaction_tools
 from agents.kernel.capabilities.tools.builtin.mcp.registration import register_mcp_builtin_tools
-from agents.kernel.capabilities.tools.builtin.src_origin_agent_aliases import register_src_origin_aliases
+from agents.kernel.capabilities.tools.builtin.src_origin_aliases import register_src_origin_aliases
 from agents.kernel.capabilities.tools.builtin.state_registration import register_state_tools
 from agents.kernel.capabilities.tools.builtin.tool_names import BUILTIN_TOOL_NAMES
 from agents.kernel.capabilities.tools.builtin.web_registration import register_web_tools

@@ -169,7 +169,7 @@ streaming runtime 中的长前台 `shell.run` 会按 `src-origin` BashTool 的�
 
 计划任务 alias 层覆盖 `CronCreate`、`CronList` 和 `CronDelete`，使用 strict `src-origin` alias schema、`defer=true` 和 100k 结果上限。`CronCreate` 会校验 5-field cron 表达式，并把 canonical schedule 记录适配为 `id` / `humanSchedule` / `recurring` / `durable` 结构化 payload 与 `src-origin` 风格模型可见文本；`CronList` / `CronDelete` 也保留 canonical schedule payload，同时输出 schedule job 列表或取消确认文本。对应注册逻辑在 `src_origin_schedule_aliases.py`。
 
-Agent/team alias 层覆盖 `Agent`、旧名 `Task`、`SendMessage`、`TeamCreate` 和 `TeamDelete`。`Agent` / `Task` 复用 `agent.run` 的 child-session 边界；`TeamCreate` 会创建带 `team-lead` 成员的 Python-native team；`SendMessage` 路由到 `team.send`；`TeamDelete` 通过 canonical `team.delete` 清理 team record 和 queued messages。对应注册逻辑在 `src_origin_agent_aliases.py`，避免主注册表继续持有所有 alias contract。
+`src-origin` alias 注册层由 `src_origin_aliases.py` 统一编排，但不持有具体行为。核心编码工具 alias 在 `src_origin_core_aliases.py`，对应 canonical 实现仍在 `filesystem.py`、`patch.py`、`shell.py`、`search.py`、`planning.py`、`notebook.py`、`lsp.py` 和 `sleep.py`。Agent/team alias 层只覆盖 `Agent`、旧名 `Task`、`SendMessage`、`TeamCreate` 和 `TeamDelete`，对应注册逻辑在 `src_origin_agent_aliases.py`；`Agent` / `Task` 复用 `agent.run` 的 child-session 边界，`TeamCreate` 创建带 `team-lead` 成员的 Python-native team，`SendMessage` 路由到 `team.send`，`TeamDelete` 通过 canonical `team.delete` 清理 team record 和 queued messages。session/user/worktree 类 alias 由 `src_origin_session_aliases.py` 注册，行为分别落在 `structured.py`、`skill_invocation.py`、`config.py`、`user_interaction.py` 和 `worktree.py`。
 
 为贴近 `src-origin` 的 Bash/Sleep 分工，foreground `shell.run` 会拒绝 `sleep N` 这类 2 秒及以上的 standalone/leading sleep 命令，并提示改用 `sleep.wait` 或 `run_in_background=true`。短暂的 `sleep 1`、小数秒 sleep、pipeline 内 sleep 和显式后台 shell 命令不受这个 guard 影响。
 
