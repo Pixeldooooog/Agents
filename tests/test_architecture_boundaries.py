@@ -242,6 +242,7 @@ def test_agent_capabilities_expose_builtin_tool_boundaries():
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.context") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.sandbox.local") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.sandbox.docker") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.sandbox.docker_search_scripts") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.automation_registration") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.collaboration_registration") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.development_registration") is not None
@@ -287,6 +288,17 @@ def test_builtin_tool_registration_stays_modular():
         BUILTIN_TOOL_ROOT / "web_registration.py": 140,
         BUILTIN_TOOL_ROOT / "workspace_registration.py": 320,
         BUILTIN_TOOL_ROOT / "tool_names.py": 220,
+    }
+
+    for path, max_lines in limits.items():
+        assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
+
+
+def test_sandbox_provider_modules_stay_split_by_responsibility():
+    sandbox_root = ROOT / "src" / "agents" / "kernel" / "capabilities" / "sandbox"
+    limits = {
+        sandbox_root / "docker.py": 700,
+        sandbox_root / "docker_search_scripts.py": 340,
     }
 
     for path, max_lines in limits.items():

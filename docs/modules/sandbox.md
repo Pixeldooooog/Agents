@@ -18,12 +18,13 @@ WorkspaceContext -> SandboxPolicy -> SandboxProvider -> SandboxClient -> Tool Re
 
 ```text
 agents/kernel/capabilities/sandbox/
-  types.py    协议、lease、结构化结果
-  local.py    本地 workspace 执行
-  docker.py   Docker workspace 挂载执行
-  factory.py  settings -> provider/client
-  store.py    lease/event store
-  workspace.py run-scoped artifact layout 和 workspace snapshot/diff
+  types.py                 协议、lease、结构化结果
+  local.py                 本地 workspace 执行
+  docker.py                Docker provider/client、mount 和 process 生命周期
+  docker_search_scripts.py Docker 容器内 grep/glob 脚本模板
+  factory.py               settings -> provider/client
+  store.py                 lease/event store
+  workspace.py             run-scoped artifact layout 和 workspace snapshot/diff
 ```
 
 ## 为什么放在 capabilities 下
@@ -49,6 +50,7 @@ Docker provider：
 - 每次命令通过 `docker run --rm` 执行。
 - workspace 挂载到 `/workspace`。
 - provider 可替换，不改变模型工具接口。
+- `docker.py` 只负责 provider/client 编排、路径授权、mount 参数和进程生命周期；较长的容器内 search 脚本模板放在 `docker_search_scripts.py`，避免 Docker 执行边界和 grep/glob 实现细节混成一个大文件。
 
 Profiles：
 
