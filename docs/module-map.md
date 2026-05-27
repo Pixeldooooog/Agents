@@ -182,6 +182,9 @@ platform      -> kernel
 agents/kernel/capabilities/sandbox/
   types.py    协议、lease、结构化结果
   local.py    本地执行 provider
+  local_files.py   本地文件安全、编码、分行读取 helper
+  local_search.py  本地 grep/glob 搜索匹配 helper
+  local_process.py 本地 foreground/background 进程生命周期 helper
   docker.py   Docker 执行 provider
   factory.py  从 settings 创建 provider/client
   store.py    lease/event 持久化接口和实现
