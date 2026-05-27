@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import asyncio
 from typing import AsyncIterable, Callable, List, Mapping, Optional
 
 from agents.kernel.hooks import AgentHooks
@@ -19,9 +18,18 @@ from agents.kernel.runtime.events import (
 from agents.kernel.governance.permissions import ToolPermissionPolicy
 from agents.kernel.context.compiler import ModelRequestCompiler
 from agents.kernel.runtime.state import RuntimeState
+from agents.kernel.runtime.tool_stream import stream_tool_execution
 from agents.kernel.runtime.turns import ModelTurnRunner, ToolOrchestrator
 from agents.kernel.runtime.turns.tool_summary import ToolUseSummaryGenerator
 from agents.kernel.runtime.types import AgentResult, ModelClientProtocol
+from agents.kernel.runtime.recovery import (
+    can_recover_max_output_tokens,
+    is_max_output_recovery_exhausted,
+    max_output_exhausted_message,
+    max_output_recovery_count,
+    max_output_recovery_event,
+    max_output_recovery_message,
+)
 from agents.kernel.schema import Message, ModelResponse, RuntimeEvent, ToolCall
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 
@@ -119,6 +127,15 @@ class AgentRuntime:
             while self._can_continue_tool_loop(state):
                 response = await self._complete_once(state.messages)
                 state.events.extend(self.hooks.drain_runtime_events())
+                if can_recover_max_output_tokens(response, state.events):
+                    await self._apply_model_response(state, response, run_id, save_finished=False)
+                    await self._record_max_output_recovery(state, response, run_id)
+                    continue
+                if is_max_output_recovery_exhausted(response, state.events):
+                    await self._apply_model_response(state, response, run_id, save_finished=False)
+                    error_msg = max_output_exhausted_message(response)
+                    await self._record_error(state, run_id, "model", error_msg)
+                    return AgentResult(error_msg, state.messages, state.tool_results, state.events, status="error")
                 calls = await self._apply_model_response(state, response, run_id)
                 if not calls:
                     return AgentResult(response.content_text(), state.messages, state.tool_results, state.events)
@@ -218,6 +235,16 @@ class AgentRuntime:
                 if final_response is None:
                     raise AgentRuntimeError("model stream did not include final message")
 
+                if can_recover_max_output_tokens(final_response, state.events):
+                    await self._apply_model_response(state, final_response, run_id, save_finished=False)
+                    yield await self._record_max_output_recovery(state, final_response, run_id)
+                    continue
+                if is_max_output_recovery_exhausted(final_response, state.events):
+                    await self._apply_model_response(state, final_response, run_id, save_finished=False)
+                    error_msg = max_output_exhausted_message(final_response)
+                    yield await self._record_error(state, run_id, "model", error_msg)
+                    return
+
                 calls = await self._apply_model_response(state, final_response, run_id)
                 if not calls:
                     terminal_content = final_response.content_text()
@@ -267,16 +294,32 @@ class AgentRuntime:
         state: RuntimeState,
         response: ModelResponse,
         run_id: str | None,
+        *,
+        save_finished: bool = True,
     ) -> List[ToolCall]:
         state.messages.append(response.message)
         state.events.append(model_message_event(response))
         calls = response.tool_calls
         if not calls:
-            await self._save_checkpoint(run_id, "finished", state)
+            if save_finished:
+                await self._save_checkpoint(run_id, "finished", state)
             return []
         state.pending_tool_calls = list(calls)
         await self._save_checkpoint(run_id, "model_response", state)
         return calls
+
+    async def _record_max_output_recovery(
+        self,
+        state: RuntimeState,
+        response: ModelResponse,
+        run_id: str | None,
+    ) -> RuntimeEvent:
+        attempt = max_output_recovery_count(state.events) + 1
+        event = max_output_recovery_event(response, attempt)
+        state.events.append(event)
+        state.messages.append(max_output_recovery_message(attempt))
+        await self._save_checkpoint(run_id, "max_output_recovery", state)
+        return event
 
     async def _execute_pending_tools(
         self,
@@ -342,35 +385,11 @@ class AgentRuntime:
         task_id: str | None,
         outcome_holder: dict[str, ToolExecutionOutcome],
     ) -> AsyncIterable[RuntimeEvent]:
-        queue: asyncio.Queue[RuntimeEvent] = asyncio.Queue()
+        async def execute(enqueue: Callable[[RuntimeEvent], None]) -> ToolExecutionOutcome:
+            return await self._execute_pending_tools(state, run_id, task_id, event_sink=enqueue)
 
-        def enqueue(event: RuntimeEvent) -> None:
-            queue.put_nowait(event)
-
-        task = asyncio.create_task(self._execute_pending_tools(state, run_id, task_id, event_sink=enqueue))
-        next_event: asyncio.Task[RuntimeEvent] | None = None
-        try:
-            while True:
-                next_event = asyncio.create_task(queue.get())
-                done, _ = await asyncio.wait({task, next_event}, return_when=asyncio.FIRST_COMPLETED)
-                if next_event in done:
-                    yield next_event.result()
-                else:
-                    next_event.cancel()
-                if task in done:
-                    break
-        except asyncio.CancelledError:
-            if next_event is not None and not next_event.done():
-                next_event.cancel()
-            if not task.done():
-                task.cancel()
-            outcome_holder["outcome"] = await task
-            while not queue.empty():
-                yield queue.get_nowait()
-            return
-        while not queue.empty():
-            yield queue.get_nowait()
-        outcome_holder["outcome"] = await task
+        async for event in stream_tool_execution(execute, outcome_holder):
+            yield event
 
     def _record_runtime_events(
         self,

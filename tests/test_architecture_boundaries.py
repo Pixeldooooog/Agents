@@ -250,11 +250,13 @@ def test_agent_runtime_is_split_into_explicit_kernel_modules():
         "runtime.loop",
         "context.compiler",
         "runtime.session",
+        "runtime.tool_stream",
         "context.window",
         "runtime.turns",
         "runtime.turns.model",
         "runtime.turns.tool_summary",
         "runtime.turns.tools",
+        "runtime.recovery",
         "governance.permissions",
         "runtime.checkpoints",
         "runtime.state",
@@ -276,7 +278,9 @@ def test_agent_runtime_modules_stay_split_by_responsibility():
     runtime_root = ROOT / "src" / "agents" / "kernel" / "runtime"
     limits = {
         runtime_root / "loop.py": 460,
+        runtime_root / "recovery.py": 90,
         runtime_root / "session.py": 230,
+        runtime_root / "tool_stream.py": 80,
         runtime_root / "turns" / "model.py": 90,
         runtime_root / "turns" / "tools.py": 320,
         runtime_root / "turns" / "tool_summary.py": 240,
