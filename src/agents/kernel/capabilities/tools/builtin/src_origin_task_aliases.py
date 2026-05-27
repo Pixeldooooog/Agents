@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from agents.kernel.capabilities.tools.builtin.registration_helpers import register_builtin_tool
-from agents.kernel.capabilities.tools.builtin.tasks import (
+from agents.kernel.capabilities.tools.builtin.task_schemas import (
     SRC_ORIGIN_TASK_CREATE_SCHEMA,
     SRC_ORIGIN_TASK_GET_SCHEMA,
     SRC_ORIGIN_TASK_LIST_SCHEMA,
     SRC_ORIGIN_TASK_OUTPUT_SCHEMA,
     SRC_ORIGIN_TASK_STOP_SCHEMA,
     SRC_ORIGIN_TASK_UPDATE_SCHEMA,
+)
+from agents.kernel.capabilities.tools.builtin.task_src_origin import (
     format_src_origin_task_create_result,
     format_src_origin_task_get_result,
     format_src_origin_task_list_result,

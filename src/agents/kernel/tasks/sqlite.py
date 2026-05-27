@@ -104,6 +104,11 @@ class SQLiteTaskStore:
                 return None
         return await self.load_task(task.task_id)
 
+    async def delete_task(self, task_id: str) -> bool:
+        with self.database.connect() as connection:
+            result = connection.execute("DELETE FROM tasks WHERE task_id = ?", (task_id,))
+            return bool(result.rowcount)
+
     async def add_step(self, step: TaskStepRecord) -> TaskStepRecord:
         with self.database.connect() as connection:
             connection.execute(

@@ -3840,6 +3840,8 @@ def test_src_origin_task_schedule_toolsearch_and_plan_aliases(tmp_path: Path):
     invalid_listed = asyncio.run(registry.execute("TaskList", {"unused": True}))
     invalid_loaded = asyncio.run(registry.execute("TaskGet", {"taskId": short_id, "unused": True}))
     invalid_updated = asyncio.run(registry.execute("TaskUpdate", {"taskId": short_id, "status": "running"}))
+    deleted = asyncio.run(registry.execute("TaskUpdate", {"taskId": short_id, "status": "deleted"}))
+    missing_update = asyncio.run(registry.execute("TaskUpdate", {"taskId": short_id, "status": "completed"}))
     searched = asyncio.run(registry.execute("ToolSearch", {"query": "TaskCreate", "max_results": 3}))
     selected = asyncio.run(registry.execute("ToolSearch", {"query": "select:TaskCreate,CronCreate", "max_results": 5}))
     invalid_searched = asyncio.run(
@@ -3866,6 +3868,12 @@ def test_src_origin_task_schedule_toolsearch_and_plan_aliases(tmp_path: Path):
     assert invalid_listed.raw["details"] == "unexpected argument: unused"
     assert invalid_loaded.raw["details"] == "unexpected argument: unused"
     assert invalid_updated.raw["details"] == "status must be one of pending, in_progress, completed, deleted"
+    assert deleted.content == "Updated task #%s deleted" % short_id
+    assert deleted.raw["success"] is True
+    assert deleted.raw["statusChange"] == {"from": "in_progress", "to": "deleted"}
+    assert asyncio.run(task_store.load_task(task_id)) is None
+    assert missing_update.is_error is False
+    assert missing_update.content == "Task not found"
     assert "TaskCreate" in searched.raw["matches"]
     assert searched.raw["total_deferred_tools"] >= 1
     assert "TaskCreate" in searched.content.splitlines()

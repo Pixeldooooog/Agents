@@ -60,6 +60,18 @@ class InMemoryTaskStore:
         self._tasks[task.task_id] = updated
         return updated
 
+    async def delete_task(self, task_id: str) -> bool:
+        if task_id not in self._tasks:
+            return False
+        self._tasks.pop(task_id, None)
+        step_ids = [step_id for step_id, step in self._steps.items() if step.task_id == task_id]
+        for step_id in step_ids:
+            self._steps.pop(step_id, None)
+        for attempt_id, attempt in list(self._attempts.items()):
+            if attempt.task_id == task_id or attempt.step_id in step_ids:
+                self._attempts.pop(attempt_id, None)
+        return True
+
     async def add_step(self, step: TaskStepRecord) -> TaskStepRecord:
         self._steps[step.step_id] = step
         return step

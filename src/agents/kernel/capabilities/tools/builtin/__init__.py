@@ -231,7 +231,7 @@ from agents.kernel.capabilities.tools.builtin.structured import (
     format_structured_output_result,
     structured_output,
 )
-from agents.kernel.capabilities.tools.builtin.tasks import (
+from agents.kernel.capabilities.tools.builtin.task_schemas import (
     SRC_ORIGIN_TASK_CREATE_SCHEMA,
     SRC_ORIGIN_TASK_GET_SCHEMA,
     SRC_ORIGIN_TASK_LIST_SCHEMA,
@@ -247,10 +247,20 @@ from agents.kernel.capabilities.tools.builtin.tasks import (
     TASK_RUN_SCHEMA,
     TASK_STOP_SCHEMA,
     TASK_UPDATE_SCHEMA,
+)
+from agents.kernel.capabilities.tools.builtin.task_src_origin import (
     format_src_origin_task_create_result,
     format_src_origin_task_get_result,
     format_src_origin_task_list_result,
     format_src_origin_task_update_result,
+    src_origin_task_create,
+    src_origin_task_get,
+    src_origin_task_list,
+    src_origin_task_output,
+    src_origin_task_stop,
+    src_origin_task_update,
+)
+from agents.kernel.capabilities.tools.builtin.tasks import (
     task_background,
     task_backgrounds,
     task_create,
@@ -258,12 +268,6 @@ from agents.kernel.capabilities.tools.builtin.tasks import (
     task_list,
     task_output,
     task_run,
-    src_origin_task_create,
-    src_origin_task_get,
-    src_origin_task_list,
-    src_origin_task_output,
-    src_origin_task_stop,
-    src_origin_task_update,
     task_stop,
     task_update,
 )

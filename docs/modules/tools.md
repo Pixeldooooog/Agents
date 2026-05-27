@@ -75,8 +75,8 @@ approval 事件和 audit 记录会附带 `impact`：
 
 | 角色 | 文件 | 允许做什么 |
 |---|---|---|
-| 注册/装配层 | `registration.py`、`execution_registration.py`、`registration_helpers.py`、`web_registration.py`、`tool_names.py`、`src_origin_*_aliases.py`、`mcp/registration.py` | 向 `ToolRegistry` 绑定 schema、metadata、alias、handler 和静态名称清单 |
-| 核心实现层 | `filesystem.py`、`patch.py`、`notebook.py`、`shell.py`、`tasks.py`、`schedules.py`、`agents.py`、`teams.py`、`search.py`、`web.py`、`mcp/management.py` 等 domain modules | 实现真实工具行为、状态转换、协议适配、结果结构化和安全校验 |
+| 注册/装配层 | `registration.py`、`execution_registration.py`、`registration_helpers.py`、`web_registration.py`、`tool_names.py`、`task_schemas.py`、`src_origin_*_aliases.py`、`mcp/registration.py` | 向 `ToolRegistry` 绑定 schema、metadata、alias、handler 和静态名称清单 |
+| 核心实现层 | `filesystem.py`、`patch.py`、`notebook.py`、`shell.py`、`tasks.py`、`task_src_origin.py`、`schedules.py`、`agents.py`、`teams.py`、`search.py`、`web.py`、`mcp/management.py` 等 domain modules | 实现真实工具行为、状态转换、协议适配、结果结构化和安全校验 |
 
 `src/agents/kernel/capabilities/tools/builtin/README.md` 维护更完整的文件清单。架构测试会要求每个 builtin tool Python 文件都有明确角色，并禁止核心实现模块新增顶层 `register_*` / `_register_*` 函数。
 

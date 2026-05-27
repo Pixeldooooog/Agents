@@ -240,6 +240,9 @@ class TaskStore(Protocol):
     async def update_task(self, task: TaskRecord) -> Optional[TaskRecord]:
         raise NotImplementedError()
 
+    async def delete_task(self, task_id: str) -> bool:
+        raise NotImplementedError()
+
     async def add_step(self, step: TaskStepRecord) -> TaskStepRecord:
         raise NotImplementedError()
 

@@ -11,6 +11,7 @@ These files should only bind schemas, aliases, metadata, and handlers into `Tool
 - `registration_helpers.py`
 - `web_registration.py`
 - `tool_names.py`
+- `task_schemas.py`
 - `src_origin_agent_aliases.py`
 - `src_origin_discovery_aliases.py`
 - `src_origin_plan_aliases.py`
@@ -26,7 +27,7 @@ Domain behavior belongs in focused implementation modules, for example:
 
 - Files and edits: `filesystem.py`, `patch.py`, `notebook.py`, `file_safety.py`, `file_diff.py`, `read_paths.py`, `read_errors.py`
 - Execution and lifecycle: `shell.py`, `shell_lifecycle.py`, `shell_notifications.py`, `shell_prompt_stall.py`, `tests.py`, `git.py`, `worktree.py`, `sleep.py`
-- Product capabilities: `tasks.py`, `schedules.py`, `agents.py`, `teams.py`, `commands.py`, `prompts.py`, `workflows.py`, `user_interaction.py`
+- Product capabilities: `tasks.py`, `task_src_origin.py`, `schedules.py`, `agents.py`, `teams.py`, `commands.py`, `prompts.py`, `workflows.py`, `user_interaction.py`
 - Extension surfaces: `extensions.py`, `plugins.py`, `skill_discovery.py`, `skill_invocation.py`, `hooks.py`, `permissions.py`, `config.py`
 - Search, web, browser, and LSP: `search.py`, `web.py`, `browser.py`, `lsp.py`
 - MCP domain tools: `mcp/management.py`, `mcp/prompts.py`, `mcp/resources.py`, `mcp/ide.py`

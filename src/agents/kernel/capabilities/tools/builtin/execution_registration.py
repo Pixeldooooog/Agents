@@ -57,7 +57,7 @@ from agents.kernel.capabilities.tools.builtin.shell import (
     shell_output,
 )
 from agents.kernel.capabilities.tools.builtin.sleep import SLEEP_WAIT_SCHEMA, sleep_wait
-from agents.kernel.capabilities.tools.builtin.tasks import (
+from agents.kernel.capabilities.tools.builtin.task_schemas import (
     TASK_BACKGROUND_SCHEMA,
     TASK_BACKGROUNDS_SCHEMA,
     TASK_CREATE_SCHEMA,
@@ -67,6 +67,8 @@ from agents.kernel.capabilities.tools.builtin.tasks import (
     TASK_RUN_SCHEMA,
     TASK_STOP_SCHEMA,
     TASK_UPDATE_SCHEMA,
+)
+from agents.kernel.capabilities.tools.builtin.tasks import (
     task_background,
     task_backgrounds,
     task_create,

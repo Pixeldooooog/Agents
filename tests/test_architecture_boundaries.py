@@ -16,6 +16,7 @@ BUILTIN_REGISTRATION_FILES = {
     "src_origin_plan_aliases.py",
     "src_origin_schedule_aliases.py",
     "src_origin_task_aliases.py",
+    "task_schemas.py",
     "tool_names.py",
     "web_registration.py",
     "mcp/registration.py",
@@ -57,6 +58,7 @@ BUILTIN_IMPLEMENTATION_FILES = {
     "skill_invocation.py",
     "sleep.py",
     "structured.py",
+    "task_src_origin.py",
     "tasks.py",
     "team_memory_safety.py",
     "teams.py",
@@ -192,6 +194,7 @@ def test_builtin_tool_registration_stays_modular():
         BUILTIN_TOOL_ROOT / "execution_registration.py": 900,
         BUILTIN_TOOL_ROOT / "src_origin_agent_aliases.py": 900,
         BUILTIN_TOOL_ROOT / "mcp" / "registration.py": 400,
+        BUILTIN_TOOL_ROOT / "task_schemas.py": 190,
         BUILTIN_TOOL_ROOT / "web_registration.py": 140,
         BUILTIN_TOOL_ROOT / "tool_names.py": 220,
     }
@@ -228,6 +231,18 @@ def test_builtin_tool_files_have_declared_architecture_roles():
     }
     expected = BUILTIN_REGISTRATION_FILES | BUILTIN_IMPLEMENTATION_FILES
     assert actual == expected
+
+
+def test_builtin_task_domain_stays_split_by_responsibility():
+    limits = {
+        BUILTIN_TOOL_ROOT / "tasks.py": 520,
+        BUILTIN_TOOL_ROOT / "task_src_origin.py": 430,
+        BUILTIN_TOOL_ROOT / "task_schemas.py": 190,
+        BUILTIN_TOOL_ROOT / "src_origin_task_aliases.py": 900,
+    }
+
+    for path, max_lines in limits.items():
+        assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
 
 
 def test_mcp_implementation_is_packaged_by_domain():

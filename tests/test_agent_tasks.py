@@ -87,6 +87,32 @@ def test_sqlite_task_store_persists_tasks_steps_and_attempts(tmp_path):
     assert attempts[0].ended_at is not None
 
 
+def test_sqlite_task_store_deletes_tasks_steps_and_attempts(tmp_path):
+    database = SQLiteDatabase(tmp_path / "agents.db")
+    store = SQLiteTaskStore(database)
+    spec = AgentSpec.from_overrides(tenant_id="tenant-1", user_id="user-1", agent_id="agent-1")
+
+    async def execute():
+        task = await store.create_task(spec, title="Delete job", input="Clean up task")
+        step = await store.add_step(TaskStepRecord.create(task_id=task.task_id, index=0, name="first"))
+        await store.add_attempt(TaskAttemptRecord.create(task_id=task.task_id, step_id=step.step_id))
+        deleted = await store.delete_task(task.task_id)
+        reopened = SQLiteTaskStore(SQLiteDatabase(tmp_path / "agents.db"))
+        return (
+            deleted,
+            await reopened.load_task(task.task_id),
+            await reopened.list_steps(task.task_id),
+            await reopened.list_attempts(step.step_id),
+        )
+
+    deleted, task, steps, attempts = asyncio.run(execute())
+
+    assert deleted is True
+    assert task is None
+    assert steps == []
+    assert attempts == []
+
+
 def test_sqlite_task_queue_persists_scoped_items(tmp_path):
     queue = SQLiteTaskQueue(SQLiteDatabase(tmp_path / "agents.db"))
 
