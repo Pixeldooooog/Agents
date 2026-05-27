@@ -10,8 +10,11 @@ SDK_ROOT = ROOT / "src" / "agents" / "sdk"
 
 BUILTIN_REGISTRATION_FILES = {
     "execution_registration.py",
+    "extension_registration.py",
+    "interaction_registration.py",
     "registration.py",
     "registration_helpers.py",
+    "state_registration.py",
     "src_origin_agent_aliases.py",
     "src_origin_discovery_aliases.py",
     "src_origin_plan_aliases.py",
@@ -20,6 +23,7 @@ BUILTIN_REGISTRATION_FILES = {
     "task_schemas.py",
     "tool_names.py",
     "web_registration.py",
+    "workspace_registration.py",
     "mcp/registration.py",
 }
 
@@ -215,7 +219,10 @@ def test_agent_capabilities_expose_builtin_tool_boundaries():
     assert importlib.util.find_spec("agents.kernel.capabilities.sandbox.local") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.sandbox.docker") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.execution_registration") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.extension_registration") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.interaction_registration") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.registration_helpers") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.state_registration") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_agent_aliases") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_discovery_aliases") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_plan_aliases") is not None
@@ -226,16 +233,21 @@ def test_agent_capabilities_expose_builtin_tool_boundaries():
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.mcp.prompts") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.mcp.resources") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.mcp.ide") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.workspace_registration") is not None
 
 
 def test_builtin_tool_registration_stays_modular():
     limits = {
-        BUILTIN_TOOL_ROOT / "registration.py": 950,
+        BUILTIN_TOOL_ROOT / "registration.py": 90,
         BUILTIN_TOOL_ROOT / "execution_registration.py": 900,
+        BUILTIN_TOOL_ROOT / "extension_registration.py": 320,
+        BUILTIN_TOOL_ROOT / "interaction_registration.py": 170,
+        BUILTIN_TOOL_ROOT / "state_registration.py": 280,
         BUILTIN_TOOL_ROOT / "src_origin_agent_aliases.py": 900,
         BUILTIN_TOOL_ROOT / "mcp" / "registration.py": 400,
         BUILTIN_TOOL_ROOT / "task_schemas.py": 190,
         BUILTIN_TOOL_ROOT / "web_registration.py": 140,
+        BUILTIN_TOOL_ROOT / "workspace_registration.py": 320,
         BUILTIN_TOOL_ROOT / "tool_names.py": 220,
     }
 

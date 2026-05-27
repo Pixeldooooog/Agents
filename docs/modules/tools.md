@@ -75,7 +75,7 @@ approval 事件和 audit 记录会附带 `impact`：
 
 | 角色 | 文件 | 允许做什么 |
 |---|---|---|
-| 注册/装配层 | `registration.py`、`execution_registration.py`、`registration_helpers.py`、`web_registration.py`、`tool_names.py`、`task_schemas.py`、`src_origin_*_aliases.py`、`mcp/registration.py` | 向 `ToolRegistry` 绑定 schema、metadata、alias、handler 和静态名称清单 |
+| 注册/装配层 | `registration.py`、`workspace_registration.py`、`interaction_registration.py`、`extension_registration.py`、`state_registration.py`、`execution_registration.py`、`registration_helpers.py`、`web_registration.py`、`tool_names.py`、`task_schemas.py`、`src_origin_*_aliases.py`、`mcp/registration.py` | 向 `ToolRegistry` 绑定 schema、metadata、alias、handler 和静态名称清单 |
 | 核心实现层 | `filesystem.py`、`patch.py`、`notebook.py`、`shell.py`、`tasks.py`、`task_src_origin.py`、`schedules.py`、`agents.py`、`teams.py`、`search.py`、`web.py`、`mcp/management.py` 等 domain modules | 实现真实工具行为、状态转换、协议适配、结果结构化和安全校验 |
 
 `src/agents/kernel/capabilities/tools/builtin/README.md` 维护更完整的文件清单。架构测试会要求每个 builtin tool Python 文件都有明确角色，并禁止核心实现模块新增顶层 `register_*` / `_register_*` 函数。
@@ -86,7 +86,7 @@ approval 事件和 audit 记录会附带 `impact`：
 - git、test、shell 工具声明 git/terminal activity，并把非并发安全的命令类工具串行化。
 - web/browser 工具声明 web/browser activity、网络需求和 artifact/path 目标。
 - `src-origin` aliases 通过同一套 `ToolDefinition` 注册，metadata 带 `alias_of` 和 `src_origin_tool`，因此 SDK/UI 可以显示原始工具名，同时权限和执行复用 canonical tool 行为。
-- builtin tool 注册入口保持为 orchestration layer：`registration.py` / `execution_registration.py` / `web_registration.py` / `mcp/registration.py` / `src_origin_*_aliases.py` 只负责 ToolRegistry wiring、schema/handler 绑定和 alias 装配；核心行为继续放在各自 domain implementation 模块，例如 filesystem、commands、prompts、permissions、web、MCP management/resources/prompts。静态注册清单放在 `tool_names.py`，不混在注册流程里。架构测试会限制注册文件行数，并禁止普通实现模块新增顶层 `register_*` / `_register_*` 注册函数，避免注册层和核心实现再次混成单个大文件。
+- builtin tool 注册入口保持为 orchestration layer：`registration.py` 只编排注册顺序，workspace/file wiring 在 `workspace_registration.py`，interaction/config wiring 在 `interaction_registration.py`，command/plugin/prompt wiring 在 `extension_registration.py`，session/permission/hook/memory wiring 在 `state_registration.py`；`execution_registration.py` / `web_registration.py` / `mcp/registration.py` / `src_origin_*_aliases.py` 继续只负责 ToolRegistry wiring、schema/handler 绑定和 alias 装配。核心行为继续放在各自 domain implementation 模块，例如 filesystem、commands、prompts、permissions、web、MCP management/resources/prompts。静态注册清单放在 `tool_names.py`，不混在注册流程里。架构测试会限制注册文件行数，并禁止普通实现模块新增顶层 `register_*` / `_register_*` 注册函数，避免注册层和核心实现再次混成单个大文件。
 - `config.manage` 提供 `src-origin` `Config` 的第一层 parity：输入为 `setting` 加可选 `value`，省略 `value` 时读取配置并自动允许，带 `value` 时写入 session-scoped config override 并要求 approval。当前覆盖了 `supportedSettings.ts` 中的 theme/editor/notification/model/permission/language/teammate/voice/remote/notification keys；`model` 会更新当前 `AgentSpec` 和可用 runtime config，`permissions.defaultMode` 会映射到本地 permission policy 并持久化到 session state metadata。
 - `todo.write` / `TodoWrite` 对齐 `src-origin` 的第一层 todo lifecycle：schema 严格拒绝未知字段，tool metadata 暴露 `defer=true`，结果保留 `oldTodos` / `newTodos` / `verificationNudgeNeeded` 结构化 payload，但模型可见输出使用 `src-origin` 的固定成功提示而不是 JSON dump；传入空列表或全 completed 列表都会清空 active todo state。
 - `WebSearch` / `WebFetch` 对齐 `src-origin` 的第一层 web alias lifecycle：alias schema 严格拒绝未知字段，tool metadata 暴露 `defer=true`，结果限制为 100k 字符；`WebSearch` 继续保留 provider `sources`，并额外生成 `results`、`durationSeconds` 和带 citation reminder 的模型可见输出；`WebFetch` 继续保留 extract payload，并额外生成 `result`、`bytes`、`code`、`codeText`、`durationMs` 和模型可见正文。

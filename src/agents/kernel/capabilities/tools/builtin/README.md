@@ -8,8 +8,12 @@ These files should only bind schemas, aliases, metadata, and handlers into `Tool
 
 - `registration.py`
 - `execution_registration.py`
+- `extension_registration.py`
+- `interaction_registration.py`
 - `registration_helpers.py`
+- `state_registration.py`
 - `web_registration.py`
+- `workspace_registration.py`
 - `tool_names.py`
 - `task_schemas.py`
 - `src_origin_agent_aliases.py`
