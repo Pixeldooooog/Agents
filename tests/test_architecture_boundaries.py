@@ -129,7 +129,6 @@ SDK_IMPLEMENTATION_FILES = {
     "control_async_state.py",
     "control_files.py",
     "control_interactions.py",
-    "control_mcp.py",
     "control_system.py",
     "control_tasks.py",
     "event_artifacts.py",
@@ -147,6 +146,7 @@ SDK_IMPLEMENTATION_FILES = {
     "file_history_types.py",
     "file_rewind.py",
     "mcp/control.py",
+    "mcp/control_responses.py",
     "options.py",
     "runtime_io.py",
     "session_records.py",
@@ -567,7 +567,6 @@ def test_sdk_client_stays_split_by_responsibility():
         "control_files",
         "control_handlers",
         "control_interactions",
-        "control_mcp",
         "control_payloads",
         "control_system",
         "control_tasks",
@@ -586,6 +585,8 @@ def test_sdk_client_stays_split_by_responsibility():
         "file_history_snapshots",
         "file_history_types",
         "file_rewind",
+        "mcp.control",
+        "mcp.control_responses",
         "options",
         "runtime_io",
         "session_records",
@@ -601,7 +602,6 @@ def test_sdk_client_stays_split_by_responsibility():
         SDK_ROOT / "control_files.py": 170,
         SDK_ROOT / "control_handlers.py": 160,
         SDK_ROOT / "control_interactions.py": 70,
-        SDK_ROOT / "control_mcp.py": 220,
         SDK_ROOT / "control_payloads.py": 420,
         SDK_ROOT / "control_system.py": 90,
         SDK_ROOT / "control_tasks.py": 70,
@@ -620,6 +620,8 @@ def test_sdk_client_stays_split_by_responsibility():
         SDK_ROOT / "file_history_snapshots.py": 210,
         SDK_ROOT / "file_history_types.py": 60,
         SDK_ROOT / "file_rewind.py": 600,
+        SDK_ROOT / "mcp" / "control.py": 120,
+        SDK_ROOT / "mcp" / "control_responses.py": 220,
         SDK_ROOT / "options.py": 170,
         SDK_ROOT / "runtime_io.py": 140,
         SDK_ROOT / "session_records.py": 140,
@@ -629,6 +631,12 @@ def test_sdk_client_stays_split_by_responsibility():
 
     for path, max_lines in limits.items():
         assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
+
+
+def test_sdk_mcp_control_implementation_lives_in_mcp_package():
+    assert not (SDK_ROOT / "control_mcp.py").exists()
+    assert importlib.util.find_spec("agents.sdk.mcp.control") is not None
+    assert importlib.util.find_spec("agents.sdk.mcp.control_responses") is not None
 
 
 def test_sdk_files_have_declared_architecture_roles():

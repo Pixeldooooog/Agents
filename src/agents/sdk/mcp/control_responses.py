@@ -1,3 +1,5 @@
+"""SDK control-response handlers for MCP server state and messages."""
+
 from __future__ import annotations
 
 import inspect

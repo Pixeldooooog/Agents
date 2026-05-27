@@ -35,7 +35,7 @@ from agents.sdk.control import (
 from agents.sdk.control_async_state import SDKControlAsyncStateMixin
 from agents.sdk.control_files import SDKControlFilesMixin
 from agents.sdk.control_interactions import SDKControlInteractionsMixin
-from agents.sdk.control_mcp import SDKControlMcpMixin
+from agents.sdk.mcp.control_responses import SDKControlMcpMixin
 from agents.sdk.control_payloads import (
     _empty_context_usage_payload,
     _initialize_control_response_payload,

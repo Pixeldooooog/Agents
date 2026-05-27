@@ -2274,7 +2274,7 @@ def test_sdk_control_request_handler_applies_session_options_and_mcp_state():
     assert {"name": "docs", "status": "disabled"} in mcp_status_after_toggle.response.response["mcpServers"]
 
 
-def test_sdk_control_mcp_reconnect_reloads_active_session_handlers(monkeypatch, tmp_path):
+def test_sdk_mcp_reconnect_reloads_active_session_handlers(monkeypatch, tmp_path):
     workspace = WorkspaceContext(
         tenant_id="tenant",
         user_id="user",
