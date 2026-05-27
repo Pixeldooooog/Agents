@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 from typing import AsyncIterable, List, Mapping, Optional
 from typing import Any
 
@@ -8,6 +7,8 @@ from agents.kernel.context.window import ContextWindowManager
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.runtime.loop import AgentRuntime
 from agents.kernel.runtime.session_compaction import compact_boundary_event, compact_stats
+from agents.kernel.runtime.session_lifecycle import close_session_resources
+from agents.kernel.runtime.session_messages import user_message
 from agents.kernel.runtime.types import AgentResult
 from agents.kernel.schema import Message, RuntimeEvent
 from agents.kernel.context.pack import ContextTraceItem
@@ -113,60 +114,16 @@ class AgentSession:
         )
 
     async def aclose(self) -> None:
-        first_error: Exception | None = None
-        tool_context = getattr(self, "tool_context", None)
-        if tool_context is not None:
-            try:
-                from agents.kernel.mcp.oauth_runtime import close_mcp_oauth_waiters
+        await close_session_resources(self)
 
-                await close_mcp_oauth_waiters(tool_context)
-            except Exception as exc:
-                if first_error is None:
-                    first_error = exc
-        providers = list(getattr(tool_context, "mcp_providers", []) or []) if tool_context is not None else []
-        for provider in providers:
-            close_provider = getattr(provider, "close", None)
-            if close_provider is None:
-                continue
-            try:
-                result = close_provider()
-                if inspect.isawaitable(result):
-                    await result
-            except Exception as exc:
-                if first_error is None:
-                    first_error = exc
-        if tool_context is not None:
-            tool_context.mcp_providers = []
-
-        model_client = getattr(self.runtime, "model_client", None)
-        close = getattr(model_client, "async_close", None)
-        if close is not None:
-            try:
-                await close()
-            except Exception as exc:
-                if first_error is None:
-                    first_error = exc
-        summary_generator = getattr(getattr(self.runtime, "tool_orchestrator", None), "tool_summary_generator", None)
-        close = getattr(summary_generator, "async_close", None)
-        if close is not None and getattr(summary_generator, "model_client", None) is not model_client:
-            try:
-                await close()
-            except Exception as exc:
-                if first_error is None:
-                    first_error = exc
-        context_compactor = getattr(self.context_window, "compactor", None)
-        close = getattr(context_compactor, "async_close", None)
-        if close is not None and getattr(context_compactor, "model_client", None) is not model_client:
-            try:
-                await close()
-            except Exception as exc:
-                if first_error is None:
-                    first_error = exc
-        if first_error is not None:
-            raise first_error
-
-    async def send(self, text: str, run_id: str | None = None, task_id: str | None = None) -> AgentResult:
-        candidate = self.messages + [Message.from_text("user", text)]
+    async def send(
+        self,
+        text: str,
+        run_id: str | None = None,
+        task_id: str | None = None,
+        user_message_id: str | None = None,
+    ) -> AgentResult:
+        candidate = self.messages + [user_message(text, user_message_id)]
         candidate = await self.context_window.afit(candidate)
         result = await self.runtime.run(candidate, run_id=run_id, task_id=task_id)
         self.messages = list(result.messages)
@@ -218,8 +175,9 @@ class AgentSession:
         text: str,
         run_id: str | None = None,
         task_id: str | None = None,
+        user_message_id: str | None = None,
     ) -> AsyncIterable[RuntimeEvent]:
-        candidate = self.messages + [Message.from_text("user", text)]
+        candidate = self.messages + [user_message(text, user_message_id)]
         candidate, boundary_event = await self._afit_with_boundary(candidate)
         if boundary_event is not None:
             yield boundary_event

@@ -1391,9 +1391,13 @@ def test_sdk_query_projects_context_fit_as_compact_boundary_message():
     assert boundary.compact_metadata["trigger"] == "auto"
     assert boundary.compact_metadata["pre_tokens"] > boundary.compact_metadata["post_tokens"]
     assert boundary.compact_metadata["before_messages"] >= boundary.compact_metadata["after_messages"]
+    assert boundary.compact_metadata["preserved_segment"]["tail_uuid"]
     assert validate_sdk_message(boundary.model_dump()) == boundary
-    assert isinstance(replay[1], SDKUserMessage)
-    assert any(isinstance(message, SDKCompactBoundaryMessage) for message in replay)
+    replay_boundary_index = next(index for index, message in enumerate(replay) if isinstance(message, SDKCompactBoundaryMessage))
+    replay_user_index = next(index for index, message in enumerate(replay) if isinstance(message, SDKUserMessage))
+    replay_user = replay[replay_user_index]
+    assert replay_boundary_index < replay_user_index
+    assert replay_user.uuid == boundary.compact_metadata["preserved_segment"]["tail_uuid"]
 
 
 def test_sdk_query_emits_auth_status_for_mcp_auth_tool_results():

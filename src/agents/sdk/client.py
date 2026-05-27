@@ -53,6 +53,7 @@ from agents.sdk.options import (
     _spec_from_options,
 )
 from agents.sdk.runtime_io import _sdk_elicitation_request_from_mcp_params
+from agents.sdk.session_compaction import SDKSessionReplayEvent, compact_replay_events
 from agents.sdk.session_records import (
     _duration_ms_from_record,
     _session_info_from_runs,
@@ -61,6 +62,7 @@ from agents.sdk.session_records import (
     _user_message_event,
 )
 from agents.sdk.sessions import SDKSession
+from agents.sdk.session_stream import iter_session_stream
 from agents.sdk.stdin_runner import SDKStdinRunnerMixin
 from agents.sdk.structured_io import SDKStructuredIO
 from agents.sdk.transports import SDKJsonlTransport
@@ -319,7 +321,14 @@ class AgentSDKClient(SDKStdinRunnerMixin, SDKControlHandlersMixin):
         yield _project_session_state_event(running_event, session_id=session_id, run_id=run_id)
 
         try:
-            async for event in session.stream(prompt, run_id=run_id):
+            async for event in iter_session_stream(
+                session,
+                prompt,
+                run_id=run_id,
+                user_message_id=str(
+                    user_event.payload.get("uuid") or user_event.payload.get("message_id") or ""
+                ),
+            ):
                 event_count += 1
                 await self.run_service.record_event(run_id, event)
                 if file_history is not None:
@@ -443,23 +452,36 @@ class AgentSDKClient(SDKStdinRunnerMixin, SDKControlHandlersMixin):
     ) -> list[SDKMessage]:
         options = _coerce_get_session_messages_options(options)
         records = await self._runs_for_session(session_id)
-        messages: list[SDKMessage] = []
+        replay_events: list[SDKSessionReplayEvent] = []
         for record in sorted(records, key=lambda item: item.created_at):
             resolved_session_id = _session_id_for_run(record)
-            if options.include_system_messages:
-                messages.append(await self._system_message_from_run(record, session_id=resolved_session_id))
             duration_ms = _duration_ms_from_record(record)
             for event in record.events:
                 if event.type == "run_created":
                     continue
-                projected = _project_runtime_event_messages(
-                    event,
-                    session_id=resolved_session_id,
-                    run_id=record.run_id,
-                    duration_ms=duration_ms,
-                    num_turns=1,
+                replay_events.append(
+                    SDKSessionReplayEvent(
+                        event=event,
+                        record=record,
+                        session_id=resolved_session_id,
+                        run_id=record.run_id,
+                        duration_ms=duration_ms,
+                    )
                 )
-                messages.extend(projected)
+        messages: list[SDKMessage] = []
+        initialized_runs: set[str] = set()
+        for entry in compact_replay_events(replay_events):
+            if options.include_system_messages and entry.run_id not in initialized_runs:
+                messages.append(await self._system_message_from_run(entry.record, session_id=entry.session_id))
+                initialized_runs.add(entry.run_id)
+            projected = _project_runtime_event_messages(
+                entry.event,
+                session_id=entry.session_id,
+                run_id=entry.run_id,
+                duration_ms=entry.duration_ms,
+                num_turns=1,
+            )
+            messages.extend(projected)
         if options.offset:
             messages = messages[options.offset :]
         if options.limit:

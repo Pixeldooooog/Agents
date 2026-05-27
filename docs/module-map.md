@@ -128,6 +128,7 @@ platform      -> kernel
 - `sessions.py` 保留稳定 session handle 与 session-scoped query/control 操作。
 - `stdin_runner.py` 负责 structured stdin、JSONL frame pump 和 transport runner。
 - `control_handlers.py` 保留 SDK control request dispatcher；async message/turn 状态、read-state/rewind、hook/elicitation、task control、system init message 分别落在 `control_async_state.py`、`control_files.py`、`control_interactions.py`、`control_tasks.py`、`control_system.py`，MCP-specific control response 和 reconnect helper 落在 `mcp/control_responses.py` 与 `mcp/control.py`。
+- `session_stream.py` 负责 SDK user-message UUID 注入到 kernel session stream，`session_compaction.py` 负责 compact boundary 后的 replay 裁剪和 preserved-segment 回放。
 - `runtime_io.py` / `structured_io.py` 只保留 runner 可复用的 IO helpers 和 structured stdout/control-request FIFO。
 
 为什么这样做：

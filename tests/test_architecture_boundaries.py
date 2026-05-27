@@ -149,7 +149,9 @@ SDK_IMPLEMENTATION_FILES = {
     "mcp/control_responses.py",
     "options.py",
     "runtime_io.py",
+    "session_compaction.py",
     "session_records.py",
+    "session_stream.py",
     "structured_io.py",
     "stdin_runner.py",
     "transport_hybrid.py",
@@ -257,6 +259,8 @@ def test_agent_runtime_is_split_into_explicit_kernel_modules():
         "runtime.checkpoints",
         "runtime.state",
         "runtime.session_compaction",
+        "runtime.session_lifecycle",
+        "runtime.session_messages",
         "context.compaction",
         "context.compaction_metadata",
         "context.compaction_model",
@@ -278,6 +282,8 @@ def test_agent_runtime_modules_stay_split_by_responsibility():
         runtime_root / "turns" / "tool_summary.py": 240,
         runtime_root / "checkpoints.py": 190,
         runtime_root / "session_compaction.py": 60,
+        runtime_root / "session_lifecycle.py": 80,
+        runtime_root / "session_messages.py": 30,
         runtime_root / "state.py": 40,
     }
     context_root = ROOT / "src" / "agents" / "kernel" / "context"
@@ -615,7 +621,9 @@ def test_sdk_client_stays_split_by_responsibility():
         "mcp.control_responses",
         "options",
         "runtime_io",
+        "session_compaction",
         "session_records",
+        "session_stream",
         "sessions",
         "stdin_runner",
     ]:
@@ -650,7 +658,9 @@ def test_sdk_client_stays_split_by_responsibility():
         SDK_ROOT / "mcp" / "control_responses.py": 220,
         SDK_ROOT / "options.py": 170,
         SDK_ROOT / "runtime_io.py": 140,
+        SDK_ROOT / "session_compaction.py": 120,
         SDK_ROOT / "session_records.py": 140,
+        SDK_ROOT / "session_stream.py": 60,
         SDK_ROOT / "sessions.py": 140,
         SDK_ROOT / "stdin_runner.py": 170,
     }
