@@ -45,6 +45,11 @@ BUILTIN_IMPLEMENTATION_FILES = {
     "file_diff.py",
     "file_safety.py",
     "filesystem.py",
+    "filesystem_limits.py",
+    "filesystem_media.py",
+    "filesystem_memory.py",
+    "filesystem_read.py",
+    "filesystem_results.py",
     "git.py",
     "hooks.py",
     "image_metadata.py",
@@ -472,6 +477,30 @@ def test_builtin_mcp_management_stays_split_by_responsibility():
         mcp_builtin_root / "runtime.py": 220,
         mcp_builtin_root / "settings.py": 180,
         mcp_builtin_root / "store.py": 140,
+    }
+
+    for path, max_lines in limits.items():
+        assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
+
+
+def test_builtin_filesystem_stays_split_by_responsibility():
+    for module in [
+        "filesystem",
+        "filesystem_limits",
+        "filesystem_media",
+        "filesystem_memory",
+        "filesystem_read",
+        "filesystem_results",
+    ]:
+        assert importlib.util.find_spec(f"agents.kernel.capabilities.tools.builtin.{module}") is not None
+
+    limits = {
+        BUILTIN_TOOL_ROOT / "filesystem.py": 140,
+        BUILTIN_TOOL_ROOT / "filesystem_limits.py": 90,
+        BUILTIN_TOOL_ROOT / "filesystem_media.py": 300,
+        BUILTIN_TOOL_ROOT / "filesystem_memory.py": 110,
+        BUILTIN_TOOL_ROOT / "filesystem_read.py": 170,
+        BUILTIN_TOOL_ROOT / "filesystem_results.py": 120,
     }
 
     for path, max_lines in limits.items():

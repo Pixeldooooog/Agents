@@ -32,7 +32,7 @@ from agents.kernel.capabilities.memory import InMemoryMemoryStore, MemoryScope
 from agents.kernel.capabilities.skills import SkillLoader, SkillRegistry
 from agents.kernel.capabilities.sandbox.local import LocalSandboxProvider
 from agents.kernel.capabilities.sandbox.types import SandboxCommandResult
-import agents.kernel.capabilities.tools.builtin.filesystem as filesystem_tools
+import agents.kernel.capabilities.tools.builtin.filesystem_media as filesystem_media
 from agents.kernel.capabilities.tools.builtin.browser import browser_open
 from agents.kernel.capabilities.tools.builtin.shell import classify_shell_command, detect_blocked_sleep_pattern, is_silent_shell_command
 from agents.kernel.capabilities.tools.builtin.worktree import restore_active_worktree_session
@@ -2644,7 +2644,7 @@ def test_filesystem_read_reports_pdf_page_extraction_dependency(monkeypatch, tmp
         path=tmp_path,
     )
     (tmp_path / "sample.pdf").write_bytes(b"%PDF-1.4\n%%EOF\n")
-    monkeypatch.setattr(filesystem_tools.shutil, "which", lambda name: None)
+    monkeypatch.setattr(filesystem_media.shutil, "which", lambda name: None)
     policy = SandboxPolicy.for_workspace(workspace.path)
     context = ToolRuntimeContext(
         workspace=workspace,
@@ -2678,8 +2678,8 @@ def test_filesystem_read_extracts_pdf_pages_with_poppler(monkeypatch, tmp_path: 
         (prefix.parent / "page-3.jpg").write_bytes(b"\xff\xd8\xffpage3")
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
-    monkeypatch.setattr(filesystem_tools.shutil, "which", lambda name: "/usr/bin/pdftoppm" if name == "pdftoppm" else None)
-    monkeypatch.setattr(filesystem_tools.subprocess, "run", fake_run)
+    monkeypatch.setattr(filesystem_media.shutil, "which", lambda name: "/usr/bin/pdftoppm" if name == "pdftoppm" else None)
+    monkeypatch.setattr(filesystem_media.subprocess, "run", fake_run)
     policy = SandboxPolicy.for_workspace(workspace.path)
     context = ToolRuntimeContext(
         workspace=workspace,
@@ -2723,8 +2723,8 @@ def test_runtime_injects_pdf_page_image_messages_after_read_tool(monkeypatch, tm
         (prefix.parent / "page-1.jpg").write_bytes(b"\xff\xd8\xffpage1")
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
-    monkeypatch.setattr(filesystem_tools.shutil, "which", lambda name: "/usr/bin/pdftoppm" if name == "pdftoppm" else None)
-    monkeypatch.setattr(filesystem_tools.subprocess, "run", fake_run)
+    monkeypatch.setattr(filesystem_media.shutil, "which", lambda name: "/usr/bin/pdftoppm" if name == "pdftoppm" else None)
+    monkeypatch.setattr(filesystem_media.subprocess, "run", fake_run)
     policy = SandboxPolicy.for_workspace(workspace.path)
     context = ToolRuntimeContext(
         workspace=workspace,

@@ -36,7 +36,7 @@ Registration files should stay thin. They should not own business behavior, pers
 
 Domain behavior belongs in focused implementation modules, for example:
 
-- Files and edits: `filesystem.py`, `notebook.py`, `file_safety.py`, `file_diff.py`, `read_paths.py`, `read_errors.py`
+- Filesystem domain: `filesystem.py` owns public schemas plus thin `filesystem.list/write/delete/move` wrappers; `filesystem_read.py`, `filesystem_media.py`, `filesystem_limits.py`, `filesystem_memory.py`, and `filesystem_results.py` own read orchestration, image/PDF/notebook delivery, read budgets, memory freshness, and result formatting; `file_safety.py`, `file_diff.py`, `read_paths.py`, and `read_errors.py` provide shared file safety/error helpers.
 - Patch/Edit domain: `patch.py` owns public `patch.apply` / `Edit` / `MultiEdit` orchestration; `patch_planner.py`, `patch_text.py`, `patch_payload.py`, and `patch_types.py` own planning, text matching, result shaping, and small data contracts.
 - Execution and lifecycle: `shell.py`, `shell_lifecycle.py`, `shell_notifications.py`, `shell_prompt_stall.py`, `tests.py`, `git.py`, `sleep.py`
 - Worktree domain: `worktree.py` owns public tool orchestration; `worktree_naming.py`, `worktree_git.py`, `worktree_setup.py`, and `worktree_state.py` own naming, git operations, post-create setup, and session/workspace state.
