@@ -127,6 +127,14 @@ class AgentSession:
             except Exception as exc:
                 if first_error is None:
                     first_error = exc
+        summary_generator = getattr(getattr(self.runtime, "tool_orchestrator", None), "tool_summary_generator", None)
+        close = getattr(summary_generator, "async_close", None)
+        if close is not None and getattr(summary_generator, "model_client", None) is not model_client:
+            try:
+                await close()
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
         if first_error is not None:
             raise first_error
 

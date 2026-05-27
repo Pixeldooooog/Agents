@@ -8,6 +8,7 @@ from uuid import uuid4
 from agents.kernel.hooks import AgentHooks, ToolHookDenied
 from agents.kernel.governance.permissions import AllowAllToolPermissionPolicy, ToolPermissionDecision, ToolPermissionPolicy
 from agents.kernel.runtime.events import tool_result_event
+from agents.kernel.runtime.turns.tool_summary import ToolUseSummaryGenerator, build_tool_use_summary
 from agents.kernel.schema import ContentBlock, Message, RuntimeEvent, ToolCall, ToolResult
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 
@@ -44,10 +45,12 @@ class ToolOrchestrator:
         registry: ToolRegistry,
         hooks: AgentHooks,
         permission_policy: ToolPermissionPolicy | None = None,
+        tool_summary_generator: ToolUseSummaryGenerator | None = None,
     ):
         self.registry = registry
         self.hooks = hooks
         self.permission_policy = permission_policy or AllowAllToolPermissionPolicy()
+        self.tool_summary_generator = tool_summary_generator
 
     def describe_call(self, call: ToolCall) -> dict:
         try:
@@ -124,6 +127,7 @@ class ToolOrchestrator:
         run_id: str = "",
         task_id: str = "",
         include_preparation_events: bool = True,
+        last_assistant_text: str = "",
     ) -> ToolExecutionBatch:
         results_by_index = dict(prepared.results_by_index)
         hook_events: List[RuntimeEvent] = []
@@ -147,7 +151,13 @@ class ToolOrchestrator:
             prepared.transformed_calls_by_index.get(index, prepared.calls[index])
             for index in range(len(prepared.calls))
         ]
-        summary = _tool_use_summary_event(results, summary_calls, self.describe_call)
+        summary = await _tool_use_summary_event(
+            self.tool_summary_generator,
+            results,
+            summary_calls,
+            self.describe_call,
+            last_assistant_text=last_assistant_text,
+        )
         if summary is not None:
             result_events.append(summary)
         return ToolExecutionBatch(
@@ -241,44 +251,33 @@ def _content_block_from_supplemental(raw_block: Any) -> ContentBlock | None:
     return None
 
 
-def _tool_use_summary_event(
+async def _tool_use_summary_event(
+    generator: ToolUseSummaryGenerator | None,
     results: List[ToolResult],
     calls: List[ToolCall],
     contract_provider,
+    *,
+    last_assistant_text: str = "",
 ) -> RuntimeEvent | None:
     preceding_tool_use_ids = [result.tool_call_id for result in results if result.tool_call_id]
     if not preceding_tool_use_ids:
         return None
-    summary = _tool_batch_summary(results, calls, contract_provider)
-    if not summary:
+    summary = await build_tool_use_summary(
+        generator,
+        results,
+        calls,
+        contract_provider,
+        last_assistant_text=last_assistant_text,
+    )
+    if summary is None:
         return None
     return RuntimeEvent(
         type="tool_use_summary",
         name="tools",
         payload={
-            "summary": summary,
+            "summary": summary.summary,
+            "summary_source": summary.source,
             "preceding_tool_use_ids": preceding_tool_use_ids,
             "uuid": str(uuid4()),
         },
     )
-
-
-def _tool_batch_summary(
-    results: List[ToolResult],
-    calls: List[ToolCall],
-    contract_provider,
-) -> str:
-    if len(results) == 1:
-        result = results[0]
-        call = calls[0] if calls else ToolCall(id=result.tool_call_id, name=result.name, arguments={})
-        contract = contract_provider(call)
-        activity = contract.get("activity") if isinstance(contract, dict) else {}
-        if isinstance(activity, dict) and activity.get("summary"):
-            return str(activity["summary"])
-        if result.is_error:
-            return "Failed %s" % result.name
-        return "Ran %s" % result.name
-    failures = sum(1 for result in results if result.is_error)
-    if failures:
-        return "Ran %d tools, %d failed" % (len(results), failures)
-    return "Ran %d tools" % len(results)

@@ -21,6 +21,7 @@ from agents.kernel.runtime import (
     ScriptedModelClient,
     StaticToolPermissionPolicy,
 )
+from agents.kernel.runtime.turns import ModelToolUseSummaryGenerator, ToolUseSummaryItem
 from agents.kernel.governance.approval_grants import APPROVAL_ALLOW_FOR_RUN
 from agents.kernel.hooks import SessionHookRegistry, SessionStateHooks
 from agents.kernel.schema import Message, ModelResponse, ModelStreamEvent, ToolCall
@@ -31,6 +32,25 @@ from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.governance import SandboxPolicy
 from agents.kernel.specs import AgentSpec
 from agents.kernel.tasks import InMemoryTaskStore
+
+
+class RecordingToolUseSummaryGenerator:
+    source = "test"
+
+    def __init__(self, summary: str | None):
+        self.summary = summary
+        self.items: list[ToolUseSummaryItem] = []
+        self.last_assistant_text = ""
+
+    async def generate_tool_use_summary(
+        self,
+        items: list[ToolUseSummaryItem],
+        *,
+        last_assistant_text: str = "",
+    ) -> str | None:
+        self.items = list(items)
+        self.last_assistant_text = last_assistant_text
+        return self.summary
 
 
 def test_agent_runtime_runs_model_tool_model_loop():
@@ -908,6 +928,68 @@ def test_agent_runtime_stream_continues_after_tool_error_result():
     assert events[2].payload["summary"] == "Failed boom"
     assert events[2].payload["preceding_tool_use_ids"] == ["call-1"]
     assert events[-1].payload["content"] == "handled tool failure"
+
+
+def test_agent_runtime_uses_injected_tool_use_summary_generator():
+    call = ToolCall(id="call-1", name="write_config", arguments={"path": "config.json"})
+    generator = RecordingToolUseSummaryGenerator("Updated config")
+    llm = ScriptedModelClient(
+        [
+            ModelResponse(
+                message=Message.from_text(
+                    "assistant",
+                    "I will update the config.",
+                    tool_calls=[call],
+                )
+            ),
+            ModelResponse(message=Message.from_text("assistant", "done")),
+        ]
+    )
+    tools = ToolRegistry()
+    tools.register("write_config", "Write config", {}, lambda path: {"path": path, "ok": True})
+    runtime = AgentRuntime(
+        model_client=llm,
+        tools=tools,
+        protocol="scripted",
+        model="scripted",
+        tool_summary_generator=generator,
+    )
+
+    result = asyncio.run(runtime.run([Message.from_text("user", "update config")]))
+
+    summary = next(event for event in result.events if event.type == "tool_use_summary")
+    assert summary.payload["summary"] == "Updated config"
+    assert summary.payload["summary_source"] == "test"
+    assert summary.payload["preceding_tool_use_ids"] == ["call-1"]
+    assert generator.last_assistant_text == "I will update the config."
+    assert generator.items[0].name == "write_config"
+    assert generator.items[0].input == {"path": "config.json"}
+    assert generator.items[0].is_error is False
+
+
+def test_model_tool_use_summary_generator_builds_src_origin_style_prompt():
+    llm = ScriptedModelClient([ModelResponse(message=Message.from_text("assistant", "Reviewed auth flow\nextra"))])
+    generator = ModelToolUseSummaryGenerator(llm, protocol="scripted", model="haiku")
+
+    summary = asyncio.run(
+        generator.generate_tool_use_summary(
+            [
+                ToolUseSummaryItem(
+                    name="grep",
+                    input={"pattern": "auth"},
+                    output={"matches": ["auth.py:1"]},
+                )
+            ],
+            last_assistant_text="I will inspect auth.",
+        )
+    )
+
+    assert summary == "Reviewed auth flow"
+    request = llm.requests[0]
+    assert request.model == "haiku"
+    assert request.metadata["query_source"] == "tool_use_summary_generation"
+    assert "I will inspect auth." in request.messages[1].content_text()
+    assert "Tool: grep" in request.messages[1].content_text()
 
 
 def test_agent_runtime_returns_synthetic_result_for_cancelled_sibling_tool():

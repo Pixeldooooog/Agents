@@ -20,6 +20,7 @@ from agents.kernel.governance.permissions import ToolPermissionPolicy
 from agents.kernel.context.compiler import ModelRequestCompiler
 from agents.kernel.runtime.state import RuntimeState
 from agents.kernel.runtime.turns import ModelTurnRunner, ToolOrchestrator
+from agents.kernel.runtime.turns.tool_summary import ToolUseSummaryGenerator
 from agents.kernel.runtime.types import AgentResult, ModelClientProtocol
 from agents.kernel.schema import Message, ModelResponse, RuntimeEvent, ToolCall
 from agents.kernel.capabilities.tools.registry import ToolRegistry
@@ -44,6 +45,7 @@ class AgentRuntime:
         hooks: Optional[AgentHooks] = None,
         permission_policy: Optional[ToolPermissionPolicy] = None,
         checkpoint_store: Optional[CheckpointStore] = None,
+        tool_summary_generator: ToolUseSummaryGenerator | None = None,
     ):
         self.model_client = model_client
         self.tools = tools
@@ -56,7 +58,12 @@ class AgentRuntime:
         self.hooks = hooks or AgentHooks()
         self.model_request_compiler = ModelRequestCompiler(tools)
         self.model_turn_runner = ModelTurnRunner(self.model_client, self.model_request_compiler, self.hooks)
-        self.tool_orchestrator = ToolOrchestrator(tools, self.hooks, permission_policy=permission_policy)
+        self.tool_orchestrator = ToolOrchestrator(
+            tools,
+            self.hooks,
+            permission_policy=permission_policy,
+            tool_summary_generator=tool_summary_generator,
+        )
         self.checkpoints = checkpoint_store or NullCheckpointStore()
 
     @property
@@ -316,6 +323,7 @@ class AgentRuntime:
                 run_id=run_id or "",
                 task_id=task_id or "",
                 include_preparation_events=False,
+                last_assistant_text=_last_tool_call_assistant_text(state.messages),
             )
         state.tool_results.extend(batch.results)
         self._record_runtime_events(state, emitted, batch.events, event_sink=event_sink)
@@ -412,3 +420,10 @@ class AgentRuntime:
             state.events,
             status="canceled",
         )
+
+
+def _last_tool_call_assistant_text(messages: List[Message]) -> str:
+    for message in reversed(messages):
+        if message.role == "assistant" and message.tool_calls:
+            return message.content_text()
+    return ""

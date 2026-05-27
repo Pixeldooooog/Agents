@@ -251,6 +251,7 @@ def test_agent_runtime_is_split_into_explicit_kernel_modules():
         "context.window",
         "runtime.turns",
         "runtime.turns.model",
+        "runtime.turns.tool_summary",
         "runtime.turns.tools",
         "governance.permissions",
         "runtime.checkpoints",
@@ -261,6 +262,22 @@ def test_agent_runtime_is_split_into_explicit_kernel_modules():
         "governance.security",
     ]:
         assert importlib.util.find_spec(f"agents.kernel.{module}") is not None
+
+
+def test_agent_runtime_modules_stay_split_by_responsibility():
+    runtime_root = ROOT / "src" / "agents" / "kernel" / "runtime"
+    limits = {
+        runtime_root / "loop.py": 460,
+        runtime_root / "session.py": 230,
+        runtime_root / "turns" / "model.py": 90,
+        runtime_root / "turns" / "tools.py": 320,
+        runtime_root / "turns" / "tool_summary.py": 240,
+        runtime_root / "checkpoints.py": 190,
+        runtime_root / "state.py": 40,
+    }
+
+    for path, max_lines in limits.items():
+        assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
 
 
 def test_governance_tool_impact_stays_split_by_responsibility():

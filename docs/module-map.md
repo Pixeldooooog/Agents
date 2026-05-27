@@ -262,13 +262,14 @@ agents/kernel/capabilities/sandbox/
 - 管理单 Agent 执行循环。
 - 编译模型请求。
 - 执行工具调用。
+- 生成 tool batch 摘要事件。
 - 处理 checkpoint、resume、approval pause。
 - 维护 session 历史和 context window。
 
 为什么这样做：
 
 - runtime 是内核，不关心 HTTP、web UI、Terminal。
-- 模型回合和工具回合拆开，方便测试和扩展。
+- 模型回合、工具回合和 tool-use 摘要生成拆开，方便测试和扩展。
 
 后续方向：
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from typing import Any, Optional
 
 from agents.kernel.capabilities.memory import MemoryStore
@@ -32,6 +33,7 @@ from agents.kernel.mcp.list_changed_runtime import build_mcp_list_changed_handle
 from agents.kernel.mcp.oauth_runtime import authenticate_mcp_oauth_server
 from agents.kernel.models import ModelClient
 from agents.kernel.runtime import AgentRuntime, AgentSession
+from agents.kernel.runtime.turns import ModelToolUseSummaryGenerator
 from agents.kernel.runtime.checkpoints import CheckpointStore
 from agents.kernel.governance import build_tool_permission_policy
 from agents.kernel.state.workspaces.factory import resolve_workspace
@@ -181,8 +183,10 @@ async def create_agent_session_async(
         base_url=effective_spec.model.base_url,
         api_key=effective_spec.model.api_key,
     )
+    model_client = ModelClient(config)
+    summary_generator = _tool_use_summary_generator(settings, config)
     runtime = AgentRuntime(
-        model_client=ModelClient(config),
+        model_client=model_client,
         tools=registry,
         protocol=config.protocol,
         model=config.model,
@@ -191,6 +195,7 @@ async def create_agent_session_async(
         hooks=active_hooks,
         permission_policy=permission_policy,
         checkpoint_store=checkpoint_store,
+        tool_summary_generator=summary_generator,
     )
     return AgentSession(
         runtime=runtime,
@@ -255,6 +260,18 @@ def create_agent_session(
             )
         )
     raise RuntimeError("create_agent_session cannot run inside an active event loop; use create_agent_session_async")
+
+
+def _tool_use_summary_generator(settings: Any, config: Any) -> ModelToolUseSummaryGenerator | None:
+    summary_model = str(getattr(settings.agent, "TOOL_USE_SUMMARY_MODEL", "") or "").strip()
+    if not summary_model:
+        return None
+    summary_config = replace(config, model=summary_model, max_tokens=min(int(config.max_tokens or 64), 128))
+    return ModelToolUseSummaryGenerator(
+        ModelClient(summary_config),
+        protocol=summary_config.protocol,
+        model=summary_config.model,
+    )
 
 
 def _session_hooks(base_hooks: AgentHooks, tool_context: ToolRuntimeContext) -> AgentHooks:
