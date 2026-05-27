@@ -9,9 +9,10 @@
 # =====================================================
 
 from agents.kernel.capabilities.tools.builtin import register_builtin_tools
+from agents.kernel.capabilities.tools.contracts import RegisteredTool, ToolActivity, ToolDefinition, ToolExecutionError
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.tools.recording import ToolExecutionObserver, ToolExecutionScope
-from agents.kernel.capabilities.tools.registry import RegisteredTool, ToolActivity, ToolDefinition, ToolExecutionError, ToolRegistry
+from agents.kernel.capabilities.tools.registry import ToolRegistry
 
 _MCP_EXPORTS = {
     "MCPAuthenticationRequired",

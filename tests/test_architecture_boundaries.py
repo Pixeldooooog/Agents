@@ -244,7 +244,11 @@ def test_governance_tool_impact_stays_split_by_responsibility():
 
 def test_agent_capabilities_expose_builtin_tool_boundaries():
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.contracts") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.context") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.registry") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.results") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.validation") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.sandbox.local") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.sandbox.docker") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.sandbox.docker_search_scripts") is not None
@@ -293,6 +297,19 @@ def test_builtin_tool_registration_stays_modular():
         BUILTIN_TOOL_ROOT / "web_registration.py": 140,
         BUILTIN_TOOL_ROOT / "workspace_registration.py": 320,
         BUILTIN_TOOL_ROOT / "tool_names.py": 220,
+    }
+
+    for path, max_lines in limits.items():
+        assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
+
+
+def test_tool_registry_stays_split_by_responsibility():
+    tools_root = ROOT / "src" / "agents" / "kernel" / "capabilities" / "tools"
+    limits = {
+        tools_root / "contracts.py": 180,
+        tools_root / "registry.py": 480,
+        tools_root / "results.py": 120,
+        tools_root / "validation.py": 120,
     }
 
     for path, max_lines in limits.items():

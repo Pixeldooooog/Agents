@@ -71,6 +71,8 @@ Impact 入口保留在 `tool_impact.py`，但职责已经拆开：`tool_impact_c
 - `register(...)`：兼容旧调用点，适合简单内置工具和测试。
 - `register_definition(ToolDefinition(...))`：面向 SDK 化工具契约，显式声明 schema、只读/破坏性、状态写入、并发安全、中断行为、结果长度限制和 metadata。
 
+工具系统核心文件也按职责拆分：`contracts.py` 放工具契约数据模型，`validation.py` 放 JSON schema 输入校验，`results.py` 放 ToolResult / 错误 / 截断 / 取消结果格式化，`registry.py` 只保留注册表、执行调度、observer 和 runtime event glue。这一层不是 builtin 注册文件，不能混入具体工具业务逻辑。
+
 ## Builtin 文件角色
 
 内置工具目录按“注册/装配层”和“核心实现层”分开维护。新增文件时必须先判断它属于哪一层，不能把注册表 wiring、alias schema 和业务行为混在同一个大文件里。
