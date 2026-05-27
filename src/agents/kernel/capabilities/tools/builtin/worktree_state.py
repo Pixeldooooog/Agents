@@ -17,6 +17,8 @@ def restore_active_worktree_session(context: ToolRuntimeContext, session: dict[s
     if not restored:
         context.active_worktree_session = {}
         return False
+    if restored.get("hookBased"):
+        return _restore_hook_based_worktree_session(context, restored)
 
     try:
         repo_root = git_root(context.workspace.path)
@@ -40,6 +42,20 @@ def restore_active_worktree_session(context: ToolRuntimeContext, session: dict[s
     restored["originalCwd"] = str(original_cwd)
     restored["worktreePath"] = str(worktree_path)
     context.active_worktree_session = restored
+    switch_workspace(context, worktree_path)
+    return True
+
+
+def _restore_hook_based_worktree_session(context: ToolRuntimeContext, session: dict[str, Any]) -> bool:
+    original_cwd = Path(str(session.get("originalCwd") or "")).expanduser().resolve()
+    worktree_path = Path(str(session.get("worktreePath") or "")).expanduser().resolve()
+    current_workspace = Path(context.workspace.path).expanduser().resolve()
+    if current_workspace != original_cwd or not worktree_path.is_dir():
+        context.active_worktree_session = {}
+        return False
+    session["originalCwd"] = str(original_cwd)
+    session["worktreePath"] = str(worktree_path)
+    context.active_worktree_session = session
     switch_workspace(context, worktree_path)
     return True
 

@@ -89,6 +89,7 @@ BUILTIN_IMPLEMENTATION_FILES = {
     "workflows.py",
     "worktree.py",
     "worktree_git.py",
+    "worktree_hooks.py",
     "worktree_naming.py",
     "worktree_setup.py",
     "worktree_state.py",
@@ -523,6 +524,7 @@ def test_builtin_worktree_domain_stays_split_by_responsibility():
     limits = {
         BUILTIN_TOOL_ROOT / "worktree.py": 260,
         BUILTIN_TOOL_ROOT / "worktree_git.py": 140,
+        BUILTIN_TOOL_ROOT / "worktree_hooks.py": 240,
         BUILTIN_TOOL_ROOT / "worktree_naming.py": 120,
         BUILTIN_TOOL_ROOT / "worktree_setup.py": 260,
         BUILTIN_TOOL_ROOT / "worktree_state.py": 150,

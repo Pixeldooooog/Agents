@@ -19,6 +19,11 @@ from agents.kernel.capabilities.tools.builtin.worktree_naming import (
     worktree_path_for,
     worktree_request,
 )
+from agents.kernel.capabilities.tools.builtin.worktree_hooks import (
+    enter_hook_worktree,
+    exit_hook_worktree,
+    has_worktree_create_hook,
+)
 from agents.kernel.capabilities.tools.builtin.worktree_setup import (
     ensure_worktrees_excluded,
     perform_post_creation_setup,
@@ -92,8 +97,11 @@ async def enter_worktree(
         session = context.active_worktree_session
         raise RuntimeError("Already in a worktree session at %s" % session.get("worktreePath", "unknown"))
 
-    repo_root = git_root(context.workspace.path)
     slug, resolved_pr_number = worktree_request(name, pr_number=pr_number, pr_number_alias=pr_number_alias)
+    if has_worktree_create_hook(context):
+        return await enter_hook_worktree(context, slug=slug, pr_number=resolved_pr_number)
+
+    repo_root = git_root(context.workspace.path)
     worktree_path = worktree_path_for(repo_root, slug)
     branch = worktree_branch_name(slug)
     settings = worktree_settings(context)
@@ -165,6 +173,9 @@ async def exit_worktree(context: ToolRuntimeContext, action: str, discard_change
             "worktreeBranch": "",
             "message": NO_ACTIVE_WORKTREE_SESSION_MESSAGE,
         }
+    hook_result = await exit_hook_worktree(context, session, normalized_action, discard_changes)
+    if hook_result is not None:
+        return hook_result
 
     original_cwd = Path(str(session.get("originalCwd") or "")).expanduser().resolve()
     worktree_path = Path(str(session.get("worktreePath") or "")).expanduser().resolve()
