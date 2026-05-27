@@ -106,6 +106,7 @@ platform      -> kernel
 - 执行单个或多个工具调用。
 - 管理并发、超时和错误转 tool result。
 - 接入 builtin tools 和 MCP tools。
+- builtin 工具按 registration/wiring 与 domain implementation 分层；例如 worktree 入口编排在 `worktree.py`，命名、Git、初始化和状态切换分别在 `worktree_naming.py`、`worktree_git.py`、`worktree_setup.py`、`worktree_state.py`。
 
 为什么这样做：
 

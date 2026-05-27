@@ -79,6 +79,10 @@ BUILTIN_IMPLEMENTATION_FILES = {
     "web.py",
     "workflows.py",
     "worktree.py",
+    "worktree_git.py",
+    "worktree_naming.py",
+    "worktree_setup.py",
+    "worktree_state.py",
     "mcp/ide.py",
     "mcp/management.py",
     "mcp/prompts.py",
@@ -295,6 +299,10 @@ def test_agent_capabilities_expose_builtin_tool_boundaries():
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.mcp.resources") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.mcp.ide") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.workspace_registration") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.worktree_git") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.worktree_naming") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.worktree_setup") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.worktree_state") is not None
 
 
 def test_builtin_tool_registration_stays_modular():
@@ -383,6 +391,19 @@ def test_builtin_task_domain_stays_split_by_responsibility():
         BUILTIN_TOOL_ROOT / "task_src_origin.py": 430,
         BUILTIN_TOOL_ROOT / "task_schemas.py": 190,
         BUILTIN_TOOL_ROOT / "src_origin_task_aliases.py": 900,
+    }
+
+    for path, max_lines in limits.items():
+        assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
+
+
+def test_builtin_worktree_domain_stays_split_by_responsibility():
+    limits = {
+        BUILTIN_TOOL_ROOT / "worktree.py": 260,
+        BUILTIN_TOOL_ROOT / "worktree_git.py": 140,
+        BUILTIN_TOOL_ROOT / "worktree_naming.py": 120,
+        BUILTIN_TOOL_ROOT / "worktree_setup.py": 260,
+        BUILTIN_TOOL_ROOT / "worktree_state.py": 150,
     }
 
     for path, max_lines in limits.items():

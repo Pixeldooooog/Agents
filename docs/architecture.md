@@ -79,7 +79,7 @@ graph TB
 - `agents.kernel.governance.security`: secret redaction 与 payload protection provider 协议；本地 base64 provider 只用于测试和开发，不是生产加密。
 - `agents.kernel.governance.audit`: 可追溯审计边界。记录需要长期留存和追责的用户/系统决策，当前包含带 impact payload 的 tool approval audit。
 - `agents.kernel.governance.tracing`: 运行链路追踪边界。记录 run/model/tool/approval span，用于调试、可观测性和用户可见时间线，不替代审计记录。
-- `agents.kernel.capabilities.tools`: 工具注册表、builtin 工具和 MCP stdio 工具接入；`builtin` 只暴露语义工具。文件/patch/本地搜索/命令/测试/browser fetch 通过 `agents.kernel.capabilities.sandbox.SandboxClient` 进入 workspace，`web.search/extract/map` 通过 `agents.kernel.capabilities.web` 留在 control plane。
+- `agents.kernel.capabilities.tools`: 工具注册表、builtin 工具和 MCP stdio 工具接入；`builtin` 只暴露语义工具，并按 registration/wiring 与 domain implementation 分层。文件/patch/本地搜索/命令/测试/browser fetch 通过 `agents.kernel.capabilities.sandbox.SandboxClient` 进入 workspace，`web.search/extract/map` 通过 `agents.kernel.capabilities.web` 留在 control plane；worktree 这类较复杂工具继续在 builtin 域内拆出命名、Git、初始化和状态模块，而不是把实现堆到注册文件或入口工具文件。
 - `agents.kernel.hooks`: Runtime 扩展点，支持意图引导、thinking 提取、审批拦截和组合 hook。
 - `agents.kernel.capabilities.skills`: skill manifest、prompt fragment、工具名声明加载。
 - `agents.kernel.orchestration`: 多智能体 planner/router/supervisor 的归属边界。当前定义 agent roles、handoff decision 和 router 协议。
