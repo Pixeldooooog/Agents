@@ -32,6 +32,7 @@ Domain behavior belongs in focused modules:
 
 - Runtime event projection: `event_messages.py`, `event_tasks.py`, `event_artifacts.py`, `event_auth.py`, `event_payloads.py`, `event_fields.py`
 - Session and async state: `async_messages.py`, `session_records.py`, `runtime_io.py`, `structured_io.py`
+- SDK control handling: `control_handlers.py` is the dispatcher facade; `control_async_state.py`, `control_files.py`, `control_mcp.py`, `control_interactions.py`, `control_tasks.py`, and `control_system.py` own focused control-response behavior.
 - Structured stdin/jsonl execution: `stdin_runner.py`
 - File history and rewind behavior: `file_history.py`, `file_rewind.py`
 - Remote and embedded transports: `transport_queue.py`, `transport_sse.py`, `transport_websocket.py`, `transport_hybrid.py`

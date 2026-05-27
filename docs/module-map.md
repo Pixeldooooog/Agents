@@ -126,12 +126,14 @@ platform      -> kernel
 - `client.py` 保留 `AgentSDKClient` facade、run-store wiring 和模块级兼容入口。
 - `sessions.py` 保留稳定 session handle 与 session-scoped query/control 操作。
 - `stdin_runner.py` 负责 structured stdin、JSONL frame pump 和 transport runner。
+- `control_handlers.py` 保留 SDK control request dispatcher；async message/turn 状态、read-state/rewind、MCP control、hook/elicitation、task control、system init message 分别落在 `control_async_state.py`、`control_files.py`、`control_mcp.py`、`control_interactions.py`、`control_tasks.py`、`control_system.py`。
 - `runtime_io.py` / `structured_io.py` 只保留 runner 可复用的 IO helpers 和 structured stdout/control-request FIFO。
 
 为什么这样做：
 
 - SDK facade 是外部入口，不应该吸收 stdin/jsonl 协议循环、transport pumping 或 session 内部状态。
 - stdin/jsonl runner 是协议执行层，变化频率不同于 run-store/session facade，单独命名后调用链更容易解释。
+- control dispatcher 只负责路由控制请求；具体状态修改、MCP 持久化、文件回滚和交互回调是不同子域，独立模块更容易测试和解释。
 - README 和 architecture tests 明确 facade/wiring、contract、implementation 三类文件，避免后续继续把核心实现塞回注册或入口文件。
 
 后续方向：
