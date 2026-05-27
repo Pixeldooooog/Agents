@@ -145,6 +145,10 @@ def test_agent_system_exposes_future_multi_agent_boundaries():
         "state.workspaces",
         "state.workspaces.metadata",
         "governance",
+        "governance.tool_impact",
+        "governance.tool_impact_arguments",
+        "governance.tool_impact_common",
+        "governance.tool_impact_domains",
         "governance.credentials",
         "governance.audit",
         "governance.tracing",
@@ -218,6 +222,19 @@ def test_agent_runtime_is_split_into_explicit_kernel_modules():
         "governance.security",
     ]:
         assert importlib.util.find_spec(f"agents.kernel.{module}") is not None
+
+
+def test_governance_tool_impact_stays_split_by_responsibility():
+    governance_root = ROOT / "src" / "agents" / "kernel" / "governance"
+    limits = {
+        governance_root / "tool_impact.py": 420,
+        governance_root / "tool_impact_arguments.py": 160,
+        governance_root / "tool_impact_common.py": 220,
+        governance_root / "tool_impact_domains.py": 360,
+    }
+
+    for path, max_lines in limits.items():
+        assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
 
 
 def test_agent_capabilities_expose_builtin_tool_boundaries():

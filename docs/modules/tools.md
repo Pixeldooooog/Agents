@@ -62,6 +62,8 @@ approval 事件和 audit 记录会附带 `impact`：
 - `cost_estimate`：例如 Tavily credit 估算。
 - `diff_preview`：`patch.apply`、`filesystem.write` 等写入类工具的预览。
 
+Impact 入口保留在 `tool_impact.py`，但职责已经拆开：`tool_impact_common.py` 定义数据模型和共享格式化辅助，`tool_impact_arguments.py` 只负责 `src-origin` alias 参数归一化，`tool_impact_domains.py` 保存各工具域的 impact 规则。这样 approval/audit 仍调用同一个公开入口，但参数兼容层、领域规则和模型结构不会继续挤在一个文件里。
+
 ## Tool Contract
 
 `ToolRegistry` 支持两种注册方式：
