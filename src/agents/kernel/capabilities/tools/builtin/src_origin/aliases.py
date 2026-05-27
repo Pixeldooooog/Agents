@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from agents.kernel.capabilities.tools.builtin.src_origin_agent_aliases import register_src_origin_agent_aliases
-from agents.kernel.capabilities.tools.builtin.src_origin_core_aliases import register_src_origin_core_aliases
-from agents.kernel.capabilities.tools.builtin.src_origin_discovery_aliases import register_src_origin_discovery_aliases
-from agents.kernel.capabilities.tools.builtin.src_origin_plan_aliases import register_src_origin_plan_aliases
-from agents.kernel.capabilities.tools.builtin.src_origin_schedule_aliases import register_src_origin_schedule_aliases
-from agents.kernel.capabilities.tools.builtin.src_origin_session_aliases import register_src_origin_session_aliases
-from agents.kernel.capabilities.tools.builtin.src_origin_task_aliases import register_src_origin_task_aliases
+from agents.kernel.capabilities.tools.builtin.src_origin.agent_aliases import register_src_origin_agent_aliases
+from agents.kernel.capabilities.tools.builtin.src_origin.core_aliases import register_src_origin_core_aliases
+from agents.kernel.capabilities.tools.builtin.src_origin.discovery_aliases import register_src_origin_discovery_aliases
+from agents.kernel.capabilities.tools.builtin.src_origin.plan_aliases import register_src_origin_plan_aliases
+from agents.kernel.capabilities.tools.builtin.src_origin.schedule_aliases import register_src_origin_schedule_aliases
+from agents.kernel.capabilities.tools.builtin.src_origin.session_aliases import register_src_origin_session_aliases
+from agents.kernel.capabilities.tools.builtin.src_origin.task_aliases import register_src_origin_task_aliases
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.capabilities.tools.registry import ToolRegistry
 from agents.kernel.capabilities.web import WebSearchProvider

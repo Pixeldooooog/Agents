@@ -19,14 +19,14 @@ BUILTIN_REGISTRATION_FILES = {
     "registration_helpers.py",
     "runtime_registration.py",
     "state_registration.py",
-    "src_origin_aliases.py",
-    "src_origin_agent_aliases.py",
-    "src_origin_core_aliases.py",
-    "src_origin_discovery_aliases.py",
-    "src_origin_plan_aliases.py",
-    "src_origin_schedule_aliases.py",
-    "src_origin_session_aliases.py",
-    "src_origin_task_aliases.py",
+    "src_origin/aliases.py",
+    "src_origin/agent_aliases.py",
+    "src_origin/core_aliases.py",
+    "src_origin/discovery_aliases.py",
+    "src_origin/plan_aliases.py",
+    "src_origin/schedule_aliases.py",
+    "src_origin/session_aliases.py",
+    "src_origin/task_aliases.py",
     "task_schemas.py",
     "tool_names.py",
     "web_registration.py",
@@ -376,14 +376,15 @@ def test_agent_capabilities_expose_builtin_tool_boundaries():
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.registration_helpers") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.runtime_registration") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.state_registration") is not None
-    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_aliases") is not None
-    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_agent_aliases") is not None
-    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_core_aliases") is not None
-    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_discovery_aliases") is not None
-    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_plan_aliases") is not None
-    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_session_aliases") is not None
-    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_task_aliases") is not None
-    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_schedule_aliases") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin.aliases") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin.agent_aliases") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin.core_aliases") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin.discovery_aliases") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin.plan_aliases") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin.session_aliases") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin.task_aliases") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin.schedule_aliases") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.mcp.registration") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.mcp.management") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.mcp.prompts") is not None
@@ -410,10 +411,10 @@ def test_builtin_tool_registration_stays_modular():
         BUILTIN_TOOL_ROOT / "interaction_registration.py": 170,
         BUILTIN_TOOL_ROOT / "runtime_registration.py": 170,
         BUILTIN_TOOL_ROOT / "state_registration.py": 280,
-        BUILTIN_TOOL_ROOT / "src_origin_aliases.py": 80,
-        BUILTIN_TOOL_ROOT / "src_origin_agent_aliases.py": 300,
-        BUILTIN_TOOL_ROOT / "src_origin_core_aliases.py": 330,
-        BUILTIN_TOOL_ROOT / "src_origin_session_aliases.py": 220,
+        BUILTIN_TOOL_ROOT / "src_origin" / "aliases.py": 80,
+        BUILTIN_TOOL_ROOT / "src_origin" / "agent_aliases.py": 300,
+        BUILTIN_TOOL_ROOT / "src_origin" / "core_aliases.py": 330,
+        BUILTIN_TOOL_ROOT / "src_origin" / "session_aliases.py": 220,
         BUILTIN_TOOL_ROOT / "mcp" / "registration.py": 400,
         BUILTIN_TOOL_ROOT / "task_schemas.py": 190,
         BUILTIN_TOOL_ROOT / "web_registration.py": 140,
@@ -493,7 +494,7 @@ def test_builtin_task_domain_stays_split_by_responsibility():
         BUILTIN_TOOL_ROOT / "tasks.py": 520,
         BUILTIN_TOOL_ROOT / "task_src_origin.py": 430,
         BUILTIN_TOOL_ROOT / "task_schemas.py": 190,
-        BUILTIN_TOOL_ROOT / "src_origin_task_aliases.py": 900,
+        BUILTIN_TOOL_ROOT / "src_origin" / "task_aliases.py": 900,
     }
 
     for path, max_lines in limits.items():
