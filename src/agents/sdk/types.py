@@ -197,6 +197,7 @@ class SDKCompactBoundaryMessage(SDKBaseMessage):
     type: Literal["system"] = "system"
     subtype: Literal["compact_boundary"] = "compact_boundary"
     compact_metadata: dict[str, Any] = Field(default_factory=dict)
+    uuid: str = Field(default_factory=lambda: str(uuid4()))
 
 
 class SDKAuthStatusMessage(SDKBaseMessage):

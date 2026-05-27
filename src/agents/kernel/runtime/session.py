@@ -4,6 +4,7 @@ import inspect
 from typing import AsyncIterable, List, Mapping, Optional
 from typing import Any
 
+from agents.kernel.context.compaction_metadata import compact_boundary_payload
 from agents.kernel.context.window import ContextWindowManager
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.runtime.loop import AgentRuntime
@@ -70,14 +71,13 @@ class AgentSession:
         return fitted, RuntimeEvent(
             type="compact_boundary",
             name="context",
-            payload={
-                "trigger": trigger,
-                "pre_tokens": before_tokens,
-                "post_tokens": after_tokens,
-                "before_messages": before_messages,
-                "after_messages": len(fitted),
-                "dropped_messages": max(0, before_messages - len(fitted)),
-            },
+            payload=compact_boundary_payload(
+                messages,
+                fitted,
+                trigger=trigger,
+                pre_tokens=before_tokens,
+                post_tokens=after_tokens,
+            ),
         )
 
     def compact(self, target_tokens: int | None = None) -> dict[str, int]:

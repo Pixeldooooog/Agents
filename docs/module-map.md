@@ -85,6 +85,7 @@ platform      -> kernel
 - 管理 system、project instructions、runtime policy、skills、memory、tool hints、task context。
 - 编译 `ContextPack` 为最终 system text 和 trace。
 - 管理上下文窗口和压缩。
+- `window.py` 负责 token fitting，`compaction.py` 负责摘要式 message compaction，`compaction_metadata.py` 负责 compact boundary 的 SDK 元数据和 preserved-segment UUID 锚点。
 
 为什么这样做：
 

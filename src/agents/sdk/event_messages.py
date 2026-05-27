@@ -105,17 +105,24 @@ def _project_runtime_event(
             uuid=_text_field(event.payload, "uuid", "message_id", "messageId") or str(uuid.uuid4()),
         )
     if event.type == "compact_boundary":
+        preserved_segment = _optional_dict_field(
+            event.payload.get("preserved_segment", event.payload.get("preservedSegment"))
+        )
+        compact_metadata: dict[str, Any] = {
+            "trigger": str(event.payload.get("trigger") or "auto"),
+            "pre_tokens": _int(event.payload.get("pre_tokens")),
+            "post_tokens": _int(event.payload.get("post_tokens")),
+            "before_messages": _int(event.payload.get("before_messages")),
+            "after_messages": _int(event.payload.get("after_messages")),
+            "dropped_messages": _int(event.payload.get("dropped_messages")),
+        }
+        if preserved_segment:
+            compact_metadata["preserved_segment"] = preserved_segment
         return SDKCompactBoundaryMessage(
             session_id=session_id,
             run_id=run_id,
-            compact_metadata={
-                "trigger": str(event.payload.get("trigger") or "auto"),
-                "pre_tokens": _int(event.payload.get("pre_tokens")),
-                "post_tokens": _int(event.payload.get("post_tokens")),
-                "before_messages": _int(event.payload.get("before_messages")),
-                "after_messages": _int(event.payload.get("after_messages")),
-                "dropped_messages": _int(event.payload.get("dropped_messages")),
-            },
+            compact_metadata=compact_metadata,
+            uuid=_text_field(event.payload, "uuid", "message_id", "messageId") or str(uuid.uuid4()),
         )
     if event.type == "session_state_changed":
         return _project_session_state_event(event, session_id=session_id, run_id=run_id)
