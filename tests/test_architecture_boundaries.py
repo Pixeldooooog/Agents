@@ -10,10 +10,14 @@ SDK_ROOT = ROOT / "src" / "agents" / "sdk"
 
 BUILTIN_REGISTRATION_FILES = {
     "execution_registration.py",
+    "automation_registration.py",
+    "collaboration_registration.py",
+    "development_registration.py",
     "extension_registration.py",
     "interaction_registration.py",
     "registration.py",
     "registration_helpers.py",
+    "runtime_registration.py",
     "state_registration.py",
     "src_origin_agent_aliases.py",
     "src_origin_discovery_aliases.py",
@@ -218,10 +222,14 @@ def test_agent_capabilities_expose_builtin_tool_boundaries():
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.context") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.sandbox.local") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.sandbox.docker") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.automation_registration") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.collaboration_registration") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.development_registration") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.execution_registration") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.extension_registration") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.interaction_registration") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.registration_helpers") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.runtime_registration") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.state_registration") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_agent_aliases") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.src_origin_discovery_aliases") is not None
@@ -238,10 +246,14 @@ def test_agent_capabilities_expose_builtin_tool_boundaries():
 
 def test_builtin_tool_registration_stays_modular():
     limits = {
+        BUILTIN_TOOL_ROOT / "automation_registration.py": 310,
+        BUILTIN_TOOL_ROOT / "collaboration_registration.py": 170,
+        BUILTIN_TOOL_ROOT / "development_registration.py": 260,
         BUILTIN_TOOL_ROOT / "registration.py": 90,
-        BUILTIN_TOOL_ROOT / "execution_registration.py": 900,
+        BUILTIN_TOOL_ROOT / "execution_registration.py": 80,
         BUILTIN_TOOL_ROOT / "extension_registration.py": 320,
         BUILTIN_TOOL_ROOT / "interaction_registration.py": 170,
+        BUILTIN_TOOL_ROOT / "runtime_registration.py": 170,
         BUILTIN_TOOL_ROOT / "state_registration.py": 280,
         BUILTIN_TOOL_ROOT / "src_origin_agent_aliases.py": 900,
         BUILTIN_TOOL_ROOT / "mcp" / "registration.py": 400,

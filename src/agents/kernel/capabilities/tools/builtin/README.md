@@ -7,10 +7,14 @@ This package separates registry wiring from tool behavior.
 These files should only bind schemas, aliases, metadata, and handlers into `ToolRegistry`:
 
 - `registration.py`
+- `automation_registration.py`
+- `collaboration_registration.py`
+- `development_registration.py`
 - `execution_registration.py`
 - `extension_registration.py`
 - `interaction_registration.py`
 - `registration_helpers.py`
+- `runtime_registration.py`
 - `state_registration.py`
 - `web_registration.py`
 - `workspace_registration.py`
