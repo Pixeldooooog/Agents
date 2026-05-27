@@ -444,6 +444,7 @@ apps/terminal/src/
 
 - `agents.interfaces.bridge.ndjson`：Terminal 与 kernel/platform 的本地 NDJSON 协议适配。
 - `agents.interfaces.bridge.fallback`：仅用于调试的 Python fallback 终端入口。
+- `payloads.py` 保留 bridge payload 聚合入口；`payload_format.py` 放 session/message/format helpers；`payload_tools.py` 放 tool 和 permission payload 逻辑。
 - 解析本地 profile、workspace、permission、model profile 参数。
 - 将 slash commands 转为 session 操作。
 
@@ -451,6 +452,7 @@ apps/terminal/src/
 
 - 本地交互不需要走 HTTP round trip，但 UI 也不应该直接 import kernel 内部 Python 对象。
 - bridge 把“本地进程协议”和“agent SDK 装配”收束在 Python 侧，保持 `agents.kernel` 不依赖 UI。
+- payload 层按 domain 拆分后，slash/NDJSON 仍可从聚合入口导入，但 tool/permission 细节和通用格式化 helper 不再堆进一个大文件。
 
 后续方向：
 

@@ -1,17 +1,35 @@
 from __future__ import annotations
 
-import datetime
 import json
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
-from agents.interfaces.bridge.sessions import TerminalSessionRecord, session_model_label
+from agents.interfaces.bridge.payload_format import (
+    _catalog_count,
+    _compact_text,
+    _context_layer_counts,
+    _csv_setting,
+    _join_limited,
+    _safe_len,
+    estimate_session_tokens,
+    format_timestamp,
+    messages_payload,
+    model_base_url,
+    model_endpoint,
+    parse_positive_int,
+    session_records_payload,
+    short_path,
+    short_session_id,
+)
+from agents.interfaces.bridge.payload_tools import (
+    _is_mcp_tool_name,
+    _mcp_summary,
+    permissions_payload,
+    tools_payload,
+)
 from agents.kernel.config import active_profile_name
 from agents.kernel.config.paths import ENV_FILE
 from agents.kernel.governance import classify_tool_risk
-from agents.kernel.schema import ToolSpec
-from agents.kernel.schema import Message
 from agents.kernel.capabilities.tools.builtin.commands import command_discover
 from agents.kernel.capabilities.tools.builtin.workflows import workflow_templates
 from agents.platform.commands import COMMANDS, SlashCommand
@@ -436,43 +454,6 @@ def mcp_payload(state: Any) -> list[list[str]]:
     return rows
 
 
-def tools_payload(state: Any) -> list[list[str]]:
-    active_tools = [str(name) for name in getattr(state, "active_tools", [])]
-    if not active_tools:
-        return [["tools", "none enabled"]]
-
-    registry = getattr(getattr(getattr(state, "session", None), "runtime", None), "tools", None)
-    rows: list[list[str]] = []
-    for name in active_tools:
-        spec = _tool_spec(registry, name)
-        rows.append([name, _tool_detail(name, spec)])
-    return rows
-
-
-def permissions_payload(state: Any) -> list[list[str]]:
-    active_tools = [str(name) for name in getattr(state, "active_tools", [])]
-    approval_tools = [str(name) for name in getattr(state, "approval_tools", [])]
-    high_risk_tools = [
-        name
-        for name in active_tools
-        if classify_tool_risk(name).value in {"high", "critical"}
-    ]
-    agent_settings = getattr(state.settings, "agent", None)
-    mcp_settings = getattr(state.settings, "mcp", None)
-    rows = [
-        ["profile", str(getattr(state, "permission", "") or "guarded")],
-        ["runtime_mode", str(getattr(state, "permission_mode", "") or "auto")],
-        ["approval_required", _join_limited(approval_tools) if approval_tools else "none"],
-        ["active_tools", str(len(active_tools))],
-        ["high_risk_tools", _join_limited(high_risk_tools) if high_risk_tools else "none"],
-        ["sandbox_profile", str(getattr(agent_settings, "SANDBOX_PROFILE", "") or "-")],
-        ["sandbox_provider", str(getattr(agent_settings, "SANDBOX_PROVIDER", "") or "local")],
-        ["sandbox_allowed_commands", _join_limited(_csv_setting(getattr(agent_settings, "SANDBOX_ALLOWED_COMMANDS", "")))],
-        ["mcp_execution_mode", str(getattr(mcp_settings, "EXECUTION_MODE", "") or "-")],
-    ]
-    return rows
-
-
 async def memory_payload(state: Any) -> list[list[str]]:
     workspace = getattr(state.session, "workspace", None)
     if workspace is None or not workspace.tenant_id or not workspace.user_id:
@@ -492,114 +473,6 @@ async def memory_payload(state: Any) -> list[list[str]]:
             content = content[:117] + "..."
         rows.append([record.memory_id.replace("mem_", "", 1)[:12], "%s · %s" % (record.scope.value, content)])
     return rows
-
-
-def _tool_spec(registry: Any, name: str) -> ToolSpec | None:
-    if registry is None or not hasattr(registry, "specs"):
-        return None
-    try:
-        specs = list(registry.specs([name]))
-    except Exception:
-        return None
-    return specs[0] if specs else None
-
-
-def _tool_detail(name: str, spec: ToolSpec | None) -> str:
-    metadata = _tool_metadata(spec)
-    source = str(metadata.get("source") or _tool_source(name, spec))
-    risk = str(metadata.get("risk") or classify_tool_risk(name).value)
-    flags = _tool_flags(metadata)
-    description = _compact_text(str(getattr(spec, "description", "") or ""))
-    parts = ["enabled", source, "risk %s" % risk, flags, description]
-    return " · ".join(part for part in parts if part)
-
-
-def _tool_metadata(spec: ToolSpec | None) -> dict[str, Any]:
-    raw = getattr(spec, "raw", None)
-    if isinstance(raw, dict) and isinstance(raw.get("metadata"), dict):
-        return dict(raw["metadata"])
-    return {}
-
-
-def _tool_source(name: str, spec: ToolSpec | None) -> str:
-    if _is_mcp_tool_name(name) or name.startswith("mcp."):
-        return "mcp"
-    if name.startswith("memory."):
-        return "memory"
-    if name.startswith("skill."):
-        return "skill"
-    if name.startswith("tool."):
-        return "meta"
-    if name.startswith("todo."):
-        return "todo"
-    if name.startswith("plan."):
-        return "plan"
-    if name.startswith("task."):
-        return "task"
-    if name.startswith("agent."):
-        return "agent"
-    source = str(getattr(spec, "source", "") or "")
-    return source if source and source != "registry" else "builtin"
-
-
-def _tool_flags(metadata: dict[str, Any]) -> str:
-    flags = []
-    if metadata.get("writes_files"):
-        flags.append("writes")
-    if metadata.get("writes_state"):
-        flags.append("state")
-    if metadata.get("requires_process"):
-        flags.append("process")
-    if metadata.get("requires_network"):
-        flags.append("network")
-    if metadata.get("spawns_agent"):
-        flags.append("agent")
-    if metadata.get("model_call"):
-        flags.append("model")
-    return ", ".join(flags)
-
-
-def _compact_text(value: str, limit: int = 96) -> str:
-    text = " ".join(str(value or "").split())
-    if len(text) <= limit:
-        return text
-    return text[: limit - 3].rstrip() + "..."
-
-
-def _context_layer_counts(items: list[Any]) -> str:
-    counts: dict[str, int] = {}
-    for item in items:
-        layer = getattr(getattr(item, "layer", ""), "value", getattr(item, "layer", ""))
-        key = str(layer or "unknown")
-        counts[key] = counts.get(key, 0) + 1
-    return ", ".join("%s:%s" % (key, value) for key, value in sorted(counts.items())) or "none"
-
-
-def _safe_len(factory) -> int:
-    try:
-        return len(factory())
-    except Exception:
-        return 0
-
-
-def _catalog_count(rows: list[list[str]], sentinel: str) -> int:
-    if len(rows) == 1 and rows[0][0] == sentinel and ("none" in rows[0][1] or "not " in rows[0][1]):
-        return 0
-    return len(rows)
-
-
-def _mcp_summary(state: Any) -> str:
-    mcp_settings = getattr(state.settings, "mcp", None)
-    command = str(getattr(mcp_settings, "SERVER_COMMAND", "") or "").strip()
-    url = str(getattr(mcp_settings, "SERVER_URL", "") or "").strip()
-    if not command and not url:
-        return "not configured"
-    count = len([name for name in getattr(state, "active_tools", []) if _is_mcp_tool_name(name)])
-    return "%s · %s tools" % (getattr(mcp_settings, "SERVER_NAME", "") or "default", count)
-
-
-def _is_mcp_tool_name(name: Any) -> bool:
-    return str(name).startswith("mcp_")
 
 
 def _plugin_manifest_row(manifest_path: Path, enabled: set[str] | None = None) -> list[str]:
@@ -647,96 +520,3 @@ def _task_detail(task: Any) -> str:
 
 def _short_task_id(task_id: str) -> str:
     return str(task_id).replace("task_", "", 1)[:12]
-
-
-def _join_limited(values: list[str], limit: int = 6) -> str:
-    if not values:
-        return "none"
-    shown = values[:limit]
-    suffix = " +%s more" % (len(values) - limit) if len(values) > limit else ""
-    return ", ".join(shown) + suffix
-
-
-def session_records_payload(records: list[TerminalSessionRecord]) -> list[dict[str, str]]:
-    return [
-        {
-            "id": record.session_id,
-            "short_id": short_session_id(record.session_id),
-            "updated": format_timestamp(record.updated_at),
-            "model": record.model,
-            "messages": str(record.message_count),
-            "workspace": short_path(record.workspace_path) if record.workspace_path else "",
-        }
-        for record in records
-    ]
-
-
-def messages_payload(messages: list[Message]) -> list[dict[str, str]]:
-    rows: list[dict[str, str]] = []
-    for message in messages:
-        role = str(message.role)
-        if role == "system":
-            continue
-        content = message.content_text()
-        if not content and message.tool_calls:
-            content = "tool calls: %s" % ", ".join(call.name for call in message.tool_calls)
-        if not content:
-            continue
-        rows.append({"role": role, "content": content})
-    return rows
-
-
-def estimate_session_tokens(session: Any) -> str:
-    try:
-        return str(session._estimate_tokens(getattr(session, "messages", [])))
-    except Exception:
-        return "unknown"
-
-
-def parse_positive_int(value: str) -> int | None:
-    text = str(value or "").strip()
-    if not text:
-        return None
-    try:
-        parsed = int(text)
-    except ValueError:
-        return None
-    return parsed if parsed > 0 else None
-
-
-def _csv_setting(raw: str) -> list[str]:
-    return [item.strip() for item in str(raw or "").split(",") if item.strip()]
-
-
-def short_session_id(session_id: str) -> str:
-    return str(session_id).replace("session_", "", 1)
-
-
-def format_timestamp(value: float) -> str:
-    if not value:
-        return ""
-    return datetime.datetime.fromtimestamp(value).strftime("%Y-%m-%d %H:%M")
-
-
-def model_base_url(session: Any) -> str:
-    runtime = getattr(session, "runtime", None)
-    model_client = getattr(runtime, "model_client", None)
-    config = getattr(model_client, "config", None)
-    return str(getattr(config, "base_url", "") or "")
-
-
-def model_endpoint(session: Any) -> str:
-    base_url = model_base_url(session)
-    if not base_url:
-        return ""
-    parsed = urlparse(base_url)
-    return parsed.netloc or base_url
-
-
-def short_path(path: str) -> str:
-    try:
-        value = Path(path).expanduser()
-        home = Path.home()
-        return "~/%s" % value.relative_to(home) if value.is_relative_to(home) else str(value)
-    except Exception:
-        return str(path)

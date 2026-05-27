@@ -658,6 +658,21 @@ def test_bridge_slash_commands_stay_split_by_domain():
         assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
 
 
+def test_bridge_payloads_stay_split_by_domain():
+    bridge_root = ROOT / "src" / "agents" / "interfaces" / "bridge"
+    for module in ["payloads", "payload_format", "payload_tools"]:
+        assert importlib.util.find_spec(f"agents.interfaces.bridge.{module}") is not None
+
+    limits = {
+        bridge_root / "payloads.py": 560,
+        bridge_root / "payload_format.py": 150,
+        bridge_root / "payload_tools.py": 150,
+    }
+
+    for path, max_lines in limits.items():
+        assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
+
+
 def test_agent_models_split_protocol_adapters_and_transports():
     assert importlib.util.find_spec("agents.kernel.models.adapters") is not None
     assert importlib.util.find_spec("agents.kernel.models.protocol") is not None
