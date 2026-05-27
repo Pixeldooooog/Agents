@@ -1,148 +1,63 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import inspect
-import json
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
-from typing import Any, Literal, Optional
+from typing import Any
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
+from agents.sdk.ccr_auth import decode_jwt_expiry, extract_bearer_token
+from agents.sdk.ccr_stream import (
+    SDKCCRStreamAccumulator,
+    accumulate_stream_events,
+    clear_stream_accumulator_for_message,
+)
+from agents.sdk.ccr_types import (
+    CCR_GET_BASE_DELAY_SECONDS,
+    CCR_GET_MAX_ATTEMPTS,
+    CCR_GET_MAX_DELAY_SECONDS,
+    CCR_HEARTBEAT_INTERVAL_SECONDS,
+    CCR_MAX_CONSECUTIVE_AUTH_FAILURES,
+    CCR_STREAM_EVENT_FLUSH_INTERVAL_SECONDS,
+    CCR_UPLOAD_BASE_DELAY_SECONDS,
+    CCR_UPLOAD_MAX_DELAY_SECONDS,
+    SDKCCRAuthFailureError,
+    SDKCCRDeliveryStatus,
+    SDKCCREpochMismatchError,
+    SDKCCRInitError,
+    SDKCCRRequestHandler,
+    SDKCCRRequestResult,
+    SDKCCRShutdownError,
+    SDKCCRShutdownHandler,
+    SDKCCRShutdownReason,
+)
+from agents.sdk.ccr_worker_state import SDKWorkerStateUploader
 from agents.sdk.transports import SDKRetryableBatchError, SDKSerialBatchUploader
 
 
-CCR_HEARTBEAT_INTERVAL_SECONDS = 20.0
-CCR_UPLOAD_BASE_DELAY_SECONDS = 0.5
-CCR_UPLOAD_MAX_DELAY_SECONDS = 30.0
-CCR_WORKER_STATE_BASE_DELAY_SECONDS = 0.5
-CCR_WORKER_STATE_MAX_DELAY_SECONDS = 30.0
-CCR_STREAM_EVENT_FLUSH_INTERVAL_SECONDS = 0.1
-CCR_GET_MAX_ATTEMPTS = 10
-CCR_GET_BASE_DELAY_SECONDS = 0.5
-CCR_GET_MAX_DELAY_SECONDS = 30.0
-CCR_MAX_CONSECUTIVE_AUTH_FAILURES = 10
-
-
-SDKCCRDeliveryStatus = Literal["received", "processing", "processed"]
-SDKCCRShutdownReason = Literal[
-    "epoch_mismatch",
-    "auth_expired",
-    "auth_failures_exhausted",
+__all__ = [
+    "CCR_GET_BASE_DELAY_SECONDS",
+    "CCR_GET_MAX_ATTEMPTS",
+    "CCR_GET_MAX_DELAY_SECONDS",
+    "CCR_HEARTBEAT_INTERVAL_SECONDS",
+    "CCR_MAX_CONSECUTIVE_AUTH_FAILURES",
+    "CCR_STREAM_EVENT_FLUSH_INTERVAL_SECONDS",
+    "CCR_UPLOAD_BASE_DELAY_SECONDS",
+    "CCR_UPLOAD_MAX_DELAY_SECONDS",
+    "SDKCCRAuthFailureError",
+    "SDKCCRClient",
+    "SDKCCRDeliveryStatus",
+    "SDKCCREpochMismatchError",
+    "SDKCCRInitError",
+    "SDKCCRRequestHandler",
+    "SDKCCRRequestResult",
+    "SDKCCRShutdownError",
+    "SDKCCRShutdownHandler",
+    "SDKCCRShutdownReason",
+    "SDKWorkerStateUploader",
 ]
-SDKCCRShutdownHandler = Callable[[SDKCCRShutdownReason], Any]
-SDKCCRRequestHandler = Callable[
-    [str, str, Mapping[str, str], Optional[dict[str, Any]]],
-    Awaitable["SDKCCRRequestResult"],
-]
-
-
-class SDKCCRInitError(RuntimeError):
-    """Raised when a CCR worker cannot be initialized."""
-
-
-class SDKCCRShutdownError(RuntimeError):
-    """Raised when CCR reports this worker must shut down."""
-
-    def __init__(self, reason: SDKCCRShutdownReason, message: str | None = None) -> None:
-        self.reason = reason
-        super().__init__(message or reason)
-
-
-class SDKCCREpochMismatchError(SDKCCRShutdownError):
-    """Raised when CCR reports that this worker epoch was superseded."""
-
-    def __init__(self) -> None:
-        super().__init__("epoch_mismatch", "worker epoch mismatch")
-
-
-class SDKCCRAuthFailureError(SDKCCRShutdownError):
-    """Raised when CCR authentication is terminal for this worker."""
-
-
-class SDKCCRRequestResult:
-    def __init__(
-        self,
-        ok: bool,
-        *,
-        status: int | None = None,
-        data: Any = None,
-        retry_after_seconds: float | None = None,
-    ) -> None:
-        self.ok = ok
-        self.status = status
-        self.data = data
-        self.retry_after_seconds = retry_after_seconds
-
-
-class _SDKCCRStreamAccumulator:
-    def __init__(self) -> None:
-        self.by_message: dict[str, dict[int, list[str]]] = {}
-        self.scope_to_message: dict[str, str] = {}
-
-
-class SDKWorkerStateUploader:
-    """Coalescing uploader for CCR worker state patches."""
-
-    def __init__(
-        self,
-        send: Callable[[dict[str, Any]], Awaitable[bool]],
-        *,
-        base_delay_seconds: float = CCR_WORKER_STATE_BASE_DELAY_SECONDS,
-        max_delay_seconds: float = CCR_WORKER_STATE_MAX_DELAY_SECONDS,
-        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
-    ) -> None:
-        self._send = send
-        self._base_delay_seconds = base_delay_seconds
-        self._max_delay_seconds = max_delay_seconds
-        self._sleep = sleep
-        self._pending: dict[str, Any] | None = None
-        self._drain_task: asyncio.Task[None] | None = None
-        self._closed = False
-
-    @property
-    def pending_count(self) -> int:
-        return 0 if self._pending is None else 1
-
-    def enqueue(self, patch: dict[str, Any]) -> None:
-        if self._closed:
-            return
-        self._pending = _coalesce_worker_state_patches(self._pending or {}, patch)
-        if self._drain_task is None or self._drain_task.done():
-            self._drain_task = asyncio.create_task(self._drain())
-
-    async def flush(self) -> None:
-        if self._drain_task is not None:
-            await self._drain_task
-
-    def close(self) -> None:
-        self._closed = True
-        self._pending = None
-        if self._drain_task is not None and not self._drain_task.done():
-            self._drain_task.cancel()
-
-    async def _drain(self) -> None:
-        try:
-            while self._pending is not None and not self._closed:
-                current = self._pending
-                self._pending = None
-                failures = 0
-                while not self._closed:
-                    if await self._send(current):
-                        break
-                    failures += 1
-                    await self._sleep(
-                        min(
-                            self._base_delay_seconds * (2 ** (failures - 1)),
-                            self._max_delay_seconds,
-                        )
-                    )
-                    if self._pending is not None:
-                        current = _coalesce_worker_state_patches(current, self._pending)
-                        self._pending = None
-        except asyncio.CancelledError:
-            pass
 
 
 class SDKCCRClient:
@@ -188,7 +103,7 @@ class SDKCCRClient:
         self._http_client = None
         self._stream_event_buffer: list[dict[str, Any]] = []
         self._stream_event_task: asyncio.Task[None] | None = None
-        self._stream_text_accumulator = _SDKCCRStreamAccumulator()
+        self._stream_text_accumulator = SDKCCRStreamAccumulator()
         self.worker_state = SDKWorkerStateUploader(
             self._send_worker_state,
             sleep=sleep,
@@ -281,7 +196,7 @@ class SDKCCRClient:
             return
         await self._flush_stream_event_buffer()
         if message.get("type") == "assistant":
-            _clear_stream_accumulator_for_message(self._stream_text_accumulator, message)
+            clear_stream_accumulator_for_message(self._stream_text_accumulator, message)
         await self.event_uploader.enqueue([self._client_event(message)])
 
     async def write_internal_event(
@@ -458,7 +373,7 @@ class SDKCCRClient:
             return
         buffered = self._stream_event_buffer
         self._stream_event_buffer = []
-        payloads = _accumulate_stream_events(buffered, self._stream_text_accumulator)
+        payloads = accumulate_stream_events(buffered, self._stream_text_accumulator)
         await self.event_uploader.enqueue(
             [{**self._client_event(payload), "ephemeral": True} for payload in payloads]
         )
@@ -520,7 +435,7 @@ class SDKCCRClient:
         if status not in {401, 403}:
             return
         token = self._current_auth_token(headers)
-        expiry = _decode_jwt_expiry(token) if token else None
+        expiry = decode_jwt_expiry(token) if token else None
         if expiry is not None and expiry < self._now():
             await self._trigger_shutdown("auth_expired")
             raise SDKCCRAuthFailureError(
@@ -538,7 +453,7 @@ class SDKCCRClient:
     def _current_auth_token(self, headers: Mapping[str, str]) -> str | None:
         if self._get_auth_token is not None:
             return self._get_auth_token()
-        return _extract_bearer_token(headers)
+        return extract_bearer_token(headers)
 
     async def _trigger_shutdown(self, reason: SDKCCRShutdownReason) -> None:
         if self.shutdown_reason is None:
@@ -612,110 +527,6 @@ class SDKCCRClient:
         return self._http_client
 
 
-def _coalesce_worker_state_patches(
-    base: dict[str, Any],
-    overlay: dict[str, Any],
-) -> dict[str, Any]:
-    merged = dict(base)
-    for key, value in overlay.items():
-        if (
-            key in {"external_metadata", "internal_metadata"}
-            and isinstance(merged.get(key), dict)
-            and isinstance(value, dict)
-        ):
-            merged[key] = {**merged[key], **value}
-        else:
-            merged[key] = value
-    return merged
-
-
-def _accumulate_stream_events(
-    buffer: list[dict[str, Any]],
-    state: _SDKCCRStreamAccumulator,
-) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    touched: dict[tuple[str, int], dict[str, Any]] = {}
-    for message in buffer:
-        event = message.get("event")
-        if not isinstance(event, dict):
-            out.append(message)
-            continue
-        event_type = event.get("type")
-        if event_type == "message_start":
-            event_message = event.get("message")
-            message_id = event_message.get("id") if isinstance(event_message, dict) else None
-            if not isinstance(message_id, str):
-                out.append(message)
-                continue
-            previous_id = state.scope_to_message.get(_stream_scope_key(message))
-            if previous_id:
-                state.by_message.pop(previous_id, None)
-            state.scope_to_message[_stream_scope_key(message)] = message_id
-            state.by_message[message_id] = {}
-            out.append(message)
-            continue
-        if event_type != "content_block_delta":
-            out.append(message)
-            continue
-        delta = event.get("delta")
-        if not isinstance(delta, dict) or delta.get("type") != "text_delta":
-            out.append(message)
-            continue
-        text = delta.get("text")
-        if not isinstance(text, str):
-            out.append(message)
-            continue
-        message_id = state.scope_to_message.get(_stream_scope_key(message))
-        blocks = state.by_message.get(message_id or "")
-        if blocks is None:
-            out.append(message)
-            continue
-        index = event.get("index")
-        if not isinstance(index, int):
-            out.append(message)
-            continue
-        chunks = blocks.setdefault(index, [])
-        chunks.append(text)
-        touched_key = (message_id or "", index)
-        existing = touched.get(touched_key)
-        if existing is not None:
-            existing_event = existing["event"]
-            existing_event["delta"]["text"] = "".join(chunks)
-            continue
-        snapshot = {
-            "type": "stream_event",
-            "uuid": message.get("uuid") if isinstance(message.get("uuid"), str) else str(uuid.uuid4()),
-            "session_id": message.get("session_id"),
-            "parent_tool_use_id": message.get("parent_tool_use_id"),
-            "event": {
-                "type": "content_block_delta",
-                "index": index,
-                "delta": {"type": "text_delta", "text": "".join(chunks)},
-            },
-        }
-        touched[touched_key] = snapshot
-        out.append(snapshot)
-    return out
-
-
-def _clear_stream_accumulator_for_message(
-    state: _SDKCCRStreamAccumulator,
-    assistant: dict[str, Any],
-) -> None:
-    message = assistant.get("message")
-    message_id = message.get("id") if isinstance(message, dict) else None
-    if not isinstance(message_id, str):
-        return
-    state.by_message.pop(message_id, None)
-    scope = _stream_scope_key(assistant)
-    if state.scope_to_message.get(scope) == message_id:
-        state.scope_to_message.pop(scope, None)
-
-
-def _stream_scope_key(message: Mapping[str, Any]) -> str:
-    return f"{message.get('session_id')}:{message.get('parent_tool_use_id') or ''}"
-
-
 def _path_with_query(
     path: str,
     params: Mapping[str, str],
@@ -728,36 +539,6 @@ def _path_with_query(
     if not query_params:
         return path
     return f"{path}?{urlencode(query_params)}"
-
-
-def _extract_bearer_token(headers: Mapping[str, str]) -> str | None:
-    for key, value in headers.items():
-        if key.lower() != "authorization" or not isinstance(value, str):
-            continue
-        prefix = "bearer "
-        if value.lower().startswith(prefix):
-            token = value[len(prefix) :].strip()
-            return token or None
-    return None
-
-
-def _decode_jwt_expiry(token: str | None) -> float | None:
-    if not token:
-        return None
-    parts = token.split(".")
-    if len(parts) < 2:
-        return None
-    payload = parts[1]
-    padding = "=" * (-len(payload) % 4)
-    try:
-        decoded = base64.urlsafe_b64decode(f"{payload}{padding}")
-        data = json.loads(decoded.decode("utf-8"))
-    except Exception:
-        return None
-    expiry = data.get("exp") if isinstance(data, dict) else None
-    if isinstance(expiry, (int, float)):
-        return float(expiry)
-    return None
 
 
 def _normalize_session_url(session_url: str) -> str:

@@ -98,6 +98,7 @@ SDK_FACADE_OR_WIRING_FILES = {
 
 SDK_CONTRACT_FILES = {
     "control.py",
+    "ccr_types.py",
     "transport_types.py",
     "types.py",
 }
@@ -105,7 +106,10 @@ SDK_CONTRACT_FILES = {
 
 SDK_IMPLEMENTATION_FILES = {
     "async_messages.py",
+    "ccr_auth.py",
     "ccr.py",
+    "ccr_stream.py",
+    "ccr_worker_state.py",
     "event_artifacts.py",
     "event_auth.py",
     "event_fields.py",
@@ -430,6 +434,22 @@ def test_sdk_files_have_declared_architecture_roles():
     }
     expected = SDK_FACADE_OR_WIRING_FILES | SDK_CONTRACT_FILES | SDK_IMPLEMENTATION_FILES
     assert actual == expected
+
+
+def test_sdk_ccr_stays_split_by_responsibility():
+    for module in ["ccr", "ccr_types", "ccr_auth", "ccr_stream", "ccr_worker_state"]:
+        assert importlib.util.find_spec(f"agents.sdk.{module}") is not None
+
+    limits = {
+        SDK_ROOT / "ccr.py": 560,
+        SDK_ROOT / "ccr_types.py": 120,
+        SDK_ROOT / "ccr_auth.py": 80,
+        SDK_ROOT / "ccr_stream.py": 140,
+        SDK_ROOT / "ccr_worker_state.py": 130,
+    }
+
+    for path, max_lines in limits.items():
+        assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
 
 
 def test_sdk_transports_stay_split_by_protocol():
