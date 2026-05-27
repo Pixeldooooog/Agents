@@ -28,6 +28,11 @@ from agents.kernel.capabilities.tools.builtin.worktree_state import (
     restore_active_worktree_session,
     switch_workspace,
 )
+from agents.kernel.capabilities.tools.builtin.worktree_tmux import (
+    create_worktree_tmux_session,
+    kill_worktree_tmux_session,
+    tmux_keep_note,
+)
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.session_state import save_session_state
 
@@ -106,6 +111,7 @@ async def enter_worktree(
             symlink_directories=settings["symlink_directories"],
         )
     worktree_head = git(worktree_path, ["rev-parse", "HEAD"]).stdout.strip()
+    tmux = create_worktree_tmux_session(context, repo_root, worktree_path, branch)
 
     session = {
         "originalCwd": str(repo_root),
@@ -117,6 +123,7 @@ async def enter_worktree(
         "usedSparsePaths": bool(settings["sparse_paths"] and not existed),
         "prNumber": resolved_pr_number,
         **post_create,
+        **tmux,
     }
     context.active_worktree_session = session
     switch_workspace(context, worktree_path)
@@ -135,6 +142,9 @@ async def enter_worktree(
         "prNumber": resolved_pr_number,
         "baseRef": base_ref,
         "headCommit": worktree_head,
+        "tmuxSessionName": str(tmux.get("tmuxSessionName") or ""),
+        "tmuxCreated": bool(tmux.get("tmuxCreated", False)),
+        "tmuxError": str(tmux.get("tmuxError") or ""),
         "message": "%s worktree at %s on branch %s. Session is now using that worktree." % (action, worktree_path, branch),
     }
 
@@ -181,15 +191,18 @@ async def exit_worktree(context: ToolRuntimeContext, action: str, discard_change
 
     if normalized_action == "keep":
         await save_session_state(context)
+        tmux_name = str(session.get("tmuxSessionName") or "")
         return {
             "action": "keep",
             "originalCwd": str(original_cwd),
             "worktreePath": str(worktree_path),
             "worktreeBranch": branch,
-            "message": "Exited worktree. Your work is preserved at %s%s. Session is now back in %s."
-            % (worktree_path, " on branch %s" % branch if branch else "", original_cwd),
+            "tmuxSessionName": tmux_name,
+            "message": "Exited worktree. Your work is preserved at %s%s. Session is now back in %s.%s"
+            % (worktree_path, " on branch %s" % branch if branch else "", original_cwd, tmux_keep_note(tmux_name)),
         }
 
+    tmux = kill_worktree_tmux_session(str(session.get("tmuxSessionName") or ""))
     remove = git(original_cwd, ["worktree", "remove", "--force", str(worktree_path)], check=False, timeout=60)
     if remove.returncode != 0:
         context.active_worktree_session = session
@@ -216,6 +229,9 @@ async def exit_worktree(context: ToolRuntimeContext, action: str, discard_change
         "worktreeBranch": branch,
         "discardedFiles": changed_files,
         "discardedCommits": commits,
+        "tmuxSessionName": str(tmux.get("tmuxSessionName") or ""),
+        "tmuxTerminated": bool(tmux.get("tmuxTerminated", False)),
+        "tmuxError": str(tmux.get("tmuxError") or ""),
         "message": "Exited and removed worktree at %s.%s Session is now back in %s.%s"
         % (worktree_path, discard_note, original_cwd, warning),
     }

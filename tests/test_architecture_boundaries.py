@@ -92,6 +92,7 @@ BUILTIN_IMPLEMENTATION_FILES = {
     "worktree_naming.py",
     "worktree_setup.py",
     "worktree_state.py",
+    "worktree_tmux.py",
     "mcp/ide.py",
     "mcp/management.py",
     "mcp/prompts.py",
@@ -525,6 +526,7 @@ def test_builtin_worktree_domain_stays_split_by_responsibility():
         BUILTIN_TOOL_ROOT / "worktree_naming.py": 120,
         BUILTIN_TOOL_ROOT / "worktree_setup.py": 260,
         BUILTIN_TOOL_ROOT / "worktree_state.py": 150,
+        BUILTIN_TOOL_ROOT / "worktree_tmux.py": 130,
     }
 
     for path, max_lines in limits.items():
