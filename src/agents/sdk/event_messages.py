@@ -27,6 +27,7 @@ from agents.sdk.types import (
     SDKHookStartedMessage,
     SDKLocalCommandOutputMessage,
     SDKMessage,
+    SDKModelRecoveryMessage,
     SDKPostTurnSummaryMessage,
     SDKPromptSuggestionMessage,
     SDKRateLimitEventMessage,
@@ -95,6 +96,18 @@ def _project_runtime_event(
             error_status=_retry_error_status(event.payload),
             error=_retry_error_payload(event.payload),
             metadata=dict(event.payload),
+        )
+    if event.type == "model_recovery":
+        return SDKModelRecoveryMessage(
+            session_id=session_id,
+            run_id=run_id,
+            reason=event.name or _text_field(event.payload, "reason"),
+            attempt=_int(event.payload.get("attempt")),
+            max_attempts=_int(event.payload.get("max_attempts", event.payload.get("maxAttempts"))),
+            stop_reason=_text_field(event.payload, "stop_reason", "stopReason"),
+            message=_text_field(event.payload, "message"),
+            metadata=dict(event.payload),
+            uuid=_text_field(event.payload, "uuid", "message_id", "messageId") or str(uuid.uuid4()),
         )
     if event.type == "rate_limit_event":
         rate_limit_info = event.payload.get("rate_limit_info") or event.payload.get("rateLimitInfo") or {}

@@ -193,6 +193,18 @@ class SDKAPIRetryMessage(SDKBaseMessage):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class SDKModelRecoveryMessage(SDKBaseMessage):
+    type: Literal["system"] = "system"
+    subtype: Literal["model_recovery"] = "model_recovery"
+    reason: str = ""
+    attempt: int = 0
+    max_attempts: int = 0
+    stop_reason: str = ""
+    message: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    uuid: str = Field(default_factory=lambda: str(uuid4()))
+
+
 class SDKCompactBoundaryMessage(SDKBaseMessage):
     type: Literal["system"] = "system"
     subtype: Literal["compact_boundary"] = "compact_boundary"
@@ -455,6 +467,7 @@ SDKMessage = Union[
     SDKSystemMessage,
     SDKStreamEventMessage,
     SDKAPIRetryMessage,
+    SDKModelRecoveryMessage,
     SDKCompactBoundaryMessage,
     SDKAuthStatusMessage,
     SDKRateLimitEventMessage,
