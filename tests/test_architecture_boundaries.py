@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILTIN_TOOL_ROOT = ROOT / "src" / "agents" / "kernel" / "capabilities" / "tools" / "builtin"
+SDK_ROOT = ROOT / "src" / "agents" / "sdk"
 
 
 BUILTIN_REGISTRATION_FILES = {
@@ -71,6 +72,45 @@ BUILTIN_IMPLEMENTATION_FILES = {
     "mcp/management.py",
     "mcp/prompts.py",
     "mcp/resources.py",
+}
+
+
+SDK_FACADE_OR_WIRING_FILES = {
+    "client.py",
+    "control_handlers.py",
+    "control_payloads.py",
+    "event_projection.py",
+    "transports.py",
+}
+
+
+SDK_CONTRACT_FILES = {
+    "control.py",
+    "transport_types.py",
+    "types.py",
+}
+
+
+SDK_IMPLEMENTATION_FILES = {
+    "async_messages.py",
+    "ccr.py",
+    "event_artifacts.py",
+    "event_auth.py",
+    "event_fields.py",
+    "event_messages.py",
+    "event_payloads.py",
+    "event_tasks.py",
+    "file_history.py",
+    "file_rewind.py",
+    "mcp/control.py",
+    "options.py",
+    "runtime_io.py",
+    "session_records.py",
+    "structured_io.py",
+    "transport_hybrid.py",
+    "transport_queue.py",
+    "transport_sse.py",
+    "transport_websocket.py",
 }
 
 
@@ -274,13 +314,18 @@ def test_mcp_provider_stays_split_by_responsibility():
 
 
 def test_sdk_client_stays_split_by_responsibility():
-    sdk_root = ROOT / "src" / "agents" / "sdk"
     for module in [
         "async_messages",
         "client",
         "control_handlers",
         "control_payloads",
+        "event_artifacts",
+        "event_auth",
+        "event_fields",
+        "event_messages",
+        "event_payloads",
         "event_projection",
+        "event_tasks",
         "file_history",
         "file_rewind",
         "options",
@@ -290,34 +335,49 @@ def test_sdk_client_stays_split_by_responsibility():
         assert importlib.util.find_spec(f"agents.sdk.{module}") is not None
 
     limits = {
-        sdk_root / "client.py": 950,
-        sdk_root / "async_messages.py": 100,
-        sdk_root / "control_handlers.py": 760,
-        sdk_root / "control_payloads.py": 420,
-        sdk_root / "event_projection.py": 1100,
-        sdk_root / "file_history.py": 900,
-        sdk_root / "file_rewind.py": 600,
-        sdk_root / "options.py": 170,
-        sdk_root / "runtime_io.py": 140,
-        sdk_root / "session_records.py": 140,
+        SDK_ROOT / "client.py": 950,
+        SDK_ROOT / "async_messages.py": 100,
+        SDK_ROOT / "control_handlers.py": 760,
+        SDK_ROOT / "control_payloads.py": 420,
+        SDK_ROOT / "event_artifacts.py": 120,
+        SDK_ROOT / "event_auth.py": 80,
+        SDK_ROOT / "event_fields.py": 140,
+        SDK_ROOT / "event_messages.py": 620,
+        SDK_ROOT / "event_payloads.py": 80,
+        SDK_ROOT / "event_projection.py": 120,
+        SDK_ROOT / "event_tasks.py": 260,
+        SDK_ROOT / "file_history.py": 900,
+        SDK_ROOT / "file_rewind.py": 600,
+        SDK_ROOT / "options.py": 170,
+        SDK_ROOT / "runtime_io.py": 140,
+        SDK_ROOT / "session_records.py": 140,
     }
 
     for path, max_lines in limits.items():
         assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
 
 
+def test_sdk_files_have_declared_architecture_roles():
+    actual = {
+        path.relative_to(SDK_ROOT).as_posix()
+        for path in SDK_ROOT.rglob("*.py")
+        if "__pycache__" not in path.parts and path.name != "__init__.py"
+    }
+    expected = SDK_FACADE_OR_WIRING_FILES | SDK_CONTRACT_FILES | SDK_IMPLEMENTATION_FILES
+    assert actual == expected
+
+
 def test_sdk_transports_stay_split_by_protocol():
-    sdk_root = ROOT / "src" / "agents" / "sdk"
     for module in ["transports", "transport_types", "transport_queue", "transport_sse", "transport_websocket", "transport_hybrid"]:
         assert importlib.util.find_spec(f"agents.sdk.{module}") is not None
 
     limits = {
-        sdk_root / "transports.py": 120,
-        sdk_root / "transport_types.py": 120,
-        sdk_root / "transport_queue.py": 80,
-        sdk_root / "transport_sse.py": 520,
-        sdk_root / "transport_websocket.py": 650,
-        sdk_root / "transport_hybrid.py": 420,
+        SDK_ROOT / "transports.py": 120,
+        SDK_ROOT / "transport_types.py": 120,
+        SDK_ROOT / "transport_queue.py": 80,
+        SDK_ROOT / "transport_sse.py": 520,
+        SDK_ROOT / "transport_websocket.py": 650,
+        SDK_ROOT / "transport_hybrid.py": 420,
     }
 
     for path, max_lines in limits.items():

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from agents.kernel.schema import RuntimeEvent
 from agents.kernel.state.runs import RunRecord
-from agents.sdk.event_projection import _first_non_empty, _millis
+from agents.sdk.event_fields import _first_non_empty, _millis
 from agents.sdk.file_rewind import _record_cwd
 from agents.sdk.types import SDKSessionInfo, SDKUserMessage
 

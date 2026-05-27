@@ -10,7 +10,7 @@ from agents.kernel.schema import ToolCall
 from agents.kernel.tasks import TaskRecord
 from agents.platform.commands import COMMANDS, command_names
 from agents.sdk.control import SDKControlInitializeRequest, SDKControlPermissionRequest
-from agents.sdk.event_projection import _json_list, _text_field
+from agents.sdk.event_fields import _json_list, _text_field
 from agents.sdk.file_rewind import _record_cwd
 from agents.sdk.options import _spec_from_options
 from agents.sdk.types import SDKOptions, SDKSystemMessage

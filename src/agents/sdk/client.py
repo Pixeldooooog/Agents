@@ -34,13 +34,10 @@ from agents.sdk.control import (
     validate_sdk_stdin_message,
 )
 from agents.sdk.control_handlers import SDKControlHandlersMixin
+from agents.sdk.event_fields import _duration_ms, _is_sdk_interrupt_cancel, _truncate
+from agents.sdk.event_messages import _project_session_state_event, _session_state_event
 from agents.sdk.event_projection import (
-    _duration_ms,
-    _is_sdk_interrupt_cancel,
     _project_runtime_event_messages,
-    _project_session_state_event,
-    _session_state_event,
-    _truncate,
 )
 from agents.sdk.file_history import (
     _SDKReadStateSeed,

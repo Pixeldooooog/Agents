@@ -62,7 +62,7 @@ from agents.sdk.control_payloads import (
     _task_id_matches,
     _task_in_sdk_scope,
 )
-from agents.sdk.event_projection import _first_non_empty, _text_field
+from agents.sdk.event_fields import _first_non_empty, _text_field
 from agents.sdk.file_history import _SDKReadStateSeed, _rewind_entries_from_file_history_snapshots
 from agents.sdk.file_rewind import (
     _apply_rewind_entry,

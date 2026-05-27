@@ -14,7 +14,8 @@ from agents.kernel.capabilities.sandbox.text import (
 )
 from agents.kernel.schema import RuntimeEvent
 from agents.kernel.state.runs import RunRecord
-from agents.sdk.event_projection import _first_non_empty, _tool_result_payload_data
+from agents.sdk.event_fields import _first_non_empty
+from agents.sdk.event_payloads import _tool_result_payload_data
 from agents.sdk.types import SDKOptions
 
 
