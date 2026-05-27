@@ -4,6 +4,72 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+BUILTIN_TOOL_ROOT = ROOT / "src" / "agents" / "kernel" / "capabilities" / "tools" / "builtin"
+
+
+BUILTIN_REGISTRATION_FILES = {
+    "execution_registration.py",
+    "registration.py",
+    "registration_helpers.py",
+    "src_origin_agent_aliases.py",
+    "src_origin_discovery_aliases.py",
+    "src_origin_plan_aliases.py",
+    "src_origin_schedule_aliases.py",
+    "src_origin_task_aliases.py",
+    "tool_names.py",
+    "web_registration.py",
+    "mcp/registration.py",
+}
+
+
+BUILTIN_IMPLEMENTATION_FILES = {
+    "agent_profiles.py",
+    "agents.py",
+    "browser.py",
+    "commands.py",
+    "config.py",
+    "extensions.py",
+    "file_diff.py",
+    "file_safety.py",
+    "filesystem.py",
+    "git.py",
+    "hooks.py",
+    "image_metadata.py",
+    "lsp.py",
+    "memory.py",
+    "meta.py",
+    "notebook.py",
+    "patch.py",
+    "permissions.py",
+    "planning.py",
+    "plugins.py",
+    "prompts.py",
+    "read_errors.py",
+    "read_paths.py",
+    "schedules.py",
+    "search.py",
+    "session_context.py",
+    "shell.py",
+    "shell_lifecycle.py",
+    "shell_notifications.py",
+    "shell_prompt_stall.py",
+    "skill_discovery.py",
+    "skill_invocation.py",
+    "sleep.py",
+    "structured.py",
+    "tasks.py",
+    "team_memory_safety.py",
+    "teams.py",
+    "tests.py",
+    "user_interaction.py",
+    "web.py",
+    "workflows.py",
+    "worktree.py",
+    "mcp/ide.py",
+    "mcp/management.py",
+    "mcp/prompts.py",
+    "mcp/resources.py",
+}
 
 
 def test_agents_namespace_defines_kernel_platform_and_interfaces():
@@ -121,14 +187,13 @@ def test_agent_capabilities_expose_builtin_tool_boundaries():
 
 
 def test_builtin_tool_registration_stays_modular():
-    builtin_root = ROOT / "src" / "agents" / "kernel" / "capabilities" / "tools" / "builtin"
     limits = {
-        builtin_root / "registration.py": 950,
-        builtin_root / "execution_registration.py": 900,
-        builtin_root / "src_origin_agent_aliases.py": 900,
-        builtin_root / "mcp" / "registration.py": 400,
-        builtin_root / "web_registration.py": 140,
-        builtin_root / "tool_names.py": 220,
+        BUILTIN_TOOL_ROOT / "registration.py": 950,
+        BUILTIN_TOOL_ROOT / "execution_registration.py": 900,
+        BUILTIN_TOOL_ROOT / "src_origin_agent_aliases.py": 900,
+        BUILTIN_TOOL_ROOT / "mcp" / "registration.py": 400,
+        BUILTIN_TOOL_ROOT / "web_registration.py": 140,
+        BUILTIN_TOOL_ROOT / "tool_names.py": 220,
     }
 
     for path, max_lines in limits.items():
@@ -136,19 +201,7 @@ def test_builtin_tool_registration_stays_modular():
 
 
 def test_builtin_tool_registry_wiring_is_separate_from_implementation_modules():
-    builtin_root = ROOT / "src" / "agents" / "kernel" / "capabilities" / "tools" / "builtin"
-    registration_files = {
-        builtin_root / "registration.py",
-        builtin_root / "execution_registration.py",
-        builtin_root / "registration_helpers.py",
-        builtin_root / "src_origin_agent_aliases.py",
-        builtin_root / "src_origin_discovery_aliases.py",
-        builtin_root / "src_origin_plan_aliases.py",
-        builtin_root / "src_origin_task_aliases.py",
-        builtin_root / "src_origin_schedule_aliases.py",
-        builtin_root / "mcp" / "registration.py",
-        builtin_root / "web_registration.py",
-    }
+    registration_files = {BUILTIN_TOOL_ROOT / path for path in BUILTIN_REGISTRATION_FILES}
 
     class_defs = []
     for path in registration_files:
@@ -157,7 +210,7 @@ def test_builtin_tool_registry_wiring_is_separate_from_implementation_modules():
     assert not class_defs
 
     offenders = []
-    for path in builtin_root.rglob("*.py"):
+    for path in BUILTIN_TOOL_ROOT.rglob("*.py"):
         if "__pycache__" in path.parts or path.name == "__init__.py" or path in registration_files:
             continue
         names = _top_level_function_names(path)
@@ -165,6 +218,16 @@ def test_builtin_tool_registry_wiring_is_separate_from_implementation_modules():
         if register_names:
             offenders.append("%s:%s" % (path.relative_to(ROOT), ",".join(register_names)))
     assert not offenders
+
+
+def test_builtin_tool_files_have_declared_architecture_roles():
+    actual = {
+        path.relative_to(BUILTIN_TOOL_ROOT).as_posix()
+        for path in BUILTIN_TOOL_ROOT.rglob("*.py")
+        if "__pycache__" not in path.parts and path.name != "__init__.py"
+    }
+    expected = BUILTIN_REGISTRATION_FILES | BUILTIN_IMPLEMENTATION_FILES
+    assert actual == expected
 
 
 def test_mcp_implementation_is_packaged_by_domain():
@@ -197,14 +260,31 @@ def test_mcp_provider_stays_split_by_responsibility():
 
 def test_sdk_client_stays_split_by_responsibility():
     sdk_root = ROOT / "src" / "agents" / "sdk"
-    for module in ["client", "event_projection", "file_history", "file_rewind"]:
+    for module in [
+        "async_messages",
+        "client",
+        "control_handlers",
+        "control_payloads",
+        "event_projection",
+        "file_history",
+        "file_rewind",
+        "options",
+        "runtime_io",
+        "session_records",
+    ]:
         assert importlib.util.find_spec(f"agents.sdk.{module}") is not None
 
     limits = {
-        sdk_root / "client.py": 2400,
+        sdk_root / "client.py": 950,
+        sdk_root / "async_messages.py": 100,
+        sdk_root / "control_handlers.py": 760,
+        sdk_root / "control_payloads.py": 420,
         sdk_root / "event_projection.py": 1100,
         sdk_root / "file_history.py": 900,
         sdk_root / "file_rewind.py": 600,
+        sdk_root / "options.py": 170,
+        sdk_root / "runtime_io.py": 140,
+        sdk_root / "session_records.py": 140,
     }
 
     for path, max_lines in limits.items():

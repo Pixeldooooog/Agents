@@ -69,6 +69,17 @@ approval 事件和 audit 记录会附带 `impact`：
 - `register(...)`：兼容旧调用点，适合简单内置工具和测试。
 - `register_definition(ToolDefinition(...))`：面向 SDK 化工具契约，显式声明 schema、只读/破坏性、状态写入、并发安全、中断行为、结果长度限制和 metadata。
 
+## Builtin 文件角色
+
+内置工具目录按“注册/装配层”和“核心实现层”分开维护。新增文件时必须先判断它属于哪一层，不能把注册表 wiring、alias schema 和业务行为混在同一个大文件里。
+
+| 角色 | 文件 | 允许做什么 |
+|---|---|---|
+| 注册/装配层 | `registration.py`、`execution_registration.py`、`registration_helpers.py`、`web_registration.py`、`tool_names.py`、`src_origin_*_aliases.py`、`mcp/registration.py` | 向 `ToolRegistry` 绑定 schema、metadata、alias、handler 和静态名称清单 |
+| 核心实现层 | `filesystem.py`、`patch.py`、`notebook.py`、`shell.py`、`tasks.py`、`schedules.py`、`agents.py`、`teams.py`、`search.py`、`web.py`、`mcp/management.py` 等 domain modules | 实现真实工具行为、状态转换、协议适配、结果结构化和安全校验 |
+
+`src/agents/kernel/capabilities/tools/builtin/README.md` 维护更完整的文件清单。架构测试会要求每个 builtin tool Python 文件都有明确角色，并禁止核心实现模块新增顶层 `register_*` / `_register_*` 函数。
+
 核心 coding tools 已经开始使用显式契约注册：
 
 - 文件、patch、search 工具声明 workspace/edit activity 和路径参数。
