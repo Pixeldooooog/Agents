@@ -87,6 +87,9 @@ BUILTIN_IMPLEMENTATION_FILES = {
     "mcp/management.py",
     "mcp/prompts.py",
     "mcp/resources.py",
+    "mcp/runtime.py",
+    "mcp/settings.py",
+    "mcp/store.py",
 }
 
 
@@ -298,6 +301,9 @@ def test_agent_capabilities_expose_builtin_tool_boundaries():
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.mcp.prompts") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.mcp.resources") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.mcp.ide") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.mcp.runtime") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.mcp.settings") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.mcp.store") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.workspace_registration") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.worktree_git") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.worktree_naming") is not None
@@ -432,6 +438,19 @@ def test_mcp_provider_stays_split_by_responsibility():
         mcp_root / "types.py": 220,
         mcp_root / "results.py": 180,
         mcp_root / "naming.py": 100,
+    }
+
+    for path, max_lines in limits.items():
+        assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
+
+
+def test_builtin_mcp_management_stays_split_by_responsibility():
+    mcp_builtin_root = BUILTIN_TOOL_ROOT / "mcp"
+    limits = {
+        mcp_builtin_root / "management.py": 320,
+        mcp_builtin_root / "runtime.py": 220,
+        mcp_builtin_root / "settings.py": 180,
+        mcp_builtin_root / "store.py": 140,
     }
 
     for path, max_lines in limits.items():

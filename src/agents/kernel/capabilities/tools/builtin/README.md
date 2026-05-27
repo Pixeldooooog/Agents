@@ -42,6 +42,6 @@ Domain behavior belongs in focused implementation modules, for example:
 - Product capabilities: `tasks.py`, `task_src_origin.py`, `schedules.py`, `agents.py`, `teams.py`, `commands.py`, `prompts.py`, `workflows.py`, `user_interaction.py`
 - Extension surfaces: `extensions.py`, `plugins.py`, `skill_discovery.py`, `skill_invocation.py`, `hooks.py`, `permissions.py`, `config.py`
 - Search, web, browser, and LSP: `search.py`, `web.py`, `browser.py`, `lsp.py`
-- MCP domain tools: `mcp/management.py`, `mcp/prompts.py`, `mcp/resources.py`, `mcp/ide.py`
+- MCP domain tools: `mcp/management.py` owns public management tool handlers; `mcp/settings.py`, `mcp/store.py`, and `mcp/runtime.py` own settings/header parsing, config/auth store access, and provider/registry runtime changes; `mcp/prompts.py`, `mcp/resources.py`, and `mcp/ide.py` own their focused tool domains.
 
 Implementation modules should expose behavior that registration files can wire. They should not add top-level `register_*` functions; architecture tests enforce that boundary.
