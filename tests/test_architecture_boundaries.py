@@ -91,6 +91,7 @@ SDK_FACADE_OR_WIRING_FILES = {
     "control_handlers.py",
     "control_payloads.py",
     "event_projection.py",
+    "sessions.py",
     "transports.py",
 }
 
@@ -393,11 +394,12 @@ def test_sdk_client_stays_split_by_responsibility():
         "options",
         "runtime_io",
         "session_records",
+        "sessions",
     ]:
         assert importlib.util.find_spec(f"agents.sdk.{module}") is not None
 
     limits = {
-        SDK_ROOT / "client.py": 950,
+        SDK_ROOT / "client.py": 820,
         SDK_ROOT / "async_messages.py": 100,
         SDK_ROOT / "control_handlers.py": 760,
         SDK_ROOT / "control_payloads.py": 420,
@@ -413,6 +415,7 @@ def test_sdk_client_stays_split_by_responsibility():
         SDK_ROOT / "options.py": 170,
         SDK_ROOT / "runtime_io.py": 140,
         SDK_ROOT / "session_records.py": 140,
+        SDK_ROOT / "sessions.py": 140,
     }
 
     for path, max_lines in limits.items():
