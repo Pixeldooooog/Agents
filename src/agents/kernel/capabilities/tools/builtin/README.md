@@ -2,6 +2,10 @@
 
 This package separates registry wiring from tool behavior.
 
+The package `__init__.py` intentionally exposes only `register_builtin_tools`.
+Callers that need concrete schemas or handlers should import the responsible
+domain module directly instead of relying on a broad package-level export list.
+
 ## Registration And Wiring
 
 These files should only bind schemas, aliases, metadata, and handlers into `ToolRegistry`:

@@ -404,6 +404,11 @@ def test_builtin_tool_files_have_declared_architecture_roles():
     assert actual == expected
 
 
+def test_builtin_package_entrypoint_stays_thin():
+    package_init = BUILTIN_TOOL_ROOT / "__init__.py"
+    assert len(package_init.read_text(encoding="utf-8").splitlines()) <= 40
+
+
 def test_builtin_task_domain_stays_split_by_responsibility():
     limits = {
         BUILTIN_TOOL_ROOT / "tasks.py": 520,
