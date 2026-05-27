@@ -4,6 +4,20 @@ from agents.kernel.context.compaction_metadata import compact_boundary_payload
 from agents.kernel.schema import Message, RuntimeEvent
 
 
+def compact_status_event(status: str | None) -> RuntimeEvent:
+    return RuntimeEvent(
+        type="status",
+        name="context",
+        payload={"status": status},
+    )
+
+
+def should_emit_compact_status(messages: list[Message], *, max_context_tokens: int) -> bool:
+    if not messages:
+        return False
+    return sum(message.approx_token_count() for message in messages) > max_context_tokens
+
+
 def compact_boundary_event(
     messages: list[Message],
     fitted: list[Message],

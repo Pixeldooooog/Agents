@@ -6,7 +6,12 @@ from typing import Any
 from agents.kernel.context.window import ContextWindowManager
 from agents.kernel.context.workspace import WorkspaceContext
 from agents.kernel.runtime.loop import AgentRuntime
-from agents.kernel.runtime.session_compaction import compact_boundary_event, compact_stats
+from agents.kernel.runtime.session_compaction import (
+    compact_boundary_event,
+    compact_stats,
+    compact_status_event,
+    should_emit_compact_status,
+)
 from agents.kernel.runtime.session_lifecycle import close_session_resources
 from agents.kernel.runtime.session_messages import user_message
 from agents.kernel.runtime.types import AgentResult
@@ -178,7 +183,17 @@ class AgentSession:
         user_message_id: str | None = None,
     ) -> AsyncIterable[RuntimeEvent]:
         candidate = self.messages + [user_message(text, user_message_id)]
-        candidate, boundary_event = await self._afit_with_boundary(candidate)
+        emit_status = should_emit_compact_status(candidate, max_context_tokens=self.max_context_tokens)
+        if emit_status:
+            yield compact_status_event("compacting")
+        try:
+            candidate, boundary_event = await self._afit_with_boundary(candidate)
+        except Exception:
+            if emit_status:
+                yield compact_status_event(None)
+            raise
+        if emit_status:
+            yield compact_status_event(None)
         if boundary_event is not None:
             yield boundary_event
         async for event in self.runtime.stream(candidate, run_id=run_id, task_id=task_id):
