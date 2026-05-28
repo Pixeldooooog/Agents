@@ -107,6 +107,7 @@ BUILTIN_IMPLEMENTATION_FILES = {
     "src_origin/agent_profile_spec.py",
     "src_origin/agent_profile_lookup.py",
     "src_origin/agent_resolution.py",
+    "src_origin/agent_skills.py",
     "src_origin/agent_tool_rules.py",
     "mcp/ide.py",
     "mcp/management.py",
@@ -514,6 +515,7 @@ def test_builtin_agent_domain_stays_split_by_responsibility():
         BUILTIN_TOOL_ROOT / "src_origin" / "agent_profile_spec.py": 90,
         BUILTIN_TOOL_ROOT / "src_origin" / "agent_profile_lookup.py": 110,
         BUILTIN_TOOL_ROOT / "src_origin" / "agent_resolution.py": 120,
+        BUILTIN_TOOL_ROOT / "src_origin" / "agent_skills.py": 60,
         BUILTIN_TOOL_ROOT / "src_origin" / "agent_tool_rules.py": 80,
     }
 

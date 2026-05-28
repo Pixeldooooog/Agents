@@ -24,6 +24,16 @@ def metadata_string_list(metadata: dict[str, object], *keys: str) -> tuple[str, 
     return tuple(item for item in (str(item).strip() for item in items) if item)
 
 
+def parse_src_origin_name_list(value: object) -> tuple[str, ...]:
+    if value is None or value is False:
+        return ()
+    raw_items = value if isinstance(value, (list, tuple, set)) else [str(value)]
+    parsed: list[str] = []
+    for item in raw_items:
+        parsed.extend(_parse_tool_list_item(str(item)))
+    return tuple(parsed)
+
+
 def parse_src_origin_tool_list(value: object) -> tuple[str, ...]:
     if value is None or value is False:
         return ()

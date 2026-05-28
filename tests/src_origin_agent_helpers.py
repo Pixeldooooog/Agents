@@ -34,6 +34,7 @@ async def save_profile(
     system_prompt: str,
     enabled_tools: list[str] | None = None,
     denied_tools: list[str] | None = None,
+    skills: list[str] | None = None,
     metadata: dict[str, object] | None = None,
 ) -> None:
     spec = AgentSpec.from_overrides(
@@ -45,6 +46,7 @@ async def save_profile(
         model=model,
         system_prompt=system_prompt,
         enabled_tools=["filesystem.read"] if enabled_tools is None else list(enabled_tools),
+        skills=skills,
         denied_tools=denied_tools,
     )
     if metadata:
