@@ -105,18 +105,91 @@ def test_src_origin_background_agent_stores_resolved_child_spec(tmp_path: Path):
     assert child.model.model == "haiku"
 
 
+def test_src_origin_agent_alias_rejects_unknown_subagent_type(tmp_path: Path):
+    profile_store = InMemoryAgentProfileStore()
+    context, captured = _agent_context(tmp_path, profile_store=profile_store)
+    asyncio.run(_save_researcher_profile(profile_store, tmp_path, model="profile-model"))
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    result = asyncio.run(
+        registry.execute(
+            "Agent",
+            {
+                "description": "Inspect repo",
+                "prompt": "read files",
+                "subagent_type": "missing-agent",
+            },
+        )
+    )
+
+    assert result.is_error is True
+    assert "Agent type 'missing-agent' not found" in result.content
+    assert "Available agents: researcher" in result.content
+    assert captured == []
+
+
+def test_src_origin_agent_alias_uses_general_purpose_profile_by_default(tmp_path: Path):
+    profile_store = InMemoryAgentProfileStore()
+    context, captured = _agent_context(tmp_path, profile_store=profile_store)
+    asyncio.run(
+        _save_profile(
+            profile_store,
+            tmp_path,
+            agent_id="general-purpose",
+            model="default-model",
+            system_prompt="General prompt",
+        )
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    result = asyncio.run(
+        registry.execute(
+            "Agent",
+            {
+                "description": "Inspect repo",
+                "prompt": "read files",
+            },
+        )
+    )
+
+    child = captured[0]
+    assert result.raw["agent_id"] == "general-purpose"
+    assert child.agent_id == "general-purpose"
+    assert child.system_prompt == "General prompt"
+    assert child.model.model == "default-model"
+
+
 async def _save_researcher_profile(profile_store: InMemoryAgentProfileStore, root: Path, *, model: str) -> None:
+    await _save_profile(
+        profile_store,
+        root,
+        agent_id="researcher",
+        model=model,
+        system_prompt="Profile prompt",
+    )
+
+
+async def _save_profile(
+    profile_store: InMemoryAgentProfileStore,
+    root: Path,
+    *,
+    agent_id: str,
+    model: str,
+    system_prompt: str,
+) -> None:
     spec = AgentSpec.from_overrides(
         tenant_id="tenant",
         user_id="user",
-        agent_id="researcher",
+        agent_id=agent_id,
         workspace_id="workspace",
         workspace_path=str(root),
         model=model,
-        system_prompt="Profile prompt",
+        system_prompt=system_prompt,
         enabled_tools=["filesystem.read"],
     )
-    await profile_store.save(AgentProfile.from_spec(spec, name="Researcher"))
+    await profile_store.save(AgentProfile.from_spec(spec, name=agent_id))
 
 
 def _agent_context(

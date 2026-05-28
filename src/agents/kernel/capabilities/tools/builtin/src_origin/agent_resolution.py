@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from agents.kernel.capabilities.tools.builtin.agent_child_specs import runtime_agent_spec
+from agents.kernel.capabilities.tools.builtin.src_origin.agent_profile_lookup import (
+    lookup_src_origin_agent_profile,
+)
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.specs import AgentModelSpec, AgentSpec
 from agents.kernel.state import AgentProfile
@@ -23,29 +26,15 @@ async def resolve_src_origin_agent_selection(
     parent_spec: AgentSpec | None = None,
 ) -> SrcOriginAgentSelection:
     base = parent_spec or runtime_agent_spec(context)
-    profile = await _load_profile(context, base, subagent_type)
+    lookup = await lookup_src_origin_agent_profile(context, base, subagent_type)
+    profile = lookup.profile
     if profile is not None:
         base = _apply_profile_spec(base, profile)
     base = _apply_model_override(base, model)
     return SrcOriginAgentSelection(
-        agent_id=_selected_agent_id(name=name, subagent_type=subagent_type, profile=profile),
+        agent_id=_selected_agent_id(name=name, subagent_type=lookup.requested_type, profile=profile),
         base_spec=base,
     )
-
-
-async def _load_profile(
-    context: ToolRuntimeContext,
-    base: AgentSpec,
-    subagent_type: str,
-) -> AgentProfile | None:
-    profile_id = _text(subagent_type)
-    store = getattr(context, "agent_profile_store", None)
-    if store is None or not profile_id:
-        return None
-    workspace = context.workspace
-    tenant_id = base.workspace.tenant_id or workspace.tenant_id
-    user_id = base.workspace.user_id or workspace.user_id
-    return await store.load(tenant_id, user_id, profile_id)
 
 
 def _apply_profile_spec(base: AgentSpec, profile: AgentProfile) -> AgentSpec:
