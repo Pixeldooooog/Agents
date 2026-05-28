@@ -184,10 +184,19 @@ async def task_background(
     input: str = "",
     metadata: dict[str, str] | None = None,
     step_name: str = "execute",
+    agent_spec: AgentSpec | None = None,
 ) -> dict[str, Any]:
     if context.agent_session_factory is None:
         raise RuntimeError("agent session factory is not available")
-    task = await _task_for_run(context, task_id=task_id, title=title, input=input, metadata=metadata, source_tool="task.background")
+    task = await _task_for_run(
+        context,
+        task_id=task_id,
+        title=title,
+        input=input,
+        metadata=metadata,
+        source_tool="task.background",
+        agent_spec=agent_spec,
+    )
     if task.task_id in context.background_tasks and not context.background_tasks[task.task_id].done():
         raise RuntimeError("task is already running in background: %s" % task.task_id)
     handle = asyncio.create_task(_run_background_task(context, task.task_id, step_name=_step_name(step_name)))
@@ -251,6 +260,7 @@ async def _task_for_run(
     input: str = "",
     metadata: dict[str, str] | None = None,
     source_tool: str,
+    agent_spec: AgentSpec | None = None,
 ) -> Any:
     store = _task_store(context)
     if str(task_id or "").strip():
@@ -259,7 +269,7 @@ async def _task_for_run(
     from agents.kernel.tasks.engine import TaskEngine
 
     return await TaskEngine(store).create_task(
-        _agent_spec(context),
+        agent_spec or _agent_spec(context),
         title=_task_title(title or prompt),
         input=prompt,
         metadata={"source": "tool", "tool": source_tool, **_string_metadata(metadata)},

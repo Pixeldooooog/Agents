@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from agents.kernel.capabilities.tools.builtin.agent_child_specs import child_agent_spec
 from agents.kernel.capabilities.tools.builtin.agents import agent_run
 from agents.kernel.capabilities.tools.builtin.registration_helpers import register_builtin_tool as _register_builtin_tool
+from agents.kernel.capabilities.tools.builtin.src_origin.agent_resolution import resolve_src_origin_agent_selection
 from agents.kernel.capabilities.tools.builtin.tasks import task_background
 from agents.kernel.capabilities.tools.builtin.teams import team_create, team_delete, team_send
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
@@ -156,7 +158,19 @@ async def _src_origin_agent(
     isolation: str = "",
     cwd: str = "",
 ) -> dict:
+    selection = await resolve_src_origin_agent_selection(
+        context,
+        name=name,
+        subagent_type=subagent_type,
+        model=model,
+    )
     if run_in_background:
+        child_spec = child_agent_spec(
+            context,
+            base_spec=selection.base_spec,
+            agent_id=selection.agent_id,
+            description=description,
+        )
         payload = await task_background(
             context,
             title=description,
@@ -170,15 +184,25 @@ async def _src_origin_agent(
                 mode=mode,
                 isolation=isolation,
                 cwd=cwd,
+                agent_id=child_spec.agent_id,
             ),
             step_name="agent",
+            agent_spec=selection.base_spec,
         )
         payload["status"] = "async_launched"
         payload["agentId"] = payload["task"]["task_id"]
         payload["description"] = description
         payload["prompt"] = prompt
         return payload
-    return await agent_run(context, prompt=prompt, description=description, agent_id=name, isolation=isolation, cwd=cwd)
+    return await agent_run(
+        context,
+        prompt=prompt,
+        description=description,
+        agent_id=selection.agent_id,
+        isolation=isolation,
+        cwd=cwd,
+        base_spec=selection.base_spec,
+    )
 
 
 async def _src_origin_send_message(

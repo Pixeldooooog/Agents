@@ -36,6 +36,7 @@ BUILTIN_REGISTRATION_FILES = {
 
 
 BUILTIN_IMPLEMENTATION_FILES = {
+    "agent_child_specs.py",
     "agent_profiles.py",
     "agent_isolation.py",
     "agent_worktree.py",
@@ -99,6 +100,7 @@ BUILTIN_IMPLEMENTATION_FILES = {
     "worktree_setup.py",
     "worktree_state.py",
     "worktree_tmux.py",
+    "src_origin/agent_resolution.py",
     "mcp/ide.py",
     "mcp/management.py",
     "mcp/prompts.py",
@@ -491,10 +493,12 @@ def test_builtin_tool_registry_wiring_is_separate_from_implementation_modules():
 
 def test_builtin_agent_domain_stays_split_by_responsibility():
     limits = {
+        BUILTIN_TOOL_ROOT / "agent_child_specs.py": 90,
         BUILTIN_TOOL_ROOT / "agents.py": 135,
         BUILTIN_TOOL_ROOT / "agent_isolation.py": 90,
         BUILTIN_TOOL_ROOT / "agent_worktree.py": 120,
         BUILTIN_TOOL_ROOT / "src_origin" / "agent_aliases.py": 300,
+        BUILTIN_TOOL_ROOT / "src_origin" / "agent_resolution.py": 120,
     }
 
     for path, max_lines in limits.items():

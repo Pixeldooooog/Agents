@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from agents.kernel.capabilities.tools.builtin.agent_isolation import AgentIsolationScope, prepare_agent_isolation_scope, with_agent_workspace_path
+from agents.kernel.capabilities.tools.builtin.agent_isolation import (
+    AgentIsolationScope,
+    prepare_agent_isolation_scope,
+    with_agent_workspace_path,
+)
+from agents.kernel.capabilities.tools.builtin.agent_child_specs import child_agent_spec
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.schema import RuntimeEvent
 
@@ -14,9 +19,18 @@ class TaskAgentSessionFactory:
     async def create(self, task: Any) -> Any:
         spec = task.to_agent_spec()
         metadata = dict(getattr(task, "metadata", {}) or {})
+        child_agent_id = _task_child_agent_id(task, spec, metadata)
+        if _has_explicit_child_agent(metadata):
+            spec = child_agent_spec(
+                self.context,
+                base_spec=spec,
+                agent_id=child_agent_id,
+                description=getattr(task, "title", ""),
+            )
+            child_agent_id = spec.agent_id
         scope = await prepare_agent_isolation_scope(
             self.context,
-            child_agent_id=_task_child_agent_id(task, spec, metadata),
+            child_agent_id=child_agent_id,
             isolation=str(metadata.get("isolation") or ""),
             cwd=str(metadata.get("cwd") or ""),
         )
@@ -75,4 +89,14 @@ def _append_worktree_notice(content: str, fields: dict[str, Any]) -> str:
 
 
 def _task_child_agent_id(task: Any, spec: Any, metadata: dict[str, Any]) -> str:
-    return str(metadata.get("name") or getattr(task, "task_id", "") or spec.agent_id or getattr(task, "agent_id", ""))
+    return str(
+        metadata.get("name")
+        or metadata.get("agent_id")
+        or getattr(task, "task_id", "")
+        or spec.agent_id
+        or getattr(task, "agent_id", "")
+    )
+
+
+def _has_explicit_child_agent(metadata: dict[str, Any]) -> bool:
+    return bool(metadata.get("name") or metadata.get("agent_id"))
