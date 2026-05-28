@@ -5,6 +5,9 @@ from dataclasses import replace
 from agents.kernel.capabilities.tools.builtin.src_origin.agent_metadata import (
     src_origin_profile_metadata,
 )
+from agents.kernel.capabilities.tools.builtin.src_origin.agent_permission_mode import (
+    apply_src_origin_agent_permission_mode,
+)
 from agents.kernel.capabilities.tools.builtin.src_origin.agent_tool_rules import (
     apply_src_origin_agent_tool_rules,
 )
@@ -31,7 +34,9 @@ def apply_src_origin_agent_profile_spec(base: AgentSpec, profile: AgentProfile) 
         memory_profile=profile_spec.memory_profile or base.memory_profile,
         metadata=metadata,
     )
-    return apply_src_origin_agent_tool_rules(spec, src_origin_profile_metadata(profile))
+    profile_metadata = src_origin_profile_metadata(profile)
+    spec = apply_src_origin_agent_permission_mode(spec, profile_metadata)
+    return apply_src_origin_agent_tool_rules(spec, profile_metadata)
 
 
 def _profile_model(base: AgentSpec, profile_spec: AgentSpec) -> AgentModelSpec:
