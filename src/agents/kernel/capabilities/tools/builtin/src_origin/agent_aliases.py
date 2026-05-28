@@ -178,7 +178,7 @@ async def _src_origin_agent(
         payload["description"] = description
         payload["prompt"] = prompt
         return payload
-    return await agent_run(context, prompt=prompt, description=description, agent_id=name)
+    return await agent_run(context, prompt=prompt, description=description, agent_id=name, isolation=isolation, cwd=cwd)
 
 
 async def _src_origin_send_message(

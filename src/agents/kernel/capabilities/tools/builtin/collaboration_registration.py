@@ -132,13 +132,15 @@ def _register_agents(registry: ToolRegistry, context: ToolRuntimeContext) -> Non
         "agent.run",
         "Run a bounded prompt in an in-process child agent and return the child agent result.",
         AGENT_RUN_SCHEMA,
-        lambda prompt, description="", agent_id="", system_prompt="", enabled_tools=None: agent_run(
+        lambda prompt, description="", agent_id="", system_prompt="", enabled_tools=None, isolation="", cwd="": agent_run(
             context,
             prompt=prompt,
             description=description,
             agent_id=agent_id,
             system_prompt=system_prompt,
             enabled_tools=enabled_tools,
+            isolation=isolation,
+            cwd=cwd,
         ),
         metadata={"risk": "high", "spawns_agent": True, "model_call": True},
     )

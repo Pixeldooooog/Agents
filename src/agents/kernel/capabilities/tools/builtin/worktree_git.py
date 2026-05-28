@@ -47,11 +47,18 @@ def is_git_worktree(path: Path) -> bool:
     return result.returncode == 0 and result.stdout.strip() == "true"
 
 
-def count_worktree_changes(worktree_path: Path, original_head: str) -> dict[str, int] | None:
+def count_worktree_changes(
+    worktree_path: Path,
+    original_head: str,
+    *,
+    clean_ignored_paths: set[str] | frozenset[str] | None = None,
+) -> dict[str, int] | None:
     status = git(worktree_path, ["status", "--porcelain", "--untracked-files=all"], check=False)
     if status.returncode != 0:
         return None
     changed_files = len([line for line in status.stdout.splitlines() if line.strip()])
+    if clean_ignored_paths is not None:
+        changed_files += len(_unexpected_ignored_paths(worktree_path, clean_ignored_paths))
     commits = 0
     if original_head:
         rev_list = git(worktree_path, ["rev-list", "--count", "%s..HEAD" % original_head], check=False)
@@ -59,6 +66,25 @@ def count_worktree_changes(worktree_path: Path, original_head: str) -> dict[str,
             return None
         commits = int((rev_list.stdout.strip() or "0"))
     return {"changedFiles": changed_files, "commits": commits}
+
+
+def _unexpected_ignored_paths(worktree_path: Path, clean_paths: set[str] | frozenset[str]) -> list[str]:
+    status = git(worktree_path, ["status", "--porcelain", "--untracked-files=all", "--ignored=matching"], check=False)
+    if status.returncode != 0:
+        return []
+    unexpected: list[str] = []
+    for line in status.stdout.splitlines():
+        if not line.startswith("!! "):
+            continue
+        relative_path = line[3:].strip().rstrip("/")
+        if relative_path and not _is_clean_ignored_path(relative_path, clean_paths):
+            unexpected.append(relative_path)
+    return unexpected
+
+
+def _is_clean_ignored_path(relative_path: str, clean_paths: set[str] | frozenset[str]) -> bool:
+    normalized = relative_path.strip("/")
+    return any(normalized == path.strip("/") or normalized.startswith("%s/" % path.strip("/")) for path in clean_paths)
 
 
 def prepare_worktree_base_ref(repo_root: Path, pr_number: int | None) -> str:

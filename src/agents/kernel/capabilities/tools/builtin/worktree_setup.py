@@ -31,9 +31,15 @@ def perform_post_creation_setup(
 def ensure_worktrees_excluded(repo_root: Path) -> None:
     common_dir = git_common_dir(repo_root)
     exclude = common_dir / "info" / "exclude"
-    pattern = ".agents/worktrees/"
+    pattern = "/.agents/worktrees/"
+    legacy_pattern = ".agents/worktrees/"
     lines = exclude.read_text(encoding="utf-8").splitlines() if exclude.is_file() else []
-    if pattern in [line.strip() for line in lines]:
+    stripped = [line.strip() for line in lines]
+    if pattern in stripped:
+        return
+    if legacy_pattern in stripped:
+        updated = [pattern if line.strip() == legacy_pattern else line for line in lines]
+        exclude.write_text("%s\n" % "\n".join(updated), encoding="utf-8")
         return
     exclude.parent.mkdir(parents=True, exist_ok=True)
     with exclude.open("a", encoding="utf-8") as handle:

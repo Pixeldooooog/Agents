@@ -4,6 +4,7 @@ from dataclasses import replace
 from typing import Any
 from uuid import uuid4
 
+from agents.kernel.capabilities.tools.builtin.agent_isolation import prepare_agent_isolation_scope, with_agent_workspace_path
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
 from agents.kernel.schema import Message
 from agents.kernel.specs import AgentSpec
@@ -21,6 +22,8 @@ AGENT_RUN_SCHEMA = {
             "items": {"type": "string"},
             "description": "Optional child enabled tool list. Defaults to the parent active tool set.",
         },
+        "isolation": {"type": "string", "enum": ["worktree", "remote"], "description": "Optional child workspace isolation mode."},
+        "cwd": {"type": "string", "description": "Optional child working directory inside the current workspace."},
     },
     "required": ["prompt"],
 }
@@ -33,6 +36,8 @@ async def agent_run(
     agent_id: str = "",
     system_prompt: str = "",
     enabled_tools: list[str] | None = None,
+    isolation: str = "",
+    cwd: str = "",
 ) -> dict[str, Any]:
     if context.agent_session_factory is None:
         raise RuntimeError("agent session factory is not available")
@@ -45,15 +50,22 @@ async def agent_run(
         system_prompt=system_prompt,
         enabled_tools=enabled_tools,
     )
-    child = await context.agent_session_factory(child_spec, task_id="")
     run_id = "subagent_%s" % uuid4().hex
+    scope = await prepare_agent_isolation_scope(context, child_agent_id=child_spec.agent_id, isolation=isolation, cwd=cwd)
+    if scope.workspace_path is not None:
+        child_spec = with_agent_workspace_path(child_spec, scope.workspace_path)
+    child = None
     try:
+        child = await context.agent_session_factory(child_spec, task_id="")
         result = await child.send(_required_text(prompt, "prompt"), run_id=run_id)
     finally:
-        close = getattr(child, "aclose", None)
-        if close is not None:
-            await close()
-    return {
+        try:
+            close = getattr(child, "aclose", None) if child is not None else None
+            if close is not None:
+                await close()
+        finally:
+            scope.close()
+    payload = {
         "agent_id": child_spec.agent_id,
         "run_id": run_id,
         "description": str(description or ""),
@@ -62,6 +74,8 @@ async def agent_run(
         "messages": _message_count(result.messages),
         "tool_results": len(result.tool_results),
     }
+    payload.update(scope.result_fields())
+    return payload
 
 
 def _child_spec(
@@ -116,6 +130,6 @@ def _safe_agent_id(value: str) -> str:
 
 def _required_text(value: str, name: str) -> str:
     text = str(value or "").strip()
-    if not text:
-        raise ValueError("%s is required" % name)
-    return text
+    if text:
+        return text
+    raise ValueError("%s is required" % name)

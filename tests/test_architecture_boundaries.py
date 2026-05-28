@@ -37,6 +37,8 @@ BUILTIN_REGISTRATION_FILES = {
 
 BUILTIN_IMPLEMENTATION_FILES = {
     "agent_profiles.py",
+    "agent_isolation.py",
+    "agent_worktree.py",
     "agents.py",
     "browser.py",
     "commands.py",
@@ -482,6 +484,18 @@ def test_builtin_tool_registry_wiring_is_separate_from_implementation_modules():
         if register_names:
             offenders.append("%s:%s" % (path.relative_to(ROOT), ",".join(register_names)))
     assert not offenders
+
+
+def test_builtin_agent_domain_stays_split_by_responsibility():
+    limits = {
+        BUILTIN_TOOL_ROOT / "agents.py": 135,
+        BUILTIN_TOOL_ROOT / "agent_isolation.py": 90,
+        BUILTIN_TOOL_ROOT / "agent_worktree.py": 120,
+        BUILTIN_TOOL_ROOT / "src_origin" / "agent_aliases.py": 300,
+    }
+
+    for path, max_lines in limits.items():
+        assert len(path.read_text(encoding="utf-8").splitlines()) <= max_lines, path
 
 
 def test_builtin_tool_files_have_declared_architecture_roles():
