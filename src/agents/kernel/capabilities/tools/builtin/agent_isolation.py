@@ -34,7 +34,7 @@ async def prepare_agent_isolation_scope(
     resolved_cwd = resolve_agent_cwd(context, cwd)
     kind = _normalized_isolation(isolation)
     if kind == "worktree":
-        worktree = create_agent_worktree(context, child_agent_id)
+        worktree = await create_agent_worktree(context, child_agent_id)
         return AgentIsolationScope(workspace_path=resolved_cwd or worktree.path, worktree=worktree)
     return AgentIsolationScope(workspace_path=resolved_cwd)
 

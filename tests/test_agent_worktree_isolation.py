@@ -1,5 +1,7 @@
 import asyncio
+import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -29,7 +31,7 @@ def _init_repo(path: Path) -> None:
     _git(path, "commit", "-m", "init")
 
 
-def _context(repo: Path, factory, *, task_store=None) -> ToolRuntimeContext:
+def _context(repo: Path, factory, *, task_store=None, agent_spec: AgentSpec | None = None) -> ToolRuntimeContext:
     workspace = WorkspaceContext(
         tenant_id="tenant",
         user_id="user",
@@ -41,7 +43,8 @@ def _context(repo: Path, factory, *, task_store=None) -> ToolRuntimeContext:
     return ToolRuntimeContext(
         workspace=workspace,
         sandbox=SandboxPolicy.for_workspace(workspace.path),
-        agent_spec=AgentSpec.from_overrides(
+        agent_spec=agent_spec
+        or AgentSpec.from_overrides(
             tenant_id="tenant",
             user_id="user",
             agent_id="agent",
@@ -195,6 +198,45 @@ def test_src_origin_agent_alias_passes_worktree_isolation(tmp_path: Path):
     assert Path(created_specs[0].workspace.path).name.startswith("agent-aliased-")
 
 
+def test_agent_run_worktree_isolation_uses_hook_based_adapter_in_non_git_workspace(tmp_path: Path):
+    hook_path = tmp_path / "hook-agent-worktree"
+    created_specs = []
+
+    class ChildSession:
+        async def send(self, text, run_id=None, task_id=None):
+            return AgentResult(content="hooked", messages=[Message.from_text("assistant", text)])
+
+    async def create_child(child_spec, task_id=""):
+        created_specs.append(child_spec)
+        return ChildSession()
+
+    context = _context(
+        tmp_path,
+        create_child,
+        agent_spec=AgentSpec(
+            metadata={
+                "worktree": {
+                    "create_hook": _python_hook(
+                        "import os, pathlib\n"
+                        "path = pathlib.Path(os.environ['AGENTS_WORKTREE_ORIGINAL_CWD']) / 'hook-agent-worktree'\n"
+                        "path.mkdir(parents=True, exist_ok=True)\n"
+                        "print(path)\n"
+                    )
+                }
+            }
+        ),
+    )
+
+    result = asyncio.run(agent_run(context, prompt="inspect", agent_id="hooked", isolation="worktree"))
+
+    assert result["content"] == "hooked"
+    assert result["worktreePath"] == str(hook_path.resolve())
+    assert result["worktreeKept"] is True
+    assert result["hookBased"] is True
+    assert Path(created_specs[0].workspace.path) == hook_path.resolve()
+    assert hook_path.exists() is True
+
+
 def test_background_agent_alias_uses_worktree_isolation_for_child_session(tmp_path: Path):
     repo = tmp_path / "repo"
     _init_repo(repo)
@@ -303,3 +345,7 @@ def test_background_agent_alias_uses_cwd_override_for_child_session(tmp_path: Pa
     asyncio.run(run_background())
 
     assert Path(created_specs[0].workspace.path) == subdir.resolve()
+
+
+def _python_hook(source: str) -> str:
+    return "%s -c %s" % (shlex.quote(sys.executable), shlex.quote(source))

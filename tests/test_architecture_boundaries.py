@@ -94,6 +94,7 @@ BUILTIN_IMPLEMENTATION_FILES = {
     "worktree_git.py",
     "worktree_hook_commands.py",
     "worktree_hooks.py",
+    "worktree_hook_lifecycle.py",
     "worktree_naming.py",
     "worktree_setup.py",
     "worktree_state.py",
@@ -407,6 +408,7 @@ def test_agent_capabilities_expose_builtin_tool_boundaries():
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.worktree_git") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.worktree_hook_commands") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.worktree_hooks") is not None
+    assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.worktree_hook_lifecycle") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.worktree_naming") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.worktree_setup") is not None
     assert importlib.util.find_spec("agents.kernel.capabilities.tools.builtin.worktree_state") is not None
@@ -546,6 +548,7 @@ def test_builtin_worktree_domain_stays_split_by_responsibility():
         BUILTIN_TOOL_ROOT / "worktree_git.py": 140,
         BUILTIN_TOOL_ROOT / "worktree_hook_commands.py": 130,
         BUILTIN_TOOL_ROOT / "worktree_hooks.py": 240,
+        BUILTIN_TOOL_ROOT / "worktree_hook_lifecycle.py": 150,
         BUILTIN_TOOL_ROOT / "worktree_naming.py": 120,
         BUILTIN_TOOL_ROOT / "worktree_setup.py": 260,
         BUILTIN_TOOL_ROOT / "worktree_state.py": 150,
