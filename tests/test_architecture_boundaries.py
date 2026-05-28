@@ -82,6 +82,7 @@ BUILTIN_IMPLEMENTATION_FILES = {
     "sleep.py",
     "structured.py",
     "task_src_origin.py",
+    "task_agent_sessions.py",
     "tasks.py",
     "team_memory_safety.py",
     "teams.py",
@@ -516,6 +517,7 @@ def test_builtin_package_entrypoint_stays_thin():
 def test_builtin_task_domain_stays_split_by_responsibility():
     limits = {
         BUILTIN_TOOL_ROOT / "tasks.py": 520,
+        BUILTIN_TOOL_ROOT / "task_agent_sessions.py": 120,
         BUILTIN_TOOL_ROOT / "task_src_origin.py": 430,
         BUILTIN_TOOL_ROOT / "task_schemas.py": 190,
         BUILTIN_TOOL_ROOT / "src_origin" / "task_aliases.py": 900,

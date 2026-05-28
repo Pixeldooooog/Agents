@@ -22,6 +22,7 @@ from agents.kernel.capabilities.tools.builtin.task_schemas import (
     TASK_STOP_SCHEMA,
     TASK_UPDATE_SCHEMA,
 )
+from agents.kernel.capabilities.tools.builtin.task_agent_sessions import TaskAgentSessionFactory, agent_worktree_result_fields
 from agents.kernel.specs import AgentSpec
 
 
@@ -158,7 +159,7 @@ async def task_run(
 
     from agents.kernel.tasks.runner import TaskRunner
 
-    result = await TaskRunner(store, _run_coordinator(context), _ContextTaskSessionFactory(context)).run_task(
+    result = await TaskRunner(store, _run_coordinator(context), TaskAgentSessionFactory(context)).run_task(
         task.task_id,
         step_name=_step_name(step_name),
     )
@@ -171,6 +172,7 @@ async def task_run(
             "content": result.result.content,
             "messages": len(result.result.messages),
             "tool_results": len(result.result.tool_results),
+            **agent_worktree_result_fields(result.result),
         },
     }
 
@@ -210,7 +212,7 @@ async def task_backgrounds(context: ToolRuntimeContext) -> dict[str, Any]:
 async def _run_background_task(context: ToolRuntimeContext, task_id: str, step_name: str) -> None:
     from agents.kernel.tasks.runner import TaskRunner
 
-    result = await TaskRunner(_task_store(context), _run_coordinator(context), _ContextTaskSessionFactory(context)).run_task(
+    result = await TaskRunner(_task_store(context), _run_coordinator(context), TaskAgentSessionFactory(context)).run_task(
         task_id,
         step_name=step_name,
     )
@@ -219,6 +221,7 @@ async def _run_background_task(context: ToolRuntimeContext, task_id: str, step_n
         "step": _step_payload(result.step, include_text=False),
         "run": _run_payload(result.run),
         "status": result.result.status,
+        **agent_worktree_result_fields(result.result),
     }
 
 
@@ -261,14 +264,6 @@ async def _task_for_run(
         input=prompt,
         metadata={"source": "tool", "tool": source_tool, **_string_metadata(metadata)},
     )
-
-
-class _ContextTaskSessionFactory:
-    def __init__(self, context: ToolRuntimeContext):
-        self.context = context
-
-    async def create(self, task: Any) -> Any:
-        return await self.context.agent_session_factory(task.to_agent_spec(), task_id=task.task_id)
 
 
 def _agent_spec(context: ToolRuntimeContext) -> AgentSpec:
