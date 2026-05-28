@@ -11,6 +11,7 @@ class SrcOriginAgentDefinitionOptions:
     background: bool = False
     isolation: str = ""
     max_turns: int = 0
+    required_mcp_servers: tuple[str, ...] = ()
 
 
 def src_origin_agent_definition_options(profile: AgentProfile | None) -> SrcOriginAgentDefinitionOptions:
@@ -21,6 +22,9 @@ def src_origin_agent_definition_options(profile: AgentProfile | None) -> SrcOrig
         background=_truthy(metadata.get("background")),
         isolation=_isolation(metadata.get("isolation")),
         max_turns=_positive_int(metadata.get("maxTurns") or metadata.get("max_turns")),
+        required_mcp_servers=_string_list(
+            metadata.get("requiredMcpServers") or metadata.get("required_mcp_servers")
+        ),
     )
 
 
@@ -57,3 +61,8 @@ def _positive_int(value: object) -> int:
     except ValueError:
         return 0
     return parsed if parsed > 0 else 0
+
+
+def _string_list(value: object) -> tuple[str, ...]:
+    items = value if isinstance(value, (list, tuple, set)) else str(value or "").replace("\n", ",").split(",")
+    return tuple(item for item in (str(item).strip() for item in items) if item)

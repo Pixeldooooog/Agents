@@ -267,6 +267,78 @@ def test_src_origin_agent_profile_applies_max_turns_metadata(tmp_path: Path):
     assert captured[0].metadata["src_origin_max_turns"] == "2"
 
 
+def test_src_origin_agent_profile_rejects_missing_required_mcp_server(tmp_path: Path):
+    profile_store = InMemoryAgentProfileStore()
+    context, captured = _agent_context(
+        tmp_path,
+        profile_store=profile_store,
+        enabled_tools=["mcp__github__search"],
+    )
+    asyncio.run(
+        _save_profile(
+            profile_store,
+            tmp_path,
+            agent_id="researcher",
+            model="profile-model",
+            system_prompt="Profile prompt",
+            metadata={"requiredMcpServers": "docs, github"},
+        )
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    result = asyncio.run(
+        registry.execute(
+            "Agent",
+            {
+                "description": "Inspect repo",
+                "prompt": "read files",
+                "subagent_type": "researcher",
+            },
+        )
+    )
+
+    assert result.is_error is True
+    assert "requires MCP servers matching: docs" in result.content
+    assert "MCP servers with tools: github" in result.content
+    assert captured == []
+
+
+def test_src_origin_agent_profile_accepts_required_mcp_server_with_tools(tmp_path: Path):
+    profile_store = InMemoryAgentProfileStore()
+    context, captured = _agent_context(
+        tmp_path,
+        profile_store=profile_store,
+        enabled_tools=["mcp__github__search"],
+    )
+    asyncio.run(
+        _save_profile(
+            profile_store,
+            tmp_path,
+            agent_id="researcher",
+            model="profile-model",
+            system_prompt="Profile prompt",
+            metadata={"requiredMcpServers": "hub"},
+        )
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    result = asyncio.run(
+        registry.execute(
+            "Agent",
+            {
+                "description": "Inspect repo",
+                "prompt": "read files",
+                "subagent_type": "researcher",
+            },
+        )
+    )
+
+    assert result.is_error is False
+    assert captured[0].agent_id == "researcher"
+
+
 async def _save_researcher_profile(profile_store: InMemoryAgentProfileStore, root: Path, *, model: str) -> None:
     await _save_profile(
         profile_store,
@@ -320,6 +392,7 @@ def _agent_context(
     *,
     profile_store: InMemoryAgentProfileStore,
     task_store: InMemoryTaskStore | None = None,
+    enabled_tools: list[str] | None = None,
 ) -> tuple[ToolRuntimeContext, list[AgentSpec]]:
     workspace = WorkspaceContext(
         tenant_id="tenant",
@@ -347,6 +420,7 @@ def _agent_context(
             sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
             task_store=task_store,
             agent_profile_store=profile_store,
+            enabled_tools=list(enabled_tools or []),
             agent_spec=AgentSpec.from_overrides(
                 tenant_id="tenant",
                 user_id="user",

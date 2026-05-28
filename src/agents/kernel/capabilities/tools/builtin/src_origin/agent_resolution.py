@@ -7,6 +7,9 @@ from agents.kernel.capabilities.tools.builtin.src_origin.agent_definition_option
     apply_src_origin_agent_definition_options,
     src_origin_agent_definition_options,
 )
+from agents.kernel.capabilities.tools.builtin.src_origin.agent_mcp_requirements import (
+    validate_src_origin_required_mcp_servers,
+)
 from agents.kernel.capabilities.tools.builtin.src_origin.agent_profile_lookup import (
     lookup_src_origin_agent_profile,
 )
@@ -38,8 +41,14 @@ async def resolve_src_origin_agent_selection(
         base = _apply_profile_spec(base, profile)
     options = src_origin_agent_definition_options(profile)
     base = apply_src_origin_agent_definition_options(_apply_model_override(base, model), options)
+    agent_id = _selected_agent_id(name=name, subagent_type=lookup.requested_type, profile=profile)
+    validate_src_origin_required_mcp_servers(
+        context,
+        agent_id=agent_id,
+        required_servers=options.required_mcp_servers,
+    )
     return SrcOriginAgentSelection(
-        agent_id=_selected_agent_id(name=name, subagent_type=lookup.requested_type, profile=profile),
+        agent_id=agent_id,
         base_spec=base,
         background=options.background,
         isolation=options.isolation,
@@ -102,12 +111,7 @@ def _has_model_override(spec: AgentSpec) -> bool:
     )
 
 
-def _selected_agent_id(
-    *,
-    name: str,
-    subagent_type: str,
-    profile: AgentProfile | None,
-) -> str:
+def _selected_agent_id(*, name: str, subagent_type: str, profile: AgentProfile | None) -> str:
     return _text(name) or _text(subagent_type) or _text(profile.agent_id if profile is not None else "")
 
 
