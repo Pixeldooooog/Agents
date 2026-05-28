@@ -236,6 +236,37 @@ def test_src_origin_agent_profile_can_default_worktree_isolation(tmp_path: Path)
     assert child_path.exists() is False
 
 
+def test_src_origin_agent_profile_applies_max_turns_metadata(tmp_path: Path):
+    profile_store = InMemoryAgentProfileStore()
+    context, captured = _agent_context(tmp_path, profile_store=profile_store)
+    asyncio.run(
+        _save_profile(
+            profile_store,
+            tmp_path,
+            agent_id="researcher",
+            model="profile-model",
+            system_prompt="Profile prompt",
+            metadata={"maxTurns": "2"},
+        )
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    asyncio.run(
+        registry.execute(
+            "Agent",
+            {
+                "description": "Inspect repo",
+                "prompt": "read files",
+                "subagent_type": "researcher",
+            },
+        )
+    )
+
+    assert captured[0].metadata["max_tool_iterations"] == "2"
+    assert captured[0].metadata["src_origin_max_turns"] == "2"
+
+
 async def _save_researcher_profile(profile_store: InMemoryAgentProfileStore, root: Path, *, model: str) -> None:
     await _save_profile(
         profile_store,

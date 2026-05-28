@@ -212,6 +212,7 @@ def test_agent_system_exposes_future_multi_agent_boundaries():
         "assembly.active_tools",
         "assembly.common",
         "assembly.plugins",
+        "assembly.runtime_limits",
         "assembly.session_state",
         "assembly.spec_overrides",
         "state.runs",
@@ -357,6 +358,7 @@ def test_session_assembly_stays_split_by_responsibility():
         assembly_root / "active_tools.py": 120,
         assembly_root / "common.py": 60,
         assembly_root / "plugins.py": 160,
+        assembly_root / "runtime_limits.py": 60,
         assembly_root / "session_state.py": 220,
         assembly_root / "spec_overrides.py": 100,
     }

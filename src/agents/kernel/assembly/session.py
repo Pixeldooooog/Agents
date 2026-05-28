@@ -20,6 +20,7 @@ from agents.kernel.assembly.session_state import (
     mcp_config_records,
     memory_fragments,
 )
+from agents.kernel.assembly.runtime_limits import runtime_max_tool_iterations
 from agents.kernel.assembly.spec_overrides import effective_spec_from_session_state, skill_registry_with_session_state
 from agents.kernel.config import resolve_model_client_config
 from agents.kernel.context.builder import ContextBuilder
@@ -193,7 +194,7 @@ async def create_agent_session_async(
         protocol=config.protocol,
         model=config.model,
         enabled_tools=active_tools,
-        max_tool_iterations=settings.agent.MAX_TOOL_ITERATIONS,
+        max_tool_iterations=runtime_max_tool_iterations(settings, effective_spec),
         hooks=active_hooks,
         permission_policy=permission_policy,
         checkpoint_store=checkpoint_store,

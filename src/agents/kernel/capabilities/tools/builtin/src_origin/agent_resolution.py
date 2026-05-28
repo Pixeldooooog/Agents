@@ -4,6 +4,7 @@ from dataclasses import dataclass, replace
 
 from agents.kernel.capabilities.tools.builtin.agent_child_specs import runtime_agent_spec
 from agents.kernel.capabilities.tools.builtin.src_origin.agent_definition_options import (
+    apply_src_origin_agent_definition_options,
     src_origin_agent_definition_options,
 )
 from agents.kernel.capabilities.tools.builtin.src_origin.agent_profile_lookup import (
@@ -35,8 +36,8 @@ async def resolve_src_origin_agent_selection(
     profile = lookup.profile
     if profile is not None:
         base = _apply_profile_spec(base, profile)
-    base = _apply_model_override(base, model)
     options = src_origin_agent_definition_options(profile)
+    base = apply_src_origin_agent_definition_options(_apply_model_override(base, model), options)
     return SrcOriginAgentSelection(
         agent_id=_selected_agent_id(name=name, subagent_type=lookup.requested_type, profile=profile),
         base_spec=base,

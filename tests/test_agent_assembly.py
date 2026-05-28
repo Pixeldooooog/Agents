@@ -220,6 +220,19 @@ def test_create_session_wires_configured_context_compaction_model(tmp_path, monk
     assert [config.model for config in created_configs] == ["main-model", "compact-model"]
 
 
+def test_create_session_uses_spec_runtime_iteration_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr("agents.kernel.assembly.session.ModelClient", lambda config: FakeRuntimeClient())
+    settings = FakeSettings()
+    settings.server.ROOT_PATH = tmp_path
+    settings.models.openai.API_KEY = "key"
+    settings.models.openai.MODEL = "model"
+    spec = AgentSpec(metadata={"max_tool_iterations": "3"})
+
+    session = create_agent_session(settings, spec)
+
+    assert session.runtime.max_tool_iterations == 3
+
+
 def test_create_session_composes_skill_prompt_and_declared_tools(tmp_path, monkeypatch):
     (tmp_path / "skills").mkdir()
     (tmp_path / "prompts").mkdir()
