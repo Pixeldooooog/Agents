@@ -1,4 +1,6 @@
 import asyncio
+import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 from agents.kernel.capabilities.sandbox.local import LocalSandboxProvider
@@ -161,6 +163,79 @@ def test_src_origin_agent_alias_uses_general_purpose_profile_by_default(tmp_path
     assert child.model.model == "default-model"
 
 
+def test_src_origin_agent_profile_can_force_background_execution(tmp_path: Path):
+    profile_store = InMemoryAgentProfileStore()
+    task_store = InMemoryTaskStore()
+    context, captured = _agent_context(tmp_path, profile_store=profile_store, task_store=task_store)
+    asyncio.run(
+        _save_profile(
+            profile_store,
+            tmp_path,
+            agent_id="researcher",
+            model="profile-model",
+            system_prompt="Profile prompt",
+            metadata={"background": "true"},
+        )
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    async def execute():
+        started = await registry.execute(
+            "Agent",
+            {
+                "description": "Inspect repo",
+                "prompt": "read files",
+                "subagent_type": "researcher",
+            },
+        )
+        task_id = started.raw["task"]["task_id"]
+        await context.background_tasks[task_id]
+        return started, await task_store.load_task(task_id)
+
+    started, task = asyncio.run(execute())
+
+    assert started.raw["status"] == "async_launched"
+    assert task is not None
+    assert task.metadata["agent_id"] == "researcher"
+    assert captured[0].agent_id == "researcher"
+
+
+def test_src_origin_agent_profile_can_default_worktree_isolation(tmp_path: Path):
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    profile_store = InMemoryAgentProfileStore()
+    context, captured = _agent_context(repo, profile_store=profile_store)
+    asyncio.run(
+        _save_profile(
+            profile_store,
+            repo,
+            agent_id="researcher",
+            model="profile-model",
+            system_prompt="Profile prompt",
+            metadata={"isolation": "worktree"},
+        )
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    result = asyncio.run(
+        registry.execute(
+            "Agent",
+            {
+                "description": "Inspect repo",
+                "prompt": "read files",
+                "subagent_type": "researcher",
+            },
+        )
+    )
+
+    child_path = Path(captured[0].workspace.path)
+    assert result.raw["worktreeKept"] is False
+    assert child_path.parent == repo / ".agents" / "worktrees"
+    assert child_path.exists() is False
+
+
 async def _save_researcher_profile(profile_store: InMemoryAgentProfileStore, root: Path, *, model: str) -> None:
     await _save_profile(
         profile_store,
@@ -178,6 +253,7 @@ async def _save_profile(
     agent_id: str,
     model: str,
     system_prompt: str,
+    metadata: dict[str, str] | None = None,
 ) -> None:
     spec = AgentSpec.from_overrides(
         tenant_id="tenant",
@@ -189,7 +265,23 @@ async def _save_profile(
         system_prompt=system_prompt,
         enabled_tools=["filesystem.read"],
     )
+    if metadata:
+        spec = replace(spec, metadata=dict(metadata))
     await profile_store.save(AgentProfile.from_spec(spec, name=agent_id))
+
+
+def _init_repo(path: Path) -> None:
+    path.mkdir(parents=True)
+    _git(path, "init")
+    _git(path, "config", "user.email", "agents-test@example.com")
+    _git(path, "config", "user.name", "Agents Test")
+    (path / "README.md").write_text("hello\n", encoding="utf-8")
+    _git(path, "add", "README.md")
+    _git(path, "commit", "-m", "init")
+
+
+def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", *args], cwd=str(cwd), text=True, capture_output=True, check=True)
 
 
 def _agent_context(

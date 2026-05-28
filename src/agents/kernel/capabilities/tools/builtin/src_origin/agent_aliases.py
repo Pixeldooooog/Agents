@@ -164,7 +164,8 @@ async def _src_origin_agent(
         subagent_type=subagent_type,
         model=model,
     )
-    if run_in_background:
+    effective_isolation = isolation or selection.isolation
+    if run_in_background or selection.background:
         child_spec = child_agent_spec(
             context,
             base_spec=selection.base_spec,
@@ -182,7 +183,7 @@ async def _src_origin_agent(
                 name=name,
                 team_name=team_name,
                 mode=mode,
-                isolation=isolation,
+                isolation=effective_isolation,
                 cwd=cwd,
                 agent_id=child_spec.agent_id,
             ),
@@ -199,7 +200,7 @@ async def _src_origin_agent(
         prompt=prompt,
         description=description,
         agent_id=selection.agent_id,
-        isolation=isolation,
+        isolation=effective_isolation,
         cwd=cwd,
         base_spec=selection.base_spec,
     )
