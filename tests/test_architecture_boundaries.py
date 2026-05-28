@@ -101,9 +101,12 @@ BUILTIN_IMPLEMENTATION_FILES = {
     "worktree_state.py",
     "worktree_tmux.py",
     "src_origin/agent_definition_options.py",
+    "src_origin/agent_metadata.py",
     "src_origin/agent_mcp_requirements.py",
+    "src_origin/agent_profile_spec.py",
     "src_origin/agent_profile_lookup.py",
     "src_origin/agent_resolution.py",
+    "src_origin/agent_tool_rules.py",
     "mcp/ide.py",
     "mcp/management.py",
     "mcp/prompts.py",
@@ -504,9 +507,12 @@ def test_builtin_agent_domain_stays_split_by_responsibility():
         BUILTIN_TOOL_ROOT / "agent_worktree.py": 120,
         BUILTIN_TOOL_ROOT / "src_origin" / "agent_aliases.py": 300,
         BUILTIN_TOOL_ROOT / "src_origin" / "agent_definition_options.py": 80,
+        BUILTIN_TOOL_ROOT / "src_origin" / "agent_metadata.py": 80,
         BUILTIN_TOOL_ROOT / "src_origin" / "agent_mcp_requirements.py": 80,
+        BUILTIN_TOOL_ROOT / "src_origin" / "agent_profile_spec.py": 90,
         BUILTIN_TOOL_ROOT / "src_origin" / "agent_profile_lookup.py": 110,
         BUILTIN_TOOL_ROOT / "src_origin" / "agent_resolution.py": 120,
+        BUILTIN_TOOL_ROOT / "src_origin" / "agent_tool_rules.py": 80,
     }
 
     for path, max_lines in limits.items():

@@ -1,24 +1,23 @@
 import asyncio
-import subprocess
-from dataclasses import replace
 from pathlib import Path
 
-from agents.kernel.capabilities.sandbox.local import LocalSandboxProvider
-from agents.kernel.capabilities.tools import ToolRuntimeContext, register_builtin_tools
+from agents.kernel.capabilities.tools import register_builtin_tools
 from agents.kernel.capabilities.tools.registry import ToolRegistry
-from agents.kernel.context.workspace import WorkspaceContext
-from agents.kernel.governance import SandboxPolicy
-from agents.kernel.runtime import AgentResult
-from agents.kernel.schema import Message
-from agents.kernel.specs import AgentSpec
-from agents.kernel.state import AgentProfile, InMemoryAgentProfileStore
+from agents.kernel.state import InMemoryAgentProfileStore
 from agents.kernel.tasks import InMemoryTaskStore
+
+from tests.src_origin_agent_helpers import (
+    agent_context,
+    init_repo,
+    save_profile,
+    save_researcher_profile,
+)
 
 
 def test_src_origin_agent_alias_resolves_profile_and_model_override(tmp_path: Path):
     profile_store = InMemoryAgentProfileStore()
-    context, captured = _agent_context(tmp_path, profile_store=profile_store)
-    asyncio.run(_save_researcher_profile(profile_store, tmp_path, model="profile-model"))
+    context, captured = agent_context(tmp_path, profile_store=profile_store)
+    asyncio.run(save_researcher_profile(profile_store, tmp_path, model="profile-model"))
     registry = ToolRegistry()
     register_builtin_tools(registry, context)
 
@@ -46,8 +45,8 @@ def test_src_origin_agent_alias_resolves_profile_and_model_override(tmp_path: Pa
 
 def test_src_origin_agent_alias_keeps_explicit_name_while_using_profile(tmp_path: Path):
     profile_store = InMemoryAgentProfileStore()
-    context, captured = _agent_context(tmp_path, profile_store=profile_store)
-    asyncio.run(_save_researcher_profile(profile_store, tmp_path, model="profile-model"))
+    context, captured = agent_context(tmp_path, profile_store=profile_store)
+    asyncio.run(save_researcher_profile(profile_store, tmp_path, model="profile-model"))
     registry = ToolRegistry()
     register_builtin_tools(registry, context)
 
@@ -72,8 +71,8 @@ def test_src_origin_agent_alias_keeps_explicit_name_while_using_profile(tmp_path
 def test_src_origin_background_agent_stores_resolved_child_spec(tmp_path: Path):
     profile_store = InMemoryAgentProfileStore()
     task_store = InMemoryTaskStore()
-    context, captured = _agent_context(tmp_path, profile_store=profile_store, task_store=task_store)
-    asyncio.run(_save_researcher_profile(profile_store, tmp_path, model="profile-model"))
+    context, captured = agent_context(tmp_path, profile_store=profile_store, task_store=task_store)
+    asyncio.run(save_researcher_profile(profile_store, tmp_path, model="profile-model"))
     registry = ToolRegistry()
     register_builtin_tools(registry, context)
 
@@ -109,8 +108,8 @@ def test_src_origin_background_agent_stores_resolved_child_spec(tmp_path: Path):
 
 def test_src_origin_agent_alias_rejects_unknown_subagent_type(tmp_path: Path):
     profile_store = InMemoryAgentProfileStore()
-    context, captured = _agent_context(tmp_path, profile_store=profile_store)
-    asyncio.run(_save_researcher_profile(profile_store, tmp_path, model="profile-model"))
+    context, captured = agent_context(tmp_path, profile_store=profile_store)
+    asyncio.run(save_researcher_profile(profile_store, tmp_path, model="profile-model"))
     registry = ToolRegistry()
     register_builtin_tools(registry, context)
 
@@ -133,9 +132,9 @@ def test_src_origin_agent_alias_rejects_unknown_subagent_type(tmp_path: Path):
 
 def test_src_origin_agent_alias_uses_general_purpose_profile_by_default(tmp_path: Path):
     profile_store = InMemoryAgentProfileStore()
-    context, captured = _agent_context(tmp_path, profile_store=profile_store)
+    context, captured = agent_context(tmp_path, profile_store=profile_store)
     asyncio.run(
-        _save_profile(
+        save_profile(
             profile_store,
             tmp_path,
             agent_id="general-purpose",
@@ -166,9 +165,9 @@ def test_src_origin_agent_alias_uses_general_purpose_profile_by_default(tmp_path
 def test_src_origin_agent_profile_can_force_background_execution(tmp_path: Path):
     profile_store = InMemoryAgentProfileStore()
     task_store = InMemoryTaskStore()
-    context, captured = _agent_context(tmp_path, profile_store=profile_store, task_store=task_store)
+    context, captured = agent_context(tmp_path, profile_store=profile_store, task_store=task_store)
     asyncio.run(
-        _save_profile(
+        save_profile(
             profile_store,
             tmp_path,
             agent_id="researcher",
@@ -203,11 +202,11 @@ def test_src_origin_agent_profile_can_force_background_execution(tmp_path: Path)
 
 def test_src_origin_agent_profile_can_default_worktree_isolation(tmp_path: Path):
     repo = tmp_path / "repo"
-    _init_repo(repo)
+    init_repo(repo)
     profile_store = InMemoryAgentProfileStore()
-    context, captured = _agent_context(repo, profile_store=profile_store)
+    context, captured = agent_context(repo, profile_store=profile_store)
     asyncio.run(
-        _save_profile(
+        save_profile(
             profile_store,
             repo,
             agent_id="researcher",
@@ -238,9 +237,9 @@ def test_src_origin_agent_profile_can_default_worktree_isolation(tmp_path: Path)
 
 def test_src_origin_agent_profile_applies_max_turns_metadata(tmp_path: Path):
     profile_store = InMemoryAgentProfileStore()
-    context, captured = _agent_context(tmp_path, profile_store=profile_store)
+    context, captured = agent_context(tmp_path, profile_store=profile_store)
     asyncio.run(
-        _save_profile(
+        save_profile(
             profile_store,
             tmp_path,
             agent_id="researcher",
@@ -269,13 +268,13 @@ def test_src_origin_agent_profile_applies_max_turns_metadata(tmp_path: Path):
 
 def test_src_origin_agent_profile_rejects_missing_required_mcp_server(tmp_path: Path):
     profile_store = InMemoryAgentProfileStore()
-    context, captured = _agent_context(
+    context, captured = agent_context(
         tmp_path,
         profile_store=profile_store,
         enabled_tools=["mcp__github__search"],
     )
     asyncio.run(
-        _save_profile(
+        save_profile(
             profile_store,
             tmp_path,
             agent_id="researcher",
@@ -306,13 +305,13 @@ def test_src_origin_agent_profile_rejects_missing_required_mcp_server(tmp_path: 
 
 def test_src_origin_agent_profile_accepts_required_mcp_server_with_tools(tmp_path: Path):
     profile_store = InMemoryAgentProfileStore()
-    context, captured = _agent_context(
+    context, captured = agent_context(
         tmp_path,
         profile_store=profile_store,
         enabled_tools=["mcp__github__search"],
     )
     asyncio.run(
-        _save_profile(
+        save_profile(
             profile_store,
             tmp_path,
             agent_id="researcher",
@@ -337,98 +336,3 @@ def test_src_origin_agent_profile_accepts_required_mcp_server_with_tools(tmp_pat
 
     assert result.is_error is False
     assert captured[0].agent_id == "researcher"
-
-
-async def _save_researcher_profile(profile_store: InMemoryAgentProfileStore, root: Path, *, model: str) -> None:
-    await _save_profile(
-        profile_store,
-        root,
-        agent_id="researcher",
-        model=model,
-        system_prompt="Profile prompt",
-    )
-
-
-async def _save_profile(
-    profile_store: InMemoryAgentProfileStore,
-    root: Path,
-    *,
-    agent_id: str,
-    model: str,
-    system_prompt: str,
-    metadata: dict[str, str] | None = None,
-) -> None:
-    spec = AgentSpec.from_overrides(
-        tenant_id="tenant",
-        user_id="user",
-        agent_id=agent_id,
-        workspace_id="workspace",
-        workspace_path=str(root),
-        model=model,
-        system_prompt=system_prompt,
-        enabled_tools=["filesystem.read"],
-    )
-    if metadata:
-        spec = replace(spec, metadata=dict(metadata))
-    await profile_store.save(AgentProfile.from_spec(spec, name=agent_id))
-
-
-def _init_repo(path: Path) -> None:
-    path.mkdir(parents=True)
-    _git(path, "init")
-    _git(path, "config", "user.email", "agents-test@example.com")
-    _git(path, "config", "user.name", "Agents Test")
-    (path / "README.md").write_text("hello\n", encoding="utf-8")
-    _git(path, "add", "README.md")
-    _git(path, "commit", "-m", "init")
-
-
-def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["git", *args], cwd=str(cwd), text=True, capture_output=True, check=True)
-
-
-def _agent_context(
-    root: Path,
-    *,
-    profile_store: InMemoryAgentProfileStore,
-    task_store: InMemoryTaskStore | None = None,
-    enabled_tools: list[str] | None = None,
-) -> tuple[ToolRuntimeContext, list[AgentSpec]]:
-    workspace = WorkspaceContext(
-        tenant_id="tenant",
-        user_id="user",
-        agent_id="lead",
-        workspace_id="workspace",
-        root=root,
-        path=root,
-    )
-    policy = SandboxPolicy.for_workspace(workspace.path)
-    captured: list[AgentSpec] = []
-
-    class ChildSession:
-        async def send(self, prompt, run_id=None, task_id=None):
-            return AgentResult(content="done: %s" % prompt, messages=[Message.from_text("assistant", "done")])
-
-    async def create_child(spec, task_id=""):
-        captured.append(spec)
-        return ChildSession()
-
-    return (
-        ToolRuntimeContext(
-            workspace=workspace,
-            sandbox=policy,
-            sandbox_client=LocalSandboxProvider().acquire(workspace, policy),
-            task_store=task_store,
-            agent_profile_store=profile_store,
-            enabled_tools=list(enabled_tools or []),
-            agent_spec=AgentSpec.from_overrides(
-                tenant_id="tenant",
-                user_id="user",
-                agent_id="lead",
-                workspace_id="workspace",
-                workspace_path=str(root),
-            ),
-            agent_session_factory=create_child,
-        ),
-        captured,
-    )
