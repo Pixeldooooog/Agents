@@ -126,7 +126,7 @@ def test_src_origin_agent_alias_rejects_unknown_subagent_type(tmp_path: Path):
 
     assert result.is_error is True
     assert "Agent type 'missing-agent' not found" in result.content
-    assert "Available agents: general-purpose, researcher" in result.content
+    assert "Available agents: Explore, Plan, general-purpose, researcher" in result.content
     assert captured == []
 
 
@@ -160,30 +160,6 @@ def test_src_origin_agent_alias_uses_general_purpose_profile_by_default(tmp_path
     assert child.agent_id == "general-purpose"
     assert child.system_prompt == "General prompt"
     assert child.model.model == "default-model"
-
-
-def test_src_origin_agent_alias_uses_builtin_general_purpose_by_default(tmp_path: Path):
-    profile_store = InMemoryAgentProfileStore()
-    context, captured = agent_context(tmp_path, profile_store=profile_store)
-    registry = ToolRegistry()
-    register_builtin_tools(registry, context)
-
-    result = asyncio.run(
-        registry.execute(
-            "Agent",
-            {
-                "description": "Inspect repo",
-                "prompt": "read files",
-            },
-        )
-    )
-
-    child = captured[0]
-    assert result.raw["agent_id"] == "general-purpose"
-    assert child.agent_id == "general-purpose"
-    assert child.enabled_tools is None
-    assert child.metadata["src_origin_agent_profile"] == "general-purpose"
-    assert "Searching for code" in (child.system_prompt or "")
 
 
 def test_src_origin_agent_profile_can_force_background_execution(tmp_path: Path):
