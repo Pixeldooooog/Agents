@@ -45,10 +45,10 @@ def apply_src_origin_agent_profile_spec(base: AgentSpec, profile: AgentProfile) 
     spec = apply_src_origin_agent_skills(spec, profile_metadata)
     spec = apply_src_origin_agent_permission_mode(spec, profile_metadata)
     spec = apply_src_origin_agent_initial_prompt(spec, profile_metadata)
-    spec = apply_src_origin_agent_memory(spec, profile_metadata)
     spec = apply_src_origin_agent_context_options(spec, profile_metadata)
     spec = apply_src_origin_agent_system_reminder(spec, profile_metadata)
-    return apply_src_origin_agent_tool_rules(spec, profile_metadata)
+    spec = apply_src_origin_agent_tool_rules(spec, profile_metadata)
+    return apply_src_origin_agent_memory(spec, profile_metadata)
 
 
 def _profile_model(base: AgentSpec, profile_spec: AgentSpec) -> AgentModelSpec:

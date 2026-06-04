@@ -38,3 +38,36 @@ def test_src_origin_agent_profile_memory_scope_marks_child_spec(tmp_path: Path):
     assert result.is_error is False
     assert captured[0].memory_profile == "src-origin:user"
     assert captured[0].metadata["src_origin_memory_scope"] == "user"
+    assert captured[0].enabled_tools == ["filesystem.read", "filesystem.write", "patch.apply"]
+
+
+def test_src_origin_agent_profile_memory_extends_frontmatter_tool_allowlist(tmp_path: Path):
+    profile_store = InMemoryAgentProfileStore()
+    context, captured = agent_context(tmp_path, profile_store=profile_store)
+    asyncio.run(
+        save_profile(
+            profile_store,
+            tmp_path,
+            agent_id="researcher",
+            model="inherit",
+            system_prompt="Research only.",
+            metadata={"memory": "project", "tools": "Read"},
+        )
+    )
+    registry = ToolRegistry()
+    register_builtin_tools(registry, context)
+
+    result = asyncio.run(
+        registry.execute(
+            "Agent",
+            {
+                "description": "Inspect repo",
+                "prompt": "read files",
+                "subagent_type": "researcher",
+            },
+        )
+    )
+
+    assert result.is_error is False
+    assert captured[0].memory_profile == "src-origin:project"
+    assert captured[0].enabled_tools == ["filesystem.read", "filesystem.write", "patch.apply"]
