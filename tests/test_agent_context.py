@@ -1,4 +1,13 @@
-from agents.kernel.context import ContextBuilder, ContextFragment, ContextLayer, ContextPack, ContextScope
+from agents.kernel.capabilities.skills import SkillRegistry
+from agents.kernel.context import (
+    ContextBuilder,
+    ContextFragment,
+    ContextLayer,
+    ContextPack,
+    ContextScope,
+    WorkspaceContext,
+    build_context_pack,
+)
 from agents.kernel.context.window import ContextWindowManager
 from agents.kernel.schema import Message
 from agents.kernel.state.workspaces import LocalWorkspaceStore
@@ -66,6 +75,28 @@ def test_context_builder_drops_optional_fragments_over_budget():
     assert "memory.summary" not in compiled.system_text
     assert compiled.trace[1].included is False
     assert compiled.trace[1].reason == "budget"
+
+
+def test_context_pack_includes_agent_critical_system_reminder(tmp_path):
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    pack = build_context_pack(
+        system_prompt="Base prompt.",
+        skill_registry=SkillRegistry([]),
+        enabled_tools=[],
+        workspace=workspace,
+        agent_metadata={"critical_system_reminder": "VERDICT required."},
+    )
+    compiled = ContextBuilder().compile(pack)
+
+    assert "## runtime_policy: agent.critical_system_reminder\nVERDICT required." in compiled.system_text
+    assert "agent.critical_system_reminder" in [item.id for item in compiled.trace]
 
 
 def test_local_workspace_store_builds_stable_safe_paths(tmp_path):

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterable, List
+from typing import Iterable, List, Mapping
 
 from agents.kernel.context.pack import ContextFragment, ContextLayer, ContextPack, ContextScope
 from agents.kernel.context.workspace import WorkspaceContext
@@ -13,12 +13,14 @@ def build_context_pack(
     skill_registry: SkillRegistry,
     enabled_tools: Iterable[str],
     workspace: WorkspaceContext,
+    agent_metadata: Mapping[str, object] | None = None,
     memory_fragments: Iterable[ContextFragment] = (),
     extension_fragments: Iterable[ContextFragment] = (),
 ) -> ContextPack:
     fragments: List[ContextFragment] = []
     fragments.extend(_system_fragments(system_prompt))
     fragments.extend(_runtime_policy_fragments())
+    fragments.extend(_agent_metadata_fragments(agent_metadata or {}))
     fragments.extend(_workspace_instruction_fragments(workspace))
     fragments.extend(_skill_fragments(skill_registry))
     fragments.extend(extension_fragments)
@@ -55,6 +57,22 @@ def _runtime_policy_fragments() -> List[ContextFragment]:
             source="agent.runtime",
             priority=100,
             scope=ContextScope.GLOBAL,
+        )
+    ]
+
+
+def _agent_metadata_fragments(metadata: Mapping[str, object]) -> List[ContextFragment]:
+    reminder = str(metadata.get("critical_system_reminder") or "").strip()
+    if not reminder:
+        return []
+    return [
+        ContextFragment(
+            id="agent.critical_system_reminder",
+            layer=ContextLayer.RUNTIME_POLICY,
+            text=reminder,
+            source="agent_spec.metadata.critical_system_reminder",
+            priority=120,
+            scope=ContextScope.SESSION,
         )
     ]
 

@@ -172,6 +172,7 @@ async def create_agent_session_async(
         skill_registry=skill_registry,
         enabled_tools=active_tools,
         workspace=tool_context.workspace,
+        agent_metadata=effective_spec.metadata,
         memory_fragments=memory_context_fragments,
         extension_fragments=plugin_context_fragments(settings, tool_context),
     )

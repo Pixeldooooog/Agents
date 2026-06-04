@@ -11,6 +11,9 @@ from agents.kernel.capabilities.tools.builtin.src_origin.agent_permission_mode i
 from agents.kernel.capabilities.tools.builtin.src_origin.agent_skills import (
     apply_src_origin_agent_skills,
 )
+from agents.kernel.capabilities.tools.builtin.src_origin.agent_system_reminder import (
+    apply_src_origin_agent_system_reminder,
+)
 from agents.kernel.capabilities.tools.builtin.src_origin.agent_tool_rules import (
     apply_src_origin_agent_tool_rules,
 )
@@ -40,6 +43,7 @@ def apply_src_origin_agent_profile_spec(base: AgentSpec, profile: AgentProfile) 
     profile_metadata = src_origin_profile_metadata(profile)
     spec = apply_src_origin_agent_skills(spec, profile_metadata)
     spec = apply_src_origin_agent_permission_mode(spec, profile_metadata)
+    spec = apply_src_origin_agent_system_reminder(spec, profile_metadata)
     return apply_src_origin_agent_tool_rules(spec, profile_metadata)
 
 
