@@ -163,7 +163,12 @@ async def create_agent_session_async(
     await hydrate_schedules(tool_context)
     await hydrate_teams(tool_context)
     await hydrate_hooks(tool_context)
-    memory_context_fragments = await memory_fragments(settings, memory_store, tool_context.workspace)
+    memory_context_fragments = await memory_fragments(
+        settings,
+        memory_store,
+        tool_context.workspace,
+        memory_profile=effective_spec.memory_profile,
+    )
     system_prompt = settings.agent.SYSTEM_PROMPT if effective_spec.system_prompt is None else effective_spec.system_prompt
     if tool_context.system_prompt_overridden:
         system_prompt = tool_context.system_prompt_override

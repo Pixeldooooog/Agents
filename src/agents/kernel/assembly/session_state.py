@@ -10,7 +10,13 @@ from agents.kernel.context.memory import MemoryContextRetriever, MemoryRetrieval
 from agents.kernel.mcp.auth import mcp_authorization_headers_for_scope
 
 
-async def memory_fragments(settings: Any, memory_store: Optional[MemoryStore], workspace) -> list:
+async def memory_fragments(
+    settings: Any,
+    memory_store: Optional[MemoryStore],
+    workspace,
+    *,
+    memory_profile: str = "",
+) -> list:
     if memory_store is None or not workspace.tenant_id or not workspace.user_id:
         return []
     limit = int(getattr(settings.agent, "MEMORY_CONTEXT_LIMIT", 20) or 0)
@@ -23,6 +29,7 @@ async def memory_fragments(settings: Any, memory_store: Optional[MemoryStore], w
             agent_id=workspace.agent_id,
             workspace_id=workspace.workspace_id,
             limit=limit,
+            profile=memory_profile,
         )
     )
 

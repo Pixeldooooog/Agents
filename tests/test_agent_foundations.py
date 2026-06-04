@@ -95,6 +95,54 @@ def test_memory_retriever_and_compactor_emit_context_fragments():
     assert "Prior conversation summary" in compaction.as_fragment().text
 
 
+def test_memory_retriever_respects_src_origin_memory_profiles():
+    async def retrieve(profile: str):
+        store = InMemoryMemoryStore()
+        await store.save(
+            MemoryRecord.create(
+                tenant_id="tenant",
+                user_id="user",
+                scope=MemoryScope.USER,
+                content="Global user memory.",
+            )
+        )
+        await store.save(
+            MemoryRecord.create(
+                tenant_id="tenant",
+                user_id="user",
+                agent_id="researcher",
+                scope=MemoryScope.AGENT,
+                content="Agent user memory.",
+            )
+        )
+        await store.save(
+            MemoryRecord.create(
+                tenant_id="tenant",
+                user_id="user",
+                agent_id="researcher",
+                workspace_id="workspace",
+                scope=MemoryScope.WORKSPACE,
+                content="Project agent memory.",
+            )
+        )
+        retriever = MemoryContextRetriever(store)
+        return await retriever.fragments_for_scope(
+            MemoryRetrievalScope(
+                "tenant",
+                "user",
+                agent_id="researcher",
+                workspace_id="workspace",
+                profile=profile,
+            )
+        )
+
+    user_fragments = asyncio.run(retrieve("src-origin:user"))
+    project_fragments = asyncio.run(retrieve("src-origin:project"))
+
+    assert [fragment.text for fragment in user_fragments] == ["Agent user memory."]
+    assert [fragment.text for fragment in project_fragments] == ["Project agent memory."]
+
+
 def test_governance_security_redacts_and_protects_payloads_for_local_use():
     redacted = SecretRedactor().redact_mapping(
         {

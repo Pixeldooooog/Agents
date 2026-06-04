@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List
 
-from agents.kernel.capabilities.memory import MemoryRecord, MemoryStore
+from agents.kernel.capabilities.memory import MemoryRecord, MemoryScope, MemoryStore
 from agents.kernel.context.pack import ContextFragment, ContextLayer, ContextScope
 
 
@@ -14,6 +14,7 @@ class MemoryRetrievalScope:
     agent_id: str = ""
     workspace_id: str = ""
     limit: int = 20
+    profile: str = ""
 
 
 class MemoryContextRetriever:
@@ -27,6 +28,7 @@ class MemoryContextRetriever:
             agent_id=scope.agent_id,
             workspace_id=scope.workspace_id,
         )
+        records = _profile_records(records, scope.profile)
         selected = records[-max(0, scope.limit) :] if scope.limit else []
         return [_fragment_from_memory(record) for record in selected]
 
@@ -48,6 +50,15 @@ def _fragment_from_memory(memory: MemoryRecord) -> ContextFragment:
             "workspace_id": memory.workspace_id,
         },
     )
+
+
+def _profile_records(records: list[MemoryRecord], profile: str) -> list[MemoryRecord]:
+    value = str(profile or "").strip().lower()
+    if value == "src-origin:user":
+        return [record for record in records if record.scope == MemoryScope.AGENT]
+    if value in {"src-origin:project", "src-origin:local"}:
+        return [record for record in records if record.scope == MemoryScope.WORKSPACE]
+    return records
 
 
 def _priority(memory: MemoryRecord) -> int:
