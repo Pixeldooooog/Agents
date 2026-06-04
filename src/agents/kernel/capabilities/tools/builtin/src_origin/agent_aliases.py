@@ -9,6 +9,9 @@ from agents.kernel.capabilities.tools.builtin.agent_child_specs import child_age
 from agents.kernel.capabilities.tools.builtin.agents import agent_run
 from agents.kernel.capabilities.tools.builtin.registration_helpers import register_builtin_tool as _register_builtin_tool
 from agents.kernel.capabilities.tools.builtin.src_origin.agent_resolution import resolve_src_origin_agent_selection
+from agents.kernel.capabilities.tools.builtin.src_origin.agent_initial_prompt import (
+    prompt_with_src_origin_initial_prompt,
+)
 from agents.kernel.capabilities.tools.builtin.tasks import task_background
 from agents.kernel.capabilities.tools.builtin.teams import team_create, team_delete, team_send
 from agents.kernel.capabilities.tools.context import ToolRuntimeContext
@@ -165,6 +168,10 @@ async def _src_origin_agent(
         model=model,
     )
     effective_isolation = isolation or selection.isolation
+    effective_prompt = prompt_with_src_origin_initial_prompt(
+        prompt,
+        selection.base_spec.metadata,
+    )
     if run_in_background or selection.background:
         child_spec = child_agent_spec(
             context,
@@ -175,7 +182,7 @@ async def _src_origin_agent(
         payload = await task_background(
             context,
             title=description,
-            input=prompt,
+            input=effective_prompt,
             metadata=_src_origin_metadata(
                 {"source": "Agent"},
                 subagent_type=subagent_type,
@@ -193,11 +200,11 @@ async def _src_origin_agent(
         payload["status"] = "async_launched"
         payload["agentId"] = payload["task"]["task_id"]
         payload["description"] = description
-        payload["prompt"] = prompt
+        payload["prompt"] = effective_prompt
         return payload
     return await agent_run(
         context,
-        prompt=prompt,
+        prompt=effective_prompt,
         description=description,
         agent_id=selection.agent_id,
         isolation=effective_isolation,

@@ -5,6 +5,9 @@ from dataclasses import replace
 from agents.kernel.capabilities.tools.builtin.src_origin.agent_metadata import (
     src_origin_profile_metadata,
 )
+from agents.kernel.capabilities.tools.builtin.src_origin.agent_initial_prompt import (
+    apply_src_origin_agent_initial_prompt,
+)
 from agents.kernel.capabilities.tools.builtin.src_origin.agent_permission_mode import (
     apply_src_origin_agent_permission_mode,
 )
@@ -43,6 +46,7 @@ def apply_src_origin_agent_profile_spec(base: AgentSpec, profile: AgentProfile) 
     profile_metadata = src_origin_profile_metadata(profile)
     spec = apply_src_origin_agent_skills(spec, profile_metadata)
     spec = apply_src_origin_agent_permission_mode(spec, profile_metadata)
+    spec = apply_src_origin_agent_initial_prompt(spec, profile_metadata)
     spec = apply_src_origin_agent_system_reminder(spec, profile_metadata)
     return apply_src_origin_agent_tool_rules(spec, profile_metadata)
 
