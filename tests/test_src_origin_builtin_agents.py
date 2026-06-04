@@ -35,6 +35,16 @@ def test_src_origin_agent_alias_resolves_builtin_explore_profile(tmp_path: Path)
     assert "READ-ONLY exploration task" in (child.system_prompt or "")
 
 
+def test_src_origin_agent_alias_resolves_builtin_without_profile_store(tmp_path: Path):
+    result, child = _spawn_builtin(tmp_path, "Explore", include_profile_store=False)
+
+    assert result.raw["agent_id"] == "Explore"
+    assert child.agent_id == "Explore"
+    assert child.model.model == "haiku"
+    assert child.tool_permissions.denied_tools == READ_ONLY_DENIED_TOOLS
+    assert "READ-ONLY exploration task" in (child.system_prompt or "")
+
+
 def test_src_origin_agent_alias_resolves_builtin_plan_profile_with_inherited_model(tmp_path: Path):
     result, child = _spawn_builtin(tmp_path, "Plan", parent_model="parent-model")
 
@@ -47,9 +57,17 @@ def test_src_origin_agent_alias_resolves_builtin_plan_profile_with_inherited_mod
     assert "Critical Files for Implementation" in (child.system_prompt or "")
 
 
-def _spawn_builtin(tmp_path: Path, subagent_type: str, *, parent_model: str = ""):
+def _spawn_builtin(
+    tmp_path: Path,
+    subagent_type: str,
+    *,
+    parent_model: str = "",
+    include_profile_store: bool = True,
+):
     profile_store = InMemoryAgentProfileStore()
     context, captured = agent_context(tmp_path, profile_store=profile_store)
+    if not include_profile_store:
+        context.agent_profile_store = None
     if parent_model:
         context.agent_spec = replace(context.agent_spec, model=AgentSpec.from_overrides(model=parent_model).model)
     registry = ToolRegistry()

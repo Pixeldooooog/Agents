@@ -45,11 +45,10 @@ async def _required_profile(
     profile_id: str,
 ) -> AgentProfile | None:
     store = getattr(context, "agent_profile_store", None)
-    if store is None:
-        return None
-    profile = await _load_profile(context, base, profile_id)
-    if profile is not None:
-        return profile
+    if store is not None:
+        profile = await _load_profile(context, base, profile_id)
+        if profile is not None:
+            return profile
     profile = src_origin_builtin_agent_profile(context, base, profile_id)
     if profile is not None:
         return profile
