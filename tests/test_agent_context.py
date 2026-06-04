@@ -99,6 +99,29 @@ def test_context_pack_includes_agent_critical_system_reminder(tmp_path):
     assert "agent.critical_system_reminder" in [item.id for item in compiled.trace]
 
 
+def test_context_pack_can_omit_workspace_instructions_for_agent(tmp_path):
+    (tmp_path / "AGENTS.md").write_text("Project instruction.", encoding="utf-8")
+    workspace = WorkspaceContext(
+        tenant_id="tenant",
+        user_id="user",
+        agent_id="agent",
+        workspace_id="workspace",
+        root=tmp_path,
+        path=tmp_path,
+    )
+    pack = build_context_pack(
+        system_prompt="Base prompt.",
+        skill_registry=SkillRegistry([]),
+        enabled_tools=[],
+        workspace=workspace,
+        agent_metadata={"omit_workspace_instructions": "true"},
+    )
+    compiled = ContextBuilder().compile(pack)
+
+    assert "Project instruction." not in compiled.system_text
+    assert "workspace.agents" not in [item.id for item in compiled.trace]
+
+
 def test_local_workspace_store_builds_stable_safe_paths(tmp_path):
     workspace = LocalWorkspaceStore(tmp_path).allocate(
         tenant_id="tenant 1",

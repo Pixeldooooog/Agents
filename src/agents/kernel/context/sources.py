@@ -21,7 +21,8 @@ def build_context_pack(
     fragments.extend(_system_fragments(system_prompt))
     fragments.extend(_runtime_policy_fragments())
     fragments.extend(_agent_metadata_fragments(agent_metadata or {}))
-    fragments.extend(_workspace_instruction_fragments(workspace))
+    if not _should_omit_workspace_instructions(agent_metadata or {}):
+        fragments.extend(_workspace_instruction_fragments(workspace))
     fragments.extend(_skill_fragments(skill_registry))
     fragments.extend(extension_fragments)
     fragments.extend(memory_fragments)
@@ -75,6 +76,15 @@ def _agent_metadata_fragments(metadata: Mapping[str, object]) -> List[ContextFra
             scope=ContextScope.SESSION,
         )
     ]
+
+
+def _should_omit_workspace_instructions(metadata: Mapping[str, object]) -> bool:
+    return str(metadata.get("omit_workspace_instructions") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def _workspace_instruction_fragments(workspace: WorkspaceContext) -> List[ContextFragment]:
