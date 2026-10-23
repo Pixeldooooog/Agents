@@ -9,7 +9,7 @@ type ActiveReference = {
   query: string
 }
 
-const ignoredPathParts = new Set(['.git', '.venv', 'node_modules', 'nexus-code', 'old', 'agents.egg-info', '.pytest_cache', 'artifacts', 'logs'])
+const ignoredPathParts = new Set(['.git', 'node_modules', 'nexus-code', 'artifacts', 'logs'])
 const fileIndexCache = new Map<string, Promise<string[]>>()
 
 export function useFileSuggestions({

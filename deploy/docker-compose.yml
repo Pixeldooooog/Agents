@@ -10,9 +10,9 @@ services:
       - DEBUG=False
       - HOST=0.0.0.0
       - PORT=8020
-      - ENABLE_SWAGGER_DOC=True
     ports:
       - "${PORT:-8020}:8020"
     volumes:
       - ../logs:/opt/app/logs
       - ../cache:/opt/app/cache
+      - ../.agents:/opt/app/.agents

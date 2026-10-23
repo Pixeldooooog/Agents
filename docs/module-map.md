@@ -1,490 +1,270 @@
-# 模块技术地图
+# Module Map
 
-这份文档说明主要模块“做什么、怎么做、为什么这样做、后续怎么扩展”。
-
-## 总体边界
+## Workspace
 
 ```text
-apps/web      -> agents.interfaces.server -> agents.platform -> agents.kernel
-apps/terminal -> agents.interfaces.bridge -> agents.platform -> agents.kernel
-interfaces    -> platform + kernel schema/assembly
-platform      -> kernel
+apps/terminal  -> packages/host terminal protocol
+apps/web       -> packages/host HTTP API
+packages/host -> packages/core
+packages/core  -> no app imports
 ```
 
-- `agents.kernel` 是核心 SDK/kernel，不依赖 FastAPI、platform、interfaces 或 UI。
-- `agents.platform` 是共享运行控制层，负责 run/session、persistence、profile、commands 等可复用控制逻辑。
-- `agents.interfaces.server` 是 HTTP/SSE 服务适配层，负责外部协议和 Web UI 静态挂载。
-- `agents.interfaces.bridge` 是 Python 本地 NDJSON 适配层，负责终端 app 到 kernel/platform 的协议转换。
-- `apps/terminal` 是 TypeScript/Ink 本地终端产品，负责高质量交互体验。
-- `apps/web` 是浏览器界面。
-
-## agents.kernel.assembly
-
-职责：
-
-- 从 settings 和 `AgentSpec` 创建 `AgentSession`。
-- 解析模型配置。
-- 分配 workspace。
-- 创建 tool registry。
-- 装配 skills、MCP、memory、context、hooks、permission policy。
-- `session.py` 保持 sync/async session facade；active tool 选择在 `active_tools.py`，plugin manifest/context 在 `plugins.py`，session/MCP/store hydration 在 `session_state.py`，session-state spec override 在 `spec_overrides.py`，共享 list/config helpers 在 `common.py`。
-
-为什么这样做：
-
-- 保留一个明确的 SDK 入口，避免 server、bridge、测试各自拼 session。
-- 让 agent 内核可以被外部项目直接作为库使用。
-- 装配层允许编排多个领域，但不承载具体规则实现；规则 helper 必须按职责落到子模块。
-
-后续方向：
-
-- 扩展不同 agent profile 的装配策略，例如 coding agent、browser agent、research agent。
-- 支持 profile 化装配，例如 coding agent、browser agent、research agent。
-
-## agents.kernel.config
-
-职责：
-
-- 读取 `config/defaults.toml`、`config/local.toml`、`.env` 和 shell env。
-- 提供 bridge 与 server 共用的 runtime settings。
-- 解析模型 protocol fallback、API key、base URL、model、proxy。
-- 解析命名 model profile，供 Terminal `/model` 和后续 Web 设置页选择。
-
-为什么这样做：
-
-- `agents.interfaces.bridge` 应该通过 kernel/platform 读取配置，不能为了读配置 import server。
-- model profile 是“配置组”，protocol 是“模型 API 协议”，二者必须分开，避免出现 `openai-chat/kimi` 这类语义混乱。
-
-后续方向：
-
-- 导出 model profile schema 给 Web 设置页。
-- 增加配置诊断，明确显示缺 key、缺 model、endpoint 不可达等状态。
-
-## agents.kernel.models
-
-职责：
-
-- 统一模型 wire protocol。
-- 把 OpenAI Chat、OpenAI Responses、Claude Messages、Gemini 转为 protocol-neutral events。
-- 处理 HTTP/SSE transport、重试和错误类型。
-
-为什么这样做：
-
-- runtime 不应该知道每个 protocol 的增量事件格式。
-- 工具调用、reasoning delta、usage、final message 应统一进入 runtime。
-
-后续方向：
-
-- 增加 protocol capability discovery。
-- 更完整地保存 request/response trace。
-- 对 protocol-specific tool call 修复做统一归一化。
-
-## agents.kernel.context
-
-职责：
-
-- 管理 system、project instructions、runtime policy、skills、memory、tool hints、task context。
-- 编译 `ContextPack` 为最终 system text 和 trace。
-- 管理上下文窗口和压缩。
-- `window.py` 负责 token fitting，`compaction.py` 负责摘要式 message compaction 的基础数据结构和启发式 fallback，`compaction_model.py` / `compaction_prompts.py` 负责可配置的模型摘要生成和提示词格式，`compaction_metadata.py` 负责 compact boundary 的 SDK 元数据和 preserved-segment UUID 锚点。
-
-为什么这样做：
-
-- prompting 本质是上下文的一部分，不应该成为平行顶层概念。
-- trace 能解释每段上下文来自哪里，方便调试和审计。
-
-后续方向：
-
-- 更强的 context budget 分配策略。
-- memory relevance ranking。
-- task/run scoped context injection。
-- 压缩摘要持久化和引用追踪。
-
-## agents.kernel.capabilities.tools
-
-职责：
-
-- 注册模型可见工具。
-- 执行单个或多个工具调用。
-- 管理并发、超时和错误转 tool result。
-- 接入 builtin tools 和 MCP tools。
-- builtin 工具按 registration/wiring 与 domain implementation 分层；例如 filesystem 的 schema/薄门面在 `filesystem.py`，读取流程、媒体交付、预算、memory freshness 和结果格式化分别在 `filesystem_read.py`、`filesystem_media.py`、`filesystem_limits.py`、`filesystem_memory.py`、`filesystem_results.py`；patch/edit 入口编排在 `patch.py`，规划、文本匹配和结果 shaping 分别在 `patch_planner.py`、`patch_text.py`、`patch_payload.py`；worktree 入口编排在 `worktree.py`，命名、Git、初始化、状态切换、tmux 生命周期、hook adapter 编排和 hook 命令来源/执行分别在 `worktree_naming.py`、`worktree_git.py`、`worktree_setup.py`、`worktree_state.py`、`worktree_tmux.py`、`worktree_hooks.py`、`worktree_hook_commands.py`；builtin MCP management 的 settings、store、runtime 也拆在 `builtin/mcp/` 子域内。
-
-为什么这样做：
-
-- 模型只看到工具 schema 和结构化结果。
-- 具体执行细节留在 tool handler 或 sandbox client 中。
-
-后续方向：
-
-- 工具元数据：风险、权限、是否需要 workspace、是否需要网络。
-- 工具执行事件统一写入 trace。
-- tool result schema validation。
-
-## agents.sdk
-
-职责：
-
-- `client.py` 保留 `AgentSDKClient` facade、run-store wiring 和模块级兼容入口。
-- `sessions.py` 保留稳定 session handle 与 session-scoped query/control 操作。
-- `stdin_runner.py` 负责 structured stdin、JSONL frame pump 和 transport runner。
-- `control_handlers.py` 保留 SDK control request dispatcher；async message/turn 状态、read-state/rewind、hook/elicitation、task control、system init message 分别落在 `control_async_state.py`、`control_files.py`、`control_interactions.py`、`control_tasks.py`、`control_system.py`，MCP-specific control response 和 reconnect helper 落在 `mcp/control_responses.py` 与 `mcp/control.py`。
-- `session_stream.py` 负责 SDK user-message UUID 注入到 kernel session stream，`session_compaction.py` 负责 compact boundary 后的 replay 裁剪和 preserved-segment 回放。
-- `runtime_io.py` / `structured_io.py` 只保留 runner 可复用的 IO helpers 和 structured stdout/control-request FIFO。
-
-为什么这样做：
-
-- SDK facade 是外部入口，不应该吸收 stdin/jsonl 协议循环、transport pumping 或 session 内部状态。
-- stdin/jsonl runner 是协议执行层，变化频率不同于 run-store/session facade，单独命名后调用链更容易解释。
-- control dispatcher 只负责路由控制请求；具体状态修改、MCP 持久化、文件回滚和交互回调是不同子域，独立模块更容易测试和解释。
-- README 和 architecture tests 明确 facade/wiring、contract、implementation 三类文件，避免后续继续把核心实现塞回注册或入口文件。
-
-后续方向：
-
-- 后续 remote stdin listener、telemetry 或 runtime cleanup parity 应优先扩展 `stdin_runner.py` 或更细的 transport 子模块，而不是扩大 `client.py`。
-
-## agents.sdk.file_history
-
-职责：
-
-- `file_history.py` 保留 SDK file-history 的兼容导出面。
-- `file_history_recorder.py` 负责 SDK turn 的 snapshot recorder、读缓存和 backup 写入。
-- `file_history_snapshots.py` 负责 `file-history-snapshot` payload 解析、backup ref 归一化和 snapshot 链查询。
-- `file_history_paths.py` 负责 backup 名称、版本号、候选根目录和 session id 解析。
-- `file_history_migration.py` 负责 fork session 时迁移 snapshot event 和 hard-link/copy backup 文件。
-- `file_history_rewind.py` 负责从 snapshot 链重建 `rewind_files` 的 `_RewindFileEntry`。
-- `file_history_types.py` 只保存这些子模块共享的小型数据结构。
-
-为什么这样做：
-
-- file-history 是 `src-origin` SDK rewind parity 的核心链路，recorder、snapshot payload、backup storage、fork migration 和 rewind reconstruction 的变化频率不同，混在一个文件里会让安全性和可解释性下降。
-- facade 保持现有 `AgentSDKClient` / control handler 的私有导入面不变，降低拆分风险。
-
-后续方向：
-
-- 扩展更多 `src-origin` file-history edge case 时，优先落到对应子域，不扩大 facade。
-
-## agents.kernel.capabilities.sandbox
-
-职责：
-
-- 定义 `SandboxClient`、`SandboxProvider`、`SandboxLease`。
-- 提供 local/Docker provider。
-- 提供 sandbox lease/event store。
-- 把 workspace 挂载给执行环境。
-
-为什么这样做：
-
-- workspace 是数据边界，sandbox 是执行租约。
-- provider 可替换，上层工具不变。
-- 避免模型或 runtime 直接绑定 Docker。
-
-当前结构：
-
-```text
-agents/kernel/capabilities/sandbox/
-  types.py    协议、lease、结构化结果
-  local.py    本地执行 provider
-  local_files.py   本地文件安全、编码、分行读取 helper
-  local_search.py  本地 grep/glob 搜索匹配 helper
-  local_process.py 本地 foreground/background 进程生命周期 helper
-  docker.py   Docker 执行 provider
-  factory.py  从 settings 创建 provider/client
-  store.py    lease/event 持久化接口和实现
-  workspace.py run-scoped artifact layout 和 workspace snapshot/diff
-```
-
-后续方向：
-
-- remote sandbox provider。
-- resource quotas 和 remote execution lifecycle。
-- browser/runtime-specific sandbox providers，用于 click/type/screenshot 等真实浏览器动作。
-
-## agents.kernel.capabilities.skills
-
-职责：
-
-- 加载 skill manifest。
-- 注入 skill prompt fragments。
-- 声明 skill 需要的工具名。
-
-为什么这样做：
-
-- skill 是 agent 能力的一部分，但不应该散落到 runtime 或 server。
-- 纯 prompt skill 和执行型 skill 要分层处理。
-
-后续方向：
-
-- skill 权限声明。
-- skill 版本锁定。
-- 执行型 skill 统一走 sandbox。
-
-## agents.kernel.capabilities.web
-
-职责：
-
-- 提供 provider-neutral 的 web search/extract/map 能力。
-- 当前内置 Tavily REST provider。
-- 统一输出 `sources`、`usage`、`request_id`，给 citation、trace 和 audit 使用。
-- 在 control plane 持有 API key、domain policy 和 credit budget。
-
-为什么这样做：
-
-- web search 是外部 API 和计费能力，不应该进入 sandbox。
-- MCP 可以作为扩展，但内置搜索必须可治理、可审计、可测试。
-- 与 `browser.open/download` 分层：web search 返回信息来源，browser 工具负责 sandbox 内取页面/落文件。
-
-后续方向：
-
-- SQLite/web cache。
-- per-tenant search quota。
-- crawl 工具需要 approval 和 quota 完整后再暴露。
-
-## agents.kernel.capabilities.memory
-
-职责：
-
-- 定义长期 memory record 和 store。
-- 由 `agents.kernel.context.memory` 按 scope 检索并注入上下文。
-
-为什么这样做：
-
-- memory 是长期能力，context 是当次请求拼装。
-- 两者分开能避免把数据库记录和 prompt fragment 混在一起。
-
-后续方向：
-
-- embedding/relevance retrieval。
-- 用户级、agent 级、workspace 级、run 级 memory 策略。
-- memory 写入审批和可见性控制。
-
-## agents.kernel.runtime
-
-职责：
-
-- 管理单 Agent 执行循环。
-- 编译模型请求。
-- 执行工具调用。
-- 生成 tool batch 摘要事件。
-- 处理 checkpoint、resume、approval pause。
-- 维护 session 历史和 context window。
-- `session.py` 保持会话 facade，compact boundary/stats helper 落在 `session_compaction.py`，模型回合、工具回合和 tool-use 摘要分别在 `turns/` 子域内。
-
-为什么这样做：
-
-- runtime 是内核，不关心 HTTP、web UI、Terminal。
-- session facade、compact bookkeeping、模型回合、工具回合和 tool-use 摘要生成拆开，方便测试和扩展。
-
-后续方向：
-
-- task/run scoped tool execution context。
-- interrupt/cancel。
-- retry policy for tools。
-- deterministic replay。
-- richer runtime state snapshots。
-
-## agents.kernel.governance
-
-职责：
-
-- 工具权限策略。
-- 审批、审计、trace。
-- credential refs。
-- sandbox policy。
-- secret redaction 和 payload protection protocol。
-- `tool_rules.py` 保留 permission/hook 规则匹配的公共协调入口；`tool_rule_names.py` 负责 alias/canonical name；`tool_rule_parser.py` 负责规则字符串解析；`tool_rule_shell.py` 负责 Bash/shell 子命令匹配；`tool_rule_targets.py` 负责从各类工具参数抽取可匹配目标；`tool_rule_patterns.py` 负责 wildcard/escape 匹配；`tool_rule_types.py` 只保存共享小类型。
-
-为什么这样做：
-
-- 安全、权限、审计不是 runtime 的附属逻辑，必须有独立治理域。
-- 凭证引用和真实密钥应分离。
-- tool permission/hook 规则同时覆盖 alias、MCP、shell、path、task、team 等多类语义，必须按子职责拆开，避免一个治理文件同时承担解析、归一化、shell parsing 和参数提取。
-
-后续方向：
-
-- 真正的 KMS/secret manager provider。
-- policy DSL。
-- tenant/user/agent 级权限继承。
-- 审计查询 API。
-
-## agents.kernel.state
-
-职责：
-
-- runs、identity、agent profiles、workspaces 等长期状态。
-- 定义 store protocol 和 memory/SQLite/local file 实现。
-
-为什么这样做：
-
-- 状态域比 runtime 更长寿，不能散落在工具或 interface 代码里。
-- platform 只选择和组合 store，不拥有底层业务语义。
-
-后续方向：
-
-- workspace snapshot/diff metadata。
-- agent profile versioning。
-- tenant/user auth 绑定。
-
-## agents.kernel.tasks
-
-职责：
-
-- 长程任务状态机。
-- task、step、attempt。
-- task runner 和 worker 基础设施。
-
-为什么这样做：
-
-- 长程智能体不能只依赖一次 HTTP 请求。
-- task 和 run 分离后，一个 task 可以包含多个 step/run/attempt。
-
-后续方向：
-
-- durable queue。
-- cancel/resume/retry。
-- scheduled task。
-- multi-agent workflow execution。
-
-## agents.kernel.orchestration 与 agents.kernel.workflows
-
-职责：
-
-- `orchestration` 定义角色、handoff、router。
-- `workflows` 定义 DAG plan、node、edge。
-
-为什么这样做：
-
-- 多智能体和工作流是 runtime 上层编排，不应该塞进单 agent loop。
-
-后续方向：
-
-- planner/worker/reviewer roles。
-- workflow executor。
-- cross-agent shared workspace policy。
-
-## agents.platform
-
-职责：
-
-- run/session 生命周期服务。
-- run/checkpoint/trace/audit/identity/profile/workspace/memory/credential/task/sandbox store 组合。
-- Terminal coding/chat/browser profile、默认工具、权限模式和 workspace 解析。
-- slash command 元数据。
-
-为什么这样做：
-
-- run/session/persistence/profile 不是 HTTP 专属，也不是 kernel 内核逻辑。
-- server 和 bridge 必须共享同一套控制语义，否则本地和云端行为会分叉。
-- platform 只依赖 kernel，不依赖 server、bridge 或 UI。
-
-后续方向：
-
-- session registry 和 run resume/cancel/interrupt。
-- durable worker/queue service。
-- workspace selector 和 hosted tenant binding。
-- model profile health diagnostics。
-
-## agents.interfaces.server
-
-职责：
-
-- HTTP/SSE API。
-- 请求 schema 和 response schema。
-- future auth/session。
-- static UI mount。
-
-为什么这样做：
-
-- server 是服务适配层，不拥有 agent 内核逻辑。
-- web 只通过 server 访问 platform/kernel。
-
-后续方向：
-
-- 登录态和 tenant/user 绑定。
-- API token/session auth。
-- approval/websocket protocol。
-- background worker service。
+## packages/host
+
+- `src/main.ts`: Bun HTTP host process entrypoint.
+- `src/http/agentHttpServer.ts`: HTTP listener, route dispatch, and static mount composition.
+- `src/services/hostServices.ts`: Shared settings, state store, and runtime factory.
+- `src/api/agentRoutes.ts`: Agent route composition across run, task, schedule, and memory endpoints.
+- `src/api/agentRunRoutes.ts`: Agent run endpoint routing.
+- `src/api/agentRunExecution.ts`: Agent chat and streaming run execution handlers.
+- `src/api/agentRunQueries.ts`: Model profile, run list, run detail, and trace handlers.
+- `src/api/agentRunApprovals.ts`: Tool approval resume handler.
+- `src/api/agentRunLifecycle.ts`: Shared run outcome persistence and HTTP status mapping.
+- `src/api/agentTaskRoutes.ts`: Agent task create, list, detail, run, and cancel endpoints.
+- `src/http/body.ts`: Request body parsing.
+- `src/http/envelope.ts`: API response envelope helpers.
+- `src/http/static.ts`: Static file serving for `apps/web/dist`.
+- `src/terminal/main.ts`: NDJSON terminal host process entrypoint.
+- `src/terminal/terminalCommandCatalog.ts`: Slash command catalog.
+- `src/terminal/terminalHostSession.ts`: Terminal host command dispatch, ready payload, run, and resume orchestration.
+- `src/terminal/terminalSlashCommands.ts`: Slash command parsing and response shaping.
+- `src/terminal/terminalModelProfiles.ts`: Terminal model profile selection and runtime payloads.
+- `src/terminal/scriptedTerminalTurns.ts`: Fixture and scripted terminal turns.
+- `src/terminal/scriptedRunController.ts`: Active scripted-run lifecycle, cancellation, and timer management.
+- `src/terminal/terminalSessionStore.ts`: Terminal session persistence.
+- `src/terminal/terminalEventWriter.ts`: Terminal event serialization.
+
+## packages/core
+
+- `src/index.ts`: Public exports only.
+- `src/sdk/index.ts`: Public SDK subpath exports for embedders.
+- `src/sdk/agentSdkClient.ts`: TS-native SDK client for query streams, prompt results, and session creation.
+- `src/sdk/sdkSession.ts`: Stable SDK session handle that carries a session id across prompts.
+- `src/sdk/sdkSessionRecords.ts`: SDK session list, info, and persisted message replay projection from run records.
+- `src/sdk/sdkTypes.ts`: SDK query options plus projected stream, approval, tool, result, and replay message contracts.
+- `src/sdk/sdkMessageQueue.ts`: Internal async queue for SDK stream delivery.
+- `src/types/`: Domain contracts; `coreTypes.ts` stays as the public type barrel.
+- `src/config/settings.ts`: Settings types and assembled runtime configuration.
+- `src/config/configFileReaders.ts`: `.env` and simplified TOML file parsing plus config-tree merging.
+- `src/config/settingValues.ts`: Settings value coercion and model setting extraction.
+- `src/models/modelProfiles.ts`: Model profile construction.
+- `src/models/modelClients.ts`: Model client adapters.
+- `src/models/modelClientTypes.ts`: Shared model client transport contracts.
+- `src/models/modelHttp.ts`: Shared model HTTP POST, SSE streaming, headers, and JSON parsing.
+- `src/models/modelProtocolValues.ts`: Safe value coercion helpers for model protocol payloads.
+- `src/models/openaiProtocolPayloads.ts`: OpenAI Chat and Responses request payloads, message rendering, and turn parsing.
+- `src/models/anthropicProtocolPayloads.ts`: Claude Messages request payloads, message rendering, and turn parsing.
+- `src/models/openaiModelClient.ts`: OpenAI chat and Responses request shaping, streaming, and tool-call parsing.
+- `src/models/anthropicModelClient.ts`: Anthropic Messages request shaping and completion parsing.
+- `src/models/geminiModelClient.ts`: Gemini GenerateContent request shaping and completion parsing.
+- `src/commands/commandRecords.ts`: Prompt-backed command record contracts.
+- `src/commands/commandFiles.ts`: Command file naming, frontmatter parsing, and markdown serialization.
+- `src/commands/commandDiscovery.ts`: Workspace command discovery, lookup, query matching, and public payload shaping.
+- `src/permissions/permissionBehaviors.ts`: Permission behavior values and input parsing.
+- `src/permissions/permissionRuleSets.ts`: Permission rule grouping and mutation helpers.
+- `src/permissions/permissionDecisions.ts`: Tool permission decisions and explanation payloads.
+- `src/permissions/permissionPayloads.ts`: Permission status and source response shaping.
+- `src/runtime/agentRuntime.ts`: Public SDK runtime entry class for in-memory turn execution and approval continuation.
+- `src/runtime/agentRunService.ts`: Persistent SDK run lifecycle service for spec defaulting, run creation, event recording, approval resume, and final status updates.
+- `src/runtime/runtimeLimits.ts`: Runtime tool-loop limit resolution from settings and structured runtime options.
+- `src/runtime/runtimeOptions.ts`: Runtime dependency contract and tool execution context assembly.
+- `src/runtime/runtimeMessages.ts`: Runtime system/user message construction, memory context, skill metadata, and workspace instructions.
+- `src/runtime/runtimeTurnLoop.ts`: Model turn loop, tool iteration, approval pause, deny handling, and final result shaping.
+- `src/runtime/runtimeToolExecution.ts`: Tool-call execution, pending approval resolution, denied tool results, and tool-result message insertion.
+- `src/runtime/runtimeToolPermissions.ts`: Runtime tool deny and approval gate helpers.
+- `src/runtime/operationFrames.ts`: Operation-frame projection.
+- `src/sdk/agentSdkClient.ts`: Public SDK client for query streams, prompt results, session listing, replay, approval resume, and SDK MCP handler registration.
+- `src/sdk/sdkSession.ts`: Session-scoped SDK facade.
+- `src/sdk/sdkTypes.ts`: SDK query options and public message contracts.
+- `src/sdk/sdkJsonl.ts`: Strict SDK JSONL frame encoding, decoding, and message validation.
+- `src/sdk/sdkJsonlTransport.ts`: SDK JSONL transport contract plus typed read/write helpers.
+- `src/sdk/sdkJsonlTransportRunner.ts`: Bidirectional SDK JSONL transport runner that pumps structured IO outbound messages and emits accepted inbound wire messages.
+- `src/sdk/sdkProtocolRunner.ts`: AgentSdkClient protocol runner for SDK wire messages and concurrent JSONL user/control processing.
+- `src/sdk/sdkQueueJsonlTransport.ts`: In-process SDK JSONL queue transport for embedding and tests.
+- `src/sdk/sdkActiveTurns.ts`: Active SDK turn registry for session, run, and async user-message cancellation.
+- `src/sdk/sdkCommandRecords.ts`: SDK command payload projection helpers.
+- `src/sdk/sdkControlTypes.ts`: SDK control request, response, cancel, keepalive, and wire-message contracts.
+- `src/sdk/sdkControlHandlers.ts`: Default SDK control response routing backed by settings, tools, model profiles, commands, and MCP control handlers.
+- `src/sdk/sdkControlSettings.ts`: SDK control-request settings mutation and effective settings response shaping.
+- `src/sdk/sdkInteractionControlHandlers.ts`: SDK hook callback and elicitation control handlers backed by registered client callbacks.
+- `src/sdk/sdkMcpControlHandlers.ts`: SDK MCP status, set-server, toggle, message, and reconnect control handlers backed by SDK MCP handlers and persisted MCP server records.
+- `src/sdk/sdkMcpControlRecords.ts`: SDK MCP control scope, record construction, status projection, and status merge helpers.
+- `src/sdk/sdkPluginControlHandlers.ts`: SDK plugin reload control handler for commands, skills, plugins, agents, and MCP status.
+- `src/sdk/sdkTaskControlHandlers.ts`: SDK task control handlers for scoped task cancellation.
+- `src/sdk/sdkTurnControlHandlers.ts`: SDK interrupt and async-message cancellation control handlers.
+- `src/sdk/sdkStructuredIo.ts`: Structured SDK control IO with outbound FIFO, pending response resolution, cancellation, and duplicate permission-response suppression.
+- `src/sdk/sdkWireValidation.ts`: Runtime validation for SDK event and control wire messages.
+- `src/sdk/sdkMessageQueue.ts`: Internal async queue primitive for SDK streams and queue transports.
+- `src/sdk/sdkSessionRecords.ts`: Session list, info, and replay projection from persisted runs.
+- `src/store/jsonStateStore.ts`: JSON state store API.
+- `src/store/jsonRunStore.ts`: JSON state run facade methods.
+- `src/store/jsonTaskStore.ts`: JSON state task facade methods.
+- `src/store/jsonScheduleStore.ts`: JSON state schedule facade methods.
+- `src/store/jsonMemoryStore.ts`: JSON state memory facade methods.
+- `src/store/jsonPlanningHookStore.ts`: JSON state planning and hook facade methods.
+- `src/store/jsonMcpStore.ts`: JSON state MCP facade methods.
+- `src/store/jsonCollaborationStore.ts`: JSON state collaboration facade methods.
+- `src/store/jsonStatePersistence.ts`: JSON state file read, write, normalization, and serialized mutation.
+- `src/store/runStateStore.ts`: Run record persistence operations.
+- `src/store/taskStateStore.ts`: Task and task-step persistence operations.
+- `src/store/scheduleStateStore.ts`: Schedule persistence operations.
+- `src/store/memoryStateStore.ts`: Memory persistence operations.
+- `src/store/planningStateStore.ts`: Planning state persistence operations.
+- `src/store/hookStateStore.ts`: Hook persistence operations.
+- `src/store/mcpStateStore.ts`: MCP server persistence operations.
+- `src/store/collaborationStateStore.ts`: Agent profile, team, and team-message persistence operations.
+- `src/store/stateStoreAccess.ts`: Shared state reader and mutator contracts.
+- `src/store/storeFilters.ts`: Shared store scope, list-filter, and update payload types.
+- `src/store/stateFile.ts`: State-file shape and normalization.
+- `src/mcp/mcpStoredRecords.ts`: MCP server state normalization and identity keys.
+- `src/collaboration/collaborationRecords.ts`: Collaboration profile, team, and message state normalization.
+- `src/schedules/scheduleToolContext.ts`: Schedule tool context guards, scoped lookup, and limit coercion.
+- `src/schedules/scheduleToolSchemas.ts`: Schedule tool input schemas.
+- `src/schedules/scheduleToolHandlers.ts`: Schedule tool handler implementations.
+- `src/schedules/scheduleRecords.ts`: Schedule record creation, normalization, and ID resolution.
+- `src/schedules/scheduleScopes.ts`: Schedule scope filters and matching.
+- `src/workspace/worktreeGit.ts`: Git command helpers and worktree change counting.
+- `src/workspace/worktreeNaming.ts`: Worktree request, PR reference, and slug validation.
+- `src/workspace/worktreeSchemas.ts`: Worktree tool input schemas.
+- `src/workspace/worktreeSession.ts`: Active worktree session metadata and repo-root switching.
+- `src/workspace/worktreeTypes.ts`: Worktree session and request contracts.
+- `src/workspace/notebookRecords.ts`: Notebook JSON validation, cell lookup, edit application, and language metadata.
+- `src/workspace/workspacePaths.ts`: Workspace path resolution, containment, and relative path helpers.
+- `src/workspace/workspaceNames.ts`: Shared safe-name validation for workspace-owned artifacts.
+- `src/session/`: Session status, export, context trace, compaction, and rewind tools.
+- `src/session/sessionContextExports.ts`: Session export format, path, JSON, and Markdown rendering.
+- `src/session/sessionContextPayloads.ts`: Session workspace/planning/message payload helpers.
+- `src/session/sessionContextText.ts`: Session summary, token estimate, bounds, and truncation helpers.
+- `src/mcp/mcpRecords.ts`: MCP server records, settings hydration, provider bookkeeping, and transport normalization.
+- `src/mcp/mcpProviderCalls.ts`: MCP resource and prompt provider calls.
+- `src/mcp/mcpProviderResourceCalls.ts`: MCP resource listing and read provider calls.
+- `src/mcp/mcpProviderPromptCalls.ts`: MCP prompt listing and render provider calls.
+- `src/mcp/mcpProviderPayloads.ts`: MCP provider payload normalization helpers.
+- `src/mcp/mcpServerActions.ts`: MCP server configure, enable, disable, remove, clear, and status actions.
+- `src/mcp/mcpToolSchemas.ts`: MCP tool input schemas.
+- `src/mcp/mcpTools.ts`: MCP tool registration and provider call adapters.
+- `src/tools/toolRegistry.ts`: Built-in tool registry and execution wrapper.
+- `src/tools/toolInputs.ts`: Tool argument coercion and workspace path guards.
+- `src/tools/commandToolSchemas.ts`: Prompt-backed command tool input schemas.
+- `src/tools/commandTools.ts`: Prompt-backed command tool registration and handler adapters.
+- `src/tools/permissionToolSchemas.ts`: Permission tool input schemas.
+- `src/tools/permissionTools.ts`: Permission tool registration and handler adapters.
+- `src/tools/shellBackgroundTools.ts`: Background shell process lifecycle, output, list, and kill handlers.
+- `src/tools/shellBackgroundRecords.ts`: Background shell command registry, payload projection, output buffers, and wait helpers.
+- `src/tools/userInteractionTools.ts`: User interaction tool registration.
+- `src/tools/userInteractionSchemas.ts`: User question and message tool input schemas.
+- `src/tools/userInteractionPayloads.ts`: User question/message payload normalization and attachment metadata.
+- `src/tasks/taskService.ts`: Task runner service, task-step lifecycle, and task execution coordination.
+- `src/tasks/taskToolHandlers.ts`: Task tool handler actions and response shaping.
+- `src/tasks/taskToolInputs.ts`: Task tool input coercion, metadata patches, limits, and required context guards.
+- `src/tasks/taskResolution.ts`: Shared task lookup by scoped full ID or unambiguous short ID.
+- `src/tasks/taskToolScope.ts`: Task creation for run tools and scoped task lookup by full or short ID.
+- `src/tasks/taskToolSchemas.ts`: Task tool input schemas.
+- `src/tasks/taskTools.ts`: Task tool registration.
+- `src/tasks/taskTitles.ts`: Default task title derivation.
+- `src/workflow/`: Workflow handlers, templates, and execution.
+- `src/workflow/workflowModels.ts`: Workflow plan parsing, payload projection, summaries, search, and status helpers.
+- `src/workflow/workflowSchemas.ts`: Workflow tool input schemas.
+- `src/workflow/workflowGraph.ts`: Workflow edge validation and deterministic node ordering.
+- `src/planning/planningState.ts`: Plan mode state, todo normalization, allowed prompts, and summaries.
+- `src/planning/planningToolSchemas.ts`: Todo and plan-mode tool input schemas.
+- `src/planning/planningTools.ts`: Todo and plan-mode tool registration and handlers.
+- `src/hooks/hookCatalog.ts`: Hook event/action catalogs and input normalization.
+- `src/hooks/hookScopes.ts`: Hook scope filters and matching.
+- `src/hooks/hookRecords.ts`: Hook record creation, persistence normalization, and ID resolution.
+- `src/collaboration/collaborationAgentActions.ts`: Agent profile and delegated-agent actions.
+- `src/collaboration/collaborationTeamActions.ts`: Team create/delete/member/message/inbox/run actions.
+- `src/collaboration/collaborationToolSchemas.ts`: Agent and team collaboration tool schemas.
+- `src/extensions/extensionManifestDiscovery.ts`: Extension manifest search, JSON parsing, and manifest normalization.
+- `src/extensions/extensionManifestRecords.ts`: Extension manifest defaulting, invalid records, and value coercion.
+- `src/extensions/extensionSkillMarkdown.ts`: `SKILL.md` frontmatter parsing and instruction extraction.
+- `src/extensions/extensionEnablement.ts`: Skill and plugin tool enablement ownership, suppression, and restoration.
+- `src/extensions/extensionSkillEnablement.ts`: Skill-specific enablement base tools, allowed/disallowed tools, and effective tool-set rules.
+- `src/extensions/extensionEnablementState.ts`: Extension enablement metadata keys, list storage, and tool diff helpers.
+- `src/extensions/extensionManifestPaths.ts`: Skill/plugin search roots, install roots, source paths, and manifest path rules.
+- `src/extensions/extensionManifestTypes.ts`: Extension manifest domain types.
+- `src/web/webToolSchemas.ts`: Web tool parameter schemas.
+- `src/web/webToolRequests.ts`: Web tool request argument coercion.
+- `src/web/tavilyProvider.ts`: Tavily search, extract, and map request orchestration.
+- `src/web/tavilyHttp.ts`: Tavily HTTP transport and response-object validation.
+- `src/web/tavilyResponses.ts`: Tavily response normalization into web source, usage, warning, and URL records.
 
 ## apps/terminal
 
-职责：
-
-- 本地终端前端体验。
-- 渲染欢迎页、消息流、tool timeline、model profiles、approval prompt。
-- 提供 slash command、`@file` 输入补全和快捷键。
-- 通过 NDJSON 与 `agents.interfaces.bridge` 通信。
-
-当前结构：
-
-```text
-apps/terminal/src/
-  App.tsx                 会话级状态、bridge event 路由、全局快捷键
-  protocol/               NDJSON bridge client/types
-  ui/                     命令定义、显示格式、主题 token、runtime event/markdown/diff/text helpers
-  hooks/                  输入状态机、@file suggestions、输入队列、tool timeline、live draft、ticker/blink hooks
-  components/design/      Dialog、Select、Divider、StatusIcon 等 Terminal 设计系统
-  components/messages/    user/assistant/thinking/tool/status/table/model 消息族
-  components/prompt/      输入框、footer、slash/file suggestions、history search
-  components/permissions/ permission request body/options/dialog family
-  components/tools/       tool action/target/result preview、unified diff preview
-```
-
-为什么这样做：
-
-- Terminal 是产品界面，应该可以使用 Ink/React 组件化表达，而不是把复杂交互压进 Python print/Rich。
-- 前端只关心显示协议，不直接耦合 agent runtime 内部对象。
-- 可以更接近 Claude Code/Codex/Nexus Code 的终端交互质量。
-- design/messages/prompt 分层后，后续对齐 Claude Code/Nexus Code 时可以逐个模块替换，而不是改一个巨大终端脚本。
-- live turn 层单独处理 `text_delta/reasoning_delta`，避免最终 `model_message` 和 streaming draft 重复渲染。
-- `ui/runtimeEvents.ts` 只做 runtime event 到 transcript 的纯转换，避免 `App.tsx` 继续膨胀。
-- `components/MarkdownBlock.tsx` + `ui/markdown.ts` 负责终端 Markdown 渲染，assistant/thinking 消息不再只是纯文本输出。
-- `components/tools/DiffPreview.tsx` + `ui/diff.ts` 负责 patch/git unified diff 预览，文件修改结果不再混在 JSON raw output 里。
-- `ui/textBuffer.ts` 收束 Unicode-safe 输入编辑操作，slash picker 和 prompt input 共享同一套字符处理。
-- `hooks/useFileSuggestions.ts` 只在 Terminal 层索引本地文件，用 `@file` 提升输入体验，不把文件联想逻辑塞进 agent runtime。
-
-后续方向：
-
-- transcript folding 视觉继续接近 Claude Code。
-- tool detail expand/collapse 继续补 code preview 和 shell output progress。
-- model/profile picker 已具备基础 fuzzy search，后续补 provider health 和延迟诊断。
-- running turn input queue 已具备基础排队，后续补 interrupt/cancel。
-- task run monitor。
-
-## agents.interfaces.bridge
-
-职责：
-
-- `agents.interfaces.bridge.ndjson`：Terminal 与 kernel/platform 的本地 NDJSON 协议适配。
-- `agents.interfaces.bridge.fallback`：仅用于调试的 Python fallback 终端入口。
-- `payloads.py` 保留 bridge payload 聚合入口；`payload_format.py` 放 session/message/format helpers；`payload_tools.py` 放 tool 和 permission payload 逻辑。
-- 解析本地 profile、workspace、permission、model profile 参数。
-- 将 slash commands 转为 session 操作。
-
-为什么这样做：
-
-- 本地交互不需要走 HTTP round trip，但 UI 也不应该直接 import kernel 内部 Python 对象。
-- bridge 把“本地进程协议”和“agent SDK 装配”收束在 Python 侧，保持 `agents.kernel` 不依赖 UI。
-- payload 层按 domain 拆分后，slash/NDJSON 仍可从聚合入口导入，但 tool/permission 细节和通用格式化 helper 不再堆进一个大文件。
-
-后续方向：
-
-- approval resume event 更细粒度。
-- task run monitor bridge events。
-- workspace selector bridge events。
+- `src/main.tsx`: Terminal process entrypoint.
+- `src/app/App.tsx`: Top-level Ink app.
+- `src/app/useTerminalAppController.ts`: Terminal app orchestration across host lifecycle, runtime events, command runner, keyboard controls, and screen props.
+- `src/app/TerminalScreen.tsx`: Presentational terminal screen composition for welcome, transcript, overlays, and prompt input.
+- `src/app/terminalHostEventHandlers.ts`: Terminal host event projection into terminal state and transcript items.
+- `src/app/terminalHostSimpleEvents.ts`: Table, notice, command-list, and session-resume terminal host event rendering.
+- `src/app/TerminalTranscript.tsx`: Transcript viewport/list selection component.
+- `src/app/TerminalOverlays.tsx`: Approval, model picker, and session picker overlay component.
+- `src/app/terminalLayout.ts`: Terminal layout constants and row calculations.
+- `src/app/terminalViewState.ts`: Derived terminal layout and transcript scrolling state.
+- `src/app/useTerminalAppActions.ts`: Terminal transcript, picker, approval, scroll, and shutdown actions.
+- `src/app/useTerminalAppState.ts`: Terminal app state, refs, persistent history, picker, and prompt state initialization.
+- `src/app/useTerminalHostLifecycle.ts`: Terminal host startup, shutdown, runtime-ref sync, and event dispatch wiring.
+- `src/app/useTerminalKeyboardControls.ts`: Global terminal keyboard shortcuts and transcript scrolling controls.
+- `src/app/useTerminalModeEffects.ts`: Raw mode, cursor, paste, and mouse tracking terminal side effects.
+- `src/ui/textBuffer.ts`: Compatibility barrel for terminal text helpers.
+- `src/ui/textGraphemes.ts`: Grapheme segmentation and character-indexed text edits.
+- `src/ui/textWords.ts`: Word-boundary navigation helpers.
+- `src/ui/textInputKeys.ts`: Backspace/delete key classification.
+- `src/ui/textDisplayWidth.ts`: Terminal display-width and padding helpers.
+- `src/ui/commands.ts`: Compatibility barrel for terminal command helpers.
+- `src/ui/commandCatalog.ts`: Terminal command types, local/default catalogs, remote normalization, and dedupe.
+- `src/ui/commandMatching.ts`: Command lookup, autocomplete matching, and busy-state availability.
+- `src/ui/commandInput.ts`: User input command classification.
+- `src/ui/commandHelp.ts`: Command help row rendering.
+- `src/components/MessageViewport.tsx`: Transcript viewport rendering and scroll hint presentation.
+- `src/components/messageViewportLayout.ts`: Transcript line estimation, viewport windowing, and long-message clipping helpers.
+- `src/components/design/Select.tsx`: Select list rendering.
+- `src/components/design/selectOptions.ts`: Select option filtering, enabled-state, paging, and viewport-window helpers.
+- `src/components/design/useSelectKeyboard.ts`: Select keyboard shortcuts, filtering input, and navigation handling.
+- `src/hooks/`: Terminal input buffer, editor state, suggestions, history/history-search input, runtime event, paste, and timeline hooks.
+- `src/hooks/useTextBuffer.ts`: Text buffer hook state, effects, editor wiring, suggestions, and submit/reset actions.
+- `src/hooks/useSafeInput.ts`: Ink raw input subscription and safe dispatch hook.
+- `src/hooks/terminalInputParser.ts`: Terminal keypress, mouse, navigation, and control-sequence parsing.
+- `src/hooks/textBufferKeyInput.ts`: Text buffer key-input dispatch and high-level control key routing.
+- `src/hooks/textBufferEditingKeys.ts`: Cursor movement, deletion, and text-editing key handling.
+- `src/hooks/textBufferSelectionKeys.ts`: Suggestion selection and history navigation key handling.
+- `src/protocol/terminalHostClient.ts`: Terminal host process client.
+- `src/protocol/terminalHostProtocol.ts`: Terminal host protocol contracts.
+- `src/components/prompt/PromptLine.tsx`: Prompt input line rendering.
+- `src/components/prompt/promptCursor.ts`: Prompt cursor anchoring, measured columns, and wrapped cursor position helpers.
+- `scripts/*.tsx`: Terminal smoke and rendering checks.
 
 ## apps/web
 
-职责：
+- `src/main.tsx`: Web entrypoint.
+- `src/app/App.tsx`: Top-level Solid app.
+- `src/components/`: View components.
+- `src/components/OperationStageScenes.tsx`: Operation scene selection and scene-specific stage surfaces.
+- `src/components/OperationScenePrimitives.tsx`: Shared operation stage backdrop, windows, trace, evidence, and preview primitives.
+- `src/runtime/`: Browser-side runtime/session projection.
+- `src/runtime/agentSession.ts`: Browser agent session action composition, payload construction, and runtime event helpers.
+- `src/runtime/agentSessionState.ts`: Browser agent session signals, derived state, and API client initialization.
+- `src/runtime/agentConversationActions.ts`: Chat send, stream, and tool-approval actions for an agent session.
+- `src/runtime/agentHealthActions.ts`: Health probe action and health activity updates.
+- `src/runtime/agentModelProfileActions.ts`: Model profile refresh and profile application actions.
+- `src/runtime/agentRequestPayloads.ts`: Agent chat payload and scoped-list filter construction.
+- `src/runtime/agentSessionRecords.ts`: Chat, activity, and operation record state transformations.
+- `src/runtime/agentTaskActions.ts`: Task list, detail, create, run, and cancel actions for an agent session.
+- `src/runtime/operationToolPresentation.ts`: Tool-to-scene, title, target, and detail presentation mapping.
+- `src/runtime/operationResultPreviews.ts`: Operation result previews, file/source extraction, artifacts, diffs, and stats.
+- `src/runtime/operationTraceProjector.ts`: Run trace snapshot and artifact projection.
+- `src/types/chatTypes.ts`: Chat message and activity timeline UI contracts.
+- `src/types/operationTypes.ts`: Operation-stage event, scene, source, file, and phase contracts.
+- `src/types/agentApiTypes.ts`: Agent chat, run, approval, model-profile, and SSE API contracts.
+- `src/types/taskApiTypes.ts`: Task API records, responses, and create payload contracts.
+- `src/types/runtimeTypes.ts`: Compatibility barrel for web runtime contracts.
+- `src/styles/index.css`: Style entrypoint.
+- `dist/`: Built assets served by the TS host.
+- `vite.config.ts`: Vite/Solid configuration.
 
-- 浏览器界面。
-- 展示 chat、stream、tool approval、run trace、task 状态。
+## Naming Rules
 
-为什么这样做：
-
-- apps/web 是 UI，不应该实现 agent 决策逻辑。
-
-后续方向：
-
-- 工具审批面板。
-- workspace 文件视图。
-- run trace timeline。
-- task dashboard。
+- Directory names represent stable domains.
+- File names represent specific behavior inside that domain.
+- Use names like `agentRoutes.ts`, `modelProfiles.ts`, and `sessionStore.ts`.
+- Avoid ambiguous names like `helpers.ts`, `common.ts`, or `utils.ts` unless the scope is intentionally tiny.
