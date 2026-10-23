@@ -1,9 +1,29 @@
 # Kevin 实施规划与交付计划
 
-> 版本：v1.0
+> 版本：v1.1（经实施可行性复核修订）
 > 日期：2026-10-23
 > 目标：将当前 `Agents` TypeScript runtime 演进为一个本地优先、可云化的个人长期运行 Agent，产品名为 Kevin。
-> 关联方案：[Kevin 产品与架构规划](/Users/berhand/program/Personal/Pixeldooooog/Agents/Agents/docs/kevin-product-architecture-plan.md)
+> 关联方案：[Kevin 产品与架构规划](kevin-product-architecture-plan.md)
+
+## 0. 复核结论、假设和边界
+
+这份文档是目标设计和实施顺序，不代表目标能力已经存在。当前仓库仍是 `Agents` 命名、JSON state store、单进程任务执行和本地 host；只有完成对应阶段并通过验收，才可以把某项能力写成 Kevin 已支持的功能。
+
+本计划采用以下经过复核的假设：
+
+- v1 是单用户、本地优先产品；`agent_id` 保留在数据模型中是兼容性设计，不等于 v1 已支持多租户。
+- v1 的“后台任务”是本机进程可恢复任务；在没有 Cloud Worker 之前，不宣称关闭电脑后仍会运行。
+- 云端路线是后续架构兼容目标，不能用本地测试替代云端隔离、密钥、网络和可靠性验收。
+- Phase 中的周数是依赖关系下的相对估算，不是交付承诺；如果只有一名开发者，应按串行工作并预留至少 30% 的验证和返工时间。
+- SQLite 驱动、CLI 打包方式和云基础设施供应商尚未定案，必须在对应阶段先做小型 spike，再锁定 ADR。
+
+本次复核识别出的强制修正是：
+
+1. 将租约、调度、幂等、通知和 schema 版本纳入持久化模型。
+2. 为 API 补上认证、分页、幂等、错误 envelope 和 SSE 断线重连约定。
+3. 将本地 host 的安全默认值从“开放监听/无限工具循环”调整为“本地监听/有限预算”，远程暴露必须显式配置。
+4. 增加 prompt injection、SSRF、凭据、数据删除和备份恢复的验收项。
+5. 明确 Cloud Control Plane、Cloud Worker 和 Local Bridge 的信任边界。
 
 ## 1. 交付目标
 
@@ -29,7 +49,41 @@ Kevin Control      API / Auth / Task / Memory / Approval / Activity
 Kevin Execution    Local Worker now / Cloud Sandbox later
 ```
 
-第一阶段不实现完整的云服务，但所有核心接口必须能在未来替换本地执行器和 SQLite，而不重写 Agent domain。
+第一阶段不实现完整的云服务，但所有核心接口必须能在未来替换本地执行器和 SQLite，而不重写 Agent domain。`core` 不应知道“云端”或“本地”的差别；执行位置由 Worker adapter 和 capability policy 决定。
+
+### 1.1 三个信任域
+
+```text
+Control Plane
+  Agent profile / conversation / task / policy / approval / event metadata
+
+Execution Plane
+  model call / filesystem / shell / browser / MCP / artifact generation
+
+User Device
+  local files / local apps / browser sessions / Kevin Bridge
+```
+
+- Control Plane 可以调度执行，但不能因为任务来自云端就自动获得本地文件权限。
+- Execution Plane 只能使用被 Policy Engine 授予的 capability 和 resource scope。
+- User Device 通过 Local Bridge 主动配对；Bridge 断开、过期或撤销后，相关能力立即失败关闭。
+- Cloud Worker 与 Local Worker 使用同一 Run/Event contract，但不共享隐式凭据、文件路径或网络信任。
+
+### 1.2 云端目标形态
+
+Cloud Worker 阶段的最小生产拓扑应明确为：
+
+```text
+Client -> API/Auth -> Control DB (Postgres)
+                    -> Queue/Scheduler
+                    -> Isolated Worker VM/Container
+                    -> Object Storage (artifacts)
+                    -> Secret Manager (provider/connector secrets)
+                    -> Metrics/Logs/Trace
+Local Bridge <------ signed, scoped, short-lived capability token
+```
+
+在没有 Postgres、队列、隔离 Worker、对象存储和 Secret Manager 之前，Kevin 只能被称为本地/自托管版本，不能把“云端长期运行”列为当前产品能力。
 
 ## 2. 当前基线与目标差距
 
@@ -186,10 +240,13 @@ interface KevinEvent {
   taskId?: string;
   sequence: number;
   type:
-    | "run.created" | "run.started" | "run.paused" | "run.completed"
-    | "run.failed" | "model.message" | "tool.started" | "tool.completed"
+    | "run.created" | "run.started" | "run.paused" | "run.resumed"
+    | "run.completed" | "run.failed" | "run.cancelled" | "run.expired"
+    | "run.waiting_input" | "run.waiting_approval"
+    | "model.message" | "tool.started" | "tool.completed"
     | "approval.requested" | "approval.decided" | "artifact.created"
-    | "user.input_required" | "checkpoint.saved";
+    | "user.input_required" | "checkpoint.saved" | "task.updated"
+    | "connector.changed" | "memory.changed";
   actor: "user" | "kevin" | "tool" | "system";
   payload: Record<string, unknown>;
   createdAt: string;
@@ -197,6 +254,8 @@ interface KevinEvent {
 ```
 
 Event 是事实记录，UI 的状态是由 Event 和当前实体状态投影出来的。任何状态变化都不能只改内存。
+
+Event schema 必须带 `schema_version`、`event_id` 和 `occurred_at`；`sequence` 只在同一个 Run 内有序。跨 Run、跨 Worker 的排序使用时间和 ID 作为展示排序，不能假设全局严格顺序。事件消费者必须支持重复投递，使用 `event_id` 去重。
 
 ## 5. 数据库实施方案
 
@@ -276,7 +335,32 @@ connector_permissions(id TEXT PRIMARY KEY, connector_id TEXT NOT NULL REFERENCES
 usage_records(id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
   provider TEXT NOT NULL, model TEXT NOT NULL, input_tokens INTEGER,
   output_tokens INTEGER, cost_usd REAL, created_at TEXT NOT NULL);
+
+run_leases(id TEXT PRIMARY KEY, run_id TEXT NOT NULL UNIQUE REFERENCES runs(id),
+  worker_id TEXT NOT NULL, lease_until TEXT NOT NULL, heartbeat_at TEXT NOT NULL,
+  created_at TEXT NOT NULL);
+
+schedules(id TEXT PRIMARY KEY, task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id),
+  expression TEXT NOT NULL, timezone TEXT NOT NULL, enabled INTEGER NOT NULL,
+  next_run_at TEXT, last_run_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+
+idempotency_keys(scope TEXT NOT NULL, key TEXT NOT NULL, response_json TEXT NOT NULL,
+  created_at TEXT NOT NULL, expires_at TEXT NOT NULL, PRIMARY KEY(scope, key));
+
+notifications(id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES agents(id),
+  task_id TEXT, type TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
+  status TEXT NOT NULL, created_at TEXT NOT NULL, read_at TEXT);
+
+schema_migrations(version TEXT PRIMARY KEY, applied_at TEXT NOT NULL);
 ```
+
+生产 schema 还必须明确：
+
+- 启用 SQLite foreign keys；删除 Agent/Workspace/Task 时使用显式归档或受控级联，不能依赖驱动默认值。
+- `runs(request_id)`、`events(run_id, sequence)`、`tasks(status, next_run_at)`、`approvals(status, requested_at)`、`notifications(status, created_at)` 建立索引。
+- `approval` 必须保存所批准的 capability、resource scope、参数摘要和策略版本，不能只保存一个布尔结果。
+- `tool_calls` 要有稳定的 `tool_call_id`、幂等键和执行器版本，便于恢复和审计。
+- `memories` 的来源、用户确认状态、过期时间和删除时间必须可追溯；模型自动推断的记忆不能默认等同于用户确认的事实。
 
 ### 5.3 数据保护
 
@@ -285,6 +369,19 @@ usage_records(id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
 - 数据库使用 WAL；写事务必须短，不能在事务内等待模型或工具。
 - 每次升级前自动备份数据库和 migration 版本。
 - `kevin export` 导出可迁移数据；`kevin import` 只能导入显式选择的备份。
+
+### 5.4 身份、密钥和数据生命周期
+
+本地 v1 也必须有最小身份边界：
+
+- 默认只监听 `127.0.0.1`，默认 CORS 只允许同源；绑定 `0.0.0.0` 必须显式设置并要求 access token。
+- 首次初始化生成随机本地 token，Web UI 通过同源 cookie 或短期 bearer token 访问；健康检查只暴露无敏感信息的状态。
+- Provider API key 和 Connector credential 不进入 SQLite 普通字段、日志、Event payload 或导出包；本地优先使用系统 keychain，无法使用时使用权限为 `0600` 的加密凭据文件。
+- Cloud 版本使用 Secret Manager，Worker 只收到短期、最小范围的 secret reference。
+- `export` 默认排除凭据、原始工具输出中的敏感字段和可选的大文件；导入前显示内容清单并要求用户确认。
+- 支持按 Agent、Conversation、Task、Artifact 和 Memory 删除；删除操作写审计事件并清理对应文件。
+- 定义默认保留期：事件、消息、日志、产物和通知分别可配置；过期清理必须是可暂停、可审计的后台任务。
+- 本地数据库和备份文件使用文件权限保护；云端数据库、对象存储和备份必须加密并记录恢复演练。
 
 ## 6. API 设计
 
@@ -351,6 +448,39 @@ POST   /api/v1/connectors/:id/revoke
 
 API 层只解析输入和调用 application service。不要把数据库查询和 runtime 分支直接写进 route 文件。
 
+### 6.1 API 统一契约
+
+所有写请求必须支持 `Idempotency-Key`，并在响应中返回 `request_id`。列表接口统一使用 cursor 分页，不能用不稳定的 offset 作为长任务活动流的唯一分页方式。
+
+成功响应示例：
+
+```json
+{
+  "ok": true,
+  "request_id": "req_...",
+  "data": {}
+}
+```
+
+失败响应示例：
+
+```json
+{
+  "ok": false,
+  "request_id": "req_...",
+  "error": {
+    "code": "approval_required",
+    "message": "human-readable message",
+    "retryable": false,
+    "details": {}
+  }
+}
+```
+
+SSE 必须支持 `Last-Event-ID`，客户端重连后从最后一个已确认事件继续；事件投影必须可重复执行。WebSocket 仅作为需要双向控制或高频流式交互的可选传输，不能让核心业务只存在于 WebSocket 路径。
+
+认证和跨域规则必须在 API 设计中显式表达：本地同源访问、远程自托管 token/session、Cloud 用户认证属于不同部署 profile，不能使用一个“无 token 即全部放行”的默认实现覆盖所有场景。
+
 ## 7. Policy 与安全模型
 
 ### 7.1 Capability
@@ -397,6 +527,18 @@ Local worker 至少实现：
 
 Cloud worker 后续改为隔离 VM 或容器，但不能把本地 worker 的安全检查删除。
 
+### 7.4 不可信内容和网络安全
+
+文件、网页、MCP 返回值、Git 内容和用户提供的文档都必须视为不可信数据。它们可以提供事实或输入，但不能自行改变 Policy、审批结果、系统提示词或 Connector scope。
+
+- 对工具参数做 schema 校验、路径归一化和资源 scope 校验；禁止通过 `..`、符号链接或 URL 重定向逃逸。
+- Web 工具执行 SSRF 防护：限制协议、解析后的 IP、私网地址、重定向次数和允许域名；DNS 解析结果要在连接前再次检查。
+- Browser/Computer 工具隔离 Cookie、下载目录、剪贴板和登录态；敏感登录必须由用户在受控界面完成。
+- 模型输出中的“忽略规则”“自动批准”“上传密钥”等指令只能当作普通文本，不能改变系统策略。
+- Approval 在实际执行前重新计算 capability、scope、参数摘要和策略版本；审批后参数发生变化必须重新审批。
+- 连接器返回的数据要限制大小、MIME、递归深度和可执行内容，避免恶意内容触发本地执行。
+- 所有高风险执行都有可撤销的 kill switch；取消、过期、Bridge 断开和策略撤销均以 fail-closed 为准。
+
 ## 8. Scheduler、Worker 与恢复
 
 ### 8.1 组件
@@ -421,6 +563,10 @@ TaskRepository
 - lease 过期后任务可重新排队，但必须检查幂等 key。
 - active Run 只能由一个有效 lease 执行。
 - 外部不可逆动作必须使用 approval token，避免重试重复发送。
+
+执行语义必须写清楚：本地 v1 对普通工具提供 at-least-once 调度语义，对外部副作用只能在 Connector 声明幂等且持有有效 approval token 时重试；不能宣传 exactly-once。对于无法幂等的发送、发布、删除或付款动作，超时后的状态必须显示为 `unknown` 并要求人工核实，而不是自动重放。
+
+`cancel` 也不是数据库状态更新：它必须向 worker 发出取消信号、等待工具/子进程收敛、写入 `run.cancelled`，并在无法中断的外部调用上显示“取消请求已发出，结果待确认”。
 
 ### 8.3 Checkpoint
 
@@ -511,12 +657,15 @@ kevin import <file>
 - 工具和能力矩阵。
 - 单 Agent ADR。
 - 清理公开仓库中的运行时数据库、日志、虚拟环境、dist 和 IDE 文件。
+- 记录当前实现审计：`JsonStateStore`、`TaskService.cancel`、host auth/CORS、`max_tool_iterations=0` 的实际行为。
+- 先修安全默认值：本地默认绑定 `127.0.0.1`、同源 CORS、有限工具循环；远程绑定要求显式 token。
 
 验收：
 
 - README 首屏能解释 Kevin 是什么。
 - 默认界面不暴露 team/multi-agent。
 - CI 不依赖旧 Python 文件或旧命令。
+- 安全默认值的回归测试通过；在没有 token 时远程请求不能因为绑定地址变化而无意暴露。
 
 ### Phase 1：Store 抽象和 SQLite（2 周）
 
@@ -524,17 +673,21 @@ kevin import <file>
 
 - 新建 `packages/db`。
 - 定义 `AgentStore`、`RunStore`、`TaskStore`、`EventStore`、`ArtifactStore` 接口。
-- 新增 migration runner、schema version 和 WAL。
+- 新增 migration runner、schema version、foreign-key enforcement 和 WAL。
+- 实现 `run_leases`、`schedules`、`idempotency_keys`、`notifications`、`schema_migrations`。
 - 实现 JSON importer 和备份。
 - 将 core/host 从 `JsonStateStore` 依赖改为接口依赖。
+- 增加本地 credential reference、session/token 设计；凭据本身不得进入普通状态表。
 - 增加并发写、事务回滚和导入测试。
 
 验收：
 
-- 现有 185 个测试继续通过。
+- 当前基线的 185 个 Core/Host 测试继续通过；测试数量变动时以 CI 报告为准，不能把 185 当作永久门槛。
 - 新进程能读取 SQLite 中的 Run/Task/Event。
 - JSON 导入后任务、事件和 session 可查询。
 - 数据库升级失败时有备份和明确错误。
+- 同一个 `Idempotency-Key` 在过期前不会创建重复写请求。
+- 数据库恢复后 lease 过期任务只会被重新排队一次，不会产生两个 active Run。
 
 ### Phase 2：Durable Run 和 Scheduler（3 周）
 
@@ -625,6 +778,8 @@ kevin import <file>
 
 ### Phase 7：Cloud Worker（后续）
 
+进入条件：Phase 1~6 的本地完成定义全部通过，并完成 threat model、成本预算、数据区域/保留策略、服务身份和事故响应设计。没有这些前置条件时，不把 Cloud Worker 做成“把本地 host 放进一台公网机器”。
+
 任务：
 
 - 将 Worker 接入隔离容器或 VM。
@@ -685,6 +840,18 @@ kevin import <file>
 - 大文件和长任务。
 - 多客户端并发连接。
 - 备份恢复和磁盘不足。
+
+### 12.1 可测量的 v1 门槛
+
+这些数字是验收门槛，不是当前能力声明；如果产品目标改变，要在 ADR 中改动并重新评审：
+
+- 本地 API 健康检查在 1 秒内返回；事件从 worker 写入到 Web 投影的 p95 延迟不超过 2 秒。
+- 正常退出或被杀进程后，未完成的本地任务在 60 秒内恢复为可执行或明确的 `unknown` 状态。
+- 同一写请求的重复 `Idempotency-Key` 不创建第二个 Task/Run；测试至少覆盖并发重复提交。
+- 100 个连续 Event 的重放结果与实时投影一致；重复事件不会重复显示或重复写入副作用。
+- `kevin export` → 删除 → `kevin import` 后，Task、Run、Event、Memory 和 Artifact metadata 可恢复，凭据不会被导出。
+- 关闭网络、无 API key、模型超时、工具超时、磁盘只读和数据库锁定都能得到可解释错误，不出现静默成功。
+- Prompt injection、路径穿越、私网 SSRF、未授权 Connector、过期 approval token 各至少有一条失败测试。
 
 ## 13. 观测与诊断
 
@@ -757,7 +924,37 @@ kevin import <file>
 
 第一批完成后再进入 Scheduler。若 Store 抽象没有稳定，后续所有任务都可能重复返工。
 
-## 17. 完成定义
+## 17. 实施治理与变更控制
+
+### 17.1 每个阶段的交付证据
+
+每个 Phase 必须产出四类证据：
+
+1. 代码：实现、migration、配置和测试。
+2. 文档：架构决策、运行说明、用户可见行为和已知限制。
+3. 演示：一条从输入到产物的可重复脚本或录屏。
+4. 验收：命令、环境、版本、结果和未通过项；不能只写“已测试”。
+
+### 17.2 ADR 必须记录的未决选择
+
+- SQLite 驱动和 Bun 版本兼容性。
+- CLI 是独立 binary、npm package 还是两者并行。
+- 本地凭据是系统 keychain 还是加密文件的优先顺序。
+- Cloud Worker 的容器/VM、队列、对象存储和 Postgres 供应商。
+- 事件 schema 的兼容策略和保留时间。
+- 是否引入向量索引，以及它与 Memory 的删除、重建和隐私边界。
+
+未决选择在实施前必须有 spike 结果；方案中的占位名不能直接变成生产依赖。
+
+### 17.3 发布和回滚策略
+
+- 数据库 migration 只允许向前兼容；破坏性变更采用 expand → migrate → contract。
+- 新 Scheduler、Policy 和 UI 行为使用 feature flag 灰度，不在一个提交里同时开启所有路径。
+- 每次发布保留上一版本启动方式、数据库备份和配置快照。
+- 回滚前检查新版本是否已经写入不可逆 schema 或外部副作用；不能把“代码回滚”误当作“数据和外部系统回滚”。
+- 重大行为变化在 CHANGELOG 中标明默认策略、迁移动作和用户需要重新授权的连接器。
+
+## 18. 完成定义
 
 Kevin v1 的完成定义：
 
@@ -771,6 +968,9 @@ Kevin v1 的完成定义：
 - Web 可以查看 Today、Chat、Tasks、Activity、Approvals 和 Artifacts。
 - Terminal 可以完成诊断和恢复操作。
 - 数据可以备份、导出、导入和升级。
+- 用户可以删除自己的 Conversation、Task、Memory 和 Artifact，并能验证凭据没有进入导出包。
+- 默认本地部署不会把 Host 暴露到局域网或公网；远程部署必须明确开启认证和网络策略。
+- Prompt injection、SSRF、路径穿越、重复副作用和过期审批均有自动化失败测试。
 - 仓库以 Kevin 名称公开分发，文档、脚本、截图和实际行为一致。
 
 达到这个定义后，Kevin 才从“Agent runtime 工程”变成一个真正可使用、可展示、可继续云化的个人 Agent 产品。

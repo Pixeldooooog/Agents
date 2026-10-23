@@ -4,13 +4,15 @@
 > 目标：把当前 `Agents` 仓库收敛为一个可长期运行、可审查、可配置、可分发的单 Agent 产品，产品名为 **Kevin**。
 > 范围：本方案覆盖产品定位、能力边界、系统架构、配置、数据库、界面、仓库治理、分发方式、迁移路线和验收标准。
 
+> 复核说明：本文件描述产品方向；可执行任务、数据库约束、API 契约、恢复语义和发布门禁以 [Kevin 实施规划与交付计划](kevin-implementation-roadmap.md) 为准。当前仓库尚未完成这些目标能力，文中“应具备”不等于“已经支持”。
+
 ## 1. 结论先行
 
 Kevin 不应该继续做一个“拥有很多工具的通用 Agent SDK”。它应该成为一个有名字、有记忆、有工作空间、有后台任务、有权限边界和有活动记录的个人 Agent。
 
 用户面对的核心对象只有一个：**Kevin**。用户可以和 Kevin 对话，给 Kevin 一个长期目标，连接必要的应用和本地电脑，查看它正在做什么，在关键动作前批准它，并随时暂停、修改或恢复工作。
 
-当前仓库已经拥有可复用的基础：TypeScript runtime、多模型 profile、工具注册、权限与审批、Run/Task/Session 状态、MCP、Terminal、Web UI 和 SDK 协议。需要做的是产品收敛和基础设施升级，而不是继续横向增加更多抽象。
+当前仓库已经拥有可复用的基础：TypeScript runtime、多模型 profile、工具注册、权限与审批、Run/Task/Session 状态、MCP、Terminal、Web UI 和 SDK 协议。需要做的是产品收敛和基础设施升级，而不是继续横向增加更多抽象。当前 Task 仍由单进程 service 驱动，状态仍以 JSON store 为主，不能把它们描述成已经具备 Durable Execution 或云端常驻能力。
 
 建议的产品形态：
 
@@ -723,6 +725,7 @@ kevin-agent/
 - 修正 `docs/features.md`：源码已有远多于 read/list 的工具，文档必须以 registry 为准。
 - 增加 `docs/product.md`、`docs/security.md`、`docs/self-hosting.md`。
 - 清理公开仓库中的 `.agents` 运行状态、日志、`.venv`、`dist` 和 IDE 文件。
+- 检查已被 Git 跟踪的构建产物（当前 `apps/web/dist/` 仍在跟踪范围内），决定是发布静态资源还是改为 CI 产物；不能只依赖 `.gitignore`。
 
 ### 后续调整
 
