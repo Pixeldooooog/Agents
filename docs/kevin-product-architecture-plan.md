@@ -245,11 +245,11 @@ queued
 ```text
 ~/.kevin/
   config.toml
-  credentials.json        # 仅保存引用或加密凭据，不进入 Git
-  kevin.db
+  kevin.db                # 数据库保存加密后的凭据密文，不保存明文密钥
   workspaces/
   artifacts/
   logs/
+  memory/
 ```
 
 项目配置：
@@ -366,8 +366,8 @@ tool_calls
   status, risk, started_at, finished_at
 
 memories
-  id, agent_id, workspace_id, kind, content, source, confidence,
-  embedding_ref, created_at, updated_at, expires_at
+  id, agent_id, workspace_id, kind, path, content_hash, source,
+  confidence, user_confirmed, created_at, updated_at, expires_at
 
 connectors
   id, agent_id, type, name, status, config_json, secret_ref, created_at, updated_at
@@ -396,6 +396,7 @@ settings_audit
 - `messages(conversation_id, sequence)`：消息分页。
 - `memories(agent_id, workspace_id, kind)`：上下文注入。
 - `artifacts(run_id, created_at)`：结果列表。
+- Memory 的事实源是可读、可编辑、可导出的 Markdown 文件；SQLite 只保存路径、哈希、类型、来源、确认状态和更新时间，不引入向量数据库或 embedding。
 - 对消息和事件做可配置保留；原始事件可归档到 JSONL 或对象存储。
 - 大文件不进入数据库，只保存路径、哈希、MIME 和元数据。
 

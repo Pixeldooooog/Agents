@@ -15,7 +15,7 @@
 - v1 的“后台任务”是本机进程可恢复任务；在没有 Cloud Worker 之前，不宣称关闭电脑后仍会运行。
 - 云端路线是后续架构兼容目标，不能用本地测试替代云端隔离、密钥、网络和可靠性验收。
 - Phase 中的周数是依赖关系下的相对估算，不是交付承诺；如果只有一名开发者，应按串行工作并预留至少 30% 的验证和返工时间。
-- SQLite 驱动、CLI 打包方式和云基础设施供应商尚未定案，必须在对应阶段先做小型 spike，再锁定 ADR。
+- SQLite 驱动、CLI 打包方式和云基础设施供应商尚未定案，必须在对应阶段先做小型 spike，再锁定 ADR；Memory 已决定以 Markdown 为事实源，不引入向量数据库。
 
 本次复核识别出的强制修正是：
 
@@ -268,7 +268,16 @@ Event schema 必须带 `schema_version`、`event_id` 和 `occurred_at`；`sequen
 - 适合单用户、自托管和桌面应用。
 - 通过 Store 接口保留 Postgres 适配器的可能性。
 
-推荐实现：使用 Bun/TypeScript 可稳定使用的 SQLite 驱动，数据库初始化、事务和 migration 全部放在 `packages/db`。具体驱动在实现阶段根据 Bun 版本验证后固定，不在业务代码中直接暴露驱动类型。
+推荐实现：第一选择是 Bun 内置的 `bun:sqlite`，因为 Kevin 已经以 Bun 为运行时，可以减少原生依赖和安装问题。它提供 prepared statements、事务、WAL 和 foreign-key PRAGMA；事务回调必须保持同步，不能在事务内部 `await`。所有数据库操作封装在 `packages/db`，业务层只依赖 Store 接口。
+
+“SQLite 驱动是什么问题”不是 SQLite 不能用，而是驱动会影响：
+
+- Bun 版本兼容性和跨平台发布包是否能直接运行。
+- 事务 API 是否支持当前的同步/异步写法；错误地在事务中 `await` 可能让后续操作跑到事务外。
+- WAL、foreign keys、busy timeout、文件锁和备份 API 的可控程度。
+- 测试环境与用户环境的行为是否一致。
+
+因此 Phase 1 先用当前锁定的 Bun 版本做一个 `packages/db` spike：打开数据库、启用 WAL/foreign keys、执行 migration、并发读写、事务回滚、备份恢复和进程重启，然后把 Bun 版本与 `bun:sqlite` API 写进 ADR。若 spike 失败，再评估外部 SQLite driver；在 spike 之前不提前引入 ORM。
 
 ### 5.2 表与约束
 
@@ -315,8 +324,9 @@ tool_calls(id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
   status TEXT NOT NULL, risk TEXT NOT NULL, started_at TEXT, finished_at TEXT);
 
 memories(id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES agents(id),
-  workspace_id TEXT, kind TEXT NOT NULL, content TEXT NOT NULL,
-  source TEXT NOT NULL, confidence REAL, created_at TEXT NOT NULL,
+  workspace_id TEXT, kind TEXT NOT NULL, path TEXT NOT NULL,
+  content_hash TEXT NOT NULL, source TEXT NOT NULL, confidence REAL,
+  user_confirmed INTEGER NOT NULL, created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL, expires_at TEXT);
 
 artifacts(id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
@@ -376,12 +386,50 @@ schema_migrations(version TEXT PRIMARY KEY, applied_at TEXT NOT NULL);
 
 - 默认只监听 `127.0.0.1`，默认 CORS 只允许同源；绑定 `0.0.0.0` 必须显式设置并要求 access token。
 - 首次初始化生成随机本地 token，Web UI 通过同源 cookie 或短期 bearer token 访问；健康检查只暴露无敏感信息的状态。
-- Provider API key 和 Connector credential 不进入 SQLite 普通字段、日志、Event payload 或导出包；本地优先使用系统 keychain，无法使用时使用权限为 `0600` 的加密凭据文件。
-- Cloud 版本使用 Secret Manager，Worker 只收到短期、最小范围的 secret reference。
+- Provider API key 和 Connector credential 可以进入 SQLite，但只能以 AEAD 加密密文、nonce、key version 和 metadata 保存，不能保存明文。
+- 加密主密钥不能和数据库放在同一个可复制文件里：本地优先放系统 keychain；无 keychain 时使用用户主动提供的 `KEVIN_DB_KEY`，并在 `doctor` 中明确提示这是降级保护。若把解密密钥也放进同一个数据库，拿到数据库文件的人就能解密，这不算有效的凭据保护。
+- Cloud 版本使用 Secret Manager，Worker 只收到短期、最小范围的 secret reference；本地 SQLite 的凭据 schema 不应直接复用成云端明文配置。
 - `export` 默认排除凭据、原始工具输出中的敏感字段和可选的大文件；导入前显示内容清单并要求用户确认。
 - 支持按 Agent、Conversation、Task、Artifact 和 Memory 删除；删除操作写审计事件并清理对应文件。
 - 定义默认保留期：事件、消息、日志、产物和通知分别可配置；过期清理必须是可暂停、可审计的后台任务。
 - 本地数据库和备份文件使用文件权限保护；云端数据库、对象存储和备份必须加密并记录恢复演练。
+
+### 5.4.1 事件保留策略
+
+事件保留策略回答的是“哪些记录保留多久、在哪里保留、如何删除和恢复”，不是简单地定一个全局天数。建议 v1 本地默认：
+
+| 数据 | 默认策略 | 原因 |
+|---|---|---|
+| Conversation/Message | 用户删除前保留 | 用户需要长期上下文 |
+| Task/Run 元数据 | 用户删除前保留 | 任务历史和恢复依据 |
+| 详细 Runtime Event | 90 天 | 支持 Activity 调试，控制数据库增长 |
+| 原始 Tool 输出/Trace | 30 天，可按 Run 锁定 | 可能含大量或敏感内容 |
+| Application log | 14 天、按大小轮转 | 日志不是用户工作记录 |
+| Artifact 文件 | 用户删除前保留，可设容量配额 | 结果可能仍有价值 |
+| Notification | 已读后 30 天，未读不自动删除 | 避免漏掉审批和失败提醒 |
+| Markdown Memory | 用户删除前保留 | 用户明确管理的事实源 |
+| Database backup | 最近 7 份或最近 30 天 | 支持升级和灾难恢复 |
+
+清理任务必须先写 `retention.started`/`retention.completed` 审计事件，支持 dry-run、暂停和恢复；删除事件不能用普通 Event 证明已经删除，因为这会重新保留敏感内容，只保留删除对象类型、ID 哈希、时间和操作者。Cloud 版本可以因为成本、法规和租户策略配置不同保留期，但必须在 UI 和导出说明中明确。
+
+### 5.5 Markdown Memory（已确定不使用向量）
+
+Kevin v1 不引入 embedding、向量数据库或向量检索。Markdown 对个人 Agent 足够，优点是用户可读、可编辑、可导出、可审查，也不会额外引入 embedding 成本和删除一致性问题。
+
+建议目录：
+
+```text
+~/.kevin/memory/
+  profile.md       # 用户确认的长期偏好
+  projects/
+    <slug>.md      # 项目级上下文
+  decisions/
+    <date>-<slug>.md
+  daily/
+    <date>.md      # 可选的运行摘要
+```
+
+SQLite 只保存 `path`、`kind`、`content_hash`、`source`、`user_confirmed`、`updated_at` 和 `expires_at`，作为元数据索引和变更检测。上下文注入使用受限的关键词/路径选择和文件大小预算；读取 Markdown 后仍要经过 prompt/context 预算，不允许整目录无界注入。用户手工编辑文件后，`kevin doctor memory` 或启动时刷新哈希。
 
 ## 6. API 设计
 
@@ -646,6 +694,24 @@ kevin import <file>
 
 不要在桌面壳里复制 Agent runtime。
 
+### 10.1 CLI 分发建议：Homebrew 是渠道，不是 CLI 实现
+
+建议把 CLI 分成两层：
+
+1. `@kevin/cli`：TypeScript 命令实现和可测试的命令 contract。
+2. 发布产物：优先用 Bun compile 生成 macOS arm64、macOS x64、Linux x64 和 Linux arm64 的独立可执行文件；Node/Bun package 作为开发者 fallback。
+
+Homebrew 适合作为 macOS 用户的首选安装渠道：
+
+```text
+brew tap pixeldooooog/kevin
+brew install kevin
+```
+
+第一阶段使用自有 tap，Formula 指向 GitHub Release 的固定版本和 SHA256；不要一开始依赖 Homebrew core 的审核周期。等 CLI 稳定、版本和升级流程成熟后，再评估提交到 Homebrew core。Docker Compose 作为服务器/自托管渠道，GitHub Release 作为所有平台的事实源。
+
+CLI 的安装方式不改变 Agent runtime；`kevin` 只是调用同一套 `packages/core`、`packages/host` 和 `packages/db`。每次发布必须验证 `kevin init`、`kevin doctor`、数据库迁移和升级回滚。
+
 ## 11. 分阶段实施
 
 ### Phase 0：命名和产品基线（1 周）
@@ -678,6 +744,7 @@ kevin import <file>
 - 实现 JSON importer 和备份。
 - 将 core/host 从 `JsonStateStore` 依赖改为接口依赖。
 - 增加本地 credential reference、session/token 设计；凭据本身不得进入普通状态表。
+- 建立 `~/.kevin/memory/` Markdown 目录、哈希扫描和受限上下文注入；不引入 embedding 或向量服务。
 - 增加并发写、事务回滚和导入测试。
 
 验收：
@@ -763,11 +830,12 @@ kevin import <file>
 任务：
 
 - `kevin init/start/doctor/export/import`。
-- Bun 编译或 npm package 发布方式固定。
+- Bun compile 独立产物、`@kevin/cli` fallback package 和自有 Homebrew tap 发布方式固定。
 - Docker clean-host 构建和 compose。
 - 数据目录、备份、升级和回滚脚本。
 - GitHub Release、CHANGELOG、SECURITY、CONTRIBUTING。
 - 截图、演示数据和安装文档。
+- Homebrew Formula 的版本、SHA256、升级和回滚流程可重复执行。
 
 验收：
 
@@ -939,10 +1007,10 @@ kevin import <file>
 
 - SQLite 驱动和 Bun 版本兼容性。
 - CLI 是独立 binary、npm package 还是两者并行。
-- 本地凭据是系统 keychain 还是加密文件的优先顺序。
+- 本地凭据进入 SQLite，但只保存加密密文；数据库加密密钥的保护方式（系统 keychain 或受控环境变量）需要在 ADR 中确定。
 - Cloud Worker 的容器/VM、队列、对象存储和 Postgres 供应商。
 - 事件 schema 的兼容策略和保留时间。
-- 是否引入向量索引，以及它与 Memory 的删除、重建和隐私边界。
+- Markdown Memory 的目录、文件命名、引用格式和 SQLite 元数据索引规则。
 
 未决选择在实施前必须有 spike 结果；方案中的占位名不能直接变成生产依赖。
 
