@@ -12,6 +12,10 @@
 
 因此，主分支按“可替代 Python 运行时的实现”计，迁移完成度为 **0% 的 runtime、约 10% 的整体源码规模**。现有 TS UI 不代表 Python kernel 已迁移。实验 worktree 已覆盖完整 TS core/host，但它是迁移输入，不是主分支的验收结果。
 
+## Phase 1 完成后的检查点
+
+Phase 1 已接入主分支并提交（`3e88189`）：`packages/core`、`packages/host` 和新的 TS terminal host 已成为产品启动链，Python bridge 不再是 terminal/web 的运行依赖。当前主分支统计为 517 个 Python 文件、约 93,261 行，405 个 `.ts` 文件和 63 个 `.tsx` 文件、约 46,552 行 TS/TSX。按源码规模计算，TS 已从约 10% 提升到约 33%；按“TS runtime 启动链是否可用”计算，Phase 1 已完成，但 Python 源码清理和逐领域 parity 仍未完成。
+
 ## 目标架构
 
 ```text
