@@ -1,5 +1,5 @@
 import React from 'react'
-import type {ApprovalDecision} from '../../protocol/types.js'
+import type {ApprovalDecision} from '../../protocol/terminalHostProtocol.js'
 import {Select, type SelectOption} from '../design/Select.js'
 
 const OPTIONS: Array<SelectOption<ApprovalDecision>> = [

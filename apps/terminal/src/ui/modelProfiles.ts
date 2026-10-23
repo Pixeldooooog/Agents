@@ -1,4 +1,4 @@
-import type {ModelProfile} from '../protocol/types.js'
+import type {ModelProfile} from '../protocol/terminalHostProtocol.js'
 import type {CommandDef} from './commands.js'
 
 export function isModelProfileQuery(value: string): boolean {

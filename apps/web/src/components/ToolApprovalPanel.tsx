@@ -1,7 +1,7 @@
 import { Check, ShieldCheck, ShieldX, Wrench } from "lucide-solid";
 import type { Accessor } from "solid-js";
 import { For, Show } from "solid-js";
-import type { ApprovalDecision, ToolApprovalRequest } from "../types";
+import type { ApprovalDecision, ToolApprovalRequest } from "../types/runtimeTypes";
 
 type Props = {
   requests: Accessor<ToolApprovalRequest[]>;

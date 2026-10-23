@@ -1,7 +1,7 @@
 import { Activity, AlertTriangle, CheckCircle2, Code2, Globe2, Loader2, Search, ShieldCheck, TerminalSquare, Wrench } from "lucide-solid";
 import type { Accessor } from "solid-js";
 import { For } from "solid-js";
-import type { ActivityEvent, ActivityEventKind } from "../types";
+import type { ActivityEvent, ActivityEventKind } from "../types/runtimeTypes";
 
 type Props = {
   events: Accessor<ActivityEvent[]>;

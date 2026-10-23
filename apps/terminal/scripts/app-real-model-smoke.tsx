@@ -4,11 +4,9 @@ import path from 'node:path'
 import {Readable, Writable} from 'node:stream'
 import React from 'react'
 import {render, type Instance, type RenderOptions} from 'ink'
-import {App} from '../src/App.js'
+import {App} from '../src/app/App.js'
 
 const repoRoot = path.resolve(process.cwd(), '../..')
-const srcPath = path.join(repoRoot, 'src')
-process.env.PYTHONPATH = [srcPath, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter)
 process.env.AGENTS_TERMINAL_HISTORY_PATH = path.join(tmpdir(), `agents-terminal-real-history-${process.pid}.json`)
 process.env.AGENTS_TERMINAL_SESSION_STORE = path.join(tmpdir(), `agents-terminal-real-sessions-${process.pid}`)
 process.env.AGENTS_TERMINAL_DB_PATH = path.join(tmpdir(), `agents-terminal-real-${process.pid}.db`)
@@ -117,7 +115,7 @@ try {
   console.warn = (...args: unknown[]) => consoleMessages.push(args.map(String).join(' '))
   console.error = (...args: unknown[]) => consoleMessages.push(args.map(String).join(' '))
   instance = render(
-    <App python=".venv/bin/python" repoRoot={repoRoot} bridgeArgs={['--profile', 'chat', '--permission', 'auto']} />,
+    <App repoRoot={repoRoot} terminalHostArgs={['--profile', 'chat', '--permission', 'auto']} />,
     {
       stdin,
       stdout,

@@ -1,5 +1,5 @@
 export function isEditTool(toolName: string) {
-  return toolName === "notebook.edit" || toolName === "NotebookEdit"
+  return toolName === "notebook.edit"
     || toolName.startsWith("filesystem.write")
     || toolName.startsWith("filesystem.delete")
     || toolName.startsWith("filesystem.move")
@@ -7,5 +7,5 @@ export function isEditTool(toolName: string) {
 }
 
 export function fileTarget(args: Record<string, any>) {
-  return args.path || args.notebook_path || args.notebookPath || args.file_path || args.filePath;
+  return args.path || args.notebook_path;
 }

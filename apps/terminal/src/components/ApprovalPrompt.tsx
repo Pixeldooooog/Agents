@@ -1,5 +1,5 @@
 import React from 'react'
-import type {ApprovalDecision, PendingApproval} from '../protocol/types.js'
+import type {ApprovalDecision, PendingApproval} from '../protocol/terminalHostProtocol.js'
 import {PermissionRequest} from './permissions/PermissionRequest.js'
 
 export function ApprovalPrompt({

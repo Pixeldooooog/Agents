@@ -5,8 +5,6 @@ import {stdin as input, stdout as output} from 'node:process'
 import {createInterface} from 'node:readline/promises'
 
 const repoRoot = path.resolve(process.cwd(), '../..')
-const fixturePath = path.join(repoRoot, 'apps/terminal/scripts/fixtures')
-const srcPath = path.join(repoRoot, 'src')
 const printOnly = process.argv.includes('--print-only')
 const record = process.argv.includes('--record')
 const verify = process.argv.includes('--verify')
@@ -50,12 +48,12 @@ if (record) {
 
 const child = spawn(
   process.execPath,
-  ['run', 'src/main.tsx', '--repo-root', repoRoot, '--bridge-module', 'terminal_bridge_fixture'],
+  ['run', 'src/main.tsx', '--repo-root', repoRoot, '--terminal-host-fixture', 'fixture'],
   {
     cwd: path.join(repoRoot, 'apps/terminal'),
     env: {
       ...process.env,
-      PYTHONPATH: [srcPath, fixturePath, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter),
+      AGENTS_TERMINAL_FIXTURE: '1',
       AGENTS_TERMINAL_HISTORY_PATH: '/tmp/agents-terminal-manual-history.json',
       AGENTS_TERMINAL_SESSION_STORE: '/tmp/agents-terminal-manual-sessions'
     },

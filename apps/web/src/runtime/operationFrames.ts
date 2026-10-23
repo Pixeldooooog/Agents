@@ -1,6 +1,7 @@
-import type { OperationEvent, OperationPhase, OperationSceneKind } from "../types";
+import type { OperationEvent, OperationPhase, OperationSceneKind } from "../types/runtimeTypes";
 import { createId } from "./sessionUtils";
 import { isEditTool } from "./operationToolMapping";
+import { sceneForTool } from "./operationToolPresentation";
 
 const scenes: OperationSceneKind[] = ["workspace", "edit", "web", "browser", "terminal", "git", "document", "summary"];
 const phases: OperationPhase[] = ["opening", "running", "closing", "done", "error"];
@@ -46,18 +47,6 @@ function normalizeScene(value: unknown, toolName: string): OperationSceneKind {
 
 function normalizePhase(value: unknown): OperationPhase {
   return phases.includes(value as OperationPhase) ? value as OperationPhase : "running";
-}
-
-function sceneForTool(toolName: string): OperationSceneKind {
-  if (isEditTool(toolName)) return "edit";
-  if (toolName.startsWith("web.")) return "web";
-  if (toolName.startsWith("browser.")) return "browser";
-  if (toolName.startsWith("shell.") || toolName.startsWith("test.")) return "terminal";
-  if (toolName.startsWith("git.")) return "git";
-  if (toolName.startsWith("skill.") || toolName.startsWith("prompt.") || toolName.startsWith("mcp.") || toolName.startsWith("context.")) return "document";
-  if (toolName.startsWith("todo.") || toolName.startsWith("plan.") || toolName.startsWith("task.") || toolName.startsWith("schedule.")) return "document";
-  if (toolName.startsWith("workflow.") || toolName.startsWith("agent.") || toolName.startsWith("team.")) return "document";
-  return "workspace";
 }
 
 function titleForTool(toolName: string, phase: OperationPhase) {

@@ -1,7 +1,7 @@
 import { RefreshCw } from "lucide-solid";
 import type { Accessor, Setter } from "solid-js";
 import { For, Show } from "solid-js";
-import type { ActivityEvent, RuntimeRun } from "../types";
+import type { ActivityEvent, RuntimeRun } from "../types/runtimeTypes";
 import { ActionTimeline } from "./ActionTimeline";
 import { RunInspector } from "./RunInspector";
 

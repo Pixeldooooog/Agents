@@ -1,7 +1,7 @@
 import { createSignal, For, Show } from "solid-js";
 import type { Accessor } from "solid-js";
 import { Play, RefreshCw, Square, Plus } from "lucide-solid";
-import type { TaskRecord, TaskStepRecord } from "../types";
+import type { TaskRecord, TaskStepRecord } from "../types/runtimeTypes";
 
 type Props = {
   tasks: Accessor<TaskRecord[]>;

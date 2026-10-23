@@ -1,6 +1,6 @@
 import React from 'react'
 import {Box} from 'ink'
-import type {ApprovalDecision, PendingApproval} from '../../protocol/types.js'
+import type {ApprovalDecision, PendingApproval} from '../../protocol/terminalHostProtocol.js'
 import {colors} from '../../ui/theme.js'
 import {Dialog} from '../design/Dialog.js'
 import {ShortcutHint} from '../design/ShortcutHint.js'

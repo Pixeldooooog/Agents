@@ -1,0 +1,29 @@
+{
+  "name": "agents-ts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "setup": "bun install",
+    "server": "bun run packages/host/src/main.ts",
+    "host": "bun run packages/host/src/main.ts",
+    "terminal-host": "bun run packages/host/src/terminal/main.ts",
+    "tui": "bun run --cwd apps/terminal src/main.tsx --repo-root ../..",
+    "web": "bun run build-web && bun run host",
+    "gui": "bun run web",
+    "dev-web": "bun run host & cd apps/web && bun run dev",
+    "build-web": "cd apps/web && bun run build",
+    "typecheck": "bun run --cwd packages/core typecheck && bun run --cwd packages/host typecheck && bun run --cwd apps/terminal typecheck && bun run build-web",
+    "test": "bun test packages",
+    "test-terminal": "bun run --cwd apps/terminal typecheck && bun run --cwd apps/terminal render-smoke && bun run --cwd apps/terminal interaction-smoke && bun run --cwd apps/terminal app-smoke",
+    "check": "bun run typecheck && bun run test && bun run test-terminal"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.0",
+    "typescript": "^5.9.0"
+  }
+}

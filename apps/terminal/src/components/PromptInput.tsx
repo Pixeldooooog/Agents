@@ -1,12 +1,13 @@
 import React, {useEffect, useMemo, useRef} from 'react'
 import {Box, useStdout} from 'ink'
 import {useTextBuffer} from '../hooks/useTextBuffer.js'
-import type {ModelProfile} from '../protocol/types.js'
+import type {ModelProfile} from '../protocol/terminalHostProtocol.js'
 import type {CommandDef} from '../ui/commands.js'
 import {charLength, displayWidth} from '../ui/textBuffer.js'
 import {Divider} from './design/Divider.js'
 import {PromptFooter} from './prompt/PromptFooter.js'
-import {PromptLine, cursorPositionFor, fallbackTextColumns} from './prompt/PromptLine.js'
+import {PromptLine} from './prompt/PromptLine.js'
+import {cursorPositionFor, fallbackTextColumns} from './prompt/promptCursor.js'
 
 export type PromptOverlayState = {
   suggestions: CommandDef[]

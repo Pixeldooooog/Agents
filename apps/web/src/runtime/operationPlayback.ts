@@ -1,4 +1,4 @@
-import type { OperationEvent, OperationPhase } from "../types";
+import type { OperationEvent, OperationPhase } from "../types/runtimeTypes";
 
 const playbackMap: Record<OperationPhase, OperationPhase[]> = {
   opening: ["opening", "running"],

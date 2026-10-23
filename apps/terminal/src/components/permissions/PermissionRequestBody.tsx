@@ -1,6 +1,6 @@
 import React from 'react'
 import {Box, Text} from 'ink'
-import type {PendingApproval} from '../../protocol/types.js'
+import type {PendingApproval} from '../../protocol/terminalHostProtocol.js'
 import {compact, toolSummary} from '../../ui/format.js'
 import {colors} from '../../ui/theme.js'
 import {ToolPreview} from '../tools/ToolPreview.js'

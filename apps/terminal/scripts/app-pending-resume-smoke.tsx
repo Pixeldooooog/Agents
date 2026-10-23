@@ -5,12 +5,10 @@ import path from 'node:path'
 import {Readable, Writable} from 'node:stream'
 import React from 'react'
 import {render, type Instance, type RenderOptions} from 'ink'
-import {App} from '../src/App.js'
+import {App} from '../src/app/App.js'
 
 const repoRoot = path.resolve(process.cwd(), '../..')
-const srcPath = path.join(repoRoot, 'src')
 const sessionRoot = path.join(tmpdir(), `agents-terminal-pending-sessions-${process.pid}`)
-process.env.PYTHONPATH = [srcPath, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter)
 process.env.AGENTS_TERMINAL_HISTORY_PATH = path.join(tmpdir(), `agents-terminal-pending-history-${process.pid}.json`)
 process.env.AGENTS_TERMINAL_SESSION_STORE = sessionRoot
 process.env.AGENTS_TERMINAL_DB_PATH = path.join(tmpdir(), `agents-terminal-pending-${process.pid}.db`)
@@ -104,7 +102,7 @@ try {
   console.warn = (...args: unknown[]) => consoleMessages.push(args.map(String).join(' '))
   console.error = (...args: unknown[]) => consoleMessages.push(args.map(String).join(' '))
   instance = render(
-    <App python=".venv/bin/python" repoRoot={repoRoot} bridgeArgs={[]} />,
+    <App repoRoot={repoRoot} terminalHostArgs={[]} />,
     {
       stdin,
       stdout,

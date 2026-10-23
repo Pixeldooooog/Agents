@@ -1,5 +1,5 @@
 import type {Dispatch, SetStateAction} from 'react'
-import type {BridgeClient} from '../protocol/bridge.js'
+import type {TerminalHostClient} from '../protocol/terminalHostClient.js'
 import type {TranscriptItem} from '../components/MessageList.js'
 import {classifyInputCommand, commandHelpRows, isCommandAvailableWhileBusy, type CommandDef} from '../ui/commands.js'
 import {useInputQueue} from './useInputQueue.js'
@@ -10,7 +10,7 @@ type MutableRef<T> = {
 
 type CommandRunnerOptions = {
   busy: boolean
-  bridge: BridgeClient
+  terminalHost: TerminalHostClient
   commands: CommandDef[]
   activeRunId: MutableRef<string>
   hasInterruptibleToolInProgress: MutableRef<boolean>
@@ -27,7 +27,7 @@ type CommandRunnerOptions = {
 
 export function useCommandRunner({
   busy,
-  bridge,
+  terminalHost,
   commands,
   activeRunId,
   hasInterruptibleToolInProgress,
@@ -50,7 +50,7 @@ export function useCommandRunner({
       inputQueue.enqueue(value, displayValue)
       append({kind: 'status', label: 'queued', text: displayValue})
       if (hasInterruptibleToolInProgress.current) {
-        bridge.send({type: 'cancel', run_id: activeRunId.current || undefined, reason: 'interrupt'})
+        terminalHost.send({type: 'cancel', run_id: activeRunId.current || undefined, reason: 'interrupt'})
         append({kind: 'status', label: 'interrupt', text: 'cancelable tools interrupted; queued message will run next'})
       }
       return
@@ -64,7 +64,7 @@ export function useCommandRunner({
       return
     }
     modelPickerRequested.current = true
-    bridge.send({type: 'slash', text: '/model'})
+    terminalHost.send({type: 'slash', text: '/model'})
   }
 
   function runInput(value: string, displayValue = value) {
@@ -84,15 +84,15 @@ export function useCommandRunner({
         return
       case 'model_picker':
         modelPickerRequested.current = true
-        bridge.send({type: 'slash', text: value})
+        terminalHost.send({type: 'slash', text: value})
         return
       case 'model_switch':
         suppressNextModelProfiles.current = true
-        bridge.send({type: 'slash', text: value})
+        terminalHost.send({type: 'slash', text: value})
         return
       case 'resume_picker':
         sessionPickerRequested.current = true
-        bridge.send({type: 'slash', text: '/sessions'})
+        terminalHost.send({type: 'slash', text: '/sessions'})
         return
       case 'fold':
         setCollapsed(true)
@@ -112,7 +112,7 @@ export function useCommandRunner({
       case 'cancel': {
         const count = inputQueue.clear()
         if (busy) {
-          bridge.send({type: 'cancel', run_id: activeRunId.current || undefined})
+          terminalHost.send({type: 'cancel', run_id: activeRunId.current || undefined})
           append({kind: 'status', label: 'interrupt', text: count ? `requested · cleared ${count} queued message${count === 1 ? '' : 's'}` : 'requested'})
           return
         }
@@ -121,13 +121,13 @@ export function useCommandRunner({
       }
       case 'clear':
         setItems([])
-        bridge.send({type: 'slash', text: value})
+        terminalHost.send({type: 'slash', text: value})
         return
       case 'slash':
-        bridge.send({type: 'slash', text: commandText})
+        terminalHost.send({type: 'slash', text: commandText})
         return
       case 'message':
-        bridge.send({type: 'user_message', text: value})
+        terminalHost.send({type: 'user_message', text: value})
         return
     }
   }

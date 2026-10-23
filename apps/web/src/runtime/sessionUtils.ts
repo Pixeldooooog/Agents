@@ -1,4 +1,4 @@
-import type { ActivityEvent, ChatMessage, ToolApprovalRequest } from "../types";
+import type { ActivityEvent, ChatMessage, ToolApprovalRequest } from "../types/runtimeTypes";
 
 export const welcome: ChatMessage = {
   id: 1,

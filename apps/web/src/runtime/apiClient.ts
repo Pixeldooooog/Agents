@@ -9,7 +9,7 @@ import type {
   TaskDetailResponse,
   TaskListResponse,
   TaskRunResponse
-} from "../types";
+} from "../types/runtimeTypes";
 
 type AuthConfig = {
   baseUrl: () => string;

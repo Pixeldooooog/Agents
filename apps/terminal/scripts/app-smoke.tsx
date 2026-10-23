@@ -5,17 +5,16 @@ import path from 'node:path'
 import {Readable, Writable} from 'node:stream'
 import React from 'react'
 import {render, type Instance, type RenderOptions} from 'ink'
-import {App, isFullscreenLayoutEnabled} from '../src/App.js'
+import {App} from '../src/app/App.js'
+import {isFullscreenLayoutEnabled} from '../src/app/terminalLayout.js'
 
 const repoRoot = path.resolve(process.cwd(), '../..')
-const srcPath = path.join(repoRoot, 'src')
 const terminalRows = Number(process.env.AGENTS_TERMINAL_ROWS ?? 30)
 const terminalColumns = Number(process.env.AGENTS_TERMINAL_COLUMNS ?? 100)
 const compactTerminal = terminalRows < 29 || terminalColumns < 80
 const tinyTerminal = terminalColumns < 40
 const fullscreenLayout = isFullscreenLayoutEnabled()
 const promptReadyText = terminalColumns < 36 ? 'for commands' : 'ask or type / for commands'
-process.env.PYTHONPATH = [srcPath, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter)
 process.env.AGENTS_TERMINAL_HISTORY_PATH = path.join(tmpdir(), `agents-terminal-history-${process.pid}.json`)
 process.env.AGENTS_TERMINAL_SESSION_STORE = path.join(tmpdir(), `agents-terminal-sessions-${process.pid}`)
 process.env.AGENTS_TERMINAL_DB_PATH = path.join(tmpdir(), `agents-terminal-${process.pid}.db`)
@@ -137,7 +136,7 @@ try {
   console.warn = (...args: unknown[]) => consoleMessages.push(args.map(String).join(' '))
   console.error = (...args: unknown[]) => consoleMessages.push(args.map(String).join(' '))
   instance = render(
-    <App python=".venv/bin/python" repoRoot={repoRoot} bridgeArgs={[]} />,
+    <App repoRoot={repoRoot} terminalHostArgs={[]} />,
     {
       stdin,
       stdout,

@@ -2,7 +2,7 @@ import React from 'react'
 import {Box, Text} from 'ink'
 import {Panel} from './design/Panel.js'
 import {colors} from '../ui/theme.js'
-import type {RuntimeInfo, WorkspaceInfo} from '../protocol/types.js'
+import type {RuntimeInfo, WorkspaceInfo} from '../protocol/terminalHostProtocol.js'
 
 export function Welcome({
   runtime,

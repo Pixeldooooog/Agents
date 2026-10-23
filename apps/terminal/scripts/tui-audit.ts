@@ -36,18 +36,9 @@ const terminalTasks: Task[] = [
 
 const runtimeTasks: Task[] = [
   {
-    label: 'runtime-tool-loop-pytest',
-    executable: path.join(repoRoot, '.venv/bin/python'),
+    label: 'ts-core-tests',
     cwd: repoRoot,
-    args: [
-      '-m',
-      'pytest',
-      'tests/test_agent_runtime.py::test_agent_runtime_guard_stops_infinite_tool_loop',
-      'tests/test_agent_runtime.py::test_agent_runtime_default_allows_unbounded_tool_iterations',
-      'tests/test_terminal_bridge_ndjson.py::test_terminal_runtime_settings_include_server_root_for_chat_profile',
-      '-q'
-    ],
-    env: {...process.env, PYTHONPATH: 'src'}
+    args: ['test', 'packages/core/test/core.test.ts']
   }
 ]
 

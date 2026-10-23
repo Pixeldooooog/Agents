@@ -1,4 +1,4 @@
-import type {PendingApproval, RuntimeEvent} from '../protocol/types.js'
+import type {PendingApproval, RuntimeEvent} from '../protocol/terminalHostProtocol.js'
 export {formatDuration} from './format.js'
 
 export function toolKey(event: RuntimeEvent, payload: Record<string, unknown>): string {
@@ -73,7 +73,7 @@ export function runtimeErrorStatus(message: string): {label: string; text: strin
   if (message.includes('tool-call loop exceeded max iterations')) {
     return {
       label: 'tool loop stopped',
-      text: 'model kept requesting tools past the configured max_tool_iterations limit',
+      text: 'model kept requesting tools past the configured tool iteration limit',
       level: 'error'
     }
   }

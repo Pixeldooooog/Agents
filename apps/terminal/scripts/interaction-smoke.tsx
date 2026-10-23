@@ -6,7 +6,7 @@ import {ModelPicker} from '../src/components/ModelPicker.js'
 import {PromptInput} from '../src/components/PromptInput.js'
 import {Select, type SelectOption} from '../src/components/design/Select.js'
 import {PermissionOptions} from '../src/components/permissions/PermissionOptions.js'
-import {parseMouseEvent, parseNavigationEvent, splitTerminalControlEvents} from '../src/hooks/useSafeInput.js'
+import {parseMouseEvent, parseNavigationEvent, splitTerminalControlEvents} from '../src/hooks/terminalInputParser.js'
 import {isModelProfileQuery, modelProfileMatches} from '../src/ui/modelProfiles.js'
 import {charLength, displayWidth, isBackspaceInput, isDeleteInput, nextWordBoundary, padDisplayEnd, previousWordBoundary} from '../src/ui/textBuffer.js'
 

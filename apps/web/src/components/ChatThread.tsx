@@ -1,7 +1,7 @@
 import { Bot, Eraser, MessageSquareText, Send, Sparkles } from "lucide-solid";
 import type { Accessor, Setter } from "solid-js";
 import { For, Show } from "solid-js";
-import type { ApprovalDecision, ChatMessage, PermissionMode, ToolApprovalRequest } from "../types";
+import type { ApprovalDecision, ChatMessage, PermissionMode, ToolApprovalRequest } from "../types/runtimeTypes";
 import { ToolApprovalPanel } from "./ToolApprovalPanel";
 
 type Props = {
@@ -49,7 +49,7 @@ export function ChatThread(props: Props) {
           <span>{props.protocol()}</span>
           <span>{props.model() || "model not set"}</span>
           <span>{props.latency() === null ? "no latency yet" : `${props.latency()} ms`}</span>
-          <span>{props.toolCount() ? `${props.toolCount()} enabled tools` : "server default tools"}</span>
+          <span>{props.toolCount() ? `${props.toolCount()} enabled tools` : "default tool set"}</span>
           <span>{props.permissionMode()} permissions</span>
         </div>
         <div class="composer-row">

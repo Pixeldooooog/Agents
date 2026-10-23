@@ -1,7 +1,7 @@
 import { RefreshCw } from "lucide-solid";
 import { For, Show } from "solid-js";
 import type { Accessor, Setter } from "solid-js";
-import type { ModelProfile, PermissionMode } from "../types";
+import type { ModelProfile, PermissionMode } from "../types/runtimeTypes";
 
 type Props = {
   baseUrl: Accessor<string>;
@@ -41,8 +41,8 @@ export function SettingsView(props: Props) {
     <section class="settings-grid">
       <div class="settings-column">
         <article class="panel-card">
-          <div class="panel-header"><div><p class="eyebrow">Connection</p><h2>Server</h2></div></div>
-          <label><span>Server URL</span><input value={props.baseUrl()} onInput={(event) => props.setBaseUrl(event.currentTarget.value)} /></label>
+          <div class="panel-header"><div><p class="eyebrow">Connection</p><h2>Host</h2></div></div>
+          <label><span>Host URL</span><input value={props.baseUrl()} onInput={(event) => props.setBaseUrl(event.currentTarget.value)} /></label>
           <label><span>Access Token</span><input type="password" value={props.token()} onInput={(event) => props.setToken(event.currentTarget.value)} /></label>
         </article>
 
@@ -86,7 +86,7 @@ export function SettingsView(props: Props) {
 
         <article class="panel-card">
           <div class="panel-header"><div><p class="eyebrow">Behavior</p><h2>Agent</h2></div></div>
-          <label><span>Enabled Tools</span><input placeholder="empty uses server defaults" value={props.enabledTools()} onInput={(event) => props.setEnabledTools(event.currentTarget.value)} /></label>
+          <label><span>Enabled Tools</span><input placeholder="empty uses runtime defaults" value={props.enabledTools()} onInput={(event) => props.setEnabledTools(event.currentTarget.value)} /></label>
           <label><span>Permission Mode</span>
             <select value={props.permissionMode()} onInput={(event) => props.setPermissionMode(event.currentTarget.value as PermissionMode)}>
               <option value="ask">ask</option><option value="auto">auto</option><option value="deny">deny</option>

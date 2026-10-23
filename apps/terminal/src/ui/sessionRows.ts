@@ -1,4 +1,4 @@
-import type {SessionRecord} from '../protocol/types.js'
+import type {SessionRecord} from '../protocol/terminalHostProtocol.js'
 
 export function sessionTableRows(sessions: SessionRecord[]): Array<[string, string]> {
   if (!sessions.length) return [['sessions', 'none']]

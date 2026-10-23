@@ -1,5 +1,5 @@
 import {useRef, useState, type Dispatch, type SetStateAction} from 'react'
-import type {RuntimeEvent} from '../protocol/types.js'
+import type {RuntimeEvent} from '../protocol/terminalHostProtocol.js'
 import type {TranscriptItem} from '../components/MessageList.js'
 import {argsFromPayload, stringifyToolContent, summarizeToolResult, toolIds, toolKey} from '../ui/runtimeEvents.js'
 

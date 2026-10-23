@@ -1,4 +1,4 @@
-import type { OperationEvent } from "../types";
+import type { OperationEvent } from "../types/runtimeTypes";
 import { createId } from "./sessionUtils";
 
 type RuntimeEvent = {

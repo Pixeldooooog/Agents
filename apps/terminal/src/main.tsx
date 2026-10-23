@@ -1,27 +1,24 @@
 import React from 'react'
 import {render} from 'ink'
-import {App} from './App.js'
+import {App} from './app/App.js'
 
 const args = parseArgs(process.argv.slice(2))
 
-render(<App python={args.python} repoRoot={args.repoRoot} bridgeArgs={args.bridgeArgs} bridgeModule={args.bridgeModule} />)
+render(<App repoRoot={args.repoRoot} terminalHostArgs={args.terminalHostArgs} terminalHostFixture={args.terminalHostFixture} />)
 
 function parseArgs(argv: string[]) {
-  let python = process.env.AGENTS_PYTHON || '.venv/bin/python'
   let repoRoot = process.env.AGENTS_REPO_ROOT || '..'
-  let bridgeModule = process.env.AGENTS_BRIDGE_MODULE
-  const bridgeArgs: string[] = []
+  let terminalHostFixture = process.env.AGENTS_TERMINAL_FIXTURE === '1'
+  const terminalHostArgs: string[] = []
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index]
-    if (value === '--python') {
-      python = argv[++index] ?? python
-    } else if (value === '--repo-root') {
+    if (value === '--repo-root') {
       repoRoot = argv[++index] ?? repoRoot
-    } else if (value === '--bridge-module') {
-      bridgeModule = argv[++index] ?? bridgeModule
+    } else if (value === '--terminal-host-fixture') {
+      terminalHostFixture = Boolean(argv[++index] ?? true)
     } else {
-      bridgeArgs.push(value)
+      terminalHostArgs.push(value)
     }
   }
-  return {python, repoRoot, bridgeArgs, bridgeModule}
+  return {repoRoot, terminalHostArgs, terminalHostFixture}
 }

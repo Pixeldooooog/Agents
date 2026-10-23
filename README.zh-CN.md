@@ -15,6 +15,21 @@
 
 </div>
 
+## TypeScript runtime 迁移状态
+
+项目正在从 Python runtime 迁移到 Bun/TypeScript。当前主线已经接入 `packages/core`、`packages/host`，terminal/web 走 TS host；Python 源码暂作为迁移对照和回滚参考保留，尚未进入最终下线阶段。
+
+新的 TS 启动链：
+
+```bash
+bun install
+bun run typecheck
+bun run check
+bun run server
+```
+
+迁移基线、分阶段计划和最终验收口径见 [`docs/typescript-migration-plan.md`](docs/typescript-migration-plan.md)。
+
 ---
 
 ## 🎯 Agents 是什么？

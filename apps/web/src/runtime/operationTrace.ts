@@ -1,5 +1,5 @@
-import type { OperationEvent } from "../types";
-import { projectRunTrace } from "./operationProjector";
+import type { OperationEvent } from "../types/runtimeTypes";
+import { projectRunTrace } from "./operationTraceProjector";
 import type { createApiClient } from "./apiClient";
 
 type ApiClient = ReturnType<typeof createApiClient>;

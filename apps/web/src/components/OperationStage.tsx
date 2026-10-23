@@ -2,7 +2,7 @@ import { CheckCircle2, Monitor } from "lucide-solid";
 import type { Accessor } from "solid-js";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { playbackDelay, playbackFrames } from "../runtime/operationPlayback";
-import type { OperationEvent } from "../types";
+import type { OperationEvent } from "../types/runtimeTypes";
 import { OperationScene, SceneIcon, StatusMark, sceneLabel } from "./OperationStageScenes";
 
 type Props = {

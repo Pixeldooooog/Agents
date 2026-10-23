@@ -1,7 +1,7 @@
 import { ChevronDown, Cpu, KeyRound, Settings2, ShieldCheck, Wrench, X } from "lucide-solid";
 import type { Accessor, Setter } from "solid-js";
 import { For, Show } from "solid-js";
-import { modelProtocols, type PermissionMode } from "../types";
+import { modelProtocols, type PermissionMode } from "../types/runtimeTypes";
 
 type Props = {
   open: Accessor<boolean>;
@@ -36,8 +36,8 @@ export function SettingsDrawer(props: Props) {
           <button class="icon-button" onClick={() => props.setOpen(false)} title="Close settings"><X size={16} /></button>
         </div>
         <section class="config-section">
-          <div class="card-title"><Settings2 size={16} /><span>Server</span></div>
-          <Control label="Server URL"><input value={props.baseUrl()} onInput={(event) => props.setBaseUrl(event.currentTarget.value)} /></Control>
+          <div class="card-title"><Settings2 size={16} /><span>Host</span></div>
+          <Control label="Host URL"><input value={props.baseUrl()} onInput={(event) => props.setBaseUrl(event.currentTarget.value)} /></Control>
           <Control label="Access Token"><input type="password" value={props.token()} onInput={(event) => props.setToken(event.currentTarget.value)} placeholder="optional" /></Control>
         </section>
         <section class="config-section">

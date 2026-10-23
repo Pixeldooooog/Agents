@@ -1,7 +1,7 @@
 import React, {useEffect, useMemo, useState} from 'react'
 import {Box, Text, useStdin} from 'ink'
 import figures from 'figures'
-import type {ModelProfile} from '../protocol/types.js'
+import type {ModelProfile} from '../protocol/terminalHostProtocol.js'
 import {colors} from '../ui/theme.js'
 import {useSafeInput} from '../hooks/useSafeInput.js'
 import {Dialog} from './design/Dialog.js'

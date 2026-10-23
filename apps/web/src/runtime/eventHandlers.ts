@@ -1,6 +1,6 @@
 import { approvalFromEvent, mergeApproval } from "./sessionUtils";
 import { projectRuntimeEvent } from "./operationProjector";
-import type { ActivityEventKind, ActivityEventStatus, OperationEvent, SseEventFrame, ToolApprovalRequest } from "../types";
+import type { ActivityEventKind, ActivityEventStatus, OperationEvent, SseEventFrame, ToolApprovalRequest } from "../types/runtimeTypes";
 
 type EventDeps = {
   setRunId: (value: string) => void;

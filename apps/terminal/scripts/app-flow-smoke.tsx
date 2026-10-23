@@ -4,12 +4,10 @@ import path from 'node:path'
 import {Readable, Writable} from 'node:stream'
 import React from 'react'
 import {render, type Instance, type RenderOptions} from 'ink'
-import {App, isFullscreenLayoutEnabled} from '../src/App.js'
+import {App} from '../src/app/App.js'
+import {isFullscreenLayoutEnabled} from '../src/app/terminalLayout.js'
 
 const repoRoot = path.resolve(process.cwd(), '../..')
-const srcPath = path.join(repoRoot, 'src')
-const fixturePath = path.join(repoRoot, 'apps/terminal/scripts/fixtures')
-process.env.PYTHONPATH = [srcPath, fixturePath, process.env.PYTHONPATH].filter(Boolean).join(path.delimiter)
 process.env.AGENTS_TERMINAL_HISTORY_PATH = path.join(tmpdir(), `agents-terminal-flow-history-${process.pid}.json`)
 process.env.AGENTS_TERMINAL_SESSION_STORE = path.join(tmpdir(), `agents-terminal-flow-sessions-${process.pid}`)
 const fullscreenLayout = isFullscreenLayoutEnabled()
@@ -135,7 +133,7 @@ try {
   console.warn = (...args: unknown[]) => consoleMessages.push(args.map(String).join(' '))
   console.error = (...args: unknown[]) => consoleMessages.push(args.map(String).join(' '))
   instance = render(
-    <App python=".venv/bin/python" repoRoot={repoRoot} bridgeArgs={[]} bridgeModule="terminal_bridge_fixture" />,
+    <App repoRoot={repoRoot} terminalHostArgs={[]} terminalHostFixture />,
     {
       stdin,
       stdout,
@@ -280,7 +278,7 @@ try {
   await settle()
   stdin.press('\r')
   await waitForOutputAfter(stdout, 'tool loop stopped', beforeLoopExceeded)
-  await waitForOutputAfter(stdout, 'configured max_tool_iterations limit', beforeLoopExceeded)
+  await waitForOutputAfter(stdout, 'configured tool iteration limit', beforeLoopExceeded)
   await waitForOutputAfter(stdout, 'stopped', beforeLoopExceeded)
 
   const beforeAfterFailure = stdout.content.length

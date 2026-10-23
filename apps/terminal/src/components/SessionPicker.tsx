@@ -1,6 +1,6 @@
 import React, {useMemo} from 'react'
 import {Text} from 'ink'
-import type {SessionRecord} from '../protocol/types.js'
+import type {SessionRecord} from '../protocol/terminalHostProtocol.js'
 import {colors} from '../ui/theme.js'
 import {Dialog} from './design/Dialog.js'
 import {Select, type SelectOption} from './design/Select.js'

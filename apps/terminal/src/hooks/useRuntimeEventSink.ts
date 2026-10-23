@@ -1,5 +1,5 @@
 import {useRef, type Dispatch, type MutableRefObject, type SetStateAction} from 'react'
-import type {PendingApproval, RuntimeEvent} from '../protocol/types.js'
+import type {PendingApproval, RuntimeEvent} from '../protocol/terminalHostProtocol.js'
 import type {TranscriptItem} from '../components/MessageList.js'
 import {approvalDecisionText, pendingApprovalFromEvent, retryText, runtimeErrorStatus} from '../ui/runtimeEvents.js'
 import {useLiveDraft} from './useLiveDraft.js'

@@ -1,4 +1,4 @@
-import type { OperationEvent, OperationSceneKind } from "../types";
+import type { OperationEvent, OperationSceneKind } from "../types/runtimeTypes";
 
 export type StageStepStatus = "done" | "active" | "pending" | "error";
 

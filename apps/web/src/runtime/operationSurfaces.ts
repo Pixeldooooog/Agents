@@ -1,4 +1,4 @@
-import type { OperationSceneKind } from "../types";
+import type { OperationSceneKind } from "../types/runtimeTypes";
 
 export type OperationSurfaceKind = "finder" | "editor" | "browser" | "terminal" | "reader" | "summary";
 
