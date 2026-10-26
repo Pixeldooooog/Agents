@@ -2,6 +2,7 @@ import type { RunStore } from "../ports/runStore.js";
 import type { AgentSpec } from "../types/agentTypes.js";
 import type { PendingApproval, RunRecord, RunStatus, RuntimeEvent } from "../types/runtimeTypes.js";
 import {
+  claimRunPendingApproval,
   finishRunRecord,
   listRunRecords,
   loadRunRecord,
@@ -22,6 +23,7 @@ export type JsonStateAccess = {
 
 export function jsonRunStoreMethods(access: JsonStateAccess): RunStore {
   return {
+    claimPendingApproval: (runId, approvalId) => claimRunPendingApproval(access.mutate, runId, approvalId),
     startRun: (spec) => startRunRecord(access.mutate, spec),
     recordEvent: (runId, event) => recordRunEvent(access.mutate, runId, event),
     finishRun: (runId, status) => finishRunRecord(access.mutate, runId, status),

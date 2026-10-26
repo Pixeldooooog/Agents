@@ -1,5 +1,5 @@
 import type { AgentSpec } from "../types/agentTypes.js";
-import type { AgentResult, Message, RuntimeEvent, ToolResult } from "../types/runtimeTypes.js";
+import type { AgentResult, Message, RuntimeEvent, ToolResult, ToolCall, PendingApproval } from "../types/runtimeTypes.js";
 import { runtimeEvent } from "../types/runtimeTypes.js";
 import type { ModelUsage } from "../types/modelTypes.js";
 import { combineModelUsage, modelUsagePayload } from "../models/modelUsage.js";
@@ -8,11 +8,13 @@ import { defaultEnabledTools } from "../models/modelProfiles.js";
 import { canonicalToolName, modelToolDefinitions } from "../tools/toolRegistry.js";
 import { canContinueToolLoop, runtimeToolLoopBudget } from "./runtimeLimits.js";
 import { deniesTool, requiresApproval, isToolEnabled } from "./runtimeToolPermissions.js";
+import { validateApprovalContinuation } from "./runtimeApprovalContinuation.js";
 import type { RuntimeOptions } from "./runtimeOptions.js";
 import {
   appendToolResultMessage,
   deniedToolExecution,
   executeRuntimeToolCall,
+  resolvePendingApproval,
   pendingApprovalForToolCall
 } from "./runtimeToolExecution.js";
 
@@ -22,14 +24,14 @@ export type RuntimeTurnLoopInput = {
   runId: string;
   initialMessages: Message[];
   initialToolResults?: ToolResult[];
-  initialEvents?: RuntimeEvent[];
+  resume?: { pendingApproval: PendingApproval; approved: boolean };
 };
 
 export async function runRuntimeTurnLoop(input: RuntimeTurnLoopInput): Promise<AgentResult> {
-  const startedAt = Date.now();
+  let startedAt = Date.now();
   const events: RuntimeEvent[] = [];
-  const messages = [...input.initialMessages];
-  const toolResults: ToolResult[] = [...(input.initialToolResults || [])];
+  let messages = [...input.initialMessages];
+  let toolResults: ToolResult[] = [...(input.initialToolResults || [])];
   const toolLoopBudget = runtimeToolLoopBudget(input.options.settings, input.spec);
   let completedToolIterations = 0;
   let modelTurnCount = 0;
@@ -40,8 +42,15 @@ export async function runRuntimeTurnLoop(input: RuntimeTurnLoopInput): Promise<A
   };
 
   try {
+    const continuation = input.resume ? validateApprovalContinuation(input.resume.pendingApproval) : undefined;
+    if (continuation) {
+      completedToolIterations = continuation.completed_tool_iterations;
+      modelTurnCount = continuation.model_turn_count;
+      accumulatedModelUsage = continuation.model_usage;
+      startedAt = continuation.started_at;
+      toolLoopBudget.maxIterations = Math.min(toolLoopBudget.maxIterations, continuation.max_tool_iterations);
+    }
     throwIfCanceled(input.options.signal);
-    for (const event of input.initialEvents || []) await emit(event);
 
     const config = {
       ...resolveModelClientConfig(input.options.settings, input.spec),
@@ -52,42 +61,56 @@ export async function runRuntimeTurnLoop(input: RuntimeTurnLoopInput): Promise<A
       ? input.spec.enabled_tools
       : defaultEnabledTools(input.options.settings);
 
+    let remainingCalls: ToolCall[] | undefined;
+    if (input.resume && continuation) {
+      if (!canContinueToolLoop(completedToolIterations, toolLoopBudget)) throw new Error("tool-call loop exceeded max iterations");
+      const resolution = await resolvePendingApproval(input.options, input.spec, input.resume.pendingApproval, input.resume.approved, input.runId);
+      messages = resolution.messages;
+      toolResults = resolution.toolResults;
+      for (const event of resolution.events) await emit(event);
+      remainingCalls = continuation.remaining_tool_calls;
+    }
+
     while (canContinueToolLoop(completedToolIterations, toolLoopBudget)) {
       throwIfCanceled(input.options.signal);
-      const definitions = modelToolDefinitions(enabledTools);
-      const modelTurn = input.options.stream && config.protocol !== "gemini"
-        ? await streamModelTurn(config, messages, definitions, async event => {
-          // Partial arguments never enter the tool executor or persistent message history.
-          if (event.type === "text_delta") await emit(runtimeEvent("text_delta", { delta: event.delta }));
-        })
-        : await completeModelTurn(config, messages, definitions);
-      modelTurnCount += 1;
-      accumulatedModelUsage = combineModelUsage([accumulatedModelUsage, modelTurn.usage]);
-      throwIfCanceled(input.options.signal);
-      const assistant: Message = { role: "assistant", content: modelTurn.content, tool_calls: modelTurn.tool_calls, model_context: modelTurn.model_context };
-      messages.push(assistant);
-      if (modelTurn.content) await emit(runtimeEvent("model_message", compactEventPayload({
-        content: modelTurn.content,
-        modelUsage: modelUsagePayload(modelTurn.usage)
-      })));
-      if (!modelTurn.tool_calls.length) {
-        await emit(runtimeEvent("done", doneEventPayload(startedAt, modelTurnCount, events.length, {
-          status: "finished",
+      if (remainingCalls === undefined) {
+        const definitions = modelToolDefinitions(enabledTools);
+        const modelTurn = input.options.stream && config.protocol !== "gemini"
+          ? await streamModelTurn(config, messages, definitions, async event => {
+            // Partial arguments never enter the tool executor or persistent message history.
+            if (event.type === "text_delta") await emit(runtimeEvent("text_delta", { delta: event.delta }));
+          })
+          : await completeModelTurn(config, messages, definitions);
+        modelTurnCount += 1;
+        accumulatedModelUsage = combineModelUsage([accumulatedModelUsage, modelTurn.usage]);
+        throwIfCanceled(input.options.signal);
+        const assistant: Message = { role: "assistant", content: modelTurn.content, tool_calls: modelTurn.tool_calls, model_context: modelTurn.model_context };
+        messages.push(assistant);
+        if (modelTurn.content) await emit(runtimeEvent("model_message", compactEventPayload({
           content: modelTurn.content,
-          modelUsage: modelUsagePayload(accumulatedModelUsage)
+          modelUsage: modelUsagePayload(modelTurn.usage)
         })));
-        return {
-          run_id: input.runId,
-          status: "finished",
-          content: modelTurn.content,
-          messages,
-          tool_results: toolResults,
-          events,
-          model_usage: accumulatedModelUsage
-        };
+        if (!modelTurn.tool_calls.length) {
+          await emit(runtimeEvent("done", doneEventPayload(startedAt, modelTurnCount, events.length, {
+            status: "finished",
+            content: modelTurn.content,
+            modelUsage: modelUsagePayload(accumulatedModelUsage)
+          })));
+          return {
+            run_id: input.runId,
+            status: "finished",
+            content: modelTurn.content,
+            messages,
+            tool_results: toolResults,
+            events,
+            model_usage: accumulatedModelUsage
+          };
+        }
+
+        remainingCalls = modelTurn.tool_calls;
       }
 
-      for (const toolCall of modelTurn.tool_calls) {
+      for (const [callIndex, toolCall] of remainingCalls.entries()) {
         throwIfCanceled(input.options.signal);
         const canonicalName = canonicalToolName(toolCall.name);
         if (!isToolEnabled(input.options.settings, input.spec, canonicalName) || deniesTool(input.spec, canonicalName)) {
@@ -98,11 +121,18 @@ export async function runRuntimeTurnLoop(input: RuntimeTurnLoopInput): Promise<A
           continue;
         }
         if (requiresApproval(input.spec, canonicalName)) {
-          const pendingApproval = pendingApprovalForToolCall(toolCall, messages, toolResults);
+          const pendingApproval = pendingApprovalForToolCall(toolCall, messages, toolResults, {
+            remaining_tool_calls: remainingCalls.slice(callIndex + 1),
+            completed_tool_iterations: completedToolIterations,
+            max_tool_iterations: toolLoopBudget.maxIterations,
+            model_turn_count: modelTurnCount,
+            model_usage: accumulatedModelUsage,
+            started_at: startedAt
+          });
           await emit(runtimeEvent(
             "tool_approval_required",
             {
-              approval_id: toolCall.id,
+              approval_id: pendingApproval.approval_id,
               tool_call: toolCall,
               permission: { reason: "tool requires approval" }
             },
@@ -110,13 +140,13 @@ export async function runRuntimeTurnLoop(input: RuntimeTurnLoopInput): Promise<A
           ));
           await emit(runtimeEvent("done", doneEventPayload(startedAt, modelTurnCount, events.length, {
             status: "awaiting_approval",
-            content: modelTurn.content,
+            content: messages.findLast(message => message.role === "assistant")?.content || "",
             modelUsage: modelUsagePayload(accumulatedModelUsage)
           })));
           return {
             run_id: input.runId,
             status: "awaiting_approval",
-            content: modelTurn.content,
+            content: messages.findLast(message => message.role === "assistant")?.content || "",
             messages,
             tool_results: toolResults,
             events,
@@ -134,11 +164,12 @@ export async function runRuntimeTurnLoop(input: RuntimeTurnLoopInput): Promise<A
           toolResults,
           runtimeEvents: events
         });
-        throwIfCanceled(input.options.signal);
         for (const event of execution.events) await emit(event);
         toolResults.push(execution.result);
         appendToolResultMessage(messages, toolCall, execution.result);
+        throwIfCanceled(input.options.signal);
       }
+      remainingCalls = undefined;
       completedToolIterations += 1;
     }
 
@@ -147,7 +178,8 @@ export async function runRuntimeTurnLoop(input: RuntimeTurnLoopInput): Promise<A
     if (isRuntimeCancellation(error, input.options.signal)) {
       await emit(runtimeEvent("done", doneEventPayload(startedAt, modelTurnCount, events.length, {
         status: "canceled",
-        content: "run canceled"
+        content: "run canceled",
+        modelUsage: modelUsagePayload(accumulatedModelUsage)
       })));
       return {
         run_id: input.runId,

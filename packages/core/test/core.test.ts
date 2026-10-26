@@ -804,7 +804,7 @@ describe("TS core", () => {
       expect(paused.run.status).toBe("awaiting_approval");
       expect(paused.run.pending_approval?.tool_call.id).toBe("call_read");
 
-      const resumed = await runs.resumeApproval(paused.run.run_id, true);
+      const resumed = await runs.resumeApproval(paused.run.run_id, true, { approvalId: paused.result.pending_approval!.approval_id });
       expect(resumed.result.status).toBe("finished");
       expect(resumed.run.status).toBe("finished");
       expect(resumed.result.content).toContain("service content");

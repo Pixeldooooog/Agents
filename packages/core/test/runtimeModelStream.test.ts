@@ -119,7 +119,7 @@ test("Responses context survives persisted approval and replays to the same prov
     expect(paused.result.status).toBe("awaiting_approval");
     await expect(readFile(path.join(root, "result.txt"))).rejects.toThrow();
     const restarted = new AgentRunService({ settings, store: new JsonStateStore(file) });
-    const resumed = await restarted.resumeApproval(paused.run.run_id, true, { stream: true, spec });
+    const resumed = await restarted.resumeApproval(paused.run.run_id, true, { stream: true, spec, approvalId: paused.result.pending_approval!.approval_id });
     expect(resumed.result.status).toBe("finished");
     expect(resumed.result.content).toBe("finished");
     expect(requests).toBe(2);

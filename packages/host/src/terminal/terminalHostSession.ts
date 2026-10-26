@@ -1,5 +1,6 @@
 import { buildModelProfiles, listBuiltinTools } from "@kevin/core";
 import type { HostServices } from "../services/hostServices.js";
+import { resumeTerminalApproval } from "./terminalRunApproval.js";
 import { TerminalModelProfiles } from "./terminalModelProfiles.js";
 import { terminalCommandCatalog } from "./terminalCommandCatalog.js";
 import { handleTerminalSlashCommand } from "./terminalSlashCommands.js";
@@ -53,7 +54,14 @@ export class TerminalHostSession {
     }
     if (commandType === "approval") {
       const approvals = objectField(command.approvals);
-      this.scriptedTurns.approval(String(command.run_id || "fixture-approval-run"), Object.values(approvals).some(Boolean));
+      const entries = Object.entries(approvals);
+      const [approvalId, approved] = entries[0] ?? [];
+      if (entries.length !== 1 || typeof approved !== "boolean") {
+        this.writer.write({ type: "error", message: "exactly one approval ID and boolean decision are required" });
+        return "continue";
+      }
+      if (approvalId === "fixture-approval") this.scriptedTurns.approval(String(command.run_id || "fixture-approval-run"), approved);
+      else await resumeTerminalApproval(this.services, this.writer, String(command.run_id || ""), approvalId, approved);
       return "continue";
     }
     if (commandType === "slash") {

@@ -82,6 +82,7 @@ export type AgentSdkClientOptions = Partial<Omit<AgentRunServiceOptions, "settin
 };
 
 export type SdkApprovalResumeOptions = {
+  approvalId: string;
   sessionId?: string;
 };
 
@@ -396,7 +397,7 @@ export class AgentSdkClient {
     return result;
   }
 
-  async *resumeApproval(runId: string, approved: boolean, options: SdkApprovalResumeOptions = {}): AsyncIterable<SdkMessage> {
+  async *resumeApproval(runId: string, approved: boolean, options: SdkApprovalResumeOptions): AsyncIterable<SdkMessage> {
     const queue = new SdkMessageQueue<SdkMessage>();
     this.runApprovalResume(runId, approved, options, queue).catch((error) => queue.fail(error));
     while (true) {
@@ -536,6 +537,7 @@ export class AgentSdkClient {
     const sessionId = options.sessionId || existingRun?.metadata.sdk_session_id || "";
     let projectedResult = false;
     const { run, result } = await this.runs.resumeApproval(runId, approved, {
+      approvalId: options.approvalId,
       spec: this.transientRunSpecs.get(runId),
       stream: true,
       fileReadState: sessionId ? this.fileReadStates.forSession(sessionId) : undefined,

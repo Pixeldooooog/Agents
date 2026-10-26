@@ -1,6 +1,6 @@
 import { deniesTool, isToolEnabled } from "./runtimeToolPermissions.js";
 import type { AgentSpec } from "../types/agentTypes.js";
-import type { Message, PendingApproval, RuntimeEvent, ToolCall, ToolResult } from "../types/runtimeTypes.js";
+import type { Message, PendingApproval, RuntimeEvent, ToolCall, ToolResult, ToolTurnContinuation } from "../types/runtimeTypes.js";
 import { runtimeEvent } from "../types/runtimeTypes.js";
 import { canonicalToolName, executeBuiltinTool } from "../tools/toolRegistry.js";
 import type { ToolExecution } from "../tools/toolContracts.js";
@@ -46,6 +46,7 @@ export async function resolvePendingApproval(
   approved: boolean,
   runId: string
 ): Promise<PendingApprovalResolution> {
+  options.signal?.throwIfAborted();
   const messages = [...pendingApproval.messages];
   const toolResults = [...pendingApproval.tool_results];
   const execution = approved
@@ -82,13 +83,15 @@ export function deniedToolExecution(toolCall: ToolCall): ToolExecution {
 export function pendingApprovalForToolCall(
   toolCall: ToolCall,
   messages: Message[],
-  toolResults: ToolResult[]
+  toolResults: ToolResult[],
+  continuation: ToolTurnContinuation
 ): PendingApproval {
   return {
-    approval_id: toolCall.id,
-    tool_call: toolCall,
-    messages: [...messages],
-    tool_results: [...toolResults]
+    approval_id: crypto.randomUUID(),
+    continuation: structuredClone(continuation),
+    tool_call: structuredClone(toolCall),
+    messages: structuredClone(messages),
+    tool_results: structuredClone(toolResults)
   };
 }
 

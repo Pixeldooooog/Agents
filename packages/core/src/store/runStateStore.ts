@@ -75,3 +75,16 @@ export async function listRunRecords(read: ReadState, filters: RunListFilters = 
   const limit = Math.max(1, Math.min(200, Number(filters.limit || 50)));
   return (await read()).runs.filter((run) => matchesScope(run, filters)).slice(0, limit);
 }
+
+/** One claimant per approval within the store's serialized mutation boundary. */
+export function claimRunPendingApproval(mutate: MutateState, runId: string, approvalId: string): Promise<PendingApproval | undefined> {
+  return mutate(state => {
+    const run = state.runs.find(item => item.run_id === runId);
+    if (run?.status !== "awaiting_approval" || run.pending_approval?.approval_id !== approvalId) return;
+    const pending = structuredClone(run.pending_approval);
+    run.status = "running";
+    run.pending_approval = undefined;
+    run.updated_at = timestamp();
+    return pending;
+  });
+}

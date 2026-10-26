@@ -42,8 +42,18 @@ export type AgentResult = {
   model_usage?: ModelUsage;
 };
 
+export type ToolTurnContinuation = {
+  remaining_tool_calls: ToolCall[];
+  completed_tool_iterations: number;
+  max_tool_iterations: number;
+  model_turn_count: number;
+  model_usage?: ModelUsage;
+  started_at: number;
+};
+
 export type PendingApproval = {
   approval_id: string;
+  continuation?: ToolTurnContinuation;
   tool_call: ToolCall;
   messages: Message[];
   tool_results: ToolResult[];

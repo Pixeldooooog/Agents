@@ -1441,7 +1441,7 @@ describe("TS SDK client", () => {
         type: "approval_required",
         sessionId: "session_approval",
         toolName: "filesystem__read",
-        approvalId: "call_sdk_approval_read"
+        approvalId: expect.any(String)
       });
       expect(pausedResult).toMatchObject({
         type: "result",
@@ -1451,7 +1451,7 @@ describe("TS SDK client", () => {
 
       const runId = (pausedResult as any).runId;
       const resumedMessages = [];
-      for await (const message of session.resumeApproval(runId, true)) resumedMessages.push(message);
+      for await (const message of session.resumeApproval(runId, true, (await store.loadRun(runId))!.pending_approval!.approval_id)) resumedMessages.push(message);
 
       expect(resumedMessages.map((message) => message.type)).toEqual([
         "tool_progress",

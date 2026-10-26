@@ -63,7 +63,13 @@ P1 已实现：
 
 ### Tools / Runtime
 
-已有 `toolRegistry`、schema 校验、`runtimeToolPermissions` 和审批恢复。接下来先验证并修复**一次模型返回多个工具调用、其中一个暂停审批**时的剩余调用和结果配对；当前 PendingApproval 只记录单个当前工具，不能直接宣称多调用恢复完整。
+P2 已补齐同一模型回合内多调用的审批恢复：PendingApproval 保存剩余调用、已完成工具轮数、初始预算上限、模型轮数、usage 和起始时间。恢复前校验调用队列是原模型消息的未完成后缀；批准/拒绝当前调用后继续后续调用，全部结束才发起下一次模型请求。恢复重新检查权限，预算只能保持或缩小。
+
+每次暂停生成独立 approval_id。AgentRunService 在存储 mutation 中按 run 状态和 approval_id 领取审批，先清除 pending 并设为 running，再执行；重复/过期请求返回冲突。JSON store 同一规范化文件路径的实例在单进程内共用写队列，通过临时文件 rename 替换，读到损坏 JSON 会失败而非清空。
+
+**边界：**这不是跨进程租约或外部副作用 exactly-once。领取后进程崩溃会留下 running 状态，不自动重放工具；B2 再处理动作账本和崩溃恢复。直接使用无存储的 AgentRuntime 时，调用者负责同一 snapshot 的单次消费；面向客户端的恢复入口应使用 AgentRunService。缺少 continuation 的旧快照显式拒绝，需开始新 run。
+
+Web HTTP、SDK 和真实终端审批路径均提交本次 approval_id；当前批准只针对该调用，后续调用仍逐个检查审批。终端仍保留原有 fixture 模式，本批终端 smoke 不等于真实供应商端到端验收。
 
 统一模型工具与外部工具的执行入口；明确并发/顺序策略、超时、取消、输出上限与错误契约。工具业务行为继续留在专属模块，注册只装配，不为每个工具创建没有用途的类。
 
@@ -117,3 +123,14 @@ P1 已实现：
 - Responses 测试在审批暂停后重新打开 JSON store，验证 reasoning/call_id 保留并在恢复请求中按原顺序回放。该证据仅覆盖已有审批恢复路径，不代表任意崩溃恢复或持久任务执行已完成。
 - 更新原有 SDK 流模式 fixture 为真正 SSE，并断言新增流事件。文本增量实时交付但不逐 token 持久化。
 - 下一批为 P2：一次模型返回多个工具调用时，审批暂停/恢复不能丢失后续调用，并保留工具循环预算与 usage。
+
+## P2 审批恢复接口与验证
+
+HTTP：`POST /api/v1/agent/runs/:runId/approval`，请求体为 `{ "approval_id": "本次事件中的 ID", "approved": true }`。不再把工具调用 ID 当审批 ID，也不把字符串 `"false"` 转成批准。缺失 ID/非布尔决策返回 400；不匹配或已消费返回 409。
+
+SDK：`session.resumeApproval(runId, approved, approvalId)`；client 使用 `client.resumeApproval(runId, approved, { approvalId, sessionId })`。service 使用 `resumeApproval(runId, approved, { approvalId, ...options })`。调用者必须回传实际收到的审批 ID，不能现场查询“当前 ID”替代用户原来批准的对象。
+
+- 完整 `bun run check` 通过：265 项测试，类型检查、Web 构建、终端四项 smoke 通过。
+- 新增 9 项测试：A/B/C 连续审批、拒绝、重载状态、usage、预算不重置、撤销权限、取消、损坏 continuation、同进程多 store 实例并发领取、过期 ID、损坏 JSON，以及真实 HTTP 参数校验。
+- 本地文件工具验证无重复执行；没有真实供应商或跨进程恢复验收。
+- 下一阶段：P3 Skill 的发现/加载/资源作用域与权限不可扩张；B2 保留独立的持久任务恢复设计。

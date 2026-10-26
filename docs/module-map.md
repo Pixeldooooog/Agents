@@ -20,7 +20,8 @@ packages/core  -> no app imports
 - `src/api/agentRunRoutes.ts`: Agent run endpoint routing.
 - `src/api/agentRunExecution.ts`: Agent chat and streaming run execution handlers.
 - `src/api/agentRunQueries.ts`: Model profile, run list, run detail, and trace handlers.
-- `src/api/agentRunApprovals.ts`: Tool approval resume handler.
+- `src/api/agentRunApprovals.ts`: Approval ID and boolean decision forwarding to the shared service.
+- `src/terminal/terminalRunApproval.ts`: Real terminal approval continuation through the shared run service.
 - `src/api/agentRunLifecycle.ts`: Shared run outcome persistence and HTTP status mapping.
 - `src/api/agentTaskRoutes.ts`: Agent task create, list, detail, run, and cancel endpoints.
 - `src/http/body.ts`: Request body parsing.
@@ -81,6 +82,7 @@ packages/core  -> no app imports
 - `src/runtime/runtimeOptions.ts`: Runtime dependency contract and tool execution context assembly.
 - `src/runtime/runtimeMessages.ts`: Runtime system/user message construction, memory context, skill metadata, and workspace instructions.
 - `src/runtime/runtimeTurnLoop.ts`: Model turn loop, tool iteration, approval pause, deny handling, and final result shaping.
+- `src/runtime/runtimeApprovalContinuation.ts`: Validate saved counters and unresolved calls against the original model turn before approval execution.
 - `src/runtime/runtimeToolExecution.ts`: Tool-call execution, pending approval resolution, denied tool results, and tool-result message insertion.
 - `src/runtime/runtimeToolPermissions.ts`: Runtime tool deny and approval gate helpers.
 - `src/runtime/operationFrames.ts`: Operation-frame projection.
@@ -115,7 +117,7 @@ packages/core  -> no app imports
 - `src/store/jsonPlanningHookStore.ts`: JSON state planning and hook facade methods.
 - `src/store/jsonMcpStore.ts`: JSON state MCP facade methods.
 - `src/store/jsonCollaborationStore.ts`: JSON state collaboration facade methods.
-- `src/store/jsonStatePersistence.ts`: JSON state file read, write, normalization, and serialized mutation.
+- `src/store/jsonStatePersistence.ts`: JSON reads that fail on corruption, atomic file replacement, and mutation queues shared by path within one process.
 - `src/store/runStateStore.ts`: Run record persistence operations.
 - `src/store/taskStateStore.ts`: Task and task-step persistence operations.
 - `src/store/scheduleStateStore.ts`: Schedule persistence operations.

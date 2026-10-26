@@ -46,8 +46,8 @@ export class SdkSession {
     return result;
   }
 
-  resumeApproval(runId: string, approved: boolean): AsyncIterable<SdkMessage> {
-    return this.client.resumeApproval(runId, approved, { sessionId: this.sessionId });
+  resumeApproval(runId: string, approved: boolean, approvalId: string): AsyncIterable<SdkMessage> {
+    return this.client.resumeApproval(runId, approved, { sessionId: this.sessionId, approvalId });
   }
 
   runWireMessages(

@@ -30,8 +30,8 @@ export type AgentChatPayload = Partial<Omit<AgentSpec, "metadata" | "runtime">> 
 };
 
 export type RunApprovalPayload = {
-  tool_call_ids?: string[];
-  approved?: boolean;
+  approval_id: string;
+  approved: boolean;
   decision?: "allow_once" | "allow_for_run" | "deny" | string;
 };
 

@@ -2,7 +2,6 @@ import type { AgentSpec } from "../types/agentTypes.js";
 import type { AgentResult, PendingApproval } from "../types/runtimeTypes.js";
 import { runtimeStartMessages } from "./runtimeMessages.js";
 import type { RuntimeOptions } from "./runtimeOptions.js";
-import { resolvePendingApproval } from "./runtimeToolExecution.js";
 import { runRuntimeTurnLoop } from "./runtimeTurnLoop.js";
 
 export type { RuntimeOptions } from "./runtimeOptions.js";
@@ -24,14 +23,13 @@ export class AgentRuntime {
   }
 
   async resumeWithApproval(spec: AgentSpec, pendingApproval: PendingApproval, approved: boolean, runId: string): Promise<AgentResult> {
-    const resolution = await resolvePendingApproval(this.options, spec, pendingApproval, approved, runId);
     return runRuntimeTurnLoop({
       options: this.options,
       spec,
       runId,
-      initialMessages: resolution.messages,
-      initialToolResults: resolution.toolResults,
-      initialEvents: resolution.events
+      initialMessages: pendingApproval.messages,
+      initialToolResults: pendingApproval.tool_results,
+      resume: { pendingApproval, approved }
     });
   }
 }

@@ -40,7 +40,7 @@ export type AgentChatPayload = {
 export type RunApprovalPayload = {
   approved: boolean;
   decision: ApprovalDecision;
-  tool_call_ids: string[];
+  approval_id: string;
 };
 
 export type RuntimeRun = {

@@ -4,6 +4,7 @@ import type { RunListFilters } from "../store/storeFilters.js";
 
 export type RunStore = {
   startRun(spec: AgentSpec): Promise<RunRecord>;
+  claimPendingApproval(runId: string, approvalId: string): Promise<PendingApproval | undefined>;
   recordEvent(runId: string, event: RuntimeEvent): Promise<void>;
   finishRun(runId: string, status: RunStatus): Promise<void>;
   setPendingApproval(runId: string, pendingApproval: PendingApproval | undefined): Promise<void>;

@@ -60,7 +60,7 @@ export function createAgentConversationActions(options: AgentConversationActions
     const approved = decision !== "deny";
     const id = options.record("approval", approvalDecisionTitle(decision), request.toolName, "running");
     try {
-      const data = await options.api().approve(request.runId, { tool_call_ids: [request.approvalId], approved, decision });
+      const data = await options.api().approve(request.runId, { approval_id: request.approvalId, approved, decision });
       options.updateActivity(id, { status: "done", detail: "200 OK" });
       options.setPendingApprovals((current) => current.filter((item) => item.approvalId !== request.approvalId));
       consumeRuntimeEvents(data.events || [], options.eventDeps());

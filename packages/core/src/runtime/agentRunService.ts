@@ -28,6 +28,7 @@ export type AgentRunExecutionOptions = {
 };
 
 export type AgentApprovalResumeOptions = AgentRunExecutionOptions & {
+  approvalId: string;
   spec?: AgentSpec;
 };
 
@@ -37,7 +38,7 @@ export type PersistedAgentRun = {
   events: RuntimeEvent[];
 };
 
-export type AgentRunServiceErrorCode = "run_not_found" | "run_not_awaiting_approval" | "pending_approval_missing";
+export type AgentRunServiceErrorCode = "run_not_found" | "run_not_awaiting_approval" | "pending_approval_missing" | "approval_conflict" | "approval_id_required" | "invalid_approval_decision";
 
 export class AgentRunServiceError extends Error {
   constructor(
@@ -75,12 +76,17 @@ export class AgentRunService {
     };
   }
 
-  async resumeApproval(runId: string, approved: boolean, options: AgentApprovalResumeOptions = {}): Promise<PersistedAgentRun> {
+  async resumeApproval(runId: string, approved: boolean, options: AgentApprovalResumeOptions): Promise<PersistedAgentRun> {
+    if (typeof options.approvalId !== "string" || !options.approvalId.trim()) throw new AgentRunServiceError("approval_id_required", "approvalId is required", 400);
+    if (typeof approved !== "boolean") throw new AgentRunServiceError("invalid_approval_decision", "approved must be a boolean", 400);
+    options.signal?.throwIfAborted();
     const run = await this.requireApprovalRun(runId);
     const spec = options.spec || this.specFromPayload({ message: "", ...run.spec });
+    const pending = await this.options.store.claimPendingApproval(runId, options.approvalId);
+    if (!pending) throw new AgentRunServiceError("approval_conflict", "approval was consumed or no longer matches", 409);
     const events: RuntimeEvent[] = [];
     const runtime = this.runtimeFor(runId, events, options);
-    const result = await runtime.resumeWithApproval(spec, run.pending_approval!, approved, runId);
+    const result = await runtime.resumeWithApproval(spec, pending, approved, runId);
     await persistAgentRunOutcome(this.options.store, runId, result);
     return {
       run: await this.loadCurrentRun(run),
