@@ -90,6 +90,15 @@ Plugin 的工具启用契约保留原行为，其权限与 MCP 外部能力映�
 
 已有 provider 注入与 resource/prompt 调用、服务器记录和管理工具。还需对真实 transport 的连接、initialize、tools/list、tools/call、分页、取消、关闭做独立验收；不能把注入 provider 的测试视为生产连接通过。外部工具必须统一映射到工具注册和权限边界，资源和 prompt 不伪装成工具结果。
 
+P4 第一批已补齐现有 provider 生命周期：
+
+- Host 持有 provider 数组；禁用、移除、清空原地更新共享数组，并撤销 provider 对象。持有旧数组副本的上下文也无法再通过 MCP 调用入口使用该对象。
+- 撤销先取消在途请求，再关闭连接。关闭按对象去重，只调用一次；并行等待全部连接关闭，汇总失败。关闭失败不恢复调用权限。
+- resource/prompt 的四个调用接口向 provider 传递可选 AbortSignal，合并用户取消、连接撤销及 `mcp.client_timeout`（默认 30 秒）。取消、撤销、超时使用独立错误代码，立即结束调用，不吞为列表错误或尝试另一个 provider。
+- provider 不响应取消时，调用方仍有界结束；这不能强制终止其内部工作或撤回已发生的外部副作用。关闭也有超时，失败显式报告。
+- 重新启用只更新配置，不复活被撤销的对象；Host 需要创建并注入新连接。当前支持保存的 transport 名称不代表对应 transport 已实现。
+- 现有资源读取通过 runtime 的工具允许、拒绝及审批入口；本批未实现远端 `tools/call`，也未完成 Plugin 权限审计。
+
 ### Hooks
 
 现有 `hooks/` 定义事件、动作、记录和工具，主运行循环未见对这些生命周期事件的实际调度。下一阶段先定义受限、可测试的事件契约，再接入；尤其 `run_command` 不能只因记录存在就自动执行。预执行阻止可以收紧权限，不能放宽权限；观察型 hook 失败与控制型 hook 失败需要不同的明确策略。
@@ -151,3 +160,9 @@ SDK：`session.resumeApproval(runId, approved, approvalId)`；client 使用 `cli
 - 新增 8 项边界测试：模型调用标志、禁用后序列化及重新启用、实际文件写入被拒、符号链接越界、安装资源及目标检查、manifest 限额和非法输入、搜索优先级、同名并发安装资源完整性。
 - 验证使用本地临时目录和 runtime 文件工具，没有真实供应商验收，也未实现 OS 沙箱或恶意并发文件替换防护。
 - 下一阶段为 P4 MCP transport/session 与外部能力权限映射；Plugin 工具启用权限同时纳入审计。
+
+## P4 provider 生命周期首批验证
+
+- `bun run check` 通过：282 项测试、类型检查、Web production build 与终端四项 smoke。
+- 新增 11 项测试覆盖共享数组撤销、旧上下文失效、单次关闭、部分关闭失败、在途取消、超时、不响应取消的 provider、runtime 拒绝规则及审批批准/拒绝/撤销。
+- 审批链路使用本地 HTTP 模型 fixture 和注入的 MCP provider。尚无真实 MCP server/transport 验收；stdio/HTTP initialize、分页发现、远端工具映射、取消通知、重连及 Plugin 权限审计继续留在 P4。

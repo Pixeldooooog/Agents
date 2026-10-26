@@ -76,14 +76,14 @@ export type McpProvider = {
     auth_required?: boolean;
   };
   tools?: unknown[];
-  listResources?: () => Promise<unknown[]>;
-  list_resources?: () => Promise<unknown[]>;
-  readResource?: (uri: string) => Promise<unknown>;
-  read_resource?: (uri: string) => Promise<unknown>;
-  listPrompts?: () => Promise<unknown[]>;
-  list_prompts?: () => Promise<unknown[]>;
-  getPrompt?: (name: string, args: Record<string, unknown>) => Promise<unknown>;
-  get_prompt?: (name: string, args: Record<string, unknown>) => Promise<unknown>;
+  listResources?: (signal?: AbortSignal) => Promise<unknown[]>;
+  list_resources?: (signal?: AbortSignal) => Promise<unknown[]>;
+  readResource?: (uri: string, signal?: AbortSignal) => Promise<unknown>;
+  read_resource?: (uri: string, signal?: AbortSignal) => Promise<unknown>;
+  listPrompts?: (signal?: AbortSignal) => Promise<unknown[]>;
+  list_prompts?: (signal?: AbortSignal) => Promise<unknown[]>;
+  getPrompt?: (name: string, args: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown>;
+  get_prompt?: (name: string, args: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown>;
   close?: () => Promise<void>;
 };
 

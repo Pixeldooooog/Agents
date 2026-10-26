@@ -1,3 +1,4 @@
+import { isMcpProviderActive } from "./mcpProviderLifecycle.js";
 import type { McpSettings } from "../config/settings.js";
 import type { JsonObject } from "../types/jsonTypes.js";
 import type { McpServerRecord } from "../types/mcpTypes.js";
@@ -111,18 +112,18 @@ export function mcpProviderPayload(provider: McpProvider) {
 
 export function mcpProviders(context: ToolExecutionContext, server = ""): McpProvider[] {
   const wanted = server.trim();
-  const providers = context.mcpProviders || [];
+  const providers = (context.mcpProviders || []).filter(isMcpProviderActive);
   return wanted ? providers.filter((provider) => provider.server.name === wanted) : providers;
 }
 
-export async function closeMcpProviders(providers: McpProvider[]): Promise<void> {
-  for (const provider of providers) await provider.close?.();
-}
-
-export function removeMcpProviders(context: ToolExecutionContext, name: string): number {
-  const before = context.mcpProviders || [];
-  context.mcpProviders = before.filter((provider) => provider.server.name !== name);
-  return before.length - context.mcpProviders.length;
+/** Mutate the host-owned array: tool execution contexts are shallow copies. */
+export function removeMcpProviders(context: ToolExecutionContext, name?: string): McpProvider[] {
+  const providers = context.mcpProviders;
+  if (!providers) return [];
+  const removed = providers.filter(provider => name === undefined || provider.server.name === name);
+  const retained = providers.filter(provider => name !== undefined && provider.server.name !== name);
+  providers.splice(0, providers.length, ...retained);
+  return removed;
 }
 
 export function mcpScope(context: ToolExecutionContext) {

@@ -150,6 +150,7 @@ packages/core  -> no app imports
 - `src/session/sessionContextText.ts`: Session summary, token estimate, bounds, and truncation helpers.
 - `src/mcp/mcpRecords.ts`: MCP server records, settings hydration, provider bookkeeping, and transport normalization.
 - `src/mcp/mcpProviderCalls.ts`: MCP resource and prompt provider calls.
+- `src/mcp/mcpProviderLifecycle.ts`: Provider revocation, request cancellation/deadlines, and deduplicated bounded shutdown; injected providers remain host-owned.
 - `src/mcp/mcpProviderResourceCalls.ts`: MCP resource listing and read provider calls.
 - `src/mcp/mcpProviderPromptCalls.ts`: MCP prompt listing and render provider calls.
 - `src/mcp/mcpProviderPayloads.ts`: MCP provider payload normalization helpers.

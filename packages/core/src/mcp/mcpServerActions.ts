@@ -1,10 +1,10 @@
+import { closeMcpProviders, mcpTimeoutMilliseconds } from "./mcpProviderLifecycle.js";
 import type { JsonObject } from "../types/jsonTypes.js";
 import type { McpServerRecord } from "../types/mcpTypes.js";
 import type { ToolExecutionContext } from "../tools/toolContracts.js";
 import { stringArg } from "../tools/toolInputs.js";
 import {
   clearMcpSettings,
-  closeMcpProviders,
   configuredMcpServerPayload,
   deleteMcpRecord,
   findMcpRecord,
@@ -42,29 +42,33 @@ export async function enableMcpServer(context: ToolExecutionContext, args: JsonO
 }
 
 export async function disableMcpServer(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+  const timeoutMs = mcpTimeoutMilliseconds(context);
   const target = targetServerName(context, args);
   const record = await findMcpRecord(context, target);
   if (record) await saveMcpRecord(context, { ...record, enabled: false });
   const removedProviders = removeMcpProviders(context, target);
   if (context.settings?.mcp.serverName === target) clearMcpSettings(context);
-  return { disabled: target, removed_providers: removedProviders, configured: (await readMcpServers(context)).configured };
+  await closeMcpProviders(removedProviders, timeoutMs);
+  return { disabled: target, removed_providers: removedProviders.length, configured: (await readMcpServers(context)).configured };
 }
 
 export async function removeMcpServer(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+  const timeoutMs = mcpTimeoutMilliseconds(context);
   const target = targetServerName(context, args);
   await deleteMcpRecord(context, target);
   const removedProviders = removeMcpProviders(context, target);
   if (context.settings?.mcp.serverName === target) clearMcpSettings(context);
-  return { removed: target, removed_providers: removedProviders, configured: (await readMcpServers(context)).configured };
+  await closeMcpProviders(removedProviders, timeoutMs);
+  return { removed: target, removed_providers: removedProviders.length, configured: (await readMcpServers(context)).configured };
 }
 
 export async function clearMcpServers(context: ToolExecutionContext): Promise<Record<string, unknown>> {
-  const providers = mcpProviders(context);
-  await closeMcpProviders(providers);
+  const timeoutMs = mcpTimeoutMilliseconds(context);
   const records = await listMcpRecords(context);
   for (const record of records) await deleteMcpRecord(context, record.name);
-  context.mcpProviders = [];
+  const providers = removeMcpProviders(context);
   clearMcpSettings(context);
+  await closeMcpProviders(providers, timeoutMs);
   return { cleared: true, removed_providers: providers.length, configured: (await readMcpServers(context)).configured };
 }
 
