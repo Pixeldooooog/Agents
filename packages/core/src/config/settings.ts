@@ -28,6 +28,7 @@ export type WebSearchSettings = {
 export type McpSettings = {
   serverName: string;
   serverCommand: string;
+  serverArgs?: string[];
   serverTransport: string;
   serverUrl: string;
   serverHeaders: Record<string, string>;
@@ -127,6 +128,7 @@ export async function loadSettings(repoRoot = process.cwd()): Promise<Settings> 
     mcp: {
       serverName: stringSetting(env.MCP_SERVER_NAME, valueOrFallback(mcp.server_name, "")),
       serverCommand: stringSetting(env.MCP_SERVER_COMMAND, valueOrFallback(mcp.server_command, "")),
+      serverArgs: listSetting(env.MCP_SERVER_ARGS, valueOrFallback(mcp.server_args, [])),
       serverTransport: stringSetting(env.MCP_SERVER_TRANSPORT, valueOrFallback(mcp.server_transport, "stdio")),
       serverUrl: stringSetting(env.MCP_SERVER_URL, valueOrFallback(mcp.server_url, "")),
       serverHeaders: headerSetting(env.MCP_SERVER_HEADERS, valueOrFallback(mcp.server_headers, {})),

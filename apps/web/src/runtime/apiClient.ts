@@ -34,17 +34,18 @@ export function createApiClient(config: AuthConfig) {
   };
 
   return {
-    chat(payload: AgentChatPayload) {
-      return request<any>("/api/v1/agent/chat", { method: "POST", headers: jsonHeaders(), body: JSON.stringify(payload) });
+    chat(payload: AgentChatPayload, signal?: AbortSignal) {
+      return request<any>("/api/v1/agent/chat", { method: "POST", headers: jsonHeaders(), body: JSON.stringify(payload), signal });
     },
-    approve(runId: string, payload: RunApprovalPayload) {
-      return request<any>(`/api/v1/agent/runs/${runId}/approval`, { method: "POST", headers: jsonHeaders(), body: JSON.stringify(payload) });
+    approve(runId: string, payload: RunApprovalPayload, signal?: AbortSignal) {
+      return request<any>(`/api/v1/agent/runs/${runId}/approval`, { method: "POST", headers: jsonHeaders(), body: JSON.stringify(payload), signal });
     },
-    async chatStream(payload: AgentChatPayload, onEvent: StreamHandler) {
+    async chatStream(payload: AgentChatPayload, onEvent: StreamHandler, signal?: AbortSignal) {
       const response = await fetch(urlFor("/api/v1/agent/chat/stream"), {
         method: "POST",
         headers: jsonHeaders(),
         body: JSON.stringify(payload),
+        signal,
       });
       if (!response.ok || !response.body) {
         throw new Error(`stream request failed: ${response.status} ${response.statusText}`);
@@ -52,13 +53,22 @@ export function createApiClient(config: AuthConfig) {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        buffer = emitFrames(buffer, onEvent);
-      }
-      if (buffer.trim()) emitFrames(`${buffer}\n\n`, onEvent);
+      let completed = false;
+      const receive: StreamHandler = frame => {
+        if (frame.event === "done") completed = true;
+        onEvent(frame);
+      };
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          if (buffer.length > 2 * 1024 * 1024) throw new Error("runtime event exceeds 2 MiB");
+          buffer = emitFrames(buffer, receive);
+        }
+        if (buffer.trim()) throw new Error("incomplete runtime event");
+        if (!completed) throw new Error("runtime stream ended before completion");
+      } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
     },
     health() {
       return request<void>("/health", { method: "GET", headers: authHeaders() });

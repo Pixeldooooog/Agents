@@ -1,4 +1,4 @@
-import { Check, ShieldCheck, ShieldX, Wrench } from "lucide-solid";
+import { Check, ShieldX, Wrench } from "lucide-solid";
 import type { Accessor } from "solid-js";
 import { For, Show } from "solid-js";
 import type { ApprovalDecision, ToolApprovalRequest } from "../types/runtimeTypes";
@@ -43,10 +43,6 @@ export function ToolApprovalPanel(props: Props) {
               <button class="approval-choice approve-once-button" disabled={props.busy()} onClick={() => props.decide(request, "allow_once")} title={copy.approval.allowOnce}>
                 <Check size={15} />
                 <span>{copy.approval.allowOnce}</span>
-              </button>
-              <button class="approval-choice approve-run-button" disabled={props.busy()} onClick={() => props.decide(request, "allow_for_run")} title={copy.approval.allowForRun}>
-                <ShieldCheck size={15} />
-                <span>{copy.approval.allowForRun}</span>
               </button>
             </div>
           </article>

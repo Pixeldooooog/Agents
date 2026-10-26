@@ -1,3 +1,4 @@
+import { mcpExternalTools } from "../mcp/mcpExternalTools.js";
 import { assertToolArguments, prepareToolValidator } from "./toolValidation.js";
 import { boundedToolContent } from "./toolOutput.js";
 import type { JsonObject } from "../types/jsonTypes.js";
@@ -80,9 +81,11 @@ export function canonicalToolName(name: string): string {
   return toolByName.get(name)?.name || name;
 }
 
-export function modelToolDefinitions(enabledToolNames: string[]): ModelToolDefinition[] {
+export function modelToolDefinitions(enabledToolNames: string[], providers?: ToolExecutionContext["mcpProviders"]): ModelToolDefinition[] {
+  const available = new Map(toolByName);
+  for (const tool of mcpExternalTools(providers)) available.set(tool.name, tool);
   const selected = enabledToolNames.length
-    ? enabledToolNames.flatMap((name) => toolByName.get(name) ? [toolByName.get(name)!] : [])
+    ? enabledToolNames.flatMap((name) => available.get(name) ? [available.get(name)!] : [])
     : toolDefinitions;
   return [...new Set(selected)].map((definition) => ({
     name: modelToolName(definition.name),
@@ -97,7 +100,7 @@ export function modelToolDefinitions(enabledToolNames: string[]): ModelToolDefin
 
 export async function executeBuiltinTool(repoRoot: string, name: string, args: JsonObject, context: Partial<ToolExecutionContext> = {}): Promise<ToolExecution> {
   const id = String(args?.id || args?.tool_call_id || `${name}:${Date.now()}`);
-  const definition = toolByName.get(name);
+  const definition = toolByName.get(name) || mcpExternalTools(context.mcpProviders).find(tool => tool.name === name);
   const canonicalName = definition?.name || name;
   const start = runtimeEvent("tool_start", { id, tool_call_id: id, name: canonicalName, requested_name: name }, canonicalName);
   if (!definition) return toolError(id, canonicalName, `unknown tool: ${name}`, [start]);
@@ -106,6 +109,7 @@ export async function executeBuiltinTool(repoRoot: string, name: string, args: J
     if (context.signal?.aborted) throw new Error("tool_execution_cancelled");
     assertToolArguments(definition, args);
     start.payload!.arguments = args;
+    await context.onToolStart?.(start);
     const payload = await definition.handler({ ...context, repoRoot }, args);
     const content = boundedToolContent(payload);
     const result: ToolResult = { tool_call_id: id, name: canonicalName, content, is_error: false };

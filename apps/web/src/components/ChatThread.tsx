@@ -1,4 +1,4 @@
-import { Eraser, MessageSquareText, Send } from "lucide-solid";
+import { Eraser, MessageSquareText, Send, Square } from "lucide-solid";
 import type { Accessor, Setter } from "solid-js";
 import { For, Show } from "solid-js";
 import type { ApprovalDecision, ChatMessage, PermissionMode, ToolApprovalRequest } from "../types/runtimeTypes";
@@ -23,6 +23,7 @@ type Props = {
   setInput: Setter<string>;
   canSend: Accessor<boolean>;
   send: () => void;
+  cancel: () => void;
   decideApproval: (request: ToolApprovalRequest, decision: ApprovalDecision) => void;
   clear: () => void;
 };
@@ -36,7 +37,7 @@ export function ChatThread(props: Props) {
           <h2>{copy.chat.title}</h2>
         </div>
         <AgentPresence state={props.agentState()} />
-        <button class="icon-button" onClick={props.clear} title={copy.chat.clear} aria-label={copy.chat.clear}>
+        <button class="icon-button" onClick={props.clear} disabled={props.busy()} title={copy.chat.clear} aria-label={copy.chat.clear}>
           <Eraser size={16} />
         </button>
       </div>
@@ -71,9 +72,11 @@ export function ChatThread(props: Props) {
             aria-label={copy.chat.inputLabel}
             placeholder={copy.chat.inputPlaceholder}
           />
-          <button class="send-button" aria-label={copy.chat.send} title={copy.chat.inputHint} disabled={!props.canSend()} onClick={props.send}>
+          <Show when={props.busy()} fallback={<button class="send-button" aria-label={copy.chat.send} title={copy.chat.inputHint} disabled={!props.canSend()} onClick={props.send}>
             <Send size={18} />
-          </button>
+          </button>}>
+            <button class="send-button" aria-label="停止当前请求" title="停止当前请求" onClick={props.cancel}><Square size={18} /></button>
+          </Show>
         </div>
       </footer>
     </section>

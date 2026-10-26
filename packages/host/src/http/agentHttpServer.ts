@@ -7,7 +7,7 @@ import { createHostAccessPolicy, corsHeaders, requestAuthorized, requestOriginAl
 
 export function createAgentHttpServer(services: HostServices) {
   const policy = createHostAccessPolicy(services.settings.host);
-  return createServer(async (request, response) => {
+  const server = createServer(async (request, response) => {
     try {
       await handleRequest(services, policy, request, response);
     } catch {
@@ -15,6 +15,8 @@ export function createAgentHttpServer(services: HostServices) {
       else response.destroy();
     }
   });
+  server.on("close", () => { void services.close().catch(error => console.error("MCP shutdown failed", error instanceof Error ? error.name : "error")); });
+  return server;
 }
 
 async function handleRequest(services: HostServices, policy: HostAccessPolicy, request: IncomingMessage, response: ServerResponse): Promise<void> {

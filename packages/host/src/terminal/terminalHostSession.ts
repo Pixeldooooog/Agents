@@ -11,6 +11,8 @@ import type { TerminalEventWriter } from "./terminalEventWriter.js";
 export type TerminalHostCommandResult = "continue" | "exit";
 
 export class TerminalHostSession {
+  private activeTurn?: Promise<void>;
+  private activeController?: AbortController;
   private readonly scriptedTurns: ScriptedTerminalTurns;
   private readonly terminalSessions: TerminalSessionStore;
   private readonly modelProfiles: TerminalModelProfiles;
@@ -45,10 +47,12 @@ export class TerminalHostSession {
   async handleCommand(command: Record<string, unknown>): Promise<TerminalHostCommandResult> {
     const commandType = String(command.type || "");
     if (commandType === "exit") {
+      await this.close();
       this.writer.write({ type: "exit" });
       return "exit";
     }
     if (commandType === "cancel") {
+      this.activeController?.abort();
       this.scriptedTurns.cancel(String(command.reason || ""));
       return "continue";
     }
@@ -61,7 +65,7 @@ export class TerminalHostSession {
         return "continue";
       }
       if (approvalId === "fixture-approval") this.scriptedTurns.approval(String(command.run_id || "fixture-approval-run"), approved);
-      else await resumeTerminalApproval(this.services, this.writer, String(command.run_id || ""), approvalId, approved);
+      else this.startTurn(signal => resumeTerminalApproval(this.services, this.writer, String(command.run_id || ""), approvalId, approved, signal));
       return "continue";
     }
     if (commandType === "slash") {
@@ -69,17 +73,32 @@ export class TerminalHostSession {
       return "continue";
     }
     if (commandType === "user_message") {
-      await this.userMessage(String(command.text || ""), String(command.run_id || newRunId()));
+      this.startTurn(signal => this.userMessage(String(command.text || ""), String(command.run_id || newRunId()), signal));
       return "continue";
     }
     this.writer.write({ type: "error", message: `unknown terminal host command: ${commandType}` });
     return "continue";
   }
 
-  private async userMessage(text: string, runId: string): Promise<void> {
+  async close(): Promise<void> {
+    this.activeController?.abort();
+    await this.activeTurn;
+  }
+
+  private startTurn(work: (signal: AbortSignal) => Promise<void>): void {
+    if (this.activeTurn) { this.writer.write({ type: "error", message: "a terminal turn is already running" }); return; }
+    const controller = new AbortController();
+    this.activeController = controller;
+    this.activeTurn = Promise.resolve().then(() => work(controller.signal)).catch(error => {
+      this.writer.write({ type: "error", message: error instanceof Error ? error.message : "turn failed" });
+    }).finally(() => { this.activeTurn = undefined; this.activeController = undefined; });
+  }
+
+  private async userMessage(text: string, runId: string, signal: AbortSignal): Promise<void> {
     if (this.scriptedTurns.handle(runId, text)) return;
     const spec = this.services.runs.specFromPayload({ message: text });
     const { run, result } = await this.services.runs.runAgent(spec, text, {
+      signal,
       stream: true,
       afterRunStarted: (startedRun) => this.writer.write({ type: "turn_started", run_id: startedRun.run_id }),
       onEvent: (event) => this.writer.runtimeEvent(event)

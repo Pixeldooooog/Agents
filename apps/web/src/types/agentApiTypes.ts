@@ -1,7 +1,7 @@
 export const modelProtocols = ["openai-chat", "openai-responses", "claude-messages", "gemini"] as const;
 
 export type PermissionMode = "auto" | "ask" | "deny";
-export type ApprovalDecision = "allow_once" | "allow_for_run" | "deny";
+export type ApprovalDecision = "allow_once" | "deny";
 
 export type ToolImpact = {
   tool_name?: string;

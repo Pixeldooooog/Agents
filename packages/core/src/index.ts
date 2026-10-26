@@ -56,3 +56,8 @@ export type { StateStore } from "./ports/stateStore.js";
 
 export type { CommandExecutor, CommandExecution, ExecutionPolicy } from "./ports/commandExecutor.js";
 export { localExecutor } from "./execution/localExecutor.js";
+
+export { connectMcpServer, type McpConnectionConfig } from "./mcp/mcpConnection.js";
+export { closeMcpProviders } from "./mcp/mcpProviderLifecycle.js";
+export { mcpExternalTools } from "./mcp/mcpExternalTools.js";
+export { McpConnectionManager } from "./mcp/mcpConnectionManager.js";

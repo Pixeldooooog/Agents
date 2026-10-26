@@ -1,3 +1,4 @@
+import { dispatchRuntimeHooks } from "../hooks/runtimeHooks.js";
 import { deniesTool, isToolEnabled } from "./runtimeToolPermissions.js";
 import type { AgentSpec } from "../types/agentTypes.js";
 import type { Message, PendingApproval, RuntimeEvent, ToolCall, ToolResult, ToolTurnContinuation } from "../types/runtimeTypes.js";
@@ -15,6 +16,7 @@ export type RuntimeToolCallInput = {
   messages: Message[];
   toolResults: ToolResult[];
   runtimeEvents: RuntimeEvent[];
+  onEvent?: (event: RuntimeEvent) => void | Promise<void>;
 };
 
 export type PendingApprovalResolution = {
@@ -26,17 +28,39 @@ export type PendingApprovalResolution = {
 export async function executeRuntimeToolCall(input: RuntimeToolCallInput): Promise<ToolExecution> {
   const name = canonicalToolName(input.toolCall.name);
   if (!isToolEnabled(input.options.settings, input.spec, name) || deniesTool(input.spec, name)) return deniedToolExecution(input.toolCall);
-  return executeBuiltinTool(
+  const before = await dispatchRuntimeHooks(input.options, input.spec, "pre_tool_use", name);
+  if (before.denied) {
+    const denied = deniedToolExecution(input.toolCall);
+    return { ...denied, events: [...before.events, ...denied.events] };
+  }
+  if (input.onEvent) for (const event of before.events) await input.onEvent(event);
+  let startEmitted = false;
+  const execution = await executeBuiltinTool(
     input.options.settings.repoRoot,
     input.toolCall.name,
     { ...input.toolCall.arguments, tool_call_id: input.toolCall.id },
-    runtimeToolExecutionContext(input.options, {
-      spec: input.spec,
-      runId: input.runId,
-      messages: input.messages,
-      runtimeEvents: input.runtimeEvents
-    })
+    {
+      ...runtimeToolExecutionContext(input.options, {
+        spec: input.spec,
+        runId: input.runId,
+        messages: input.messages,
+        runtimeEvents: input.runtimeEvents
+      }),
+      onToolStart: input.onEvent ? async event => {
+        await input.onEvent!(event);
+        startEmitted = true;
+      } : undefined
+    }
   );
+  const after = await dispatchRuntimeHooks(input.options, input.spec, "post_tool_use", name);
+  if (!input.onEvent) execution.events.unshift(...before.events);
+  if (startEmitted) execution.events = execution.events.filter(event => event.type !== "tool_start");
+  execution.events.push(...after.events);
+  if (!execution.result.is_error && (name === "worktree.enter" || name === "worktree.exit")) {
+    const worktree = await dispatchRuntimeHooks(input.options, input.spec, name === "worktree.enter" ? "worktree_create" : "worktree_remove", name);
+    execution.events.push(...worktree.events);
+  }
+  return execution;
 }
 
 export async function resolvePendingApproval(
@@ -44,7 +68,8 @@ export async function resolvePendingApproval(
   spec: AgentSpec,
   pendingApproval: PendingApproval,
   approved: boolean,
-  runId: string
+  runId: string,
+  onEvent?: (event: RuntimeEvent) => void | Promise<void>
 ): Promise<PendingApprovalResolution> {
   options.signal?.throwIfAborted();
   const messages = [...pendingApproval.messages];
@@ -57,7 +82,8 @@ export async function resolvePendingApproval(
         toolCall: pendingApproval.tool_call,
         messages,
         toolResults,
-        runtimeEvents: []
+        runtimeEvents: [],
+        onEvent
       })
     : deniedToolExecution(pendingApproval.tool_call);
 

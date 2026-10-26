@@ -40,6 +40,8 @@ type AgentConversationActionsOptions = {
 };
 
 export function createAgentConversationActions(options: AgentConversationActionsOptions) {
+  let activeRequest: AbortController | undefined;
+  const cancel = () => activeRequest?.abort();
   const send = async () => {
     const text = options.input().trim();
     if (!text || options.busy()) return;
@@ -56,11 +58,12 @@ export function createAgentConversationActions(options: AgentConversationActions
   };
 
   const decideApproval = async (request: ToolApprovalRequest, decision: ApprovalDecision) => {
+    activeRequest = new AbortController();
     options.setBusy(true);
     const approved = decision !== "deny";
     const id = options.record("approval", approvalDecisionTitle(decision), request.toolName, "running");
     try {
-      const data = await options.api().approve(request.runId, { approval_id: request.approvalId, approved, decision });
+      const data = await options.api().approve(request.runId, { approval_id: request.approvalId, approved, decision }, activeRequest.signal);
       options.updateActivity(id, { status: "done", detail: "200 OK" });
       options.setPendingApprovals((current) => current.filter((item) => item.approvalId !== request.approvalId));
       consumeRuntimeEvents(data.events || [], options.eventDeps());
@@ -71,18 +74,20 @@ export function createAgentConversationActions(options: AgentConversationActions
       options.updateActivity(id, { status: "error", detail: errorText(error) });
       options.push("error", errorText(error));
     } finally {
+      activeRequest = undefined;
       options.setBusy(false);
     }
   };
 
-  return { send, decideApproval };
+  return { send, decideApproval, cancel };
 
   async function sendChat(text: string) {
     const started = performance.now();
+    activeRequest = new AbortController();
     options.setBusy(true);
     const requestId = options.record("system", copy.activity.modelRequest, "POST /api/v1/agent/chat", "running");
     try {
-      const data = await options.api().chat(options.payload(text));
+      const data = await options.api().chat(options.payload(text), activeRequest.signal);
       options.setLatency(Math.round(performance.now() - started));
       options.updateActivity(requestId, { status: "done", detail: "200 OK" });
       options.setRunId(data.run_id || "");
@@ -92,17 +97,19 @@ export function createAgentConversationActions(options: AgentConversationActions
       options.updateActivity(requestId, { status: "error", detail: errorText(error) });
       options.push("error", errorText(error));
     } finally {
+      activeRequest = undefined;
       options.setBusy(false);
     }
   }
 
   async function sendStream(text: string) {
     const started = performance.now();
+    activeRequest = new AbortController();
     options.setBusy(true);
     const assistantId = options.push("assistant", "");
     const streamId = options.record("stream", copy.activity.streamOpen, "POST /api/v1/agent/chat/stream", "running");
     try {
-      await options.api().chatStream(options.payload(text), (frame) => handleStreamFrame(frame, assistantId, streamId, options.streamDeps()));
+      await options.api().chatStream(options.payload(text), (frame) => handleStreamFrame(frame, assistantId, streamId, options.streamDeps()), activeRequest.signal);
       options.setLatency(Math.round(performance.now() - started));
       options.updateActivity(streamId, { status: "done", detail: copy.activity.streamClosed });
     } catch (error) {
@@ -110,6 +117,7 @@ export function createAgentConversationActions(options: AgentConversationActions
       options.updateActivity(streamId, { status: "error", detail: errorText(error) });
       options.push("error", errorText(error));
     } finally {
+      activeRequest = undefined;
       options.setBusy(false);
     }
   }

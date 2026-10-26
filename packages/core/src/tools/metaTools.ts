@@ -1,3 +1,4 @@
+import { mcpExternalTools } from "../mcp/mcpExternalTools.js";
 import type { JsonObject } from "../types/jsonTypes.js";
 import type { ToolDefinition, ToolExecutionContext } from "./toolContracts.js";
 import { booleanArg, numberArg, stringArg } from "./toolInputs.js";
@@ -18,7 +19,7 @@ export function createMetaToolDefinitions(toolCatalog: () => ToolDefinition[]): 
       description: "Search registered tools by name, description, or exact select:<tool> lookup.",
       risk: "low",
       parameters: toolSearchSchema,
-      handler: (context, args) => toolSearch(context, args, toolCatalog())
+      handler: (context, args) => toolSearch(context, args, [...toolCatalog(), ...mcpExternalTools(context.mcpProviders)])
     }
   ];
 }

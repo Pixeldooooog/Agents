@@ -1,7 +1,6 @@
 import { isPortableManifestName } from "./extensionManifestRecords.js";
 import { disabledSkills, setSkillEnabled } from "./extensionSkillEnablement.js";
 import type { JsonObject } from "../types/jsonTypes.js";
-import { defaultEnabledTools } from "../models/modelProfiles.js";
 import type { ToolExecutionContext } from "../tools/toolContracts.js";
 import { booleanArg, numberArg, stringArg } from "../tools/toolInputs.js";
 import {
@@ -59,7 +58,7 @@ export async function handlePluginUninstall(context: ToolExecutionContext, args:
 export async function handleSkillUse(context: ToolExecutionContext, args: JsonObject) {
   const skill = await loadSkill(context, stringArg(args.name));
   if (skill.disable_model_invocation) throw new Error(`skill does not allow model invocation: ${skill.name}`);
-  const effect = enableExtensionInSpec(context.spec, "enabled_skills", skill, enablementOptions(context));
+  const effect = enableExtensionInSpec(context.spec, "enabled_skills", skill);
   return { skill: publicExtensionPayload(context, skill), ...effect, enabled: true };
 }
 
@@ -72,13 +71,13 @@ export async function handleSkillDisable(context: ToolExecutionContext, args: Js
 
 export async function handlePluginEnable(context: ToolExecutionContext, args: JsonObject) {
   const plugin = await loadPlugin(context, stringArg(args.name));
-  const effect = enableExtensionInSpec(context.spec, "enabled_plugins", plugin, enablementOptions(context));
+  const effect = enableExtensionInSpec(context.spec, "enabled_plugins", plugin);
   return { plugin: publicExtensionPayload(context, plugin), ...effect, enabled: true };
 }
 
 export async function handlePluginDisable(context: ToolExecutionContext, args: JsonObject) {
   const plugin = await loadPlugin(context, stringArg(args.name));
-  const effect = disableExtensionInSpec(context.spec, "enabled_plugins", plugin, enablementOptions(context));
+  const effect = disableExtensionInSpec(context.spec, "enabled_plugins", plugin);
   return { plugin: plugin.name, ...effect, enabled: false };
 }
 
@@ -144,10 +143,4 @@ function manifestHaystack(manifest: ExtensionManifest): string {
     manifest.prompt_fragments.join(" "),
     JSON.stringify(manifest.metadata)
   ].join(" ").toLowerCase();
-}
-
-function enablementOptions(context: ToolExecutionContext) {
-  return {
-    defaultTools: context.settings ? defaultEnabledTools(context.settings) : []
-  };
 }

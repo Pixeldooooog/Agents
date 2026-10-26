@@ -151,6 +151,11 @@ packages/core  -> no app imports
 - `src/session/sessionContextText.ts`: Session summary, token estimate, bounds, and truncation helpers.
 - `src/mcp/mcpRecords.ts`: MCP server records, settings hydration, provider bookkeeping, and transport normalization.
 - `src/mcp/mcpProviderCalls.ts`: MCP resource and prompt provider calls.
+- `src/mcp/mcpConnection.ts`: Official SDK client composition for stdio/Streamable HTTP, capability negotiation, and provider adapters.
+- `src/mcp/mcpConnectionManager.ts`: Host-owned trusted configurations, serialized explicit connection replacement, and shutdown.
+- `src/mcp/mcpExternalTools.ts`: Schema-validated, identity-scoped external tools exposed through the common tool executor.
+- `src/mcp/mcpHttpTransport.ts`: HTTP response byte limits and redirect rejection below SDK protocol handling.
+- `src/mcp/mcpPagination.ts`: Cursor-cycle detection and discovery page/item limits.
 - `src/mcp/mcpProviderLifecycle.ts`: Provider revocation, request cancellation/deadlines, and deduplicated bounded shutdown; injected providers remain host-owned.
 - `src/mcp/mcpProviderResourceCalls.ts`: MCP resource listing and read provider calls.
 - `src/mcp/mcpProviderPromptCalls.ts`: MCP prompt listing and render provider calls.
@@ -184,6 +189,7 @@ packages/core  -> no app imports
 - `src/planning/planningState.ts`: Plan mode state, todo normalization, allowed prompts, and summaries.
 - `src/planning/planningToolSchemas.ts`: Todo and plan-mode tool input schemas.
 - `src/planning/planningTools.ts`: Todo and plan-mode tool registration and handlers.
+- `src/hooks/runtimeHooks.ts`: Scoped declarative lifecycle dispatch, deterministic ordering, bounded store reads, and control/observer failure policies.
 - `src/hooks/hookCatalog.ts`: Hook event/action catalogs and input normalization.
 - `src/hooks/hookScopes.ts`: Hook scope filters and matching.
 - `src/hooks/hookRecords.ts`: Hook record creation, persistence normalization, and ID resolution.
@@ -193,7 +199,7 @@ packages/core  -> no app imports
 - `src/extensions/extensionManifestDiscovery.ts`: Extension manifest search, JSON parsing, and manifest normalization.
 - `src/extensions/extensionManifestRecords.ts`: Extension manifest defaulting, invalid records, and value coercion.
 - `src/extensions/extensionSkillMarkdown.ts`: `SKILL.md` frontmatter parsing and instruction extraction.
-- `src/extensions/extensionEnablement.ts`: Instruction-only skill state dispatch and plugin-owned tool enablement.
+- `src/extensions/extensionEnablement.ts`: Instruction-only skill/plugin enablement; manifests never mutate tool authority.
 - `src/extensions/extensionSkillEnablement.ts`: Persisted skill enabled/disabled state and declarative tool hints; never changes tool authority.
 - `src/extensions/extensionFilesystem.ts`: Real-path confinement, bounded manifest reads, and local package entry/type/size validation.
 - `src/extensions/extensionManifests.ts`: Exact-name loading, prompt rendering, and non-overwriting local installation/removal.
@@ -285,3 +291,12 @@ packages/core  -> no app imports
 - File names represent specific behavior inside that domain.
 - Use names like `agentRoutes.ts`, `modelProfiles.ts`, and `sessionStore.ts`.
 - Avoid ambiguous names like `helpers.ts`, `common.ts`, or `utils.ts` unless the scope is intentionally tiny.
+
+## Kernel integration additions
+
+- `packages/host/src/api/mcpRoutes.ts`: Authenticated status and explicit reconnect for host-configured servers; model-produced configuration never starts a process.
+- `packages/host/src/http/responseCancellation.ts`: Foreground HTTP disconnect propagation into run/approval execution.
+- `packages/core/test/mcpConnection.test.ts`: Real stdio subprocess and local HTTP MCP protocol fixtures.
+- `packages/core/test/runtimeHooks.test.ts`: Guidance, gating after approval, observation, scope, and cancellation contracts.
+- `packages/host/test/kernelLifecycle.test.ts`: Actual HTTP disconnect and terminal subprocess cancellation.
+- `packages/host/test/fixtures/kernelBrowserHost.ts`: Isolated temporary workspace and local model for browser acceptance.

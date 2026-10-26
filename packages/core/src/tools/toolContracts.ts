@@ -16,6 +16,7 @@ export type ToolExecutionContext = {
   runId?: string;
   messages?: Message[];
   runtimeEvents?: RuntimeEvent[];
+  onToolStart?: (event: RuntimeEvent) => void | Promise<void>;
   fileReadState?: FileReadState;
   mcpProviders?: McpProvider[];
   lspProvider?: LspProvider;
@@ -76,6 +77,7 @@ export type McpProvider = {
     auth_required?: boolean;
   };
   tools?: unknown[];
+  callTool?: (name: string, args: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown>;
   listResources?: (signal?: AbortSignal) => Promise<unknown[]>;
   list_resources?: (signal?: AbortSignal) => Promise<unknown[]>;
   readResource?: (uri: string, signal?: AbortSignal) => Promise<unknown>;

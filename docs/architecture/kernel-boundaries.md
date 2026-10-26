@@ -84,11 +84,11 @@ P3 已收口 `extensions/` 下的发现、加载与启停边界：
 - 搜索根和安装目标按真实路径限制在 workspace 内，manifest 限制在包根内；安装拒绝符号链接和特殊文件，不覆盖同名安装。manifest 上限 256 KiB，安装包上限 2,048 项 / 64 MiB。
 - 参数替换仅生成文本。资源引用、动态上下文及脚本不在加载时读取或执行；后续资源访问仍使用普通授权工具。此处不是原生沙箱，也不防御恶意并发替换文件路径；原生沙箱继续暂缓。
 
-Plugin 的工具启用契约保留原行为，其权限与 MCP 外部能力映射另行审计；本批不宣称所有扩展均已完成权限治理。
+Plugin 启停现已与 Skill 一样只更新元数据，不授予或撤回工具权限。manifest 中的 tools 是能力声明，执行权由 Host/用户策略决定。
 
 ### MCP
 
-已有 provider 注入与 resource/prompt 调用、服务器记录和管理工具。还需对真实 transport 的连接、initialize、tools/list、tools/call、分页、取消、关闭做独立验收；不能把注入 provider 的测试视为生产连接通过。外部工具必须统一映射到工具注册和权限边界，资源和 prompt 不伪装成工具结果。
+已通过官方 MCP SDK 接入 stdio 和 Streamable HTTP；初始化、能力协商、JSON-RPC 和取消通知由 SDK 负责。Kevin 负责 Host 配置、发现限额、外部工具映射、授权、撤销与关闭。资源和 prompt 保持各自的 MCP 结果结构。详见 [本轮验收记录](kernel-acceptance.md)。
 
 P4 第一批已补齐现有 provider 生命周期：
 
@@ -101,7 +101,7 @@ P4 第一批已补齐现有 provider 生命周期：
 
 ### Hooks
 
-现有 `hooks/` 定义事件、动作、记录和工具，主运行循环未见对这些生命周期事件的实际调度。下一阶段先定义受限、可测试的事件契约，再接入；尤其 `run_command` 不能只因记录存在就自动执行。预执行阻止可以收紧权限，不能放宽权限；观察型 hook 失败与控制型 hook 失败需要不同的明确策略。
+已接入 before_request、after_response、pre_tool_use、post_tool_use，以及 worktree 工具成功后的观察事件。Hook 按 created_at / hook_id 确定性排序，按租户和工作空间隔离；控制型失败阻止继续，观察型失败记录 hook_error。before_request 可追加指导文本，pre_tool_use 可拒绝工具，其余事件仅记录。run_command 和不匹配的 action/event 显式拒绝，不提供第二条执行路径。配置新增/删除需要审批，审批恢复时重新读取当前 Hook。详细限额与验证见验收记录。
 
 ## 验收顺序
 
@@ -166,3 +166,11 @@ SDK：`session.resumeApproval(runId, approved, approvalId)`；client 使用 `cli
 - `bun run check` 通过：282 项测试、类型检查、Web production build 与终端四项 smoke。
 - 新增 11 项测试覆盖共享数组撤销、旧上下文失效、单次关闭、部分关闭失败、在途取消、超时、不响应取消的 provider、runtime 拒绝规则及审批批准/拒绝/撤销。
 - 审批链路使用本地 HTTP 模型 fixture 和注入的 MCP provider。尚无真实 MCP server/transport 验收；stdio/HTTP initialize、分页发现、远端工具映射、取消通知、重连及 Plugin 权限审计继续留在 P4。
+
+## P4–P6 本轮交付
+
+- MCP stdio / Streamable HTTP、显式重连、工具能力映射、Plugin 权限收口，以及受限 Hook 调度已实现。
+- Web 停止通过断开前台请求传播取消；Terminal 持续读取控制命令，不再阻塞在运行回合。tool_start 在工具执行之前发出，失败结果不会显示为成功。
+- Web 审批只提供拒绝和允许本次；删除未实现的“本次任务都允许”按钮。SDK/HTTP/Terminal 仍使用 P2 的单次 approval_id 契约。
+- 最终本地完整检查：292 项测试、类型检查、Web 构建和终端四项 smoke 通过。另完成真实浏览器批准/拒绝/取消/失败场景，确认取消落库且无页面异常。
+- 本轮交付与可复现入口见 [kernel-acceptance.md](kernel-acceptance.md)。真实商业供应商、远端第三方 MCP、跨平台进程树清理以及原生沙箱不在本地 fixture 证据中；不宣称这些外部验收已通过。

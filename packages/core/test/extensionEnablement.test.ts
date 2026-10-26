@@ -24,7 +24,7 @@ describe("instruction-only skill enablement", () => {
       } finally { await rm(root, { recursive: true, force: true }); }
     });
   }
-  test("skill toggles do not interfere with plugin-owned tools", async () => {
+  test("skill and plugin manifests never grant tools", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "kevin-skill-plugin-"));
     try {
       await writeSkill(root, "reader", { name: "reader", description: "reader", disallowedTools: ["mcp.resources"] });
@@ -35,9 +35,9 @@ describe("instruction-only skill enablement", () => {
       await executeBuiltinTool(root, "plugin.install", { source: "docs-plugin" }, context);
       await executeBuiltinTool(root, "skill.use", { name: "reader" }, context);
       await executeBuiltinTool(root, "plugin.enable", { name: "docs-plugin" }, context);
-      expect(spec.enabled_tools).toEqual(["shell.run", "mcp.resources"]);
+      expect(spec.enabled_tools).toEqual(["shell.run"]);
       await executeBuiltinTool(root, "skill.disable", { name: "reader" }, context);
-      expect(spec.enabled_tools).toEqual(["shell.run", "mcp.resources"]);
+      expect(spec.enabled_tools).toEqual(["shell.run"]);
       await executeBuiltinTool(root, "plugin.disable", { name: "docs-plugin" }, context);
       expect(spec.enabled_tools).toEqual(["shell.run"]);
     } finally { await rm(root, { recursive: true, force: true }); }

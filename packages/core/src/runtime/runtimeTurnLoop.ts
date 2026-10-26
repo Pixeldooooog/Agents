@@ -1,3 +1,4 @@
+import { dispatchRuntimeHooks } from "../hooks/runtimeHooks.js";
 import type { AgentSpec } from "../types/agentTypes.js";
 import type { AgentResult, Message, RuntimeEvent, ToolResult, ToolCall, PendingApproval } from "../types/runtimeTypes.js";
 import { runtimeEvent } from "../types/runtimeTypes.js";
@@ -64,7 +65,7 @@ export async function runRuntimeTurnLoop(input: RuntimeTurnLoopInput): Promise<A
     let remainingCalls: ToolCall[] | undefined;
     if (input.resume && continuation) {
       if (!canContinueToolLoop(completedToolIterations, toolLoopBudget)) throw new Error("tool-call loop exceeded max iterations");
-      const resolution = await resolvePendingApproval(input.options, input.spec, input.resume.pendingApproval, input.resume.approved, input.runId);
+      const resolution = await resolvePendingApproval(input.options, input.spec, input.resume.pendingApproval, input.resume.approved, input.runId, emit);
       messages = resolution.messages;
       toolResults = resolution.toolResults;
       for (const event of resolution.events) await emit(event);
@@ -74,7 +75,10 @@ export async function runRuntimeTurnLoop(input: RuntimeTurnLoopInput): Promise<A
     while (canContinueToolLoop(completedToolIterations, toolLoopBudget)) {
       throwIfCanceled(input.options.signal);
       if (remainingCalls === undefined) {
-        const definitions = modelToolDefinitions(enabledTools);
+        const before = await dispatchRuntimeHooks(input.options, input.spec, "before_request");
+        messages.push(...before.messages);
+        for (const event of before.events) await emit(event);
+        const definitions = modelToolDefinitions(enabledTools, input.options.mcpProviders);
         const modelTurn = input.options.stream && config.protocol !== "gemini"
           ? await streamModelTurn(config, messages, definitions, async event => {
             // Partial arguments never enter the tool executor or persistent message history.
@@ -86,6 +90,8 @@ export async function runRuntimeTurnLoop(input: RuntimeTurnLoopInput): Promise<A
         throwIfCanceled(input.options.signal);
         const assistant: Message = { role: "assistant", content: modelTurn.content, tool_calls: modelTurn.tool_calls, model_context: modelTurn.model_context };
         messages.push(assistant);
+        const after = await dispatchRuntimeHooks(input.options, input.spec, "after_response");
+        for (const event of after.events) await emit(event);
         if (modelTurn.content) await emit(runtimeEvent("model_message", compactEventPayload({
           content: modelTurn.content,
           modelUsage: modelUsagePayload(modelTurn.usage)
@@ -162,7 +168,8 @@ export async function runRuntimeTurnLoop(input: RuntimeTurnLoopInput): Promise<A
           toolCall,
           messages,
           toolResults,
-          runtimeEvents: events
+          runtimeEvents: events,
+          onEvent: emit
         });
         for (const event of execution.events) await emit(event);
         toolResults.push(execution.result);

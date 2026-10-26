@@ -9,6 +9,7 @@ export function deniesTool(spec: AgentSpec, toolName: string): boolean {
 
 export function requiresApproval(spec: AgentSpec, toolName: string): boolean {
   if (spec.permission_profile === "deny") return false;
+  if (/^mcp_[a-f0-9]{56}$/.test(toolName) || ["hook.add", "hook.delete"].includes(toolName)) return true;
   return spec.approval_required_tools.some(name => canonicalToolName(name) === canonicalToolName(toolName)) || spec.permission_profile === "ask";
 }
 

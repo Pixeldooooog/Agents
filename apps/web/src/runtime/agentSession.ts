@@ -56,7 +56,7 @@ export function createAgentSession() {
 
   const { checkHealth } = createAgentHealthActions({ api, setHealth: state.setHealth, record, updateActivity });
 
-  const { send, decideApproval } = createAgentConversationActions({
+  const { send, decideApproval, cancel } = createAgentConversationActions({
     api,
     input: state.input,
     busy: state.busy,
@@ -95,6 +95,7 @@ export function createAgentSession() {
     ...publicAgentSessionState(state),
     send,
     decideApproval,
+    cancel,
     clear,
     checkHealth, refreshRuns, refreshTasks, refreshModelProfiles, applyModelProfile, openTask, createTask, runTask, cancelTask, bootstrap
   };

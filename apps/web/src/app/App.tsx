@@ -51,6 +51,7 @@ export function App() {
                 setInput={session.setInput}
                 canSend={session.canSend}
                 send={session.send}
+                cancel={session.cancel}
                 decideApproval={session.decideApproval}
                 clear={session.clear}
               />

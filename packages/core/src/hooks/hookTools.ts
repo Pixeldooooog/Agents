@@ -1,3 +1,4 @@
+import { validateExecutableHook } from "./runtimeHooks.js";
 import type { JsonObject } from "../types/jsonTypes.js";
 import type { ToolDefinition, ToolExecutionContext } from "../tools/toolContracts.js";
 import { hookActions, hookEvents } from "./hookCatalog.js";
@@ -38,7 +39,7 @@ export const hookToolDefinitions: ToolDefinition[] = [
         action: { type: "string", enum: hookActions },
         content: { type: "string" },
         enabled: { type: "boolean" },
-        tool: { type: "string", description: "Optional tool matcher for pre/post hooks, e.g. filesystem.* or shell.run(git:*)." },
+        tool: { type: "string", description: "Optional tool matcher for pre/post hooks, exact name or trailing wildcard, e.g. filesystem.*." },
         metadata: { type: "object", additionalProperties: { type: "string" } }
       },
       required: ["event", "name", "action"]
@@ -81,6 +82,7 @@ async function hookAdd(context: ToolExecutionContext, args: JsonObject): Promise
     tool: args.tool,
     metadata: { source: "tool", ...stringMetadata(args.metadata) }
   });
+  validateExecutableHook(hook);
   return { hook: await requiredStore(context).saveHook(hook) };
 }
 

@@ -27,7 +27,7 @@ export function consumeRuntimeEvents(events: any[], deps: EventDeps) {
       deps.setPendingApprovals((current) => mergeApproval(current, request));
       deps.record("approval", copy.activity.approvalRequired, request.toolName, "waiting");
     } else if (event.type === "tool_start") deps.record("tool", copy.activity.toolStarted, event.name || "tool", "running");
-    else if (event.type === "tool_result") deps.record("tool", copy.activity.toolFinished, event.name || "tool", "done");
+    else if (event.type === "tool_result") deps.record("tool", copy.activity.toolFinished, event.name || "tool", event.payload?.is_error ? "error" : "done");
     else if (event.type === "code_start") deps.record("code", copy.activity.codeStarted, event.payload?.language || "runtime code", "running");
     else if (event.type === "web_search") deps.record("search", copy.activity.webSearch, event.payload?.query || "search", "running");
     else if (event.type === "browser_action") deps.record("browser", copy.activity.browserAction, event.payload?.action || "browser step", "running");
@@ -43,7 +43,11 @@ export function handleStreamFrame(frame: SseEventFrame, assistantId: number, str
     deps.updateActivity(streamId, { detail: copy.activity.streamDelta(delta.length) });
     return;
   }
-  if (frame.event === "done") deps.updateMessage(assistantId, frame.payload?.payload?.content || frame.payload?.content || "");
+  if (frame.event === "done") {
+    const result = frame.payload?.payload || frame.payload;
+    if (result?.status === "awaiting_approval" && !result?.content) deps.removeMessage(assistantId);
+    else deps.updateMessage(assistantId, result?.content || "");
+  }
   if (frame.event === "error") {
     deps.removeMessage(assistantId);
     deps.push("error", frame.payload?.payload?.message || frame.payload?.message || copy.activity.streamError);

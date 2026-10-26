@@ -233,7 +233,7 @@ describe("skill and plugin extension tools", () => {
 
       const enabled = await executeBuiltinTool(root, "plugin.enable", { name: "docs-plugin" }, context);
       expect(JSON.parse(enabled.result.content).enabled).toBe(true);
-      expect(spec.enabled_tools).toContain("mcp.resources");
+      expect(spec.enabled_tools).toEqual([]);
 
       const disabled = await executeBuiltinTool(root, "plugin.disable", { name: "docs-plugin" }, context);
       expect(JSON.parse(disabled.result.content).enabled).toBe(false);

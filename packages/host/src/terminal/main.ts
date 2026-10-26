@@ -15,11 +15,14 @@ for await (const line of lines) {
   if (!line.trim()) continue;
   try {
     const result = await terminalHostSession.handleCommand(JSON.parse(line));
-    if (result === "exit") process.exit(0);
+    if (result === "exit") { await services.close(); process.exit(0); }
   } catch (error) {
     writer.write({ type: "error", message: error instanceof Error ? error.message : String(error) });
   }
 }
+
+await terminalHostSession.close();
+await services.close();
 
 function valueAfter(flag: string): string | undefined {
   const index = process.argv.indexOf(flag);
