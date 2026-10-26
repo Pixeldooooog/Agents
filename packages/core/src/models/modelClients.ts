@@ -4,7 +4,7 @@ import type { ModelToolDefinition, ModelTurn } from "../types/modelTypes.js";
 import type { Settings } from "../config/settings.js";
 import type { ModelClientConfig, TextDeltaHandler } from "./modelClientTypes.js";
 import { defaultBaseUrl, normalizeBaseUrl, normalizeProtocol } from "./modelProfiles.js";
-import { claudeComplete } from "./anthropicModelClient.js";
+import { claudeComplete, claudeStream } from "./anthropicModelClient.js";
 import { geminiComplete } from "./geminiModelClient.js";
 import { openAIChatComplete, openAIChatStream, responsesComplete, responsesStream } from "./openaiModelClient.js";
 import { ModelConfigError } from "./modelErrors.js";
@@ -53,6 +53,7 @@ export async function streamText(config: ModelClientConfig, messages: Message[],
   const resolved = { ...config, protocol: normalizeProtocol(config.protocol) };
   if (resolved.protocol === "openai-chat") return openAIChatStream(resolved, messages, onDelta);
   if (resolved.protocol === "openai-responses") return responsesStream(resolved, messages, onDelta);
+  if (resolved.protocol === "claude-messages") return claudeStream(resolved, messages, onDelta);
   const text = await completeText(resolved, messages);
   if (text) onDelta(text);
   return text;

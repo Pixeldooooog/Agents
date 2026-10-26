@@ -13,3 +13,6 @@ export type ModelClientConfig = {
 };
 
 export type TextDeltaHandler = (delta: string) => void;
+
+/** A text adapter emits content or confirms its protocol terminal event. */
+export type TextStreamStep = { delta?: string; done?: boolean };

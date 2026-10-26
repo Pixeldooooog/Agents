@@ -92,7 +92,7 @@ describe("model boundary validation", () => {
     } });
     try {
       const local = { ...config, baseUrl: `http://127.0.0.1:${server.port}` };
-      await expect(streamSse(local, "/stream", {}, () => "hello", () => { throw new Error("consumer failed"); }))
+      await expect(streamSse(local, "/stream", {}, () => ({ delta: "hello" }), () => { throw new Error("consumer failed"); }))
         .rejects.toThrow("consumer failed");
     } finally { await server.stop(true); }
   });

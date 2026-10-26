@@ -48,7 +48,11 @@ storage/execution ports ← host-selected implementations
 - Gemini 收到工具定义或工具历史时明确报告未支持，不再静默忽略。
 - 模型 payload 解析不再依赖 HTTP 模块；SSE 读取器在异常和消费结束时释放。使用项目要求的 Bun 1.4.4 原生 AbortSignal.any，取消旧的无清理回退监听器。
 
-下一批：统一流事件契约（文本增量、工具调用增量、usage、终态）、完整 SSE 分帧和结束校验、Messages 原生流式支持、Responses reasoning 等协议原生上下文的保留与回放。现在的文本 stream API 不是流式 agent loop，不能把文本回调当作全协议流式支持。
+P1 首批已补齐文本流基础：独立 SSE 分帧器支持 CR/LF/CRLF、多行 data、注释和分片 UTF-8；未完成帧、无效 UTF-8、超限事件明确失败。单事件限制为 1 Mi 个 UTF-16 code units，汇总文本限制为 8 Mi 个 UTF-16 code units。读取器在完成、失败及消费端退出时释放。
+
+Chat 文本流要求成功的 `finish_reason=stop` 与 `[DONE]`；Responses 要求 `response.completed` 且状态为 `completed`；Messages 使用原生 streaming，验证内容块索引、结束原因与 `message_stop`。文本 API 收到工具调用时明确拒绝，不静默丢弃。HTTP 成功但不是 SSE 的响应也会失败。已发出的增量仍是暂态，只有 Promise 成功才代表回答完整；消费者必须保留失败处理。
+
+P1 剩余：统一模型回合流事件契约（文本增量、工具调用增量、usage、终态）、Responses reasoning 等协议原生上下文的保留与回放，以及 runtime 消费流式工具回合。现在的文本 stream API 不是流式 agent loop，不能把文本回调当作全协议流式支持。Gemini 仍是非流式完成后的文本回调。
 
 ### Tools / Runtime
 
@@ -90,3 +94,10 @@ storage/execution ports ← host-selected implementations
 - `bun run check` 的 core/host/terminal TypeScript、Web production build、终端 file-index/render/interaction/app smoke 全部通过；随后仅调整新增测试的隔离方式并重新跑上述 212 项测试。
 - 新增 HTTP 与流消费测试使用独立本地 server；不替换全局 fetch，避免影响其他测试。
 - 本批没有使用真实模型服务；不宣称 provider/model 线上验收或完整流式工具支持。
+
+## P1 文本流基础验证记录
+
+- Bun 1.4.4：`bun run check` 通过，**234 pass / 0 fail**；新增 22 项 SSE/文本流测试。
+- 覆盖逐字节 UTF-8、CR/LF/CRLF、多行事件、事件上限、截断、消费端提前退出、协议终态、错误响应、Messages 请求参数、取消和等待响应体超时。
+- core/host/terminal 类型检查、Web production build、终端四项 smoke 均通过。最终将文本流 step 类型移入共享 contracts 后，另跑 core 类型检查通过。
+- HTTP 测试使用本地 fixture server；无真实供应商验收，流式工具回合与原生上下文回放仍未完成。

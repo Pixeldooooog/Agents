@@ -1,7 +1,8 @@
-import { ModelHttpError } from "./modelErrors.js";
+import { ModelHttpError, ModelProtocolError } from "./modelErrors.js";
+import { readSseEvents, type SseEvent } from "./modelSse.js";
 import { parseProtocolJson } from "./modelProtocolValidation.js";
 import { recordValue } from "./modelProtocolValues.js";
-import type { ModelClientConfig, TextDeltaHandler } from "./modelClientTypes.js";
+import type { ModelClientConfig, TextDeltaHandler, TextStreamStep } from "./modelClientTypes.js";
 
 export async function postJson(config: ModelClientConfig, suffix: string, body: unknown, auth = true): Promise<unknown> {
   const response = await fetch(`${config.baseUrl}${suffix}`, {
@@ -19,60 +20,36 @@ export async function streamSse(
   config: ModelClientConfig,
   suffix: string,
   body: unknown,
-  pickDelta: (payload: unknown) => string,
+  consume: (event: SseEvent) => TextStreamStep,
   onDelta: TextDeltaHandler
 ): Promise<string> {
+  const signal = requestSignal(config);
   const response = await fetch(`${config.baseUrl}${suffix}`, {
-    method: "POST",
-    headers: headersFor(config, true),
-    body: JSON.stringify(body),
-    signal: requestSignal(config)
+    method: "POST", headers: headersFor(config, true),
+    body: JSON.stringify(body), signal
   });
-  if (!response.ok || !response.body) {
-    throw httpError(response.status, await response.text());
+  if (!response.ok) throw httpError(response.status, await response.text());
+  if (!response.body) throw new ModelProtocolError("model stream has no body");
+  if (response.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "text/event-stream") {
+    await response.body.cancel();
+    throw new ModelProtocolError("model stream must use text/event-stream");
   }
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let content = "";
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const parsed = drainSse(buffer, pickDelta, onDelta);
-      buffer = parsed.rest;
-      content += parsed.content;
+  const parts: string[] = [];
+  let size = 0;
+  for await (const event of readSseEvents(response.body)) {
+    signal.throwIfAborted();
+    const step = consume(event);
+    if (step.delta) {
+      size += step.delta.length;
+      if (size > 8 * 1024 * 1024) throw new ModelProtocolError("model text exceeds stream size limit");
+      parts.push(step.delta);
+      onDelta(step.delta);
+      signal.throwIfAborted();
     }
-  } finally {
-    // Release the underlying connection even when parsing or the consumer fails.
-    await reader.cancel().catch(() => {});
-    reader.releaseLock();
+    if (step.done) return parts.join("");
   }
-  return content;
-}
-
-function drainSse(
-  buffer: string,
-  pickDelta: (payload: unknown) => string,
-  onDelta: TextDeltaHandler
-): { rest: string; content: string } {
-  const chunks = buffer.split("\n\n");
-  const rest = chunks.pop() || "";
-  let content = "";
-  for (const chunk of chunks) {
-    for (const line of chunk.split("\n")) {
-      if (!line.startsWith("data: ")) continue;
-      const data = line.slice(6).trim();
-      if (!data || data === "[DONE]") continue;
-      const delta = pickDelta(parseProtocolJson(data));
-      if (delta) {
-        content += delta;
-        onDelta(delta);
-      }
-    }
-  }
-  return { rest, content };
+  signal.throwIfAborted();
+  throw new ModelProtocolError("model stream ended before protocol completion");
 }
 
 function headersFor(config: ModelClientConfig, auth: boolean): Record<string, string> {

@@ -52,14 +52,16 @@ packages/core  -> no app imports
 - `src/models/modelProfiles.ts`: Model profile construction.
 - `src/models/modelClients.ts`: Validated protocol dispatch and configuration resolution.
 - `src/models/modelClientTypes.ts`: Shared model client transport contracts.
-- `src/models/modelHttp.ts`: Shared model HTTP POST, SSE streaming, headers, and JSON parsing.
+- `src/models/modelHttp.ts`: HTTP requests, timeout/cancellation, bounded text collection, and stream completion enforcement.
+- `src/models/modelSse.ts`: Incremental bounded SSE framing, UTF-8 decoding, and reader cleanup; no provider payload interpretation.
+- `src/models/modelTextStreams.ts`: Per-request Chat/Messages text lifecycle validation and Responses terminal event decoding.
 - `src/models/modelProtocolValues.ts`: Optional protocol value extraction helpers; not a substitute for required-field validation.
 - `src/models/modelProtocolValidation.ts`: Required envelope/argument validation and unique tool-call IDs.
 - `src/models/modelErrors.ts`: Configuration, protocol, and HTTP error categories.
 - `src/models/openaiProtocolPayloads.ts`: OpenAI Chat and Responses request payloads, message rendering, and turn parsing.
 - `src/models/anthropicProtocolPayloads.ts`: Claude Messages request payloads, message rendering, and turn parsing.
 - `src/models/openaiModelClient.ts`: OpenAI chat and Responses request shaping, streaming, and tool-call parsing.
-- `src/models/anthropicModelClient.ts`: Anthropic Messages request shaping and completion parsing.
+- `src/models/anthropicModelClient.ts`: Anthropic Messages completion and native text-stream request wiring.
 - `src/models/geminiModelClient.ts`: Gemini GenerateContent request shaping and completion parsing.
 - `src/commands/commandRecords.ts`: Prompt-backed command record contracts.
 - `src/commands/commandFiles.ts`: Command file naming, frontmatter parsing, and markdown serialization.
