@@ -13,7 +13,7 @@
   <a href="https://github.com/Pixeldooooog/Kevin/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Pixeldooooog/Kevin/ci.yml?branch=main&style=flat-square&label=CI" alt="CI status"></a>
   <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript"></a>
   <a href="https://bun.sh/"><img src="https://img.shields.io/badge/Bun-1.4.4-14151A?style=flat-square&logo=bun&logoColor=white" alt="Bun 1.4.4"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-0f6b5f?style=flat-square" alt="MIT license"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-a96f16?style=flat-square" alt="MIT license"></a>
   <img src="https://img.shields.io/badge/status-development_preview-a96f16?style=flat-square" alt="Development preview">
 </p>
 
@@ -33,7 +33,7 @@
     </td>
     <td width="33%" valign="top">
       <h4>Bring your model</h4>
-      OpenAI, Claude, Gemini, or any OpenAI-compatible endpoint — switch with a named profile.
+      Switch OpenAI, Claude, or compatible endpoints with a named profile. Gemini currently supports text only.
     </td>
     <td width="33%" valign="top">
       <h4>Inspect the work</h4>
@@ -49,50 +49,13 @@ Today, the repository provides a TypeScript agent runtime, a browser interface, 
 > [!NOTE]
 > **Development preview.** Durable task recovery, Markdown-based personal memory, and background routines are still on the roadmap. Native sandbox backends are deferred; current local commands run with the host process's permissions. See the [support matrix](docs/baseline/support-matrix.md) for the tested scope.
 
-## Visual identity & interface
+## Work alongside Kevin
 
-Kevin’s antenna dog communicates through its ears, expression, and amber signal. Warm paper, ink-colored text, and clear controls keep the workspace calm; body copy and code stay crisp and readable.
+An antenna dog and a calm place to work. Warm paper, ink-colored text, and a touch of amber give conversations and progress a familiar home, with an expressive character and readable content.
 
-- **Component preview:** open `/ui/?design` after starting the Web UI to explore states, light/dark palettes, and an artifact-centered workspace. Use `/ui/?design=workspace` for a full-page prototype with source notes, inline draft editing, requirements, and review decisions. It uses sample data and never calls models or tools.
-- **Live interface:** the chat uses the warm-paper theme and dog avatar, with working, thinking, and approval states derived from the current session. Listening and completion animations are available in the component preview.
-- **Design specification:** [Character, components, motion, and integration boundaries](docs/design/kevin-ui.md).
+<p align="center"><img src="assets/kevin-ui-preview.png" alt="Kevin artifact workspace concept with sources, drafts, and review actions using sample data" width="100%"></p>
 
-<p align="center"><img src="assets/kevin-ui-preview.png" alt="Kevin component and workspace design preview with sample data" width="100%"></p>
-
-## What you can build on
-
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <h4>Work with a repository</h4>
-      Read and edit files, search code, apply patches, inspect Git changes, and run commands or tests.
-    </td>
-    <td width="50%" valign="top">
-      <h4>Choose your model</h4>
-      Protocol adapters for OpenAI Chat Completions, OpenAI Responses, Claude Messages, and Gemini, plus named OpenAI-compatible profiles.
-    </td>
-  </tr>
-  <tr>
-    <td valign="top">
-      <h4>Review execution</h4>
-      Tool events, enabled/denied tool rules, and explicit approval requests in the runtime.
-    </td>
-    <td valign="top">
-      <h4>Keep execution bounded</h4>
-      Finite tool loops, validated tool parameters, capped command output, timeouts, and command cancellation through runtime signals.
-    </td>
-  </tr>
-  <tr>
-    <td valign="top">
-      <h4>Extend the workflow</h4>
-      Built-in tools for web retrieval, skills, MCP resources/prompts, tasks, and workspace operations; TypeScript SDK and HTTP entrypoints.
-    </td>
-    <td valign="top">
-      <h4>120 built-in tools</h4>
-      Registration and local tests do not establish full integration support: provider credentials, external services, and individual tool behavior still need validation in the target environment.
-    </td>
-  </tr>
-</table>
+<p align="center"><sub>Artifact workspace design preview · Sample data, not a live model run.</sub></p>
 
 ## Quick start
 
@@ -144,6 +107,55 @@ Then try a scoped change:
 
 > Find one small bug, explain it, make the smallest fix, and run the relevant tests. Show me the diff and test results.
 
+## What you can build on
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <h4>Work with a repository</h4>
+      Read and edit files, search code, apply patches, inspect Git changes, and run commands or tests.
+    </td>
+    <td width="50%" valign="top">
+      <h4>Choose your model</h4>
+      Adapters for OpenAI Chat Completions, OpenAI Responses, and Claude Messages, plus named compatible profiles. Gemini currently supports text only, without tool calls.
+    </td>
+  </tr>
+  <tr>
+    <td valign="top">
+      <h4>Review execution</h4>
+      Tool events, enabled/denied tool rules, and explicit approval requests in the runtime.
+    </td>
+    <td valign="top">
+      <h4>Keep execution bounded</h4>
+      Finite tool loops, validated tool parameters, capped command output, timeouts, and command cancellation through runtime signals.
+    </td>
+  </tr>
+  <tr>
+    <td valign="top">
+      <h4>Extend the workflow</h4>
+      Built-in tools for web retrieval, skills, MCP resources/prompts, tasks, and workspace operations; TypeScript SDK and HTTP entrypoints.
+    </td>
+    <td valign="top">
+      <h4>120 built-in tools</h4>
+      Registration and local tests do not establish full integration support: provider credentials, external services, and individual tool behavior still need validation in the target environment.
+    </td>
+  </tr>
+</table>
+
+## Interface & design
+
+The live chat includes the warm-paper theme, dog avatar, and session states. The artifact workspace above explores the design direction; the personal conversation experience is still evolving.
+
+<details>
+<summary><strong>Explore the prototypes and character assets</strong></summary>
+
+- After starting the Web UI, visit `/ui/?design` for character states, components, and light/dark palettes.
+- Visit `/ui/?design=workspace` to explore sources, draft editing, and review actions. This prototype uses sample data and never calls models or tools.
+- [Design specification](docs/design/kevin-ui.md): character, components, motion, and integration boundaries.
+- [Antenna dog asset kit](assets/kevin-kit/v1/README.md): static illustrations for listening, thinking, working, approval, and more.
+
+</details>
+
 ## Execution and data
 
 | | Today's behavior |
@@ -170,9 +182,9 @@ flowchart LR
     Executor --> Local[LocalExecutor]
     Store --> JSON[JSON adapter]
 
-    classDef client fill:#e7f1ef,stroke:#0f6b5f,color:#0b4d44
-    classDef core fill:#0f6b5f,stroke:#0b4d44,color:#ffffff
-    classDef port fill:#f4f5f2,stroke:#9b9f98,color:#20221f
+    classDef client fill:#fff4dc,stroke:#a96f16,color:#292621
+    classDef core fill:#292621,stroke:#a96f16,color:#fffaf0
+    classDef port fill:#f6f2e9,stroke:#9b9182,color:#292621
     class Web,Terminal,SDK client
     class Host,Core core
     class Models,Tools,Store,Executor,Local,JSON port
@@ -202,8 +214,8 @@ deploy/        Optional container deployment
 
 | Phase | Focus | Status |
 | --- | --- | --- |
-| **B0 — Foundation** | Capability mapping, versioned contracts, storage ports, safe defaults | <img src="https://img.shields.io/badge/-In%20progress-0f6b5f?style=flat-square" alt="In progress"><br><sub>First implementation and evidence available</sub> |
-| **B1 — Reliable execution** | Model/tool behavior, authorization, bounds, and cancellation | <img src="https://img.shields.io/badge/-In%20progress-0f6b5f?style=flat-square" alt="In progress"> |
+| **B0 — Foundation** | Capability mapping, versioned contracts, storage ports, safe defaults | <img src="https://img.shields.io/badge/-In%20progress-a96f16?style=flat-square" alt="In progress"><br><sub>First implementation and evidence available</sub> |
+| **B1 — Reliable execution** | Model/tool behavior, authorization, bounds, and cancellation | <img src="https://img.shields.io/badge/-In%20progress-a96f16?style=flat-square" alt="In progress"> |
 | **B2 — Durable work** | SQLite, task ownership, action ledger, recovery, budgets, and scheduling | <img src="https://img.shields.io/badge/-Planned-9b9f98?style=flat-square" alt="Planned"> |
 | **B3 — Complete baseline** | Markdown memory, artifacts, client consistency, and integration acceptance | <img src="https://img.shields.io/badge/-Planned-9b9f98?style=flat-square" alt="Planned"> |
 | **P1–P3 — Personal product** | Identity, goals, routines, interaction, and distribution | <img src="https://img.shields.io/badge/-Planned-9b9f98?style=flat-square" alt="Planned"> |
@@ -226,8 +238,8 @@ See the [implementation roadmap](docs/kevin-implementation-roadmap.md) for depen
 
 Kevin is under active development. Useful contributions include reproducible bugs, focused fixes, provider compatibility checks, and missing baseline tests.
 
-1. Read the [baseline plan](docs/agent-system-baseline.md) and choose a bounded change.
-2. Keep client/host wiring thin; put behavior in the relevant core domain module.
+1. Read the [engineering guidelines](AGENTS.md) and [baseline plan](docs/agent-system-baseline.md) and choose a bounded change.
+2. Keep client/host wiring thin; put behavior in the relevant core domain module. Start commit messages with an emoji, for example `📝 Refine README layout`.
 3. Run `bun run check` and describe what you verified. Distinguish fixture tests from real-provider or platform validation.
 4. Open a [pull request](https://github.com/Pixeldooooog/Kevin/pulls) with the problem, change, and evidence. Use [issues](https://github.com/Pixeldooooog/Kevin/issues) for bugs and proposals.
 

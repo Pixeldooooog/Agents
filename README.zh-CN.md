@@ -13,7 +13,7 @@
   <a href="https://github.com/Pixeldooooog/Kevin/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Pixeldooooog/Kevin/ci.yml?branch=main&style=flat-square&label=CI" alt="CI 状态"></a>
   <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript"></a>
   <a href="https://bun.sh/"><img src="https://img.shields.io/badge/Bun-1.4.4-14151A?style=flat-square&logo=bun&logoColor=white" alt="Bun 1.4.4"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-0f6b5f?style=flat-square" alt="MIT 许可证"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-a96f16?style=flat-square" alt="MIT 许可证"></a>
   <img src="https://img.shields.io/badge/%E7%8A%B6%E6%80%81-%E5%BC%80%E5%8F%91%E9%A2%84%E8%A7%88-a96f16?style=flat-square" alt="开发预览">
 </p>
 
@@ -33,7 +33,7 @@
     </td>
     <td width="33%" valign="top">
       <h4>自选模型</h4>
-      OpenAI、Claude、Gemini 或任意 OpenAI-compatible 服务，通过命名配置切换。
+      通过命名配置切换 OpenAI、Claude 或兼容服务；Gemini 当前仅支持文本。
     </td>
     <td width="33%" valign="top">
       <h4>过程可查</h4>
@@ -49,50 +49,13 @@ Kevin 正在成为一个围绕你的文件、工具和项目工作的个人智�
 > [!NOTE]
 > **开发预览阶段。** 持久任务恢复、基于 Markdown 的个人记忆、后台例行工作仍在规划与开发中。原生沙箱后端暂缓上线；当前本地命令以宿主进程权限执行。已验证范围见[支持矩阵](docs/baseline/support-matrix.md)。
 
-## 视觉与界面
+## 和 Kevin 一起工作
 
-Kevin 的天线狗用耳朵、表情和琥珀色天线反馈状态。工作区使用暖纸色、墨黑文字与清晰的操作层级；正文和代码保持规整、易读。
+一只天线狗，一个安静的工作区。用暖纸色、墨黑文字和少量琥珀色呈现对话与工作进展，让角色有表情，让内容易读。
 
-- **组件预览：**启动 Web 后打开 `/ui/?design`，体验状态切换、浅深配色与成果工作台；`/ui/?design=workspace` 可全屏体验材料展开、原地改稿、补充要求与确认流程。预览使用示例数据，不调用模型或工具。
-- **实际界面：**对话页已使用暖纸主题和狗狗头像；执行、思考、待确认状态来自当前会话。倾听与完成动效可在组件页预览。
-- **设计规范：**[角色、组件、动效与接入边界](docs/design/kevin-ui.md)。
+<p align="center"><img src="assets/kevin-ui-preview.png" alt="Kevin 成果工作台概念预览：材料、草稿和确认操作，使用示例数据" width="100%"></p>
 
-<p align="center"><img src="assets/kevin-ui-preview.png" alt="Kevin 组件与工作区设计预览，使用示例数据" width="100%"></p>
-
-## 现有能力
-
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <h4>围绕代码仓库工作</h4>
-      读取和编辑文件、搜索代码、应用补丁、查看 Git 变更，以及运行命令和测试。
-    </td>
-    <td width="50%" valign="top">
-      <h4>选择适合的模型</h4>
-      支持 OpenAI Chat Completions、OpenAI Responses、Claude Messages、Gemini 协议适配，以及命名的 OpenAI-compatible 配置。
-    </td>
-  </tr>
-  <tr>
-    <td valign="top">
-      <h4>查看和审批执行</h4>
-      运行时提供工具事件、工具启用/禁用规则和显式审批请求。
-    </td>
-    <td valign="top">
-      <h4>限制执行开销</h4>
-      有限工具循环、参数校验、命令输出上限、超时，以及通过运行时信号取消命令。
-    </td>
-  </tr>
-  <tr>
-    <td valign="top">
-      <h4>扩展工作方式</h4>
-      内置 Web 检索、Skill、MCP 资源/提示词、任务和工作空间操作，并提供 TypeScript SDK 与 HTTP 入口。
-    </td>
-    <td valign="top">
-      <h4>120 个内置工具</h4>
-      存在注册和本地测试不代表完整集成已经验收；模型账号、外部服务和具体工具行为仍需在目标环境验证。
-    </td>
-  </tr>
-</table>
+<p align="center"><sub>成果工作台设计预览 · 使用示例数据，并非实际模型执行截图。</sub></p>
 
 ## 快速开始
 
@@ -144,6 +107,55 @@ bun run tui
 
 > 找一个小问题，解释原因，做最小修复并运行相关测试。最后展示 diff 和测试结果。
 
+## 现有能力
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <h4>围绕代码仓库工作</h4>
+      读取和编辑文件、搜索代码、应用补丁、查看 Git 变更，以及运行命令和测试。
+    </td>
+    <td width="50%" valign="top">
+      <h4>选择适合的模型</h4>
+      适配 OpenAI Chat Completions、OpenAI Responses 与 Claude Messages；支持命名的兼容服务配置。Gemini 当前仅支持文本，不支持工具调用。
+    </td>
+  </tr>
+  <tr>
+    <td valign="top">
+      <h4>查看和审批执行</h4>
+      运行时提供工具事件、工具启用/禁用规则和显式审批请求。
+    </td>
+    <td valign="top">
+      <h4>限制执行开销</h4>
+      有限工具循环、参数校验、命令输出上限、超时，以及通过运行时信号取消命令。
+    </td>
+  </tr>
+  <tr>
+    <td valign="top">
+      <h4>扩展工作方式</h4>
+      内置 Web 检索、Skill、MCP 资源/提示词、任务和工作空间操作，并提供 TypeScript SDK 与 HTTP 入口。
+    </td>
+    <td valign="top">
+      <h4>120 个内置工具</h4>
+      存在注册和本地测试不代表完整集成已经验收；模型账号、外部服务和具体工具行为仍需在目标环境验证。
+    </td>
+  </tr>
+</table>
+
+## 界面与设计
+
+实际对话页已接入暖纸主题、狗狗头像与会话状态。上方成果工作台用于展示设计方向；个人对话体验仍在完善。
+
+<details>
+<summary><strong>探索原型与角色素材</strong></summary>
+
+- 启动 Web 后访问 `/ui/?design`，查看角色状态、组件和浅深配色。
+- 访问 `/ui/?design=workspace`，体验材料展开、改稿与确认流程。该原型使用示例数据，不调用模型或工具。
+- [设计规范](docs/design/kevin-ui.md)：角色、组件、动效与接入边界。
+- [天线狗素材包](assets/kevin-kit/v1/README.md)：倾听、思考、执行、待确认等静态素材。
+
+</details>
+
 ## 执行与数据
 
 | | 当前行为 |
@@ -170,9 +182,9 @@ flowchart LR
     Executor --> Local[LocalExecutor]
     Store --> JSON[JSON 适配器]
 
-    classDef client fill:#e7f1ef,stroke:#0f6b5f,color:#0b4d44
-    classDef core fill:#0f6b5f,stroke:#0b4d44,color:#ffffff
-    classDef port fill:#f4f5f2,stroke:#9b9f98,color:#20221f
+    classDef client fill:#fff4dc,stroke:#a96f16,color:#292621
+    classDef core fill:#292621,stroke:#a96f16,color:#fffaf0
+    classDef port fill:#f6f2e9,stroke:#9b9182,color:#292621
     class Web,Terminal,SDK client
     class Host,Core core
     class Models,Tools,Store,Executor,Local,JSON port
@@ -202,8 +214,8 @@ deploy/        可选容器部署
 
 | 阶段 | 重点 | 状态 |
 | --- | --- | --- |
-| **B0 — 基础契约** | 能力映射、版本化契约、存储接口、安全默认值 | <img src="https://img.shields.io/badge/-%E8%BF%9B%E8%A1%8C%E4%B8%AD-0f6b5f?style=flat-square" alt="进行中"><br><sub>已有首批实现和证据</sub> |
-| **B1 — 可靠执行** | 模型/工具行为、授权、执行上限与取消 | <img src="https://img.shields.io/badge/-%E8%BF%9B%E8%A1%8C%E4%B8%AD-0f6b5f?style=flat-square" alt="进行中"> |
+| **B0 — 基础契约** | 能力映射、版本化契约、存储接口、安全默认值 | <img src="https://img.shields.io/badge/-%E8%BF%9B%E8%A1%8C%E4%B8%AD-a96f16?style=flat-square" alt="进行中"><br><sub>已有首批实现和证据</sub> |
+| **B1 — 可靠执行** | 模型/工具行为、授权、执行上限与取消 | <img src="https://img.shields.io/badge/-%E8%BF%9B%E8%A1%8C%E4%B8%AD-a96f16?style=flat-square" alt="进行中"> |
 | **B2 — 持久工作** | SQLite、任务所有权、动作账本、恢复、预算和调度 | <img src="https://img.shields.io/badge/-%E8%A7%84%E5%88%92%E4%B8%AD-9b9f98?style=flat-square" alt="规划中"> |
 | **B3 — 完整基线** | Markdown 记忆、产物、多端一致性与集成验收 | <img src="https://img.shields.io/badge/-%E8%A7%84%E5%88%92%E4%B8%AD-9b9f98?style=flat-square" alt="规划中"> |
 | **P1–P3 — 个人产品** | 身份、目标、例行工作、交互和分发 | <img src="https://img.shields.io/badge/-%E8%A7%84%E5%88%92%E4%B8%AD-9b9f98?style=flat-square" alt="规划中"> |
@@ -226,8 +238,8 @@ deploy/        可选容器部署
 
 Kevin 正在积极开发中。欢迎提交可复现的问题、范围明确的修复、模型服务兼容性验证，以及缺失的基线测试。
 
-1. 先阅读[基线计划](docs/agent-system-baseline.md)，选择范围清晰的改动。
-2. 保持客户端和 Host 的组装代码简洁，将行为放入对应领域模块。
+1. 先阅读[工程规范](AGENTS.md)和[基线计划](docs/agent-system-baseline.md)，选择范围清晰的改动。
+2. 保持客户端和 Host 的组装代码简洁，将行为放入对应领域模块。提交消息以 emoji 开头，例如 `📝 Refine README layout`。
 3. 执行 `bun run check`，说明实际验证了什么，区分 fixture 测试、真实模型和平台验证。
 4. 提交 [Pull Request](https://github.com/Pixeldooooog/Kevin/pulls)，描述问题、改动与证据。Bug 和方案建议请使用 [Issues](https://github.com/Pixeldooooog/Kevin/issues)。
 
