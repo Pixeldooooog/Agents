@@ -1,3 +1,4 @@
+import { nativeContext, replayNativeContext } from "./modelNativeContext.js";
 import type { ModelToolDefinition, ModelTurn } from "../types/modelTypes.js";
 import type { Message, ToolCall } from "../types/runtimeTypes.js";
 import type { ModelClientConfig } from "./modelClientTypes.js";
@@ -48,7 +49,9 @@ export function responsesRequestBody(
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: config.model,
-    input: toResponsesInput(messages),
+    input: toResponsesInput(messages, config),
+    store: false,
+    include: ["reasoning.encrypted_content"],
     max_output_tokens: config.maxTokens
   };
   if (tools.length) {
@@ -62,13 +65,14 @@ export function responsesRequestBody(
   return body;
 }
 
-export function parseResponsesTurn(payload: unknown): ModelTurn {
+export function parseResponsesTurn(payload: unknown, config?: ModelClientConfig): ModelTurn {
   const root = requireRecord(payload, "Responses response");
   if (root.error || (root.status !== undefined && root.status !== "completed")) {
     throw new ModelProtocolError("Responses response did not complete normally");
   }
   requireArray(root.output, "Responses output");
   return {
+    ...(config ? { model_context: nativeContext(config, "openai-responses", requireArray(root.output, "Responses output")) } : {}),
     content: responseOutputText(payload),
     tool_calls: parseResponsesToolCalls(recordValue(payload).output),
     usage: modelUsageFromOpenAIResponses(recordValue(payload).usage)
@@ -96,9 +100,11 @@ export function toOpenAIChatMessages(messages: Message[]): unknown[] {
   });
 }
 
-export function toResponsesInput(messages: Message[]): unknown[] {
+export function toResponsesInput(messages: Message[], config?: ModelClientConfig): unknown[] {
   const input: unknown[] = [];
   for (const message of messages) {
+    const native = replayNativeContext(message, config, "openai-responses");
+    if (native) { input.push(...native); continue; }
     if (message.role === "tool") {
       input.push({
         type: "function_call_output",
@@ -154,5 +160,5 @@ function responseOutputText(payload: unknown): string {
 function responseOutputItemText(item: unknown): string {
   const itemRecord = recordValue(item);
   if (typeof itemRecord.text === "string") return itemRecord.text;
-  return recordArray(itemRecord.content).map((block) => stringValue(block.text)).join("");
+  return recordArray(itemRecord.content).map((block) => stringValue(block.text ?? block.refusal)).join("");
 }

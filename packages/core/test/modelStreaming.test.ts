@@ -28,11 +28,10 @@ const event = (data: unknown) => `data:${JSON.stringify(data)}\r\n\r\n`;
 const chatDelta = (content: unknown, finish: unknown = null) => event({ choices: [{ index: 0, delta: { content }, finish_reason: finish }] });
 const chatFinish = chatDelta(null, "stop");
 const done = "data:[DONE]\r\n\r\n";
-const responseFinish = event({ type: "response.completed", response: { status: "completed", output: [] } });
-const messageStart = event({ type: "message_start", message: { role: "assistant", content: [] } });
+const messageStart = event({ type: "message_start", message: { role: "assistant", content: [], usage: { input_tokens: 1 } } });
 const blockStart = event({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } });
 const blockStop = event({ type: "content_block_stop", index: 0 });
-const messageFinish = event({ type: "message_delta", delta: { stop_reason: "end_turn" } });
+const messageFinish = event({ type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 1 } });
 const messageStop = event({ type: "message_stop" });
 
 async function withServer(body: string, run: (local: ModelClientConfig) => Promise<void>, contentType = "text/event-stream") {
@@ -102,7 +101,8 @@ describe("text stream protocol completion", () => {
     });
   }
   test("Responses requires completed status and emits typed text deltas", async () => {
-    await withServer(event({ type: "response.output_text.delta", delta: "hello" }) + responseFinish, async local => {
+    const item = { type: "message", id: "msg_1", role: "assistant", content: [{ type: "output_text", text: "hello" }] };
+    await withServer(event({ type: "response.output_item.added", output_index: 0, item: { ...item, content: [] } }) + event({ type: "response.output_text.delta", output_index: 0, item_id: "msg_1", content_index: 0, delta: "hello" }) + event({ type: "response.output_item.done", output_index: 0, item }) + event({ type: "response.completed", response: { status: "completed", output: [item] } }), async local => {
       expect(await streamText({ ...local, protocol: "responses" }, [], () => {})).toBe("hello");
     });
     for (const body of [event({ type: "response.output_text.delta", delta: "partial" }), event({ type: "response.incomplete" }), event({ type: "response.completed", response: { status: "in_progress", output: [] } })]) {

@@ -2,7 +2,7 @@ import { ModelHttpError, ModelProtocolError } from "./modelErrors.js";
 import { readSseEvents, type SseEvent } from "./modelSse.js";
 import { parseProtocolJson } from "./modelProtocolValidation.js";
 import { recordValue } from "./modelProtocolValues.js";
-import type { ModelClientConfig, TextDeltaHandler, TextStreamStep } from "./modelClientTypes.js";
+import type { ModelClientConfig } from "./modelClientTypes.js";
 
 export async function postJson(config: ModelClientConfig, suffix: string, body: unknown, auth = true): Promise<unknown> {
   const response = await fetch(`${config.baseUrl}${suffix}`, {
@@ -16,13 +16,8 @@ export async function postJson(config: ModelClientConfig, suffix: string, body: 
   return parseProtocolJson(text);
 }
 
-export async function streamSse(
-  config: ModelClientConfig,
-  suffix: string,
-  body: unknown,
-  consume: (event: SseEvent) => TextStreamStep,
-  onDelta: TextDeltaHandler
-): Promise<string> {
+/** Transport only: adapters decide which event completes a model turn. */
+export async function* postSse(config: ModelClientConfig, suffix: string, body: unknown): AsyncGenerator<SseEvent> {
   const signal = requestSignal(config);
   const response = await fetch(`${config.baseUrl}${suffix}`, {
     method: "POST", headers: headersFor(config, true),
@@ -34,22 +29,15 @@ export async function streamSse(
     await response.body.cancel();
     throw new ModelProtocolError("model stream must use text/event-stream");
   }
-  const parts: string[] = [];
   let size = 0;
+  let count = 0;
   for await (const event of readSseEvents(response.body)) {
     signal.throwIfAborted();
-    const step = consume(event);
-    if (step.delta) {
-      size += step.delta.length;
-      if (size > 8 * 1024 * 1024) throw new ModelProtocolError("model text exceeds stream size limit");
-      parts.push(step.delta);
-      onDelta(step.delta);
-      signal.throwIfAborted();
-    }
-    if (step.done) return parts.join("");
+    size += event.data.length;
+    if (size > 16 * 1024 * 1024 || ++count > 65536) throw new ModelProtocolError("model stream exceeds size limit");
+    yield event;
+    signal.throwIfAborted();
   }
-  signal.throwIfAborted();
-  throw new ModelProtocolError("model stream ended before protocol completion");
 }
 
 function headersFor(config: ModelClientConfig, auth: boolean): Record<string, string> {

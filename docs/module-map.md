@@ -52,16 +52,21 @@ packages/core  -> no app imports
 - `src/models/modelProfiles.ts`: Model profile construction.
 - `src/models/modelClients.ts`: Validated protocol dispatch and configuration resolution.
 - `src/models/modelClientTypes.ts`: Shared model client transport contracts.
-- `src/models/modelHttp.ts`: HTTP requests, timeout/cancellation, bounded text collection, and stream completion enforcement.
+- `src/models/modelHttp.ts`: HTTP requests, timeout/cancellation, and bounded SSE event delivery.
 - `src/models/modelSse.ts`: Incremental bounded SSE framing, UTF-8 decoding, and reader cleanup; no provider payload interpretation.
-- `src/models/modelTextStreams.ts`: Per-request Chat/Messages text lifecycle validation and Responses terminal event decoding.
+- `src/models/modelTurnStream.ts`: Shared streamed-turn entrypoint, awaited provisional events, and validated completion.
+- `src/models/modelTurnStreamState.ts`: Shared stream field validation and decoder contracts.
+- `src/models/chatTurnStream.ts`: Chat text and interleaved tool argument assembly by index.
+- `src/models/responsesTurnStream.ts`: Responses output-item correlation, delta/final consistency, and terminal validation.
+- `src/models/messagesTurnStream.ts`: Messages block lifecycle, tool JSON assembly, signed thinking, and usage merging.
+- `src/models/modelNativeContext.ts`: Opaque context capture/replay scoped to protocol, model, and endpoint.
 - `src/models/modelProtocolValues.ts`: Optional protocol value extraction helpers; not a substitute for required-field validation.
 - `src/models/modelProtocolValidation.ts`: Required envelope/argument validation and unique tool-call IDs.
 - `src/models/modelErrors.ts`: Configuration, protocol, and HTTP error categories.
 - `src/models/openaiProtocolPayloads.ts`: OpenAI Chat and Responses request payloads, message rendering, and turn parsing.
 - `src/models/anthropicProtocolPayloads.ts`: Claude Messages request payloads, message rendering, and turn parsing.
-- `src/models/openaiModelClient.ts`: OpenAI chat and Responses request shaping, streaming, and tool-call parsing.
-- `src/models/anthropicModelClient.ts`: Anthropic Messages completion and native text-stream request wiring.
+- `src/models/openaiModelClient.ts`: OpenAI Chat and Responses non-stream request wiring.
+- `src/models/anthropicModelClient.ts`: Anthropic Messages non-stream request wiring.
 - `src/models/geminiModelClient.ts`: Gemini GenerateContent request shaping and completion parsing.
 - `src/commands/commandRecords.ts`: Prompt-backed command record contracts.
 - `src/commands/commandFiles.ts`: Command file naming, frontmatter parsing, and markdown serialization.

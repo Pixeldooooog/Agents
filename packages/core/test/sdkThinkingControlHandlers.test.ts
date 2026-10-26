@@ -1,3 +1,4 @@
+import { modelStreamResponse } from "./fixtures/modelResponse.js";
 import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -14,7 +15,7 @@ describe("SDK thinking control handlers", () => {
       async fetch(request) {
         const body = await request.json();
         requests.push(body);
-        return Response.json({ content: [{ type: "text", text: "claude answer" }] });
+        return modelStreamResponse({ content: [{ type: "text", text: "claude answer" }] });
       }
     });
     try {

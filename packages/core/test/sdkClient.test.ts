@@ -1,3 +1,4 @@
+import { modelStreamResponse } from "./fixtures/modelResponse.js";
 import { describe, expect, test, spyOn } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -90,7 +91,7 @@ describe("TS SDK client", () => {
       async fetch(request) {
         const body = await request.json();
         const user = (body.messages || []).find((message: any) => message.role === "user");
-        return Response.json({ choices: [{ message: { content: `module answer: ${user?.content || ""}` } }] });
+        return modelStreamResponse({ choices: [{ message: { content: `module answer: ${user?.content || ""}` } }] });
       }
     });
     try {
@@ -364,9 +365,9 @@ describe("TS SDK client", () => {
         const body = await request.json();
         requests.push(body);
         if ((body.messages || []).some((message: any) => message.role === "tool")) {
-          return Response.json({ choices: [{ message: { content: `sdk final: ${body.messages.at(-1).content}` } }] });
+          return modelStreamResponse({ choices: [{ message: { content: `sdk final: ${body.messages.at(-1).content}` } }] });
         }
-        return Response.json({
+        return modelStreamResponse({
           choices: [{
             message: {
               content: "",
@@ -405,6 +406,7 @@ describe("TS SDK client", () => {
         "tool_progress",
         "tool_progress",
         "tool_result",
+        "stream_event",
         "assistant_message",
         "result"
       ]);
@@ -446,7 +448,7 @@ describe("TS SDK client", () => {
         const body = await request.json();
         requests.push(body);
         const system = (body.messages || []).find((message: any) => message.role === "system");
-        return Response.json({
+        return modelStreamResponse({
           choices: [{
             message: {
               content: `model=${body.model}; system=${system?.content || ""}`
@@ -541,7 +543,7 @@ describe("TS SDK client", () => {
       async fetch(request) {
         const body = await request.json();
         const user = (body.messages || []).find((message: any) => message.role === "user");
-        return Response.json({ choices: [{ message: { content: `answer: ${user?.content || ""}` } }] });
+        return modelStreamResponse({ choices: [{ message: { content: `answer: ${user?.content || ""}` } }] });
       }
     });
     let clock = Date.now();
@@ -949,7 +951,7 @@ describe("TS SDK client", () => {
         const body = await request.json();
         requests.push(body);
         const user = (body.messages || []).find((message: any) => message.role === "user");
-        return Response.json({ choices: [{ message: { content: `async answer: ${user?.content || ""}` } }] });
+        return modelStreamResponse({ choices: [{ message: { content: `async answer: ${user?.content || ""}` } }] });
       }
     });
     try {
@@ -1077,13 +1079,13 @@ describe("TS SDK client", () => {
         const messages = body.messages || [];
         const lastMessage = messages.at(-1);
         if (lastMessage?.role === "tool") {
-          return Response.json({ choices: [{ message: { content: `sleep result: ${lastMessage.content}` } }] });
+          return modelStreamResponse({ choices: [{ message: { content: `sleep result: ${lastMessage.content}` } }] });
         }
         const users = messages.filter((message: any) => message.role === "user");
         const user = users.at(-1);
         if (user?.content === "sleep before async" && !issuedSleepCall) {
           issuedSleepCall = true;
-          return Response.json({
+          return modelStreamResponse({
             choices: [{
               message: {
                 content: "",
@@ -1102,7 +1104,7 @@ describe("TS SDK client", () => {
             }]
           });
         }
-        return Response.json({ choices: [{ message: { content: `async answer: ${user?.content || ""}` } }] });
+        return modelStreamResponse({ choices: [{ message: { content: `async answer: ${user?.content || ""}` } }] });
       }
     });
     try {
@@ -1169,7 +1171,7 @@ describe("TS SDK client", () => {
         requests.push(body);
         const users = (body.messages || []).filter((message: any) => message.role === "user");
         const user = users.at(-1);
-        return Response.json({ choices: [{ message: { content: `prompt answer: ${user?.content || ""}` } }] });
+        return modelStreamResponse({ choices: [{ message: { content: `prompt answer: ${user?.content || ""}` } }] });
       }
     });
     try {
@@ -1399,7 +1401,7 @@ describe("TS SDK client", () => {
         const body = await request.json();
         requests.push(body);
         if (requests.length === 1) {
-          return Response.json({
+          return modelStreamResponse({
             choices: [{
               message: {
                 content: "",
@@ -1412,7 +1414,7 @@ describe("TS SDK client", () => {
             }]
           });
         }
-        return Response.json({ choices: [{ message: { content: `approved sdk: ${body.messages.at(-1).content}` } }] });
+        return modelStreamResponse({ choices: [{ message: { content: `approved sdk: ${body.messages.at(-1).content}` } }] });
       }
     });
     try {
@@ -1455,6 +1457,7 @@ describe("TS SDK client", () => {
         "tool_progress",
         "tool_progress",
         "tool_result",
+        "stream_event",
         "assistant_message",
         "result"
       ]);

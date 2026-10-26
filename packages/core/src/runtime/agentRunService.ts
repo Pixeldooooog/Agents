@@ -105,7 +105,8 @@ export class AgentRunService {
       stream: options.stream,
       onEvent: async (event) => {
         events.push(event);
-        await this.options.store.recordEvent(runId, event);
+        // Deltas are transient UI data; persist the validated model_message instead.
+        if (event.type !== "text_delta") await this.options.store.recordEvent(runId, event);
         await options.onEvent?.(event);
       }
     });

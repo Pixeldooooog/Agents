@@ -1,3 +1,4 @@
+import { nativeContext, replayNativeContext } from "./modelNativeContext.js";
 import { ModelProtocolError } from "./modelErrors.js";
 import { parseFunctionCall, requireArray, requireRecord, validateCallIds } from "./modelProtocolValidation.js";
 import type { ModelToolDefinition, ModelTurn } from "../types/modelTypes.js";
@@ -15,7 +16,7 @@ export function claudeMessagesRequestBody(
     model: config.model,
     max_tokens: config.maxTokens,
     system: messages.filter((message) => message.role === "system").map((message) => message.content).join("\n\n"),
-    messages: toClaudeMessages(messages)
+    messages: toClaudeMessages(messages, config)
   };
   if (tools.length) {
     body.tools = tools.map((tool) => ({
@@ -34,22 +35,25 @@ export function claudeMessagesRequestBody(
   return body;
 }
 
-export function parseClaudeMessagesTurn(payload: unknown): ModelTurn {
+export function parseClaudeMessagesTurn(payload: unknown, config?: ModelClientConfig): ModelTurn {
   const root = requireRecord(payload, "Messages response");
   if (root.type === "error" || root.stop_reason === "max_tokens" || root.stop_reason === "pause_turn") {
     throw new ModelProtocolError("Messages response did not complete normally");
   }
   const content = requireArray(root.content, "Messages content").map(block => requireRecord(block, "Messages content block"));
   return {
+    ...(config ? { model_context: nativeContext(config, "claude-messages", content) } : {}),
     content: content.map(claudeTextBlock).join(""),
     tool_calls: parseClaudeToolCalls(content),
     usage: modelUsageFromClaude(recordValue(payload).usage)
   };
 }
 
-export function toClaudeMessages(messages: Message[]): unknown[] {
+export function toClaudeMessages(messages: Message[], config?: ModelClientConfig): unknown[] {
   const renderedMessages: { role: "user" | "assistant"; content: unknown }[] = [];
   for (const message of messages) {
+    const native = replayNativeContext(message, config, "claude-messages");
+    if (native) { renderedMessages.push({ role: "assistant", content: native }); continue; }
     if (message.role === "system") continue;
     if (message.role === "tool") {
       appendClaudeToolResult(renderedMessages, {

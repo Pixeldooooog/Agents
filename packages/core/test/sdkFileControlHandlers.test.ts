@@ -1,3 +1,4 @@
+import { modelStreamResponse } from "./fixtures/modelResponse.js";
 import { describe, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,9 +14,9 @@ describe("SDK file control handlers", () => {
       async fetch(request) {
         const body = await request.json();
         if ((body.messages || []).some((message: any) => message.role === "tool")) {
-          return Response.json({ choices: [{ message: { content: "write complete" } }] });
+          return modelStreamResponse({ choices: [{ message: { content: "write complete" } }] });
         }
-        return Response.json({
+        return modelStreamResponse({
           choices: [{
             message: {
               content: "",
@@ -419,9 +420,9 @@ describe("SDK file control handlers", () => {
       async fetch(request) {
         const body = await request.json();
         if ((body.messages || []).some((message: any) => message.role === "tool")) {
-          return Response.json({ choices: [{ message: { content: "recorded" } }] });
+          return modelStreamResponse({ choices: [{ message: { content: "recorded" } }] });
         }
-        return Response.json({
+        return modelStreamResponse({
           choices: [{
             message: {
               content: "",

@@ -3,7 +3,7 @@ import type { AgentResult, Message, RuntimeEvent, ToolResult } from "../types/ru
 import { runtimeEvent } from "../types/runtimeTypes.js";
 import type { ModelUsage } from "../types/modelTypes.js";
 import { combineModelUsage, modelUsagePayload } from "../models/modelUsage.js";
-import { completeModelTurn, ModelConfigError, resolveModelClientConfig } from "../models/modelClients.js";
+import { completeModelTurn, streamModelTurn, ModelConfigError, resolveModelClientConfig } from "../models/modelClients.js";
 import { defaultEnabledTools } from "../models/modelProfiles.js";
 import { canonicalToolName, modelToolDefinitions } from "../tools/toolRegistry.js";
 import { canContinueToolLoop, runtimeToolLoopBudget } from "./runtimeLimits.js";
@@ -54,11 +54,17 @@ export async function runRuntimeTurnLoop(input: RuntimeTurnLoopInput): Promise<A
 
     while (canContinueToolLoop(completedToolIterations, toolLoopBudget)) {
       throwIfCanceled(input.options.signal);
-      const modelTurn = await completeModelTurn(config, messages, modelToolDefinitions(enabledTools));
+      const definitions = modelToolDefinitions(enabledTools);
+      const modelTurn = input.options.stream && config.protocol !== "gemini"
+        ? await streamModelTurn(config, messages, definitions, async event => {
+          // Partial arguments never enter the tool executor or persistent message history.
+          if (event.type === "text_delta") await emit(runtimeEvent("text_delta", { delta: event.delta }));
+        })
+        : await completeModelTurn(config, messages, definitions);
       modelTurnCount += 1;
       accumulatedModelUsage = combineModelUsage([accumulatedModelUsage, modelTurn.usage]);
       throwIfCanceled(input.options.signal);
-      const assistant: Message = { role: "assistant", content: modelTurn.content, tool_calls: modelTurn.tool_calls };
+      const assistant: Message = { role: "assistant", content: modelTurn.content, tool_calls: modelTurn.tool_calls, model_context: modelTurn.model_context };
       messages.push(assistant);
       if (modelTurn.content) await emit(runtimeEvent("model_message", compactEventPayload({
         content: modelTurn.content,

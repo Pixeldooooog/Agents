@@ -4,10 +4,12 @@ import type { ModelToolDefinition, ModelTurn } from "../types/modelTypes.js";
 import type { Settings } from "../config/settings.js";
 import type { ModelClientConfig, TextDeltaHandler } from "./modelClientTypes.js";
 import { defaultBaseUrl, normalizeBaseUrl, normalizeProtocol } from "./modelProfiles.js";
-import { claudeComplete, claudeStream } from "./anthropicModelClient.js";
+import { claudeComplete } from "./anthropicModelClient.js";
 import { geminiComplete } from "./geminiModelClient.js";
-import { openAIChatComplete, openAIChatStream, responsesComplete, responsesStream } from "./openaiModelClient.js";
-import { ModelConfigError } from "./modelErrors.js";
+import { openAIChatComplete, responsesComplete } from "./openaiModelClient.js";
+import { ModelConfigError, ModelProtocolError } from "./modelErrors.js";
+import { streamModelTurn } from "./modelTurnStream.js";
+export { streamModelTurn } from "./modelTurnStream.js";
 
 export { ModelConfigError } from "./modelErrors.js";
 
@@ -51,12 +53,16 @@ export async function completeModelTurn(config: ModelClientConfig, messages: Mes
 
 export async function streamText(config: ModelClientConfig, messages: Message[], onDelta: TextDeltaHandler): Promise<string> {
   const resolved = { ...config, protocol: normalizeProtocol(config.protocol) };
-  if (resolved.protocol === "openai-chat") return openAIChatStream(resolved, messages, onDelta);
-  if (resolved.protocol === "openai-responses") return responsesStream(resolved, messages, onDelta);
-  if (resolved.protocol === "claude-messages") return claudeStream(resolved, messages, onDelta);
-  const text = await completeText(resolved, messages);
-  if (text) onDelta(text);
-  return text;
+  if (resolved.protocol === "gemini") {
+    const text = await completeText(resolved, messages);
+    if (text) onDelta(text);
+    return text;
+  }
+  const turn = await streamModelTurn(resolved, messages, [], event => {
+    if (event.type === "tool_call_delta") throw new ModelProtocolError("text stream received tool calls");
+    if (event.type === "text_delta") onDelta(event.delta);
+  });
+  return turn.content;
 }
 
 function configuredFor(settings: Settings, protocol: string) {

@@ -1,6 +1,6 @@
 import type { PublicAgentSpec } from "./agentTypes.js";
 import type { JsonObject } from "./jsonTypes.js";
-import type { ModelUsage } from "./modelTypes.js";
+import type { ModelUsage, ModelNativeContext } from "./modelTypes.js";
 
 export type RuntimeEvent = {
   type: string;
@@ -15,6 +15,7 @@ export type Message = {
   name?: string;
   tool_call_id?: string;
   tool_calls?: ToolCall[];
+  model_context?: ModelNativeContext;
 };
 
 export type ToolCall = {

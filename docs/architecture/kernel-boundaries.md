@@ -35,7 +35,7 @@ storage/execution ports ← host-selected implementations
 
 ### Models
 
-现有实现位于 `packages/core/src/models/`，已有三种主协议的工具编码/解码及 usage 归一化。Gemini 目前只有文本完成。运行时调用 `completeModelTurn`，没有原生流式工具调用的完整生命周期。
+现有实现位于 `packages/core/src/models/`，已有三种主协议的工具编码/解码及 usage 归一化。Gemini 目前只有文本完成。运行时非流模式调用 `completeModelTurn`；开启 `stream` 时，三种主协议通过 `streamModelTurn` 接收原生增量并校验完整工具回合。
 
 首批已实现：
 
@@ -48,11 +48,18 @@ storage/execution ports ← host-selected implementations
 - Gemini 收到工具定义或工具历史时明确报告未支持，不再静默忽略。
 - 模型 payload 解析不再依赖 HTTP 模块；SSE 读取器在异常和消费结束时释放。使用项目要求的 Bun 1.4.4 原生 AbortSignal.any，取消旧的无清理回退监听器。
 
-P1 首批已补齐文本流基础：独立 SSE 分帧器支持 CR/LF/CRLF、多行 data、注释和分片 UTF-8；未完成帧、无效 UTF-8、超限事件明确失败。单事件限制为 1 Mi 个 UTF-16 code units，汇总文本限制为 8 Mi 个 UTF-16 code units。读取器在完成、失败及消费端退出时释放。
+P1 已实现：
 
-Chat 文本流要求成功的 `finish_reason=stop` 与 `[DONE]`；Responses 要求 `response.completed` 且状态为 `completed`；Messages 使用原生 streaming，验证内容块索引、结束原因与 `message_stop`。文本 API 收到工具调用时明确拒绝，不静默丢弃。HTTP 成功但不是 SSE 的响应也会失败。已发出的增量仍是暂态，只有 Promise 成功才代表回答完整；消费者必须保留失败处理。
+- `streamModelTurn` 提供统一 `text_delta`、`tool_call_delta`、`usage`、`completed` 契约。增量是暂态；整个回合通过终态及参数校验后才返回 `ModelTurn`。回调被顺序 await，异常与取消直接终止消费。
+- 独立 SSE 分帧器支持 CR/LF/CRLF、多行 data、注释与分片 UTF-8；未完成帧、无效编码明确失败。单事件上限 1 Mi UTF-16 code units，整轮数据上限 16 Mi code units / 65,536 个事件，条目索引限制为 0–1023。读取器在结束或异常时释放。
+- Chat 按 index 组装交错工具参数，验证 ID/名称不可改变、索引连续、参数合法、关联 ID 唯一，以及 finish reason 与工具结果一致；必须收到 `[DONE]`。
+- Responses 校验 item_id/output_index，核对增量参数与最终 item、最终 response.output 的一致性；要求 completed 终态。保留 reasoning、message、function_call 的原始顺序，并请求 encrypted reasoning，使用 `store: false` 的手动历史回放。
+- Messages 校验块顺序、参数 JSON、stop reason 与工具调用一致性；合并起始/结束 usage，保留 thinking signature 和 redacted thinking。内部推理不作为面向用户的文本增量发出。
+- 原生上下文随 assistant Message 保存，由 runtime 透传；只有 protocol/model/baseUrl 都匹配时回放。切换目标时使用归一化文本/工具历史，不能假设跨模型保留原推理状态。API key 不进入原生上下文。
+- `streamText` 复用完整回合解析器并拒绝工具输出，删除旧的独立文本状态机。Gemini 仍无原生流式工具支持。
+- Runtime 在模型回合完整校验后走原有工具权限、审批和执行路径。文本增量即时传给客户端，但不逐 token 写入 JSON store；持久事件使用已验证的 `model_message`。失败/取消前的增量不会被当作完整消息保存。
 
-P1 剩余：统一模型回合流事件契约（文本增量、工具调用增量、usage、终态）、Responses reasoning 等协议原生上下文的保留与回放，以及 runtime 消费流式工具回合。现在的文本 stream API 不是流式 agent loop，不能把文本回调当作全协议流式支持。Gemini 仍是非流式完成后的文本回调。
+验收范围仍是本地协议 fixture 和真实本地文件工具，不包含供应商线上兼容性。Responses 内置服务工具、音频等额外输出类型未实现；本批不宣称所有 provider 扩展已覆盖。
 
 ### Tools / Runtime
 
@@ -101,3 +108,12 @@ P1 剩余：统一模型回合流事件契约（文本增量、工具调用增�
 - 覆盖逐字节 UTF-8、CR/LF/CRLF、多行事件、事件上限、截断、消费端提前退出、协议终态、错误响应、Messages 请求参数、取消和等待响应体超时。
 - core/host/terminal 类型检查、Web production build、终端四项 smoke 均通过。最终将文本流 step 类型移入共享 contracts 后，另跑 core 类型检查通过。
 - HTTP 测试使用本地 fixture server；无真实供应商验收，流式工具回合与原生上下文回放仍未完成。
+
+## P1 工具流与上下文回放验证记录
+
+- `bun run check`：**256 pass / 0 fail**，core/host/terminal 类型检查、Web production build 与终端四项 smoke 全部通过。
+- 新增 22 项测试：交错调用、身份冲突、损坏参数、终态不一致、原生上下文隔离、异步消费/取消，以及三协议 HTTP fixture。
+- Runtime 使用真实本地文件工具验证：完整回合后执行；中途断流、后续调用损坏、取消时零执行；审批前不写文件。
+- Responses 测试在审批暂停后重新打开 JSON store，验证 reasoning/call_id 保留并在恢复请求中按原顺序回放。该证据仅覆盖已有审批恢复路径，不代表任意崩溃恢复或持久任务执行已完成。
+- 更新原有 SDK 流模式 fixture 为真正 SSE，并断言新增流事件。文本增量实时交付但不逐 token 持久化。
+- 下一批为 P2：一次模型返回多个工具调用时，审批暂停/恢复不能丢失后续调用，并保留工具循环预算与 usage。

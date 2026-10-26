@@ -1,3 +1,4 @@
+import { modelStreamResponse } from "./fixtures/modelResponse.js";
 import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -23,7 +24,7 @@ describe("SDK protocol runner", () => {
       async fetch(request) {
         const body = await request.json();
         const user = (body.messages || []).find((message: any) => message.role === "user");
-        return Response.json({ choices: [{ message: { content: `wire answer: ${user?.content || ""}` } }] });
+        return modelStreamResponse({ choices: [{ message: { content: `wire answer: ${user?.content || ""}` } }] });
       }
     });
     try {
@@ -38,6 +39,7 @@ describe("SDK protocol runner", () => {
       expect(outputs.map((message) => message.type)).toEqual([
         "user_message",
         "run_started",
+        "stream_event",
         "assistant_message",
         "result"
       ]);
@@ -60,7 +62,7 @@ describe("SDK protocol runner", () => {
       async fetch(request) {
         const body = await request.json();
         const user = (body.messages || []).find((message: any) => message.role === "user");
-        return Response.json({ choices: [{ message: { content: `wire answer: ${user?.content || ""}` } }] });
+        return modelStreamResponse({ choices: [{ message: { content: `wire answer: ${user?.content || ""}` } }] });
       }
     });
     try {
@@ -278,7 +280,7 @@ describe("SDK protocol runner", () => {
         const body = await request.json();
         requests.push(body);
         const system = (body.messages || []).find((message: any) => message.role === "system");
-        return Response.json({ choices: [{ message: { content: `model=${body.model}; system=${system?.content || ""}` } }] });
+        return modelStreamResponse({ choices: [{ message: { content: `model=${body.model}; system=${system?.content || ""}` } }] });
       }
     });
     try {
@@ -876,7 +878,7 @@ describe("SDK protocol runner", () => {
       async fetch(request) {
         const body = await request.json();
         const user = (body.messages || []).find((message: any) => message.role === "user");
-        return Response.json({ choices: [{ message: { content: `jsonl answer: ${user?.content || ""}` } }] });
+        return modelStreamResponse({ choices: [{ message: { content: `jsonl answer: ${user?.content || ""}` } }] });
       }
     });
     try {
@@ -904,6 +906,7 @@ describe("SDK protocol runner", () => {
       expect(outputs.map((message) => message.type)).toEqual([
         "user_message",
         "run_started",
+        "stream_event",
         "assistant_message",
         "result"
       ]);
@@ -987,7 +990,7 @@ describe("SDK protocol runner", () => {
       async fetch(request) {
         const body = await request.json();
         const user = (body.messages || []).find((message: any) => message.role === "user");
-        return Response.json({ choices: [{ message: { content: `chunk answer: ${user?.content || ""}` } }] });
+        return modelStreamResponse({ choices: [{ message: { content: `chunk answer: ${user?.content || ""}` } }] });
       }
     });
     try {
@@ -1017,6 +1020,7 @@ describe("SDK protocol runner", () => {
         "control_response",
         "user_message",
         "run_started",
+        "stream_event",
         "assistant_message",
         "result"
       ]);
@@ -1045,7 +1049,7 @@ describe("SDK protocol runner", () => {
       async fetch(request) {
         const body = await request.json();
         const user = (body.messages || []).find((message: any) => message.role === "user");
-        return Response.json({ choices: [{ message: { content: `session chunk answer: ${user?.content || ""}` } }] });
+        return modelStreamResponse({ choices: [{ message: { content: `session chunk answer: ${user?.content || ""}` } }] });
       }
     });
     try {
@@ -1063,6 +1067,7 @@ describe("SDK protocol runner", () => {
       expect(outputs.map((message) => message.type)).toEqual([
         "user_message",
         "run_started",
+        "stream_event",
         "assistant_message",
         "result"
       ]);
@@ -1186,7 +1191,7 @@ describe("SDK protocol runner", () => {
       async fetch(request) {
         const body = await request.json();
         const user = (body.messages || []).find((message: any) => message.role === "user");
-        return Response.json({ choices: [{ message: { content: `env answer: ${user?.content || ""}` } }] });
+        return modelStreamResponse({ choices: [{ message: { content: `env answer: ${user?.content || ""}` } }] });
       }
     });
     try {
@@ -1271,7 +1276,7 @@ describe("SDK protocol runner", () => {
       async fetch(request) {
         const body = await request.json();
         const user = (body.messages || []).find((message: any) => message.role === "user");
-        return Response.json({ choices: [{ message: { content: `hybrid answer: ${user?.content || ""}` } }] });
+        return modelStreamResponse({ choices: [{ message: { content: `hybrid answer: ${user?.content || ""}` } }] });
       }
     });
     try {
@@ -1322,7 +1327,7 @@ describe("SDK protocol runner", () => {
       async fetch(request) {
         const body = await request.json();
         const user = (body.messages || []).find((message: any) => message.role === "user");
-        return Response.json({ choices: [{ message: { content: `sse answer: ${user?.content || ""}` } }] });
+        return modelStreamResponse({ choices: [{ message: { content: `sse answer: ${user?.content || ""}` } }] });
       }
     });
     try {
@@ -1384,7 +1389,7 @@ function slowModelServer() {
     port: 0,
     async fetch() {
       await new Promise((resolve) => setTimeout(resolve, 5000));
-      return Response.json({ choices: [{ message: { content: "too late" } }] });
+      return modelStreamResponse({ choices: [{ message: { content: "too late" } }] });
     }
   });
 }

@@ -1,3 +1,4 @@
+import { modelStreamResponse } from "./fixtures/modelResponse.js";
 import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,7 +14,7 @@ describe("SDK context usage", () => {
       async fetch(request) {
         const body = await request.json();
         const user = (body.messages || []).find((message: any) => message.role === "user");
-        return Response.json({
+        return modelStreamResponse({
           choices: [{ message: { content: `answer for ${user?.content || ""}` } }],
           usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 }
         });
@@ -98,12 +99,12 @@ describe("SDK context usage", () => {
       async fetch(request) {
         const body = await request.json();
         if ((body.messages || []).some((message: any) => message.role === "tool")) {
-          return Response.json({
+          return modelStreamResponse({
             choices: [{ message: { content: "tool answer" } }],
             usage: { prompt_tokens: 9, completion_tokens: 3, total_tokens: 12 }
           });
         }
-        return Response.json({
+        return modelStreamResponse({
           choices: [{
             message: {
               content: "",

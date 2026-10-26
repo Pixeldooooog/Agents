@@ -3,7 +3,7 @@ import { completeModelTurn, streamText } from "../src/models/modelClients.js";
 import type { ModelClientConfig } from "../src/models/modelClientTypes.js";
 import { ModelConfigError, ModelHttpError, ModelProtocolError } from "../src/models/modelErrors.js";
 import { normalizeProtocol } from "../src/models/modelProfiles.js";
-import { postJson, streamSse } from "../src/models/modelHttp.js";
+import { postJson } from "../src/models/modelHttp.js";
 import { parseClaudeMessagesTurn } from "../src/models/anthropicProtocolPayloads.js";
 import { parseOpenAIChatTurn, parseResponsesTurn, responsesRequestBody } from "../src/models/openaiProtocolPayloads.js";
 
@@ -88,11 +88,11 @@ describe("model boundary validation", () => {
 
   test("text streaming propagates consumer failures without swallowing them", async () => {
     const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch() {
-      return new Response('data: {"text":"hello"}\n\n', { headers: { "Content-Type": "text/event-stream" } });
+      return new Response('data: {"choices":[{"index":0,"delta":{"content":"hello"}}]}\n\n', { headers: { "Content-Type": "text/event-stream" } });
     } });
     try {
       const local = { ...config, baseUrl: `http://127.0.0.1:${server.port}` };
-      await expect(streamSse(local, "/stream", {}, () => ({ delta: "hello" }), () => { throw new Error("consumer failed"); }))
+      await expect(streamText(local, [], () => { throw new Error("consumer failed"); }))
         .rejects.toThrow("consumer failed");
     } finally { await server.stop(true); }
   });

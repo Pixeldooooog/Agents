@@ -1,3 +1,4 @@
+import { modelStreamResponse } from "./fixtures/modelResponse.js";
 import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -826,9 +827,9 @@ describe("TS core", () => {
       async fetch(request) {
         const body = await request.json();
         if ((body.messages || []).some((message: any) => message.role === "tool")) {
-          return Response.json({ choices: [{ message: { content: "stream final" } }] });
+          return modelStreamResponse({ choices: [{ message: { content: "stream final" } }] });
         }
-        return Response.json({
+        return modelStreamResponse({
           choices: [{
             message: {
               content: "",
