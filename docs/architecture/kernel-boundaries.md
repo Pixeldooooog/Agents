@@ -193,5 +193,6 @@ SDK：`session.resumeApproval(runId, approved, approvalId)`；client 使用 `cli
 - `TaskService` 不再自建 `AgentRunService`，由 Host 注入共享实例，任务与对话运行获得相同的工具、MCP 与执行器装配。
 - 运行内授权只能收紧：turn loop 开始（含审批恢复）时对 `permission_profile`、`enabled_tools`、`denied_tools`、`approval_required_tools` 取冻结快照（`toolAuthorizationSnapshot`）。启用、拒绝、审批三道检查都同时看快照和当前 spec：任一方拒绝或要求审批即生效，启用需两方都允许。工具改写 spec 只能让权限更严。
 - 工具层显式拒绝放宽：`config.manage` 的 `permissions.defaultMode` 只能 auto → ask → deny 方向变化，否则报 `permission_tightening_only`；`permission.add_rule` 只接受 deny/ask，对已拒绝工具加 ask 不会降级；`permission.remove_rule` 已删除。
-- 已知缺口：`spec` 仍以可变对象进入工具，`worktree.*` 与 `mcp.*` 会改写共享 `settings`；`agent.run` 允许子 Agent 自定 `enabled_tools`（Host 当前未装配 agentRunner，暂不可执行），接入前需限制为父级子集。这些需在 Grant/授权阶段收口。
+- 已知缺口：`spec` 仍以可变对象进入工具，`worktree.*` 与 `mcp.*` 会改写共享 `settings`。这些需在 Grant/授权阶段收口。
+- 子 Agent（`agent.run`、`team.run_member`）继承父级权限模式与规则，`enabled_tools` 只能是父级有效工具列表的子集，否则报 `permission_tightening_only`。
 

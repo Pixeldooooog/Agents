@@ -33,7 +33,7 @@ export const collaborationToolDefinitions: RegisteredTool[] = [
     risk: "high",
     parameters: agentRunSchema,
     requires: [],
-    uses: ["store", "agentRunner"],
+    uses: ["store", "agentRunner", "settings"],
     handler: agentRunTool
   }),
   defineTool({
@@ -62,7 +62,7 @@ export const collaborationToolDefinitions: RegisteredTool[] = [
     description: "Run a team member agent and deliver the result.",
     risk: "high",
     requires: [],
-    uses: ["store", "agentRunner"],
+    uses: ["store", "agentRunner", "settings"],
     handler: teamRunMember
   })
 ];

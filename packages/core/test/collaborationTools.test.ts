@@ -71,4 +71,34 @@ describe("agent and team collaboration tools", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  test("child agents can narrow the parent's tools but never widen them", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-child-tools-"));
+    try {
+      const store = new JsonStateStore(path.join(root, "state.json"));
+      const spec = specFromPayload({ message: "lead", tenant_id: "tenant", user_id: "user", agent_id: "lead", workspace_id: "workspace", enabled_tools: ["filesystem.read", "filesystem.write"] });
+      const childTools: string[][] = [];
+      const context = { store, spec, agentRunner: { run: async ({ spec: child }: any) => { childTools.push(child.enabled_tools); return { status: "completed", content: "ok" }; } } };
+
+      const widened = await executeBuiltinTool(root, "agent.run", { prompt: "go", enabled_tools: ["filesystem.read", "shell.run"] }, context);
+      expect(widened.result.is_error).toBe(true);
+      expect(widened.result.content).toContain("child agent tools exceed the parent's: shell.run");
+      const emptied = await executeBuiltinTool(root, "agent.run", { prompt: "go", enabled_tools: [] }, context);
+      expect(emptied.result.is_error).toBe(true);
+      expect(childTools).toEqual([]);
+
+      for (const enabled_tools of [["filesystem.read"], ["filesystem__write"], undefined]) {
+        const ran = await executeBuiltinTool(root, "agent.run", { prompt: "go", ...(enabled_tools ? { enabled_tools } : {}) }, context);
+        expect(ran.result.is_error).toBe(false);
+      }
+      expect(childTools).toEqual([["filesystem.read"], ["filesystem__write"], ["filesystem.read", "filesystem.write"]]);
+
+      await executeBuiltinTool(root, "team.create", { team_id: "beta", members: [{ agent_id: "shell-member", enabled_tools: ["shell.run"] }] }, context);
+      const member = await executeBuiltinTool(root, "team.run_member", { team_id: "beta", agent_id: "shell-member", prompt: "go" }, context);
+      expect(member.result.is_error).toBe(true);
+      expect(childTools).toHaveLength(3);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

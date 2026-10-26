@@ -2,19 +2,41 @@ import type { AgentSpec } from "../types/agentTypes.js";
 import type { JsonObject } from "../types/jsonTypes.js";
 import type { TeamMemberRecord, TeamMessageRecord, TeamRecord } from "../types/collaborationTypes.js";
 import { specFromPayload } from "../types/agentTypes.js";
+import { defaultEnabledTools } from "../models/modelProfiles.js";
 import type { ToolContext } from "../tools/toolContracts.js";
-
-export type CollaborationToolContext = ToolContext<never, "store" | "agentRunner">;
 import { stringArg } from "../tools/toolInputs.js";
+
+export type CollaborationToolContext = ToolContext<never, "store" | "agentRunner" | "settings">;
 
 export function childAgentSpec(context: CollaborationToolContext, args: JsonObject): AgentSpec {
   const base = currentSpec(context);
+  const enabledTools = stringList(args.enabled_tools, base.enabled_tools);
+  assertChildToolsWithinParent(context, base, enabledTools);
   return {
     ...base,
     agent_id: safeId(stringArg(args.agent_id, `agent_${crypto.randomUUID().slice(0, 8)}`)),
     system_prompt: stringArg(args.system_prompt, base.system_prompt),
-    enabled_tools: stringList(args.enabled_tools, base.enabled_tools)
+    enabled_tools: enabledTools
   };
+}
+
+/** A child inherits the parent's permission profile and rules; its tool list may narrow the parent's, never widen it. */
+function assertChildToolsWithinParent(context: CollaborationToolContext, parent: AgentSpec, childTools: string[]): void {
+  const parentTools = parent.enabled_tools.length ? parent.enabled_tools : context.settings ? defaultEnabledTools(context.settings) : [];
+  if (!parentTools.length) return; // the parent may use every tool
+  // An empty child list falls back to the defaults: equal to a parent on defaults, wider than an explicit parent list.
+  if (!childTools.length) {
+    if (!parent.enabled_tools.length) return;
+    throw new Error("permission_tightening_only: a child agent must list its tools when the parent's tools are limited");
+  }
+  const allowed = new Set(parentTools.map(toolKey));
+  const extra = childTools.filter(tool => !allowed.has(toolKey(tool)));
+  if (extra.length) throw new Error(`permission_tightening_only: child agent tools exceed the parent's: ${extra.join(", ")}`);
+}
+
+// Model-facing names replace "." with "__"; compare both spellings as one tool.
+function toolKey(name: string): string {
+  return name.trim().replaceAll("__", ".");
 }
 
 export function currentSpec(context: CollaborationToolContext): AgentSpec {
