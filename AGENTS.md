@@ -1,0 +1,20 @@
+- Think before acting. Read existing files before writing code.
+- Be concise in output but thorough in reasoning.
+- Prefer editing over rewriting whole files.
+- Do not re-read files you have already read.
+- Test your code before declaring done.
+- No sycophantic openers or closing fluff.
+- Keep solutions simple and direct.
+- User instructions always override this file.
+- Keep the whole project codebase tidy, logically layered, and structurally elegant.
+- Optimize for readable, explainable code with clear names and narrow responsibilities.
+- Keep individual code files reasonably small; split by feature or responsibility before files become catch-alls.
+- Preserve performance discipline: avoid unnecessary work, repeated I/O, oversized in-memory scans, and avoid blocking hot paths.
+- For TypeScript, use clear workspace layering instead of copying Python's deep package tree: product entrypoints belong in `apps/*`, shared runtime/domain code belongs in `packages/*`, and feature modules should be grouped by responsibility.
+- Keep TS entrypoint files thin; route, terminal host, runtime, model, state, task, and tool logic should live in focused modules.
+- Name nested TS files by concrete responsibility, not by vague buckets. Prefer domain/action names such as `modelProfiles.ts`, `agentRoutes.ts`, or `sessionStore.ts`; avoid generic catch-all names like `utils.ts`, `helpers.ts`, or `common.ts` unless the file is tiny and truly generic.
+- Keep directory names as stable feature/domain group names and file names as the specific unit of behavior inside that domain.
+- Treat variable-name semantics as part of code quality: prefer precise, intention-revealing names and avoid ambiguous abbreviations, overloaded terms, or names whose meaning only makes sense from nearby context.
+- Do not add compatibility shims for abandoned Python/src-origin names; use the clean TypeScript-native contract when the project is not yet production-bound.
+- Make local commits by functional phase as work progresses.
+- Use git emoji in commit messages.
