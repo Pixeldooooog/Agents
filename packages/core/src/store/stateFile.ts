@@ -12,6 +12,7 @@ import type { PlanningStateRecord } from "../types/planningTypes.js";
 import type { RunRecord } from "../types/runtimeTypes.js";
 import type { ScheduleRecord } from "../types/scheduleTypes.js";
 import type { TaskRecord, TaskStepRecord } from "../types/taskTypes.js";
+import { validatedRunRecords, validatedTaskRecords, validatedTaskStepRecords } from "./executionRecordValidation.js";
 
 export type StateFile = {
   runs: RunRecord[];
@@ -46,9 +47,9 @@ export function emptyState(): StateFile {
 export function normalizeState(rawState: Partial<StateFile>): StateFile {
   return {
     ...emptyState(),
-    runs: Array.isArray(rawState.runs) ? rawState.runs : [],
-    tasks: Array.isArray(rawState.tasks) ? rawState.tasks : [],
-    steps: Array.isArray(rawState.steps) ? rawState.steps : [],
+    runs: validatedRunRecords(rawState.runs),
+    tasks: validatedTaskRecords(rawState.tasks),
+    steps: validatedTaskStepRecords(rawState.steps),
     schedules: Array.isArray(rawState.schedules) ? rawState.schedules.map(normalizeScheduleRecord) : [],
     memories: Array.isArray(rawState.memories) ? rawState.memories.map(normalizeMemoryRecord) : [],
     planning: Array.isArray(rawState.planning) ? rawState.planning.map(normalizePlanningState) : [],

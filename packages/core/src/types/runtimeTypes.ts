@@ -1,3 +1,4 @@
+import type { RunState } from "../contracts/execution.js";
 import type { PublicAgentSpec } from "./agentTypes.js";
 import type { JsonObject } from "./jsonTypes.js";
 import type { ModelUsage, ModelNativeContext } from "./modelTypes.js";
@@ -31,9 +32,12 @@ export type ToolResult = {
   is_error: boolean;
 };
 
+/** Run states a single runtime attempt can end in; a subset of the contract RunState. */
+export type RunOutcome = Extract<RunState, "completed" | "waiting_approval" | "failed" | "cancelled">;
+
 export type AgentResult = {
   run_id: string;
-  status: "finished" | "awaiting_approval" | "error" | "canceled";
+  status: RunOutcome;
   content: string;
   messages: Message[];
   tool_results: ToolResult[];
@@ -59,15 +63,15 @@ export type PendingApproval = {
   tool_results: ToolResult[];
 };
 
-export type RunStatus = "created" | "running" | "awaiting_approval" | "finished" | "error" | "canceled";
-
 export type RunRecord = {
   run_id: string;
   agent_id: string;
   tenant_id: string;
   user_id: string;
   workspace_id: string;
-  status: RunStatus;
+  status: RunState;
+  /** Incremented on every state transition. */
+  version: number;
   events: RuntimeEvent[];
   created_at: number;
   updated_at: number;

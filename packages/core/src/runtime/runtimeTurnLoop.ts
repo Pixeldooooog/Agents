@@ -98,13 +98,13 @@ export async function runRuntimeTurnLoop(input: RuntimeTurnLoopInput): Promise<A
         })));
         if (!modelTurn.tool_calls.length) {
           await emit(runtimeEvent("done", doneEventPayload(startedAt, modelTurnCount, events.length, {
-            status: "finished",
+            status: "completed",
             content: modelTurn.content,
             modelUsage: modelUsagePayload(accumulatedModelUsage)
           })));
           return {
             run_id: input.runId,
-            status: "finished",
+            status: "completed",
             content: modelTurn.content,
             messages,
             tool_results: toolResults,
@@ -145,13 +145,13 @@ export async function runRuntimeTurnLoop(input: RuntimeTurnLoopInput): Promise<A
             toolCall.name
           ));
           await emit(runtimeEvent("done", doneEventPayload(startedAt, modelTurnCount, events.length, {
-            status: "awaiting_approval",
+            status: "waiting_approval",
             content: messages.findLast(message => message.role === "assistant")?.content || "",
             modelUsage: modelUsagePayload(accumulatedModelUsage)
           })));
           return {
             run_id: input.runId,
-            status: "awaiting_approval",
+            status: "waiting_approval",
             content: messages.findLast(message => message.role === "assistant")?.content || "",
             messages,
             tool_results: toolResults,
@@ -184,13 +184,13 @@ export async function runRuntimeTurnLoop(input: RuntimeTurnLoopInput): Promise<A
   } catch (error) {
     if (isRuntimeCancellation(error, input.options.signal)) {
       await emit(runtimeEvent("done", doneEventPayload(startedAt, modelTurnCount, events.length, {
-        status: "canceled",
+        status: "cancelled",
         content: "run canceled",
         modelUsage: modelUsagePayload(accumulatedModelUsage)
       })));
       return {
         run_id: input.runId,
-        status: "canceled",
+        status: "cancelled",
         content: "run canceled",
         messages,
         tool_results: toolResults,
@@ -201,14 +201,14 @@ export async function runRuntimeTurnLoop(input: RuntimeTurnLoopInput): Promise<A
     const messageText = errorMessage(error);
     await emit(runtimeEvent("error", { message: messageText }, error instanceof ModelConfigError ? "config" : "runtime"));
     await emit(runtimeEvent("done", doneEventPayload(startedAt, modelTurnCount, events.length, {
-      status: "error",
+      status: "failed",
       content: "",
       error: messageText,
       modelUsage: modelUsagePayload(accumulatedModelUsage)
     })));
     return {
       run_id: input.runId,
-      status: "error",
+      status: "failed",
       content: "",
       messages,
       tool_results: toolResults,

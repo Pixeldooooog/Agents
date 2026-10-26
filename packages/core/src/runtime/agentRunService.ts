@@ -3,7 +3,7 @@ import { profileDefaults } from "../models/modelProfiles.js";
 import type { StateStore } from "../ports/stateStore.js";
 import type { AgentChatPayload, AgentSpec } from "../types/agentTypes.js";
 import { specFromPayload } from "../types/agentTypes.js";
-import type { AgentResult, RunRecord, RunStatus, RuntimeEvent } from "../types/runtimeTypes.js";
+import type { AgentResult, RunRecord, RuntimeEvent } from "../types/runtimeTypes.js";
 import { AgentRuntime } from "./agentRuntime.js";
 import type { RuntimeOptions } from "./runtimeOptions.js";
 
@@ -38,7 +38,7 @@ export type PersistedAgentRun = {
   events: RuntimeEvent[];
 };
 
-export type AgentRunServiceErrorCode = "run_not_found" | "run_not_awaiting_approval" | "pending_approval_missing" | "approval_conflict" | "approval_id_required" | "invalid_approval_decision";
+export type AgentRunServiceErrorCode = "run_not_found" | "run_not_waiting_approval" | "pending_approval_missing" | "approval_conflict" | "approval_id_required" | "invalid_approval_decision";
 
 export class AgentRunServiceError extends Error {
   constructor(
@@ -63,7 +63,8 @@ export class AgentRunService {
   }
 
   async runAgent(spec: AgentSpec, message: string, options: AgentRunExecutionOptions = {}): Promise<PersistedAgentRun> {
-    const run = await this.options.store.startRun(spec);
+    const queued = await this.options.store.startRun(spec);
+    const run = await this.options.store.transitionRun(queued.run_id, ["preparing", "running"]);
     await options.afterRunStarted?.(run);
     const events: RuntimeEvent[] = [];
     const runtime = this.runtimeFor(run.run_id, events, options);
@@ -84,6 +85,7 @@ export class AgentRunService {
     const spec = options.spec || this.specFromPayload({ message: "", ...run.spec });
     const pending = await this.options.store.claimPendingApproval(runId, options.approvalId);
     if (!pending) throw new AgentRunServiceError("approval_conflict", "approval was consumed or no longer matches", 409);
+    await this.options.store.transitionRun(runId, ["preparing", "running"]);
     const events: RuntimeEvent[] = [];
     const runtime = this.runtimeFor(runId, events, options);
     const result = await runtime.resumeWithApproval(spec, pending, approved, runId);
@@ -121,8 +123,8 @@ export class AgentRunService {
   private async requireApprovalRun(runId: string): Promise<RunRecord> {
     const run = await this.options.store.loadRun(runId);
     if (!run) throw new AgentRunServiceError("run_not_found", `run not found: ${runId}`, 404);
-    if (run.status !== "awaiting_approval") {
-      throw new AgentRunServiceError("run_not_awaiting_approval", `run is not waiting for tool approval: ${runId}`, 409);
+    if (run.status !== "waiting_approval") {
+      throw new AgentRunServiceError("run_not_waiting_approval", `run is not waiting for tool approval: ${runId}`, 409);
     }
     if (!run.pending_approval) {
       throw new AgentRunServiceError("pending_approval_missing", `run has no pending approval payload: ${runId}`, 409);
@@ -137,12 +139,5 @@ export class AgentRunService {
 
 export async function persistAgentRunOutcome(store: StateStore, runId: string, result: AgentResult): Promise<void> {
   await store.setPendingApproval(runId, result.pending_approval);
-  await store.finishRun(runId, runStatusForAgentResult(result));
-}
-
-export function runStatusForAgentResult(result: AgentResult): RunStatus {
-  if (result.status === "awaiting_approval") return "awaiting_approval";
-  if (result.status === "error") return "error";
-  if (result.status === "canceled") return "canceled";
-  return "finished";
+  await store.transitionRun(runId, [result.status]);
 }

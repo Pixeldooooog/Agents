@@ -38,12 +38,12 @@ test("disconnecting HTTP SSE cancels the actual model read and persists canceled
     abort.abort();
     await consuming;
     let run = (await services.store.listRuns({ limit: 1 }))[0];
-    for (let i = 0; i < 100 && run.status !== "canceled"; i++) {
+    for (let i = 0; i < 100 && run.status !== "cancelled"; i++) {
       await new Promise(resolve => setTimeout(resolve, 10));
       run = (await services.store.loadRun(run.run_id))!;
     }
-    expect(run.status).toBe("canceled");
-    expect(run.events.at(-1)?.payload?.status).toBe("canceled");
+    expect(run.status).toBe("cancelled");
+    expect(run.events.at(-1)?.payload?.status).toBe("cancelled");
   } finally {
     host.closeAllConnections(); await new Promise<void>(resolve => host.close(() => resolve()));
     await model.server.stop(true); await rm(root, { recursive: true, force: true });
@@ -72,7 +72,7 @@ test("real terminal host reads cancel while a streamed model request is pending"
     child.stdin.write(JSON.stringify({ type: "user_message", text: "wait for cancellation" }) + "\n");
     await model.requested;
     child.stdin.write(JSON.stringify({ type: "cancel" }) + "\n");
-    expect((await waitFor("turn_finished")).status).toBe("canceled");
+    expect((await waitFor("turn_finished")).status).toBe("cancelled");
     child.stdin.write(JSON.stringify({ type: "exit" }) + "\n");
     await waitFor("exit");
   } finally { child.kill(); lines.close(); await model.server.stop(true); await rm(root, { recursive: true, force: true }); }

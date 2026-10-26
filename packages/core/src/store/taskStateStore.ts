@@ -16,7 +16,7 @@ export function createTaskRecord(mutate: MutateState, spec: AgentSpec, input: st
       tenant_id: spec.tenant_id,
       user_id: spec.user_id,
       workspace_id: spec.workspace_id,
-      status: "created",
+      status: "queued",
       created_at: now,
       updated_at: now,
       metadata,

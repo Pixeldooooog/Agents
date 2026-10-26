@@ -70,7 +70,7 @@ test("auto mode still honors an explicitly required approval from the runtime", 
     const settings = await loadSettings(root);
     const spec = specFromPayload({ message: "", protocol: "openai-chat", model: "fixture", api_key: "test", base_url: `http://127.0.0.1:${server.port}/v1`, enabled_tools: ["filesystem.write"], approval_required_tools: ["filesystem.write"], permission_profile: "auto" }, profileDefaults(settings));
     const result = await new AgentRuntime({ settings }).run(spec, "write", "run");
-    expect(result.status).toBe("awaiting_approval");
+    expect(result.status).toBe("waiting_approval");
     await expect(readFile(path.join(root, "blocked.txt"))).rejects.toThrow();
   } finally { server.stop(true); await rm(root, { recursive: true, force: true }); }
 });

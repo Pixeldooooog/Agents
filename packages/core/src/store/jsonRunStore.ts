@@ -1,32 +1,27 @@
 import type { RunStore } from "../ports/runStore.js";
-import type { AgentSpec } from "../types/agentTypes.js";
-import type { PendingApproval, RunRecord, RunStatus, RuntimeEvent } from "../types/runtimeTypes.js";
 import {
   claimRunPendingApproval,
-  finishRunRecord,
   listRunRecords,
   loadRunRecord,
   recordRunEvent,
   setRunPendingApproval,
   startRunRecord,
+  transitionRunRecord,
   updateRunMetadataRecord
 } from "./runStateStore.js";
 import type { MutateState, ReadState } from "./stateStoreAccess.js";
-import type { RunListFilters } from "./storeFilters.js";
 
 export type JsonStateAccess = {
   read: ReadState;
   mutate: MutateState;
 };
 
-
-
 export function jsonRunStoreMethods(access: JsonStateAccess): RunStore {
   return {
     claimPendingApproval: (runId, approvalId) => claimRunPendingApproval(access.mutate, runId, approvalId),
     startRun: (spec) => startRunRecord(access.mutate, spec),
     recordEvent: (runId, event) => recordRunEvent(access.mutate, runId, event),
-    finishRun: (runId, status) => finishRunRecord(access.mutate, runId, status),
+    transitionRun: (runId, states) => transitionRunRecord(access.mutate, runId, states),
     setPendingApproval: (runId, pendingApproval) => setRunPendingApproval(access.mutate, runId, pendingApproval),
     updateRunMetadata: (runId, metadata) => updateRunMetadataRecord(access.mutate, runId, metadata),
     loadRun: (runId) => loadRunRecord(access.read, runId),

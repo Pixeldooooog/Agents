@@ -183,7 +183,7 @@ const kevin = createKevinClient({ transport: await embeddedTransport({ repoRoot 
 | `tool.started` / `tool.completed` | 工具调用开始与结果（含 `isError`） |
 | `approval.requested` | 需要审批，携带 `approvalId`、工具名、参数摘要 |
 | `input.requested` | 智能体请求用户补充输入 |
-| `run.completed` | 终态：`finished` / `awaiting_approval` / `error` / `canceled` |
+| `run.completed` | 终态：`completed` / `waiting_approval` / `failed` / `cancelled`（与 contracts `RunState` 一致） |
 
 所有事件都带 `event_id`、`schema_version`、`occurred_at`、`run_id` 和 run 内单调递增的 `sequence`，与基线文档第 8 节的事件契约保持一致。core 内部 `RuntimeEvent` 的字段变化只影响投影层，不影响公共事件。
 

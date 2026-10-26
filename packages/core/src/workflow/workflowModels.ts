@@ -69,9 +69,9 @@ export function workflowSummary(name: string, filePath: string, payload: Record<
 
 export function workflowStatus(results: Record<string, unknown>[]): string {
   const statuses = new Set(results.map((result) => String(result.status || "")));
-  if (statuses.has("error")) return "error";
-  if (statuses.has("awaiting_approval")) return "awaiting_approval";
-  return "finished";
+  if (statuses.has("failed")) return "failed";
+  if (statuses.has("waiting_approval")) return "waiting_approval";
+  return "completed";
 }
 
 export function workflowHaystack(workflow: Record<string, unknown>): string {

@@ -45,7 +45,7 @@ export function handleStreamFrame(frame: SseEventFrame, assistantId: number, str
   }
   if (frame.event === "done") {
     const result = frame.payload?.payload || frame.payload;
-    if (result?.status === "awaiting_approval" && !result?.content) deps.removeMessage(assistantId);
+    if (result?.status === "waiting_approval" && !result?.content) deps.removeMessage(assistantId);
     else deps.updateMessage(assistantId, result?.content || "");
   }
   if (frame.event === "error") {

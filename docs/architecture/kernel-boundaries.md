@@ -174,3 +174,12 @@ SDK：`session.resumeApproval(runId, approved, approvalId)`；client 使用 `cli
 - Web 审批只提供拒绝和允许本次；删除未实现的“本次任务都允许”按钮。SDK/HTTP/Terminal 仍使用 P2 的单次 approval_id 契约。
 - 最终本地完整检查：292 项测试、类型检查、Web 构建和终端四项 smoke 通过。另完成真实浏览器批准/拒绝/取消/失败场景，确认取消落库且无页面异常。
 - 本轮交付与可复现入口见 [kernel-acceptance.md](kernel-acceptance.md)。真实商业供应商、远端第三方 MCP、跨平台进程树清理以及原生沙箱不在本地 fixture 证据中；不宣称这些外部验收已通过。
+
+## 运行状态统一到 contracts
+
+- 持久化的 Run 使用 `contracts/execution.ts` 的 `RunState`，并带 `version`。新建为 `queued`；执行前经 `preparing → running`；结束于 `completed / waiting_approval / failed / cancelled`。审批领取把 `waiting_approval` 退回 `queued`，再进入执行。
+- `RunStore.transitionRun(runId, states)` 是唯一的状态写入口：逐步按 `assertRunTransition` 校验，任一步非法则整段拒绝且不落盘。旧的 `finishRun` 已删除。
+- `AgentResult.status` 是 `RunOutcome`（`RunState` 的子集），Task / TaskStep / Workflow 使用同一套词汇（`queued`、`waiting_approval`、`completed`、`failed`、`cancelled`）。
+- 读取状态文件时校验 runs/tasks/steps 的状态值与 run version；旧词汇（如 `finished`、`awaiting_approval`、`canceled`）直接报错，不做兼容映射。
+- 边界：版本号目前只在单进程串行写入内递增，尚未用于跨进程乐观并发；租约、Action Ledger、checkpoint 仍属 B2。
+

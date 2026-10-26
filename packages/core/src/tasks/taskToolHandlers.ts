@@ -58,7 +58,7 @@ export async function handleTaskUpdate(context: ToolExecutionContext, args: Json
 
 export async function handleTaskStop(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
   const task = await resolveScopedTask(context, requiredText(args.task_id, "task_id"));
-  const canceledTask = context.taskRunner ? await context.taskRunner.cancel(task.task_id) : await requiredStore(context).updateTask(task.task_id, { status: "canceled" });
+  const canceledTask = context.taskRunner ? await context.taskRunner.cancel(task.task_id) : await requiredStore(context).updateTask(task.task_id, { status: "cancelled" });
   return { task: canceledTask };
 }
 

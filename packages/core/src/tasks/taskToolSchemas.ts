@@ -1,6 +1,6 @@
 import type { TaskStatus } from "../types/taskTypes.js";
 
-export const taskStatusValues: TaskStatus[] = ["created", "running", "paused", "awaiting_approval", "finished", "error", "canceled"];
+export const taskStatusValues: TaskStatus[] = ["queued", "running", "paused", "waiting_approval", "completed", "failed", "cancelled"];
 
 export const taskCreateSchema = {
   type: "object",

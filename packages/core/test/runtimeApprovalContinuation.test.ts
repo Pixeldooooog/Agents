@@ -60,7 +60,7 @@ describe("approval turn continuation", () => {
       expect(c.approval_id).not.toBe(b.approval_id);
       expect(c.tool_call.id).toBe("c");
       const final = await reopen().resumeApproval(first.run.run_id, true, { spec, approvalId: c.approval_id });
-      expect(final.result.status).toBe("finished");
+      expect(final.result.status).toBe("completed");
       expect(final.result.tool_results.map(result => result.tool_call_id)).toEqual(["a", "b", "c"]);
       expect(final.result.model_usage?.totalTokens).toBe(10);
       expect(final.result.events.at(-1)?.payload?.num_turns).toBe(2);
@@ -81,7 +81,7 @@ describe("approval turn continuation", () => {
   test("revoked permissions apply to both the approved call and remaining calls", () => fixture(async ({ service, spec, root, requestCount }) => {
     const first = await service.runAgent(spec, "do A B C");
     const final = await service.resumeApproval(first.run.run_id, true, { spec: { ...spec, denied_tools: ["filesystem.write"] }, approvalId: pending(first).approval_id });
-    expect(final.result.status).toBe("finished");
+    expect(final.result.status).toBe("completed");
     expect(final.result.tool_results.map(result => result.is_error)).toEqual([false, true, true]);
     await expect(readFile(path.join(root, "b.txt"))).rejects.toThrow();
     await expect(readFile(path.join(root, "c.txt"))).rejects.toThrow();
@@ -93,7 +93,7 @@ describe("approval turn continuation", () => {
     const raised = { ...spec, runtime: { ...spec.runtime, maxToolIterations: 20 } };
     const second = await service.resumeApproval(first.run.run_id, true, { spec: raised, approvalId: pending(first).approval_id });
     const final = await service.resumeApproval(first.run.run_id, true, { spec: raised, approvalId: pending(second).approval_id });
-    expect(final.result.status).toBe("error");
+    expect(final.result.status).toBe("failed");
     expect(final.result.events.find(event => event.type === "error")?.payload?.message).toContain("max iterations");
     expect(final.result.model_usage?.totalTokens).toBe(5);
     expect(requestCount()).toBe(1);
@@ -105,11 +105,11 @@ describe("approval turn continuation", () => {
     const signal = AbortSignal.abort();
     await expect(service.resumeApproval(first.run.run_id, true, { spec, approvalId: snapshot.approval_id, signal })).rejects.toMatchObject({ name: "AbortError" });
     const canceled = await new AgentRuntime({ settings, signal }).resumeWithApproval(spec, snapshot, true, first.run.run_id);
-    expect(canceled.status).toBe("canceled");
+    expect(canceled.status).toBe("cancelled");
     expect(canceled.model_usage?.totalTokens).toBe(5);
     await expect(readFile(path.join(root, "b.txt"))).rejects.toThrow();
     const resumed = await service.resumeApproval(first.run.run_id, false, { spec, approvalId: snapshot.approval_id });
-    expect(resumed.result.status).toBe("awaiting_approval");
+    expect(resumed.result.status).toBe("waiting_approval");
   }));
 
   test("missing or altered continuation fails before any approved side effect", () => fixture(async ({ service, spec, settings, root }) => {
@@ -119,7 +119,7 @@ describe("approval turn continuation", () => {
       { ...pending(first), tool_call: { ...pending(first).tool_call, arguments: { path: "bad.txt", content: "bad" } } }
     ]) {
       const result = await new AgentRuntime({ settings }).resumeWithApproval(spec, damaged, true, first.run.run_id);
-      expect(result.status).toBe("error");
+      expect(result.status).toBe("failed");
     }
     await expect(readFile(path.join(root, "b.txt"))).rejects.toThrow();
     await expect(readFile(path.join(root, "bad.txt"))).rejects.toThrow();

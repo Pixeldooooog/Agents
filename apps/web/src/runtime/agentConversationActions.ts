@@ -67,7 +67,7 @@ export function createAgentConversationActions(options: AgentConversationActions
       options.updateActivity(id, { status: "done", detail: "200 OK" });
       options.setPendingApprovals((current) => current.filter((item) => item.approvalId !== request.approvalId));
       consumeRuntimeEvents(data.events || [], options.eventDeps());
-      if (data.status !== "awaiting_approval") options.push("assistant", data.content || copy.chat.emptyResponse);
+      if (data.status !== "waiting_approval") options.push("assistant", data.content || copy.chat.emptyResponse);
       await options.syncOperationTrace(request.runId);
       await options.refreshRuns();
     } catch (error) {
@@ -92,7 +92,7 @@ export function createAgentConversationActions(options: AgentConversationActions
       options.updateActivity(requestId, { status: "done", detail: "200 OK" });
       options.setRunId(data.run_id || "");
       consumeRuntimeEvents(data.events || [], options.eventDeps());
-      if (data.status !== "awaiting_approval") options.push("assistant", data.content || copy.chat.emptyResponse);
+      if (data.status !== "waiting_approval") options.push("assistant", data.content || copy.chat.emptyResponse);
     } catch (error) {
       options.updateActivity(requestId, { status: "error", detail: errorText(error) });
       options.push("error", errorText(error));

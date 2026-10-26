@@ -1,7 +1,7 @@
 import type { PublicAgentSpec } from "./agentTypes.js";
 
-export type TaskStatus = "created" | "running" | "paused" | "awaiting_approval" | "finished" | "error" | "canceled";
-export type TaskStepStatus = "pending" | "running" | "awaiting_approval" | "succeeded" | "failed" | "skipped" | "canceled";
+export type TaskStatus = "queued" | "running" | "paused" | "waiting_approval" | "completed" | "failed" | "cancelled";
+export type TaskStepStatus = "pending" | "running" | "waiting_approval" | "succeeded" | "failed" | "skipped" | "cancelled";
 
 export type TaskRecord = {
   task_id: string;

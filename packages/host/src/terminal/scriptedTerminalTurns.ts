@@ -73,16 +73,16 @@ export class ScriptedTerminalTurns {
 
   private doneOnly(runId: string): true {
     this.writer.write({ type: "turn_started", run_id: runId });
-    this.writer.runtimeEvent({ type: "done", name: "assistant", payload: { status: "finished", content: "done only answer", event_count: 1 } });
-    this.writer.write({ type: "turn_finished", status: "finished", run_id: runId });
+    this.writer.runtimeEvent({ type: "done", name: "assistant", payload: { status: "completed", content: "done only answer", event_count: 1 } });
+    this.writer.write({ type: "turn_finished", status: "completed", run_id: runId });
     return true;
   }
 
   private errorTurn(runId: string, message: string): true {
     this.writer.write({ type: "turn_started", run_id: runId });
     this.writer.runtimeEvent({ type: "error", name: "runtime", payload: { message } });
-    this.writer.runtimeEvent({ type: "done", name: "assistant", payload: { status: "error", content: message, error: message, event_count: 1 } });
-    this.writer.write({ type: "turn_finished", status: "error", run_id: runId });
+    this.writer.runtimeEvent({ type: "done", name: "assistant", payload: { status: "failed", content: message, error: message, event_count: 1 } });
+    this.writer.write({ type: "turn_finished", status: "failed", run_id: runId });
     return true;
   }
 
@@ -98,15 +98,15 @@ export class ScriptedTerminalTurns {
         permission: { reason: "fixture approval smoke" }
       }
     });
-    this.writer.runtimeEvent({ type: "done", name: "assistant", payload: { status: "awaiting_approval", content: "tool approval required", event_count: 2 } });
-    this.writer.write({ type: "turn_finished", status: "awaiting_approval", run_id: runId });
+    this.writer.runtimeEvent({ type: "done", name: "assistant", payload: { status: "waiting_approval", content: "tool approval required", event_count: 2 } });
+    this.writer.write({ type: "turn_finished", status: "waiting_approval", run_id: runId });
     return true;
   }
 
   private slow(runId: string): true {
     this.runs.start(runId);
     this.writer.runtimeEvent({ type: "text_delta", name: "assistant", payload: { delta: "working slowly" } });
-    this.runs.timer(() => this.runs.finish(runId, "finished"), 350);
+    this.runs.timer(() => this.runs.finish(runId, "completed"), 350);
     return true;
   }
 
@@ -126,8 +126,8 @@ export class ScriptedTerminalTurns {
       else this.runs.timer(() => {
         if (!this.runs.isActive(runId)) return;
         this.writer.runtimeEvent({ type: "model_message", name: "assistant", payload: { content: lines.join("\n") } });
-        this.writer.runtimeEvent({ type: "done", name: "assistant", payload: { status: "finished", content: lines.join("\n"), event_count: 2 } });
-        this.runs.finish(runId, "finished");
+        this.writer.runtimeEvent({ type: "done", name: "assistant", payload: { status: "completed", content: lines.join("\n"), event_count: 2 } });
+        this.runs.finish(runId, "completed");
       }, 120);
     };
     emit(0);
@@ -143,7 +143,7 @@ export class ScriptedTerminalTurns {
   private finishWithText(runId: string, text: string): void {
     this.writer.runtimeEvent({ type: "text_delta", name: "assistant", payload: { delta: text } });
     this.writer.runtimeEvent({ type: "model_message", name: "assistant", payload: { content: text } });
-    this.writer.runtimeEvent({ type: "done", name: "assistant", payload: { status: "finished", content: text, event_count: 2 } });
-    this.writer.write({ type: "turn_finished", status: "finished", run_id: runId });
+    this.writer.runtimeEvent({ type: "done", name: "assistant", payload: { status: "completed", content: text, event_count: 2 } });
+    this.writer.write({ type: "turn_finished", status: "completed", run_id: runId });
   }
 }

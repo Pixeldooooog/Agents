@@ -151,7 +151,7 @@ runtime 已经把这个契约写入工具事件：
 - `task.cancel("interrupt")` 会等待 `block` 工具完成并继续原 turn；遇到显式 `cancel` 工具时生成 synthetic `tool_execution_canceled` result，并标记 `raw.cancel_reason="user_interrupted"`。
 - 普通 active run cancel 仍然是强制取消，会为当前和未执行的 pending tool call 生成 synthetic `tool_execution_canceled` result。
 - terminal 会从 runtime event 的 `payload.contract.metadata.interrupt_behavior` 维护 active tool interruptible state；普通输入在所有 active tools 都可取消时会排队并发送 `cancel(reason="interrupt")`，否则只排队等待当前 turn。
-- runtime 识别用户 interrupt result 后会返回 `AgentResult.status="canceled"`，streaming 模式会发出 `done.status="canceled"`，不会再继续下一轮模型请求。
+- runtime 识别用户 interrupt result 后会返回 `AgentResult.status="cancelled"`，streaming 模式会发出 `done.status="cancelled"`，不会再继续下一轮模型请求。
 - 顺序工具批次会在当前工具被取消后为剩余工具补齐 synthetic result；并发批次会取消所有 pending task 并补齐 synthetic result，保持 model-visible tool result 数量和 tool call 数量一致。
 
 后台 shell 命令现在有第一层 `src-origin` 风格生命周期：

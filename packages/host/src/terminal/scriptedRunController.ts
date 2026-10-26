@@ -16,7 +16,7 @@ export class ScriptedRunController {
     const runId = this.activeRun;
     this.activeRun = "";
     this.clearTimers();
-    this.writer.write({ type: "turn_finished", status: reason === "interrupt" ? "canceled" : "cancelled", run_id: runId });
+    this.writer.write({ type: "turn_finished", status: "cancelled", ...(reason ? { reason } : {}), run_id: runId });
   }
 
   start(runId: string): void {

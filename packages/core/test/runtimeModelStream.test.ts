@@ -44,11 +44,11 @@ for (const scenario of ["complete", "truncated", "malformed second call", "appro
       } }).run(spec, "write the file", "run");
       expect(sawDelta).toBe(true);
       if (scenario === "complete") {
-        expect(result.status).toBe("finished");
+        expect(result.status).toBe("completed");
         expect(result.tool_results).toHaveLength(1);
         expect(requests).toBe(2);
       } else {
-        expect(result.status).toBe(scenario === "approval" ? "awaiting_approval" : scenario === "canceled" ? "canceled" : "error");
+        expect(result.status).toBe(scenario === "approval" ? "waiting_approval" : scenario === "canceled" ? "cancelled" : "failed");
         expect(result.tool_results).toHaveLength(0);
         expect(result.events.some(event => event.type === "tool_start")).toBe(false);
         await expect(readFile(path.join(root, "result.txt"))).rejects.toThrow();
@@ -70,7 +70,7 @@ test("stream deltas are delivered live without per-token persistence", async () 
     const spec = service.specFromPayload({ protocol: "openai-chat", model: "fixture", api_key: "fixture", base_url: `http://127.0.0.1:${server.port}/v1`, permission_profile: "auto" });
     const live: string[] = [];
     const { result, run } = await service.runAgent(spec, "hello", { stream: true, onEvent: event => { live.push(event.type); } });
-    expect(result.status).toBe("finished");
+    expect(result.status).toBe("completed");
     expect(live).toContain("text_delta");
     expect(run.events.some(event => event.type === "text_delta")).toBe(false);
     expect(run.events.find(event => event.type === "model_message")?.payload?.content).toBe("hello");
@@ -116,11 +116,11 @@ test("Responses context survives persisted approval and replays to the same prov
     const service = new AgentRunService({ settings, store: new JsonStateStore(file) });
     const spec = service.specFromPayload({ protocol: "openai-responses", model: "fixture", api_key: "fixture", base_url: `http://127.0.0.1:${server.port}/v1`, enabled_tools: ["filesystem.write"], approval_required_tools: ["filesystem.write"], permission_profile: "auto" });
     const paused = await service.runAgent(spec, "write", { stream: true });
-    expect(paused.result.status).toBe("awaiting_approval");
+    expect(paused.result.status).toBe("waiting_approval");
     await expect(readFile(path.join(root, "result.txt"))).rejects.toThrow();
     const restarted = new AgentRunService({ settings, store: new JsonStateStore(file) });
     const resumed = await restarted.resumeApproval(paused.run.run_id, true, { stream: true, spec, approvalId: paused.result.pending_approval!.approval_id });
-    expect(resumed.result.status).toBe("finished");
+    expect(resumed.result.status).toBe("completed");
     expect(resumed.result.content).toBe("finished");
     expect(requests).toBe(2);
   } finally { await server.stop(true); await rm(root, { recursive: true, force: true }); }

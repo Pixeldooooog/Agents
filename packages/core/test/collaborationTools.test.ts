@@ -14,7 +14,7 @@ describe("agent and team collaboration tools", () => {
         store,
         spec,
         agentRunner: {
-          run: async ({ prompt }: { prompt: string }) => ({ status: "finished", content: `done:${prompt}`, messages: [{ role: "user" }], tool_results: [] })
+          run: async ({ prompt }: { prompt: string }) => ({ status: "completed", content: `done:${prompt}`, messages: [{ role: "user" }], tool_results: [] })
         }
       };
 
@@ -26,7 +26,7 @@ describe("agent and team collaboration tools", () => {
 
       const ran = await executeBuiltinTool(root, "agent.run", { description: "Review", prompt: "notes", agent_id: "reviewer" }, context);
       const runPayload = JSON.parse(ran.result.content);
-      expect(runPayload.status).toBe("finished");
+      expect(runPayload.status).toBe("completed");
       expect(runPayload.content).toContain("notes");
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -42,7 +42,7 @@ describe("agent and team collaboration tools", () => {
         store,
         spec,
         agentRunner: {
-          run: async ({ spec: childSpec, prompt }: any) => ({ status: "finished", content: `${childSpec.agent_id}:${prompt}`, messages: [], tool_results: [] })
+          run: async ({ spec: childSpec, prompt }: any) => ({ status: "completed", content: `${childSpec.agent_id}:${prompt}`, messages: [], tool_results: [] })
         }
       };
 

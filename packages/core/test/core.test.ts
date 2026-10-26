@@ -27,7 +27,7 @@ describe("TS core", () => {
       const file = path.join(root, "state.json");
       const store = new JsonStateStore(file);
       const run = await store.startRun(specFromPayload({ message: "hello", model: "test", api_key: "secret" }));
-      await store.finishRun(run.run_id, "finished");
+      await store.transitionRun(run.run_id, ["preparing", "running", "completed"]);
       const payload = JSON.parse(await readFile(file, "utf8"));
       expect(payload.runs[0].run_id).toBe(run.run_id);
       expect(payload.runs[0].spec.api_key).toBeUndefined();
@@ -247,7 +247,7 @@ describe("TS core", () => {
       expect(JSON.parse(output.result.content).output).toContain("task output text");
 
       const stopped = await executeBuiltinTool(root, "task.stop", { task_id: createdTask.task_id }, { store, spec });
-      expect(JSON.parse(stopped.result.content).task.status).toBe("canceled");
+      expect(JSON.parse(stopped.result.content).task.status).toBe("cancelled");
 
       const run = await executeBuiltinTool(root, "task.run", { title: "No runner", input: "Create only" }, { store, spec });
       expect(JSON.parse(run.result.content).result.runner_available).toBe(false);
@@ -496,7 +496,7 @@ describe("TS core", () => {
 
       const ranWorkflow = await executeBuiltinTool(root, "workflow.run_saved", { name: "release-flow" }, context);
       const workflowPayload = JSON.parse(ranWorkflow.result.content);
-      expect(workflowPayload.status).toBe("awaiting_approval");
+      expect(workflowPayload.status).toBe("waiting_approval");
       expect(workflowPayload.results[0].task.input).toBe("Draft notes");
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -558,7 +558,7 @@ describe("TS core", () => {
         enabled_tools: ["filesystem.read"]
       }, profileDefaults(settings));
       const result = await new AgentRuntime({ settings }).run(spec, "read note", "run_tool_loop");
-      expect(result.status).toBe("finished");
+      expect(result.status).toBe("completed");
       expect(result.tool_results[0].content).toContain("tool loop content");
       expect(result.content).toContain("tool loop content");
       expect(requests[0].tools[0].function.name).toBe("filesystem__read");
@@ -600,7 +600,7 @@ describe("TS core", () => {
         enabled_tools: ["shell.run"]
       }, profileDefaults(settings));
       const result = await new AgentRuntime({ settings }).run(spec, "run shell", "run_approval");
-      expect(result.status).toBe("awaiting_approval");
+      expect(result.status).toBe("waiting_approval");
       expect(result.events.some((event) => event.type === "tool_approval_required")).toBe(true);
       expect(result.tool_results).toHaveLength(0);
     } finally {
@@ -647,7 +647,7 @@ describe("TS core", () => {
       }, profileDefaults(settings));
       const result = await new AgentRuntime({ settings }).run(spec, "run shell", "run_denied");
 
-      expect(result.status).toBe("finished");
+      expect(result.status).toBe("completed");
       expect(result.tool_results[0]).toMatchObject({
         name: "shell.run",
         is_error: true
@@ -696,7 +696,7 @@ describe("TS core", () => {
       }, profileDefaults(settings));
       const result = await new AgentRuntime({ settings }).run(spec, "loop", "run_tool_limit");
 
-      expect(result.status).toBe("error");
+      expect(result.status).toBe("failed");
       expect(result.tool_results).toHaveLength(1);
       expect(result.events.some((event) => event.type === "error" && event.payload?.message === "tool-call loop exceeded max iterations")).toBe(true);
     } finally {
@@ -744,11 +744,11 @@ describe("TS core", () => {
       }, profileDefaults(settings));
       const runtime = new AgentRuntime({ settings });
       const paused = await runtime.run(spec, "read note", "run_resume");
-      expect(paused.status).toBe("awaiting_approval");
+      expect(paused.status).toBe("waiting_approval");
       expect(paused.pending_approval?.tool_call.id).toBe("call_read");
 
       const resumed = await runtime.resumeWithApproval(spec, paused.pending_approval!, true, "run_resume");
-      expect(resumed.status).toBe("finished");
+      expect(resumed.status).toBe("completed");
       expect(resumed.tool_results[0].content).toContain("resume content");
       expect(resumed.content).toContain("resume content");
       expect(requests[1].messages.at(-1).role).toBe("tool");
@@ -800,13 +800,13 @@ describe("TS core", () => {
       });
 
       const paused = await runs.runAgent(spec, "read service file");
-      expect(paused.result.status).toBe("awaiting_approval");
-      expect(paused.run.status).toBe("awaiting_approval");
+      expect(paused.result.status).toBe("waiting_approval");
+      expect(paused.run.status).toBe("waiting_approval");
       expect(paused.run.pending_approval?.tool_call.id).toBe("call_read");
 
       const resumed = await runs.resumeApproval(paused.run.run_id, true, { approvalId: paused.result.pending_approval!.approval_id });
-      expect(resumed.result.status).toBe("finished");
-      expect(resumed.run.status).toBe("finished");
+      expect(resumed.result.status).toBe("completed");
+      expect(resumed.run.status).toBe("completed");
       expect(resumed.result.content).toContain("service content");
 
       const stored = await store.loadRun(paused.run.run_id);
@@ -857,7 +857,7 @@ describe("TS core", () => {
         enabled_tools: ["filesystem.read"]
       }, profileDefaults(settings));
       const result = await new AgentRuntime({ settings, stream: true, onEvent: (event) => events.push(event.type) }).run(spec, "stream read", "run_stream_tools");
-      expect(result.status).toBe("finished");
+      expect(result.status).toBe("completed");
       expect(result.tool_results[0].content).toContain("stream tool content");
       expect(events).toContain("tool_start");
       expect(events).toContain("tool_result");

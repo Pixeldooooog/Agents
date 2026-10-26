@@ -77,7 +77,7 @@ export type TerminalHostEvent =
     }
   | { type: 'turn_started'; run_id: string }
   | { type: 'runtime_event'; event: RuntimeEvent }
-  | { type: 'turn_finished'; status: string; run_id?: string }
+  | { type: 'turn_finished'; status: string; reason?: string; run_id?: string }
   | { type: 'model_profiles'; profiles: ModelProfile[] }
   | { type: 'model_switched'; profile: string; runtime: RuntimeInfo }
   | { type: 'runtime'; runtime: RuntimeInfo }

@@ -69,14 +69,14 @@ export function handleTerminalHostEvent(event: TerminalHostEvent, context: Termi
     context.setBusy(false)
     context.activeRunId.current = ''
     context.hasInterruptibleToolInProgress.current = false
-    if (event.status === 'awaiting_approval') {
+    if (event.status === 'waiting_approval') {
       context.append({kind: 'status', label: 'approval', text: 'waiting for your decision', level: 'warning'})
     } else {
       context.append({
         kind: 'status',
-        label: event.status === 'finished' ? 'done' : event.status === 'error' ? 'stopped' : event.status,
-        text: context.turnStartedAt.current ? `${event.status === 'error' ? 'after ' : ''}${formatDuration(Date.now() - context.turnStartedAt.current)}` : undefined,
-        level: event.status === 'error' ? 'error' : 'info'
+        label: turnFinishedLabel(event.status, event.reason),
+        text: context.turnStartedAt.current ? `${event.status === 'failed' ? 'after ' : ''}${formatDuration(Date.now() - context.turnStartedAt.current)}` : undefined,
+        level: event.status === 'failed' ? 'error' : 'info'
       })
       context.inputQueue.runNext()
     }
@@ -123,4 +123,11 @@ export function handleTerminalHostEvent(event: TerminalHostEvent, context: Termi
   }
 
   handleSimpleTerminalHostEvent(event, context)
+}
+
+function turnFinishedLabel(status: string, reason: string | undefined): string {
+  if (status === 'completed') return 'done'
+  if (status === 'failed') return 'stopped'
+  if (status === 'cancelled' && reason === 'interrupt') return 'interrupted'
+  return status
 }

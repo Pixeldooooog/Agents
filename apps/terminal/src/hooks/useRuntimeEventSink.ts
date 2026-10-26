@@ -85,7 +85,7 @@ export function useRuntimeEventSink({
     }
     if (event.type === 'done') {
       const text = String(payload.content ?? '')
-      if (payload.status === 'finished' && text && !assistantDraft.value() && !assistantCompleted.current) {
+      if (payload.status === 'completed' && text && !assistantDraft.value() && !assistantCompleted.current) {
         append({kind: 'assistant', text})
         assistantCompleted.current = true
       }

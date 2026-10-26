@@ -3,10 +3,17 @@ import { profileDefaults } from "../models/modelProfiles.js";
 import { AgentRunService, type AgentRunServiceOptions } from "../runtime/agentRunService.js";
 import type { StateStore } from "../ports/stateStore.js";
 import type { AgentChatPayload } from "../types/agentTypes.js";
-import type { AgentResult } from "../types/runtimeTypes.js";
-import type { TaskRecord, TaskStepRecord } from "../types/taskTypes.js";
+import type { AgentResult, RunOutcome } from "../types/runtimeTypes.js";
+import type { TaskRecord, TaskStepRecord, TaskStepStatus } from "../types/taskTypes.js";
 import { specFromPayload } from "../types/agentTypes.js";
 import { defaultTaskTitle } from "./taskTitles.js";
+
+const taskStepStatusForOutcome: Record<RunOutcome, TaskStepStatus> = {
+  completed: "succeeded",
+  waiting_approval: "waiting_approval",
+  failed: "failed",
+  cancelled: "cancelled"
+};
 
 export class TaskService {
   private readonly active = new Map<string, AbortController>();
@@ -40,12 +47,10 @@ export class TaskService {
           step = await this.store.createStep(task, run.run_id);
         }
       });
-      const canceled = result.status === "canceled";
-      const failed = result.status === "error";
-      const waiting = result.status === "awaiting_approval";
       if (!step) throw new Error(`task step was not created: ${taskId}`);
-      await this.store.updateStep(step.step_id, canceled ? "canceled" : failed ? "failed" : waiting ? "awaiting_approval" : "succeeded", result.content, failed ? taskErrorMessage(result) : "");
-      await this.store.updateTaskStatus(taskId, canceled ? "canceled" : failed ? "error" : waiting ? "awaiting_approval" : "finished");
+      const failed = result.status === "failed";
+      await this.store.updateStep(step.step_id, taskStepStatusForOutcome[result.status], result.content, failed ? taskErrorMessage(result) : "");
+      await this.store.updateTaskStatus(taskId, result.status);
 
       return { task: (await this.store.loadTask(taskId)) || task, step: (await this.store.listSteps(taskId)).at(-1) || step, result };
     } finally { this.active.delete(taskId); }
@@ -55,7 +60,7 @@ export class TaskService {
     const task = await this.store.loadTask(taskId);
     if (!task) throw new Error(`task not found: ${taskId}`);
     this.active.get(taskId)?.abort();
-    await this.store.updateTaskStatus(taskId, "canceled");
+    await this.store.updateTaskStatus(taskId, "cancelled");
     return (await this.store.loadTask(taskId)) || task;
   }
 }

@@ -325,7 +325,7 @@ try {
   await settle()
   stdin.press('\r')
   await waitForOutput(stdout, 'cancelable tools interrupted')
-  await waitForOutput(stdout, 'canceled')
+  await waitForOutput(stdout, 'interrupted')
   await waitForOutput(stdout, 'fixture answer: queued after interrupt')
 
   stdin.press('hang turn')
