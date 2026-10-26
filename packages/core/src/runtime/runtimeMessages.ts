@@ -1,3 +1,4 @@
+import { disabledSkills } from "../extensions/extensionSkillEnablement.js";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Settings } from "../config/settings.js";
@@ -37,7 +38,8 @@ export async function workspaceInstructions(repoRoot: string, spec: AgentSpec): 
 
 export async function skillMetadataInstructions(repoRoot: string, spec: AgentSpec): Promise<string> {
   if (truthy(spec.metadata.omit_skill_instructions)) return "";
-  const skills = (await discoverSkills({ repoRoot })).filter((skill) => !skill.invalid && skill.user_invocable);
+  const disabled = disabledSkills(spec);
+  const skills = (await discoverSkills({ repoRoot })).filter(skill => !skill.invalid && !skill.disable_model_invocation && !disabled.has(skill.name));
   if (!skills.length) return "";
   return [
     "Available skills (metadata only). When a skill is relevant, call the Skill tool with its name to load the SKILL.md instructions before using it:",

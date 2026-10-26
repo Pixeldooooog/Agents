@@ -191,8 +191,10 @@ packages/core  -> no app imports
 - `src/extensions/extensionManifestDiscovery.ts`: Extension manifest search, JSON parsing, and manifest normalization.
 - `src/extensions/extensionManifestRecords.ts`: Extension manifest defaulting, invalid records, and value coercion.
 - `src/extensions/extensionSkillMarkdown.ts`: `SKILL.md` frontmatter parsing and instruction extraction.
-- `src/extensions/extensionEnablement.ts`: Skill and plugin tool enablement ownership, suppression, and restoration.
-- `src/extensions/extensionSkillEnablement.ts`: Skill-specific enablement base tools, allowed/disallowed tools, and effective tool-set rules.
+- `src/extensions/extensionEnablement.ts`: Instruction-only skill state dispatch and plugin-owned tool enablement.
+- `src/extensions/extensionSkillEnablement.ts`: Persisted skill enabled/disabled state and declarative tool hints; never changes tool authority.
+- `src/extensions/extensionFilesystem.ts`: Real-path confinement, bounded manifest reads, and local package entry/type/size validation.
+- `src/extensions/extensionManifests.ts`: Exact-name loading, prompt rendering, and non-overwriting local installation/removal.
 - `src/extensions/extensionEnablementState.ts`: Extension enablement metadata keys, list storage, and tool diff helpers.
 - `src/extensions/extensionManifestPaths.ts`: Skill/plugin search roots, install roots, source paths, and manifest path rules.
 - `src/extensions/extensionManifestTypes.ts`: Extension manifest domain types.

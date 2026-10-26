@@ -1,3 +1,5 @@
+import { isPortableManifestName } from "./extensionManifestRecords.js";
+import { disabledSkills, setSkillEnabled } from "./extensionSkillEnablement.js";
 import type { JsonObject } from "../types/jsonTypes.js";
 import { defaultEnabledTools } from "../models/modelProfiles.js";
 import type { ToolExecutionContext } from "../tools/toolContracts.js";
@@ -56,14 +58,16 @@ export async function handlePluginUninstall(context: ToolExecutionContext, args:
 
 export async function handleSkillUse(context: ToolExecutionContext, args: JsonObject) {
   const skill = await loadSkill(context, stringArg(args.name));
+  if (skill.disable_model_invocation) throw new Error(`skill does not allow model invocation: ${skill.name}`);
   const effect = enableExtensionInSpec(context.spec, "enabled_skills", skill, enablementOptions(context));
   return { skill: publicExtensionPayload(context, skill), ...effect, enabled: true };
 }
 
 export async function handleSkillDisable(context: ToolExecutionContext, args: JsonObject) {
-  const skill = await loadSkill(context, stringArg(args.name));
-  const effect = disableExtensionInSpec(context.spec, "enabled_skills", skill, enablementOptions(context));
-  return { skill: skill.name, ...effect, enabled: false };
+  const name = stringArg(args.name);
+  if (!isPortableManifestName(name)) throw new Error("invalid skill name");
+  const effect = context.spec ? setSkillEnabled(context.spec, name, false) : { added_tools: [], removed_tools: [], restored_tools: [] };
+  return { skill: name, ...effect, enabled: false };
 }
 
 export async function handlePluginEnable(context: ToolExecutionContext, args: JsonObject) {
@@ -80,6 +84,8 @@ export async function handlePluginDisable(context: ToolExecutionContext, args: J
 
 export async function handleSkillInvoke(context: ToolExecutionContext, args: JsonObject) {
   const skill = await loadSkill(context, stringArg(args.skill).replace(/^\//, ""));
+  if (skill.disable_model_invocation) throw new Error(`skill does not allow model invocation: ${skill.name}`);
+  if (disabledSkills(context.spec).has(skill.name)) throw new Error(`skill is disabled: ${skill.name}`);
   const rawArguments = stringArg(args.args);
   const prompt = await renderExtensionPrompt(skill, { arguments: rawArguments }, rawArguments);
   const requestedMode = stringArg(args.mode, skill.context === "fork" ? "fork" : "auto");
@@ -91,6 +97,7 @@ export async function handleSkillInvoke(context: ToolExecutionContext, args: Jso
     skill: skillPayload,
     path: skillPayload.path,
     manifestPath: skillPayload.manifest_path,
+    toolPermissions: "declarative-only; runtime permissions and approvals remain authoritative",
     allowedTools: extensionToolsForEnable("enabled_skills", skill),
     disallowedTools: skill.disallowed_tools,
     model: skill.model,

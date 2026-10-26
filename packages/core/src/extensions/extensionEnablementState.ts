@@ -12,7 +12,7 @@ export type ExtensionEnablementOptions = {
   defaultTools?: string[];
 };
 
-export type ToolListMetadataSuffix = ".added_tools" | ".allowed_tools" | ".disallowed_tools" | ".tools";
+export type ToolListMetadataSuffix = ".added_tools" | ".tools";
 
 export function enabledExtensions(spec: AgentSpec | undefined, metadataKey: ExtensionMetadataKey): Set<string> {
   if (!spec) return new Set();
@@ -64,17 +64,9 @@ export function pluginToolsKey(metadataKey: ExtensionMetadataKey, extensionName:
   return `${metadataKey}.${extensionName}.tools`;
 }
 
-export function baseToolsKey(metadataKey: ExtensionMetadataKey): string {
-  return `${metadataKey}.base_tools`;
-}
 
-export function allowedToolsKey(metadataKey: ExtensionMetadataKey, extensionName: string): string {
-  return `${metadataKey}.${extensionName}.allowed_tools`;
-}
 
-export function disallowedToolsKey(metadataKey: ExtensionMetadataKey, extensionName: string): string {
-  return `${metadataKey}.${extensionName}.disallowed_tools`;
-}
+
 
 export function joinEnabled(enabled: Set<string>): string {
   return [...enabled].sort().join(",");
@@ -84,9 +76,6 @@ export function currentEnabledTools(spec: AgentSpec, options: ExtensionEnablemen
   return spec.enabled_tools.length ? spec.enabled_tools : uniqueStrings(options.defaultTools || []);
 }
 
-export function hasMetadata(spec: AgentSpec, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(spec.metadata, key);
-}
 
 export function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];

@@ -27,7 +27,7 @@ describe("skill and plugin extension tools", () => {
         "  - src/**/*.ts",
         "context: fork",
         "model: gpt-test",
-        "disable-model-invocation: true",
+        "disable-model-invocation: false",
         "---",
         "",
         "# Release Standard",
@@ -68,20 +68,20 @@ describe("skill and plugin extension tools", () => {
       expect(invokedSkill.disallowedTools).toEqual(["filesystem.write"]);
       expect(invokedSkill.model).toBe("gpt-test");
       expect(invokedSkill.status).toBe("fork_unavailable");
-      expect(invokedSkill.disableModelInvocation).toBe(true);
+      expect(invokedSkill.disableModelInvocation).toBe(false);
 
       const used = await executeBuiltinTool(root, "skill.use", { name: "release-standard" }, context);
       const usedPayload = JSON.parse(used.result.content);
       expect(usedPayload.enabled).toBe(true);
-      expect(usedPayload.added_tools).toEqual(["filesystem.read"]);
-      expect(usedPayload.removed_tools).toEqual(["filesystem.write"]);
-      expect(spec.enabled_tools).toEqual(["shell.run", "filesystem.read"]);
+      expect(usedPayload.added_tools).toEqual([]);
+      expect(usedPayload.removed_tools).toEqual([]);
+      expect(spec.enabled_tools).toEqual(["shell.run", "filesystem.write"]);
 
       const disabled = await executeBuiltinTool(root, "skill.disable", { name: "release-standard" }, context);
       const disabledPayload = JSON.parse(disabled.result.content);
       expect(disabledPayload.enabled).toBe(false);
-      expect(disabledPayload.removed_tools).toEqual(["filesystem.read"]);
-      expect(disabledPayload.restored_tools).toEqual(["filesystem.write"]);
+      expect(disabledPayload.removed_tools).toEqual([]);
+      expect(disabledPayload.restored_tools).toEqual([]);
       expect(spec.enabled_tools).toEqual(["shell.run", "filesystem.write"]);
 
       const uninstalled = await executeBuiltinTool(root, "skill.uninstall", { name: "release-standard" }, context);

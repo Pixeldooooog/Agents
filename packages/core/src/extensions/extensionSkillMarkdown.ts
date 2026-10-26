@@ -1,6 +1,5 @@
 import path from "node:path";
 import {
-  booleanValue,
   isPortableManifestName,
   objectRecord,
   stringList
@@ -36,8 +35,8 @@ export function parseSkillMarkdownManifest(content: string, manifestPath: string
     model: String(frontmatter.model || metadata.model || ""),
     effort: String(frontmatter.effort || metadata.effort || ""),
     agent: String(frontmatter.agent || metadata.agent || ""),
-    user_invocable: booleanValue(frontmatter.user_invocable, true),
-    disable_model_invocation: booleanValue(frontmatter.disable_model_invocation, false),
+    user_invocable: skillBoolean(frontmatter.user_invocable, true),
+    disable_model_invocation: skillBoolean(frontmatter.disable_model_invocation, false),
     metadata,
     format: "skill-md"
   };
@@ -84,6 +83,7 @@ function parseYamlSubset(content: string): Record<string, unknown> {
     const keyMatch = line.match(/^([^:\s][^:]*):\s*(.*)$/);
     if (!keyMatch) continue;
     currentKey = normalizeKey(keyMatch[1]);
+    if (Object.hasOwn(result, currentKey)) throw new Error(`duplicate skill frontmatter key: ${currentKey}`);
     const rawValue = keyMatch[2].trim();
     const blockStyle = rawValue.match(/^([|>])[-+]?$/);
     if (blockStyle) {
@@ -141,5 +141,14 @@ function parseScalar(value: string): unknown {
 }
 
 function normalizeKey(value: string): string {
-  return value.trim().replace(/-/g, "_");
+  const key = value.trim().replace(/-/g, "_");
+  if (["__proto__", "constructor", "prototype"].includes(key)) throw new Error("unsafe skill frontmatter key");
+  return key;
+}
+
+function skillBoolean(value: unknown, fallback: boolean): boolean {
+  if (value === undefined) return fallback;
+  if (value === true || value === "true") return true;
+  if (value === false || value === "false") return false;
+  throw new Error("skill invocation flags must be boolean");
 }

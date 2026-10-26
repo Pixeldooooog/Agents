@@ -1,8 +1,10 @@
-import { cp, mkdir, rm, stat } from "node:fs/promises";
+import { confinedExtensionPath, validateExtensionPackage } from "./extensionFilesystem.js";
+import { isPortableManifestName } from "./extensionManifestRecords.js";
+import { cp, mkdir, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { relativeWorkspacePath } from "../tools/toolInputs.js";
 import type { ToolExecutionContext } from "../tools/toolContracts.js";
-import { renderTemplate, safeName } from "../tools/promptTools.js";
+import { renderTemplate } from "../tools/promptTools.js";
 import { discoverManifests, parseManifest } from "./extensionManifestDiscovery.js";
 import {
   fileExists,
@@ -85,32 +87,44 @@ async function installExtension(context: ToolExecutionContext, kind: ExtensionKi
   const sourcePath = resolveSourcePath(context, source);
   const sourceInfo = await stat(sourcePath);
   const manifestPath = await sourceManifestPath(kind, sourcePath, sourceInfo.isDirectory());
+  await confinedExtensionPath(sourceInfo.isDirectory() ? sourcePath : path.dirname(sourcePath), manifestPath);
+  await validateExtensionPackage(sourcePath);
   const raw = await parseManifest(manifestPath);
   const nameFallback = kind === "skill" && isSkillMarkdownManifest(manifestPath)
     ? path.basename(path.dirname(manifestPath))
     : path.basename(sourcePath, ".json");
-  const name = safeName(raw.name || nameFallback, kind);
+  const name = requireExtensionName(String(raw.name || nameFallback));
   const isPackagedSkillFile = kind === "skill" && !sourceInfo.isDirectory() && isSkillMarkdownManifest(manifestPath);
-  const targetRoot = installRoot(context, kind);
+  const targetRoot = await confinedExtensionPath(context.repoRoot, installRoot(context, kind));
   const flatTarget = kind === "plugin" ? path.join(targetRoot, `${name}.json`) : "";
   const packageTarget = path.join(targetRoot, name);
   if ((flatTarget && await fileExists(flatTarget)) || await fileExists(packageTarget)) {
     throw new Error(`${kind} already installed: ${name}`);
   }
+  const relativeTarget = path.relative(path.resolve(sourcePath), packageTarget);
+  if (sourceInfo.isDirectory() && relativeTarget !== ".." && !relativeTarget.startsWith(`..${path.sep}`) && !path.isAbsolute(relativeTarget)) throw new Error("cannot install a package inside its source");
   await mkdir(targetRoot, { recursive: true });
-  if (sourceInfo.isDirectory()) await cp(sourcePath, packageTarget, { recursive: true });
-  else if (isPackagedSkillFile) {
-    await mkdir(packageTarget, { recursive: true });
-    await cp(sourcePath, path.join(packageTarget, "SKILL.md"));
-  }
-  else if (flatTarget) await cp(sourcePath, flatTarget);
+  if (sourceInfo.isDirectory() || isPackagedSkillFile) {
+    await mkdir(packageTarget);
+    try {
+      if (sourceInfo.isDirectory()) {
+        // mkdir reserves this install; copy children without replacing the reserved directory.
+        for (const entry of await readdir(sourcePath)) {
+          await cp(path.join(sourcePath, entry), path.join(packageTarget, entry), { recursive: true, force: false, errorOnExist: true });
+        }
+      } else await cp(sourcePath, path.join(packageTarget, "SKILL.md"), { force: false, errorOnExist: true });
+    } catch (error) {
+      await rm(packageTarget, { recursive: true, force: true });
+      throw error;
+    }
+  } else if (flatTarget) await cp(sourcePath, flatTarget, { force: false, errorOnExist: true });
   else throw new Error(`${kind} manifest must be SKILL.md: ${sourcePath}`);
   return loadExtension(context, kind, name);
 }
 
 async function uninstallExtension(context: ToolExecutionContext, kind: ExtensionKind, name: string): Promise<string> {
-  const extensionName = safeName(name, kind);
-  const root = installRoot(context, kind);
+  const extensionName = requireExtensionName(name);
+  const root = await confinedExtensionPath(context.repoRoot, installRoot(context, kind));
   const flat = kind === "plugin" ? path.join(root, `${extensionName}.json`) : "";
   const packaged = path.join(root, extensionName);
   if (flat && await fileExists(flat)) await rm(flat, { force: true });
@@ -120,10 +134,15 @@ async function uninstallExtension(context: ToolExecutionContext, kind: Extension
 }
 
 async function loadExtension(context: ToolExecutionContext, kind: ExtensionKind, name: string): Promise<ExtensionManifest> {
-  const wanted = safeName(String(name || "").replace(/^\//, ""), kind);
+  const wanted = requireExtensionName(String(name || "").replace(/^\//, ""));
   const manifest = (await discoverManifests(context, kind)).find((item) => {
-    return item.name === wanted || path.basename(item.rootPath) === wanted;
+    return item.name === wanted;
   });
   if (!manifest || manifest.invalid) throw new Error(`unknown ${kind}: ${wanted}`);
   return manifest;
+}
+
+function requireExtensionName(name: string): string {
+  if (!isPortableManifestName(name)) throw new Error("invalid extension name");
+  return name;
 }

@@ -75,7 +75,16 @@ Web HTTP、SDK 和真实终端审批路径均提交本次 approval_id；当前�
 
 ### Skills
 
-已有 `extensions/` 下 SKILL.md 发现/解析/安装与按需读取，`runtimeMessages` 注入元数据。下一步审计 `skill.use`、allowed-tools 和启用逻辑与用户权限的关系，区分“允许向模型展示”与“允许执行”。明确资源路径、输入替换、动态上下文和撤销语义。
+P3 已收口 `extensions/` 下的发现、加载与启停边界：
+
+- `skill.use` / `skill.disable` 只更新启停元数据，不改写 `enabled_tools`、deny 或审批规则。`allowed-tools` / `disallowed-tools` 仅作为声明提示，实际执行仍经过 runtime 权限检查。
+- 禁用状态随 spec 保存；`skill.invoke` 拒绝禁用的技能，显式 `skill.use` 才重新启用。源文件已删除或损坏时仍可禁用。撤销不会抹掉已进入消息历史的指令。
+- `disable-model-invocation: true` 同时阻止模型元数据展示、use 和 invoke；`user-invocable: false` 只控制用户命令可见性，不阻止模型使用。调用标志必须为布尔值，重复和危险 frontmatter 键被拒绝。
+- 搜索优先级为 `.kevin/skills` → `.claude/skills` → `skills`；同名取首项，高优先级损坏项不会静默回退。加载按声明名称匹配，拒绝非法名称。
+- 搜索根和安装目标按真实路径限制在 workspace 内，manifest 限制在包根内；安装拒绝符号链接和特殊文件，不覆盖同名安装。manifest 上限 256 KiB，安装包上限 2,048 项 / 64 MiB。
+- 参数替换仅生成文本。资源引用、动态上下文及脚本不在加载时读取或执行；后续资源访问仍使用普通授权工具。此处不是原生沙箱，也不防御恶意并发替换文件路径；原生沙箱继续暂缓。
+
+Plugin 的工具启用契约保留原行为，其权限与 MCP 外部能力映射另行审计；本批不宣称所有扩展均已完成权限治理。
 
 ### MCP
 
@@ -134,3 +143,11 @@ SDK：`session.resumeApproval(runId, approved, approvalId)`；client 使用 `cli
 - 新增 9 项测试：A/B/C 连续审批、拒绝、重载状态、usage、预算不重置、撤销权限、取消、损坏 continuation、同进程多 store 实例并发领取、过期 ID、损坏 JSON，以及真实 HTTP 参数校验。
 - 本地文件工具验证无重复执行；没有真实供应商或跨进程恢复验收。
 - 下一阶段：P3 Skill 的发现/加载/资源作用域与权限不可扩张；B2 保留独立的持久任务恢复设计。
+
+## P3 Skill 边界验证
+
+- `bun run check` 通过：271 项测试、core/host/terminal 类型检查、Web production build 和终端四项 smoke。
+- 替换旧的 Skill 权限增减测试，验证显式及默认工具配置保持不变，且不干扰 Plugin 的工具所有权。
+- 新增 8 项边界测试：模型调用标志、禁用后序列化及重新启用、实际文件写入被拒、符号链接越界、安装资源及目标检查、manifest 限额和非法输入、搜索优先级、同名并发安装资源完整性。
+- 验证使用本地临时目录和 runtime 文件工具，没有真实供应商验收，也未实现 OS 沙箱或恶意并发文件替换防护。
+- 下一阶段为 P4 MCP transport/session 与外部能力权限映射；Plugin 工具启用权限同时纳入审计。

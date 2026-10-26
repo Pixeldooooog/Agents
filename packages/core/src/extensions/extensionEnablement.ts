@@ -1,7 +1,6 @@
 import type { AgentSpec } from "../types/agentTypes.js";
 import {
   addedToolsKey,
-  baseToolsKey,
   currentEnabledTools,
   emptyEffect,
   enabledExtensions,
@@ -16,13 +15,7 @@ import {
   type ExtensionEnablementOptions,
   type ExtensionMetadataKey
 } from "./extensionEnablementState.js";
-import {
-  disableSkillInSpec,
-  effectiveSkillTools,
-  enableSkillInSpec,
-  ensureSkillBaseTools,
-  extensionToolsForEnable
-} from "./extensionSkillEnablement.js";
+import { setSkillEnabled, extensionToolsForEnable } from "./extensionSkillEnablement.js";
 import type { ExtensionManifest } from "./extensionManifestTypes.js";
 
 export { enabledExtensions } from "./extensionEnablementState.js";
@@ -35,21 +28,18 @@ export function enableExtensionInSpec(
   options: ExtensionEnablementOptions = {}
 ): ExtensionEnablementEffect {
   if (!spec) return emptyEffect();
-  if (metadataKey === "enabled_skills") return enableSkillInSpec(spec, metadataKey, manifest, options);
+  if (metadataKey === "enabled_skills") return setSkillEnabled(spec, manifest.name, true);
 
   const enabled = enabledExtensions(spec, metadataKey);
   if (enabled.has(manifest.name)) return emptyEffect();
   const previousTools = currentEnabledTools(spec, options);
   const tools = extensionToolsForEnable(metadataKey, manifest);
-  if (enabledExtensions(spec, "enabled_skills").size) ensureSkillBaseTools(spec, "enabled_skills", options);
   const pluginOwnedTools = pluginOwnedToolsForEnable(spec, tools, options);
 
   spec.metadata[metadataKey] = joinEnabled(new Set([...enabled, manifest.name]));
   setMetadataList(spec, pluginToolsKey(metadataKey, manifest.name), tools);
   setMetadataList(spec, addedToolsKey(metadataKey, manifest.name), pluginOwnedTools);
-  spec.enabled_tools = enabledExtensions(spec, "enabled_skills").size
-    ? effectiveSkillTools(spec, "enabled_skills", options)
-    : uniqueStrings([...previousTools, ...tools]);
+  spec.enabled_tools = uniqueStrings([...previousTools, ...tools]);
 
   const effect = toolDiff(previousTools, spec.enabled_tools);
   return { added_tools: effect.added, removed_tools: effect.removed, restored_tools: [] };
@@ -62,7 +52,7 @@ export function disableExtensionInSpec(
   options: ExtensionEnablementOptions = {}
 ): ExtensionEnablementEffect {
   if (!spec) return emptyEffect();
-  if (metadataKey === "enabled_skills") return disableSkillInSpec(spec, metadataKey, manifest, options);
+  if (metadataKey === "enabled_skills") return setSkillEnabled(spec, manifest.name, false);
 
   const addedKey = addedToolsKey(metadataKey, manifest.name);
   const addedTools = metadataList(spec, addedKey);
@@ -74,15 +64,11 @@ export function disableExtensionInSpec(
   enabled.delete(manifest.name);
   spec.metadata[metadataKey] = joinEnabled(enabled);
 
-  if (enabledExtensions(spec, "enabled_skills").size) {
-    spec.enabled_tools = effectiveSkillTools(spec, "enabled_skills", options);
-  } else {
-    const toolsAddedByOthers = metadataTools(spec, metadataKey, ".added_tools");
-    const toolsDeclaredByOthers = metadataTools(spec, metadataKey, ".tools");
-    const protectedTools = new Set([...toolsAddedByOthers, ...toolsDeclaredByOthers]);
-    const actuallyRemoved = addedTools.filter((tool) => !protectedTools.has(tool));
-    spec.enabled_tools = uniqueStrings(previousTools.filter((tool) => !actuallyRemoved.includes(tool)));
-  }
+  const toolsAddedByOthers = metadataTools(spec, metadataKey, ".added_tools");
+  const toolsDeclaredByOthers = metadataTools(spec, metadataKey, ".tools");
+  const protectedTools = new Set([...toolsAddedByOthers, ...toolsDeclaredByOthers]);
+  const actuallyRemoved = new Set(addedTools.filter((tool) => !protectedTools.has(tool)));
+  spec.enabled_tools = uniqueStrings(previousTools.filter((tool) => !actuallyRemoved.has(tool)));
 
   const effect = toolDiff(previousTools, spec.enabled_tools);
   return { added_tools: [], removed_tools: effect.removed, restored_tools: effect.added };
@@ -90,9 +76,7 @@ export function disableExtensionInSpec(
 
 function pluginOwnedToolsForEnable(spec: AgentSpec, tools: string[], options: ExtensionEnablementOptions): string[] {
   const existingPluginTools = metadataTools(spec, "enabled_plugins", ".tools");
-  const sourceTools = enabledExtensions(spec, "enabled_skills").size
-    ? metadataList(spec, baseToolsKey("enabled_skills"))
-    : currentEnabledTools(spec, options);
+  const sourceTools = currentEnabledTools(spec, options);
   const existingSources = new Set([...sourceTools, ...existingPluginTools]);
   return tools.filter((tool) => !existingSources.has(tool));
 }

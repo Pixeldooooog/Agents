@@ -1,4 +1,5 @@
-import { readdir, readFile } from "node:fs/promises";
+import { confinedExtensionPath, readExtensionManifest } from "./extensionFilesystem.js";
+import { readdir } from "node:fs/promises";
 import path from "node:path";
 import type { ToolExecutionContext } from "../tools/toolContracts.js";
 import type { ExtensionKind, ExtensionManifest } from "./extensionManifestTypes.js";
@@ -8,7 +9,8 @@ import {
   pluginManifestPath,
   pluginSearchRoots,
   skillManifestPath,
-  skillSearchRoots
+  skillSearchRoots,
+  manifestRoot
 } from "./extensionManifestPaths.js";
 import { parseSkillMarkdownManifest } from "./extensionSkillMarkdown.js";
 
@@ -17,6 +19,7 @@ export async function discoverManifests(context: ToolExecutionContext, kind: Ext
   const manifests: ExtensionManifest[] = [];
   for (const root of roots) {
     try {
+      await confinedExtensionPath(context.repoRoot, root);
       const entries = await readdir(root, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.isDirectory()) {
@@ -30,11 +33,15 @@ export async function discoverManifests(context: ToolExecutionContext, kind: Ext
       continue;
     }
   }
-  return manifests.sort((left, right) => left.name.localeCompare(right.name));
+  // Search-root order is authoritative; a broken higher-priority manifest cannot fall back silently.
+  const selected = new Map<string, ExtensionManifest>();
+  for (const manifest of manifests) if (!selected.has(manifest.name)) selected.set(manifest.name, manifest);
+  return [...selected.values()].sort((left, right) => left.name.localeCompare(right.name));
 }
 
 export async function readManifest(kind: ExtensionKind, manifestPath: string): Promise<ExtensionManifest> {
   try {
+    await confinedExtensionPath(manifestRoot(kind, manifestPath), manifestPath);
     const raw = await parseManifest(manifestPath);
     return normalizeExtensionManifest(kind, manifestPath, raw);
   } catch (error) {
@@ -43,7 +50,7 @@ export async function readManifest(kind: ExtensionKind, manifestPath: string): P
 }
 
 export async function parseManifest(manifestPath: string): Promise<Record<string, unknown>> {
-  const content = await readFile(manifestPath, "utf8");
+  const content = await readExtensionManifest(manifestPath);
   if (isSkillMarkdownManifest(manifestPath)) return parseSkillMarkdownManifest(content, manifestPath);
   return JSON.parse(content);
 }
