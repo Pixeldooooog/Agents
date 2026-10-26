@@ -33,3 +33,18 @@ jobs:
 
       - name: Build Docker image
         run: docker build -f deploy/Dockerfile -t agents:ci .
+
+      - name: Smoke test deployment image
+        run: |
+          set -eu
+          docker run --rm --entrypoint sh agents:ci -c 'test "$(id -u)" -ne 0'
+          docker run -d --name agents-ci -p 127.0.0.1:18020:8020 -e HOST=0.0.0.0 -e ACCESS_TOKEN=ci-fixture-token agents:ci
+          trap 'docker logs agents-ci; docker rm -f agents-ci' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18020/health; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18020/health
+          curl -fsS http://127.0.0.1:18020/ui/ > /dev/null
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18020/api/v1/agent/tasks)" = 401
+          curl -fsS -H 'Authorization: Bearer ci-fixture-token' http://127.0.0.1:18020/api/v1/agent/tasks

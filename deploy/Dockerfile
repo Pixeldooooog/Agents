@@ -1,4 +1,4 @@
-FROM oven/bun:1 AS build
+FROM oven/bun:1.4.4 AS build
 
 WORKDIR /opt/app
 COPY package.json bun.lock tsconfig.base.json ./
@@ -6,19 +6,18 @@ COPY packages ./packages
 COPY apps ./apps
 COPY config ./config
 RUN bun install --frozen-lockfile
-RUN bun run build-web
+RUN bun --bun run build-web
 
-FROM oven/bun:1-slim AS runtime
+FROM oven/bun:1.4.4-slim AS runtime
 
 ENV TZ=Asia/Shanghai
 WORKDIR /opt/app
 
-RUN addgroup --system agents && adduser --system --ingroup agents --home /opt/app agents
-COPY --from=build /opt/app ./
+COPY --from=build --chown=bun:bun /opt/app ./
 RUN mkdir -p /opt/app/.agents /opt/app/logs /opt/app/cache \
-    && chown -R agents:agents /opt/app
+    && chown -R bun:bun /opt/app
 
-USER agents
+USER bun
 EXPOSE 8020
 
 CMD ["bun", "run", "packages/host/src/main.ts"]
