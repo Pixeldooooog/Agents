@@ -1,6 +1,7 @@
 # Module Map
 
 Kernel ownership and implementation sequence: [kernel boundaries](architecture/kernel-boundaries.md).
+Planned SDK package layout and migration: [SDK design PRD](architecture/sdk-design-prd.md).
 
 ## Workspace
 
