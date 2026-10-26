@@ -2,7 +2,9 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { JsonStateStore, specFromPayload } from "../src/index.js";
+import { AgentRunService, JsonStateStore, loadSettings, specFromPayload } from "../src/index.js";
+import type { RuntimeEvent } from "../src/types/runtimeTypes.js";
+import { modelStreamResponse } from "./fixtures/modelResponse.js";
 
 async function withStore(run: (store: JsonStateStore, filename: string) => Promise<void>): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), "kevin-run-state-"));
@@ -64,7 +66,40 @@ test("state files with unsupported execution statuses fail to load instead of pa
     await expect(store.listRuns()).rejects.toThrow("runs[0].version must be a non-negative integer");
     await writeFile(filename, JSON.stringify({ tasks: [{ task_id: "task_old", status: "canceled" }] }));
     await expect(store.listTasks()).rejects.toThrow('tasks[0].status has unsupported value "canceled"');
+    await writeFile(filename, JSON.stringify({ runs: [{ run_id: "run_bare", status: "completed", version: 1, events: [{ type: "done", payload: {} }] }] }));
+    await expect(store.listRuns()).rejects.toThrow("runs[0].events[0] is missing its event envelope");
     await writeFile(filename, JSON.stringify({ steps: [{ step_id: "step_old", status: "awaiting_approval" }] }));
     await expect(store.listSteps("task")).rejects.toThrow('steps[0].status has unsupported value "awaiting_approval"');
   });
+});
+
+test("persisted events carry contract envelopes with a contiguous per-run sequence", async () => {
+  await withStore(async (store) => {
+    const { run_id, events: [created] } = await store.startRun(spec());
+    expect(created).toMatchObject({ type: "run_created", actor: "system", run_id, sequence: 0, schema_version: 1, payload: { run_id } });
+    const tool = await store.recordEvent(run_id, { type: "tool_start", name: "fs.read", payload: {} });
+    const message = await store.recordEvent(run_id, { type: "model_message", payload: { content: "hi" } });
+    expect([tool.sequence, tool.actor, message.sequence, message.actor]).toEqual([1, "tool", 2, "agent"]);
+    expect(Number.isNaN(Date.parse(message.occurred_at))).toBe(false);
+    const stored = (await store.loadRun(run_id))!.events;
+    expect(stored.map(event => event.sequence)).toEqual([0, 1, 2]);
+    expect(new Set(stored.map(event => event.event_id)).size).toBe(3);
+    await expect(store.recordEvent("run_missing", { type: "done" })).rejects.toThrow("run not found");
+  });
+});
+
+test("run subscribers receive the persisted envelope while text deltas stay transient", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "kevin-run-events-"));
+  const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => modelStreamResponse({ choices: [{ message: { content: "hello" } }] }) });
+  try {
+    const service = new AgentRunService({ settings: await loadSettings(root), store: new JsonStateStore(path.join(root, "state.json")) });
+    const spec = service.specFromPayload({ protocol: "openai-chat", model: "fixture", api_key: "fixture", base_url: `http://127.0.0.1:${server.port}/v1`, permission_profile: "auto" });
+    const live: RuntimeEvent[] = [];
+    const { run } = await service.runAgent(spec, "hello", { stream: true, onEvent: event => { live.push(event); } });
+    const delta = live.find(event => event.type === "text_delta");
+    expect(delta && "event_id" in delta).toBe(false);
+    const persistedLive = live.filter(event => event.type !== "text_delta");
+    expect(persistedLive.map(event => (event as { event_id?: string }).event_id)).toEqual(run.events.slice(1).map(event => event.event_id));
+    expect(run.events.at(-1)).toMatchObject({ type: "done", payload: { status: "completed" } });
+  } finally { await server.stop(true); await rm(root, { recursive: true, force: true }); }
 });

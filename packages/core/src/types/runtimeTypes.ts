@@ -1,4 +1,5 @@
 import type { RunState } from "../contracts/execution.js";
+import type { EventContract } from "../contracts/events.js";
 import type { PublicAgentSpec } from "./agentTypes.js";
 import type { JsonObject } from "./jsonTypes.js";
 import type { ModelUsage, ModelNativeContext } from "./modelTypes.js";
@@ -8,6 +9,12 @@ export type RuntimeEvent = {
   name?: string;
   payload?: JsonObject;
   raw?: unknown;
+};
+
+/** A runtime event after the run store assigned its contract identity; sequence is ordered within one run. */
+export type PersistedRunEvent = RuntimeEvent & Pick<EventContract, "event_id" | "schema_version" | "occurred_at" | "actor"> & {
+  run_id: string;
+  sequence: number;
 };
 
 export type Message = {
@@ -72,7 +79,7 @@ export type RunRecord = {
   status: RunState;
   /** Incremented on every state transition. */
   version: number;
-  events: RuntimeEvent[];
+  events: PersistedRunEvent[];
   created_at: number;
   updated_at: number;
   metadata: Record<string, string>;

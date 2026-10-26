@@ -2,41 +2,44 @@ import { assertRunTransition } from "../contracts/lifecycle.js";
 import type { RunState } from "../contracts/execution.js";
 import { publicSpec } from "../types/agentTypes.js";
 import type { AgentSpec } from "../types/agentTypes.js";
-import type { PendingApproval, RunRecord, RuntimeEvent } from "../types/runtimeTypes.js";
+import type { PendingApproval, PersistedRunEvent, RunRecord, RuntimeEvent } from "../types/runtimeTypes.js";
+import { runtimeEvent } from "../types/runtimeTypes.js";
 import type { MutateState, ReadState } from "./stateStoreAccess.js";
 import type { RunListFilters } from "./storeFilters.js";
-import { matchesScope, newStoreRecordId, runCreatedEvent, timestamp } from "./storeHelpers.js";
+import { envelopeRunEvent } from "./runEventEnvelope.js";
+import { matchesScope, newStoreRecordId, timestamp } from "./storeHelpers.js";
 
 export function startRunRecord(mutate: MutateState, spec: AgentSpec): Promise<RunRecord> {
   return mutate((state) => {
     const now = timestamp();
+    const runId = newStoreRecordId("run");
     const run: RunRecord = {
-      run_id: newStoreRecordId("run"),
+      run_id: runId,
       agent_id: spec.agent_id,
       tenant_id: spec.tenant_id,
       user_id: spec.user_id,
       workspace_id: spec.workspace_id,
       status: "queued",
       version: 0,
-      events: [runCreatedEvent()],
+      events: [envelopeRunEvent(runId, 0, runtimeEvent("run_created", { run_id: runId }, "run"))],
       created_at: now,
       updated_at: now,
       metadata: { ...spec.metadata },
       spec: publicSpec(spec)
     };
-    run.events[0].payload = { run_id: run.run_id };
     state.runs.unshift(run);
     return run;
   });
 }
 
-export async function recordRunEvent(mutate: MutateState, runId: string, event: RuntimeEvent): Promise<void> {
-  await mutate((state) => {
+export function recordRunEvent(mutate: MutateState, runId: string, event: RuntimeEvent): Promise<PersistedRunEvent> {
+  return mutate((state) => {
     const run = state.runs.find((item) => item.run_id === runId);
-    if (run) {
-      run.events.push(event);
-      run.updated_at = timestamp();
-    }
+    if (!run) throw new Error(`run not found: ${runId}`);
+    const persisted = envelopeRunEvent(runId, (run.events.at(-1)?.sequence ?? -1) + 1, event);
+    run.events.push(persisted);
+    run.updated_at = timestamp();
+    return persisted;
   });
 }
 

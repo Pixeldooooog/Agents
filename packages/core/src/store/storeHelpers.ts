@@ -1,5 +1,4 @@
 import path from "node:path";
-import type { RuntimeEvent } from "../types/runtimeTypes.js";
 
 export type StoreScope = {
   tenant_id: string;
@@ -25,10 +24,6 @@ export function timestamp(): number {
 
 export function newStoreRecordId(prefix: string): string {
   return `${prefix}_${crypto.randomUUID().replaceAll("-", "")}`;
-}
-
-export function runCreatedEvent(): RuntimeEvent {
-  return { type: "run_created", name: "run", payload: {} };
 }
 
 export function clampLimit(value: unknown, fallback: number, maximum: number): number {

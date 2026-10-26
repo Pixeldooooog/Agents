@@ -181,5 +181,6 @@ SDK：`session.resumeApproval(runId, approved, approvalId)`；client 使用 `cli
 - `RunStore.transitionRun(runId, states)` 是唯一的状态写入口：逐步按 `assertRunTransition` 校验，任一步非法则整段拒绝且不落盘。旧的 `finishRun` 已删除。
 - `AgentResult.status` 是 `RunOutcome`（`RunState` 的子集），Task / TaskStep / Workflow 使用同一套词汇（`queued`、`waiting_approval`、`completed`、`failed`、`cancelled`）。
 - 读取状态文件时校验 runs/tasks/steps 的状态值与 run version；旧词汇（如 `finished`、`awaiting_approval`、`canceled`）直接报错，不做兼容映射。
+- 持久事件由 `RunStore.recordEvent` 补齐 `EventContract` 身份：`event_id`、`schema_version: 1`、`occurred_at`、`actor`、`run_id` 和 run 内连续的 `sequence`（`run_created` 为 0）。`AgentRunService` 先落盘再把带信封的事件交给订阅者；`text_delta` 仍是暂态，不落盘也没有 ID。读取时缺少信封的事件直接报错。
 - 边界：版本号目前只在单进程串行写入内递增，尚未用于跨进程乐观并发；租约、Action Ledger、checkpoint 仍属 B2。
 

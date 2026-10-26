@@ -101,6 +101,8 @@ packages/core  -> no app imports
 - `src/store/stateStoreAccess.ts`: Shared state reader and mutator contracts.
 - `src/store/storeFilters.ts`: Shared store scope, list-filter, and update payload types.
 - `src/store/stateFile.ts`: State-file shape and normalization.
+- `src/store/executionRecordValidation.ts`: Load-time validation of run, task, and step states, run versions, and event envelopes.
+- `src/store/runEventEnvelope.ts`: Contract event identity (ID, schema version, time, actor, per-run sequence) for persisted run events.
 - `src/mcp/mcpStoredRecords.ts`: MCP server state normalization and identity keys.
 - `src/collaboration/collaborationRecords.ts`: Collaboration profile, team, and message state normalization.
 - `src/schedules/scheduleToolContext.ts`: Schedule tool context guards, scoped lookup, and limit coercion.

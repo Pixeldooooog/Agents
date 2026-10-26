@@ -16,6 +16,7 @@ export function validatedRunRecords(value: unknown): RunRecord[] {
     requireState(record.status, runStates, `runs[${index}].status`);
     if (!Number.isSafeInteger(record.version) || (record.version as number) < 0) throw invalidState(`runs[${index}].version must be a non-negative integer`);
     if (!Array.isArray(record.events)) throw invalidState(`runs[${index}].events must be an array`);
+    record.events.forEach((event: unknown, eventIndex: number) => requireEventEnvelope(event, `runs[${index}].events[${eventIndex}]`));
     return record as RunRecord;
   });
 }
@@ -51,6 +52,13 @@ function requireId(record: Record<string, unknown>, key: string, field: string, 
 
 function requireState(value: unknown, allowed: ReadonlySet<string>, location: string): void {
   if (typeof value !== "string" || !allowed.has(value)) throw invalidState(`${location} has unsupported value ${JSON.stringify(value)}`);
+}
+
+function requireEventEnvelope(event: unknown, location: string): void {
+  const record = event && typeof event === "object" ? event as Record<string, unknown> : undefined;
+  if (!record || typeof record.event_id !== "string" || record.schema_version !== 1 || !Number.isSafeInteger(record.sequence) || typeof record.type !== "string") {
+    throw invalidState(`${location} is missing its event envelope`);
+  }
 }
 
 function invalidState(detail: string): Error {
