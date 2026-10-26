@@ -1,3 +1,4 @@
+import './interactive-test-environment.js'
 import assert from 'node:assert/strict'
 import {tmpdir} from 'node:os'
 import path from 'node:path'

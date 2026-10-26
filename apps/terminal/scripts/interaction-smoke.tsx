@@ -1,3 +1,4 @@
+import './interactive-test-environment.js'
 import assert from 'node:assert/strict'
 import {Readable, Writable} from 'node:stream'
 import React from 'react'
