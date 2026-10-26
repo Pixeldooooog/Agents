@@ -11,7 +11,7 @@
 | 对象 | 检查位置与基线 | 限制 |
 | --- | --- | --- |
 | Kevin | 本仓库；初次检查 HEAD `082b173`，落文时 HEAD `00425d2` | 正在并行清理代码，存在未提交变更；下列问题是检查时快照，实施前需重新确认 |
-| CC | `nexus-code/src-origin` | 本地部分源码，未核实对应官方版本；部分条件编译引用缺失，不能当成完整可运行发行版 |
+| CC | `../nexus-code/src-origin`（Kevin 仓库外的同级本地目录，不纳入版本控制） | 本地部分源码，未核实对应官方版本；部分条件编译引用缺失，不能当成完整可运行发行版 |
 | nxs | `/Users/berhand/program/Work/Nexus/nexus-agent-sdk-go`，HEAD `55dc92f1` | 指该仓库的 `cmd/nxs` 进程运行时及其 SDK 内核；不是泛指整个 Nexus 产品 |
 
 CC 来源链接相对本仓库。nxs 下文路径相对上述外部仓库，仅作为阅读索引，不构成 Kevin 的运行依赖。
@@ -26,13 +26,13 @@ CC 来源链接相对本仓库。nxs 下文路径相对上述外部仓库，仅�
 
 | 领域 | 源码观察 | Kevin 适合吸收的内容 |
 | --- | --- | --- |
-| 会话连续性 | [QueryEngine.ts](../../nexus-code/src-origin/QueryEngine.ts) 将用户输入追加到 mutableMessages，并在模型请求前保存 transcript | 区分 session 历史、一次 run、一次模型请求；定义输入何时被接受和保存，以及后续请求如何带入历史 |
-| 上下文预算 | [query.ts](../../nexus-code/src-origin/query.ts)、[microCompact.ts](../../nexus-code/src-origin/services/compact/microCompact.ts)、[autoCompact.ts](../../nexus-code/src-origin/services/compact/autoCompact.ts) 协调工具结果预算、裁剪和压缩；自动压缩有连续失败保护 | 保留完整工具调用/结果关联；预算作用于请求投影；压缩失败不能无限循环；摘要和压缩边界需要可追溯 |
-| 工具契约 | [Tool.ts](../../nexus-code/src-origin/Tool.ts) 包含输入验证、依赖输入的并发安全判断、只读/破坏性声明、中断策略和结果上限 | 工具能否并发应由已验证输入及资源影响决定；结果必须有预算；取消语义应显式表达 |
-| 执行调度 | [StreamingToolExecutor.ts](../../nexus-code/src-origin/services/tools/StreamingToolExecutor.ts) 区分可并发与独占工具，并管理顺序和子取消控制 | 参考调度约束与结果对应关系；先保证正确顺序、取消传播和有界并发，再讨论优化 |
-| 权限判定 | [permissions.ts](../../nexus-code/src-origin/utils/permissions/permissions.ts) 结合规则和工具自己的权限检查 | 同一份输入、资源范围与策略应得到同一个结构化决定，解释接口与真实执行共享权威判定 |
-| 恢复与终止 | [query.ts](../../nexus-code/src-origin/query.ts)、[stopHooks.ts](../../nexus-code/src-origin/query/stopHooks.ts) 区分上下文、输出长度、停止 Hook 等路径 | 区分重试、压缩后重试、续写、终止和用户取消；每条恢复路径有次数/预算上限 |
-| 文件修改保护 | [FileEditTool.ts](../../nexus-code/src-origin/tools/FileEditTool/FileEditTool.ts) 核对读取状态、时间及内容 | 对照 Kevin 已有 read-before-write 能力补充边界测试，不把已有能力误判为缺失 |
+| 会话连续性 | [QueryEngine.ts](../../../nexus-code/src-origin/QueryEngine.ts) 将用户输入追加到 mutableMessages，并在模型请求前保存 transcript | 区分 session 历史、一次 run、一次模型请求；定义输入何时被接受和保存，以及后续请求如何带入历史 |
+| 上下文预算 | [query.ts](../../../nexus-code/src-origin/query.ts)、[microCompact.ts](../../../nexus-code/src-origin/services/compact/microCompact.ts)、[autoCompact.ts](../../../nexus-code/src-origin/services/compact/autoCompact.ts) 协调工具结果预算、裁剪和压缩；自动压缩有连续失败保护 | 保留完整工具调用/结果关联；预算作用于请求投影；压缩失败不能无限循环；摘要和压缩边界需要可追溯 |
+| 工具契约 | [Tool.ts](../../../nexus-code/src-origin/Tool.ts) 包含输入验证、依赖输入的并发安全判断、只读/破坏性声明、中断策略和结果上限 | 工具能否并发应由已验证输入及资源影响决定；结果必须有预算；取消语义应显式表达 |
+| 执行调度 | [StreamingToolExecutor.ts](../../../nexus-code/src-origin/services/tools/StreamingToolExecutor.ts) 区分可并发与独占工具，并管理顺序和子取消控制 | 参考调度约束与结果对应关系；先保证正确顺序、取消传播和有界并发，再讨论优化 |
+| 权限判定 | [permissions.ts](../../../nexus-code/src-origin/utils/permissions/permissions.ts) 结合规则和工具自己的权限检查 | 同一份输入、资源范围与策略应得到同一个结构化决定，解释接口与真实执行共享权威判定 |
+| 恢复与终止 | [query.ts](../../../nexus-code/src-origin/query.ts)、[stopHooks.ts](../../../nexus-code/src-origin/query/stopHooks.ts) 区分上下文、输出长度、停止 Hook 等路径 | 区分重试、压缩后重试、续写、终止和用户取消；每条恢复路径有次数/预算上限 |
+| 文件修改保护 | [FileEditTool.ts](../../../nexus-code/src-origin/tools/FileEditTool/FileEditTool.ts) 核对读取状态、时间及内容 | 对照 Kevin 已有 read-before-write 能力补充边界测试，不把已有能力误判为缺失 |
 
 ### Kevin 检查时发现的具体风险
 
@@ -45,7 +45,7 @@ CC 来源链接相对本仓库。nxs 下文路径相对上述外部仓库，仅�
 ### 不直接采用的 CC 做法
 
 - `Tool.ts` 同时包含 React 渲染能力；Kevin 内核不能依赖 UI。
-- [SkillTool.ts](../../nexus-code/src-origin/tools/SkillTool/SkillTool.ts) 会将 Skill 的 allowedTools 加入权限规则；Kevin 保持“加载 Skill 不授予工具权限”。[loadSkillsDir.ts](../../nexus-code/src-origin/skills/loadSkillsDir.ts) 的本地动态 shell 展开也不能成为旁路执行入口。
+- [SkillTool.ts](../../../nexus-code/src-origin/tools/SkillTool/SkillTool.ts) 会将 Skill 的 allowedTools 加入权限规则；Kevin 保持“加载 Skill 不授予工具权限”。[loadSkillsDir.ts](../../../nexus-code/src-origin/skills/loadSkillsDir.ts) 的本地动态 shell 展开也不能成为旁路执行入口。
 - 不因 CC 有流式工具执行，就在模型完整 turn 校验之前执行副作用工具；如未来需要，应独立设计并证明安全边界。
 - 不复制 IDE、OAuth、团队、遥测、实验开关或整个目录树。
 - `query.ts` 引用的 `services/compact/reactiveCompact.ts` 在该快照缺失；不能根据导入语句宣称已读到或验证其完整实现。

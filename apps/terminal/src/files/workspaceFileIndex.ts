@@ -2,7 +2,7 @@ import {execFile} from 'node:child_process'
 import {promisify} from 'node:util'
 
 const execFileAsync = promisify(execFile)
-const ignoredPathParts = new Set(['.git', 'node_modules', 'nexus-code', 'reference', 'artifacts', 'logs'])
+const ignoredPathParts = new Set(['.git', 'node_modules', 'reference', 'artifacts', 'logs'])
 
 /** Git fallback preserves ignored-file filtering when optional ripgrep is unavailable. */
 export async function readWorkspaceFileIndex(cwd: string, options: {rgCommand?: string} = {}): Promise<string[]> {

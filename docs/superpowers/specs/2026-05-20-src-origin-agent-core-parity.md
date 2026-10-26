@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make `src/agents` capability-compatible with `nexus-code/src-origin` at the agent core and SDK boundary.
+Make `src/agents` capability-compatible with `nexus-code/src-origin` (now a sibling local checkout outside this repo) at the agent core and SDK boundary.
 
 The target is not a literal TypeScript port. The target is behavioral parity:
 

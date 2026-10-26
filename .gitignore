@@ -26,7 +26,6 @@ config/local.toml
 .idea/
 .vscode/
 old/
-nexus-code/
 Library/
 **/.DS_Store
 !apps/web/dist/
