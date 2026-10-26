@@ -1,27 +1,46 @@
-<h1 align="center">Kevin</h1>
+<a id="top"></a>
 
 <p align="center">
-  <strong>面向代码、资料与日常工作的开源个人智能体。</strong>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/kevin-banner-dark.svg">
+    <img src="assets/kevin-banner-light.svg" alt="Kevin — 个人智能体" width="100%">
+  </picture>
 </p>
+
+<h3 align="center">面向代码、资料与日常工作的开源个人智能体。</h3>
+
 <p align="center">
-  本地运行，自选模型，工作过程可查看。
+  <a href="https://github.com/Pixeldooooog/Agents/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Pixeldooooog/Agents/ci.yml?branch=main&style=flat-square&label=CI" alt="CI 状态"></a>
+  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript"></a>
+  <a href="https://bun.sh/"><img src="https://img.shields.io/badge/Bun-1.4.4-14151A?style=flat-square&logo=bun&logoColor=white" alt="Bun 1.4.4"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-0f6b5f?style=flat-square" alt="MIT 许可证"></a>
+  <img src="https://img.shields.io/badge/%E7%8A%B6%E6%80%81-%E5%BC%80%E5%8F%91%E9%A2%84%E8%A7%88-a96f16?style=flat-square" alt="开发预览">
 </p>
 
 <p align="center">
-  <a href="https://github.com/Pixeldooooog/Agents/actions/workflows/ci.yml"><img src="https://github.com/Pixeldooooog/Agents/actions/workflows/ci.yml/badge.svg" alt="CI 状态"></a>
-  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white" alt="TypeScript"></a>
-  <a href="https://bun.sh/"><img src="https://img.shields.io/badge/Bun-1.4.4-14151A?logo=bun&logoColor=white" alt="Bun 1.4.4"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-22A06B" alt="MIT 许可证"></a>
+  <a href="README.md">English</a> · <b>简体中文</b>
+  <br>
+  <a href="#快速开始">快速开始</a> · <a href="#现有能力">现有能力</a> · <a href="#架构">架构</a> · <a href="#路线图">路线图</a> · <a href="#文档">文档</a> · <a href="#参与贡献">参与贡献</a>
 </p>
 
-<p align="center">
-  <a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a>
-</p>
-<p align="center">
-  <a href="#快速开始">快速开始</a> · <a href="#现有能力">现有能力</a> · <a href="#路线图">路线图</a> · <a href="#文档">文档</a> · <a href="#参与贡献">参与贡献</a>
-</p>
+<br>
 
----
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <h4>🖥️&nbsp; 本地运行</h4>
+      Kevin 运行在你的机器上，Host 默认监听 <code>127.0.0.1</code>。模型请求只发送到你配置的服务地址。
+    </td>
+    <td width="33%" valign="top">
+      <h4>🔌&nbsp; 自选模型</h4>
+      OpenAI、Claude、Gemini 或任意 OpenAI-compatible 服务，通过命名配置切换。
+    </td>
+    <td width="33%" valign="top">
+      <h4>🔍&nbsp; 过程可查</h4>
+      工具调用以事件形式呈现，受启用/禁用规则与显式审批请求约束。
+    </td>
+  </tr>
+</table>
 
 Kevin 正在成为一个围绕你的文件、工具和项目工作的个人智能体。你可以在同一个地方交办工作、查看进展，并逐步积累可以继续使用的项目上下文。
 
@@ -32,21 +51,44 @@ Kevin 正在成为一个围绕你的文件、工具和项目工作的个人智�
 
 ## 现有能力
 
-| 能力 | 当前基础 |
-| --- | --- |
-| **围绕代码仓库工作** | 读取和编辑文件、搜索代码、应用补丁、查看 Git 变更，以及运行命令和测试。 |
-| **选择适合的模型** | 支持 OpenAI Chat Completions、OpenAI Responses、Claude Messages、Gemini 协议适配，以及命名的 OpenAI-compatible 配置。 |
-| **查看和审批执行** | 运行时提供工具事件、工具启用/禁用规则和显式审批请求。 |
-| **限制执行开销** | 有限工具循环、参数校验、命令输出上限、超时，以及通过运行时信号取消命令。 |
-| **扩展工作方式** | 内置 Web 检索、Skill、MCP 资源/提示词、任务和工作空间操作，并提供 TypeScript SDK 与 HTTP 入口。 |
-
-工具注册表目前包含 **120 个内置工具**。存在注册和本地测试不代表完整集成已经验收；模型账号、外部服务和具体工具行为仍需在目标环境验证。
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <h4>📁&nbsp; 围绕代码仓库工作</h4>
+      读取和编辑文件、搜索代码、应用补丁、查看 Git 变更，以及运行命令和测试。
+    </td>
+    <td width="50%" valign="top">
+      <h4>🧠&nbsp; 选择适合的模型</h4>
+      支持 OpenAI Chat Completions、OpenAI Responses、Claude Messages、Gemini 协议适配，以及命名的 OpenAI-compatible 配置。
+    </td>
+  </tr>
+  <tr>
+    <td valign="top">
+      <h4>✅&nbsp; 查看和审批执行</h4>
+      运行时提供工具事件、工具启用/禁用规则和显式审批请求。
+    </td>
+    <td valign="top">
+      <h4>⏱️&nbsp; 限制执行开销</h4>
+      有限工具循环、参数校验、命令输出上限、超时，以及通过运行时信号取消命令。
+    </td>
+  </tr>
+  <tr>
+    <td valign="top">
+      <h4>🧩&nbsp; 扩展工作方式</h4>
+      内置 Web 检索、Skill、MCP 资源/提示词、任务和工作空间操作，并提供 TypeScript SDK 与 HTTP 入口。
+    </td>
+    <td valign="top">
+      <h4>🧰&nbsp; 120 个内置工具</h4>
+      存在注册和本地测试不代表完整集成已经验收；模型账号、外部服务和具体工具行为仍需在目标环境验证。
+    </td>
+  </tr>
+</table>
 
 ## 快速开始
 
 准备 **Git**、**[Bun 1.4.4](https://bun.sh/)** 和受支持模型服务的凭据。建议从 macOS 或 Linux 开始；Windows 命令执行尚未启用。本地使用不要求 Docker。
 
-### 1. 获取代码
+### ① 获取代码
 
 ```bash
 git clone https://github.com/Pixeldooooog/Agents.git kevin
@@ -57,7 +99,7 @@ cp .env.example .env
 
 产品名称为 **Kevin**。命名迁移期间，仓库地址、包名、环境变量前缀和部分界面文案仍保留 `Agents`。
 
-### 2. 配置模型
+### ② 配置模型
 
 编辑 `.env`，填入你的 API key 和账号可用的模型 ID：
 
@@ -68,7 +110,7 @@ OPENAI_MODEL=your-model-id
 
 使用 OpenAI-compatible 服务时，再设置 `OPENAI_BASE_URL`。其他服务和命名模型配置见[配置说明](docs/configuration.md)。本地运行不等于离线推理：模型请求会发送到你配置的服务地址。
 
-### 3. 打开 Kevin
+### ③ 打开 Kevin
 
 ```bash
 bun run web
@@ -96,10 +138,12 @@ bun run tui
 
 ## 执行与数据
 
-- **默认本地访问。** HTTP Host 监听 `127.0.0.1`；非回环地址必须配置 `ACCESS_TOKEN`，跨源浏览器访问需要显式允许。
-- **当前是宿主执行。** 本地命令可以访问宿主文件、网络和继承的环境变量。要求隔离的请求会被拒绝；平台沙箱适配器留待后续独立交付。
-- **命令有界。** 默认超时 30 秒，上限 120 秒。stdout、stderr 各保留最多 128 KiB，超限结果明确标记截断。
-- **当前存储。** Run、Task 使用 JSON store。SQLite 已完成可行性试验，正式适配器、崩溃恢复与持久调度尚未接入。
+| | 当前行为 |
+| --- | --- |
+| 🔒 **默认本地访问** | HTTP Host 监听 `127.0.0.1`；非回环地址必须配置 `ACCESS_TOKEN`，跨源浏览器访问需要显式允许。 |
+| ⚠️ **当前是宿主执行** | 本地命令可以访问宿主文件、网络和继承的环境变量。要求隔离的请求会被拒绝；平台沙箱适配器留待后续独立交付。 |
+| ⏱️ **命令有界** | 默认超时 **30 秒**，上限 **120 秒**。stdout、stderr 各保留最多 **128 KiB**，超限结果明确标记截断。 |
+| 💾 **当前存储** | Run、Task 使用 JSON store。SQLite 已完成可行性试验，正式适配器、崩溃恢复与持久调度尚未接入。 |
 
 修改部署或执行设置前，请阅读[执行器决策记录](docs/baseline/adr-001-local-execution.md)和[配置说明](docs/configuration.md)。
 
@@ -117,6 +161,13 @@ flowchart LR
     Tools --> Executor[命令执行器接口]
     Executor --> Local[LocalExecutor]
     Store --> JSON[JSON 适配器]
+
+    classDef client fill:#e7f1ef,stroke:#0f6b5f,color:#0b4d44
+    classDef core fill:#0f6b5f,stroke:#0b4d44,color:#ffffff
+    classDef port fill:#f4f5f2,stroke:#9b9f98,color:#20221f
+    class Web,Terminal,SDK client
+    class Host,Core core
+    class Models,Tools,Store,Executor,Local,JSON port
 ```
 
 Core 负责模型回合、工具调度、执行契约和存储接口；客户端负责交互，Host 组装服务。原生沙箱和持久存储将在完成实现后接入专门的接口。
@@ -143,12 +194,12 @@ deploy/        可选容器部署
 
 | 阶段 | 重点 | 状态 |
 | --- | --- | --- |
-| **B0 — 基础契约** | 能力映射、版本化契约、存储接口、安全默认值 | 进行中，已有首批实现和证据 |
-| **B1 — 可靠执行** | 模型/工具行为、授权、执行上限与取消 | 进行中 |
-| **B2 — 持久工作** | SQLite、任务所有权、动作账本、恢复、预算和调度 | 规划中 |
-| **B3 — 完整基线** | Markdown 记忆、产物、多端一致性与集成验收 | 规划中 |
-| **P1–P3 — 个人产品** | 身份、目标、例行工作、交互和分发 | 规划中 |
-| **C1 — 云端执行** | 独立的远程 Worker 与控制平面架构 | 规划中 |
+| **B0 — 基础契约** | 能力映射、版本化契约、存储接口、安全默认值 | <img src="https://img.shields.io/badge/-%E8%BF%9B%E8%A1%8C%E4%B8%AD-0f6b5f?style=flat-square" alt="进行中"><br><sub>已有首批实现和证据</sub> |
+| **B1 — 可靠执行** | 模型/工具行为、授权、执行上限与取消 | <img src="https://img.shields.io/badge/-%E8%BF%9B%E8%A1%8C%E4%B8%AD-0f6b5f?style=flat-square" alt="进行中"> |
+| **B2 — 持久工作** | SQLite、任务所有权、动作账本、恢复、预算和调度 | <img src="https://img.shields.io/badge/-%E8%A7%84%E5%88%92%E4%B8%AD-9b9f98?style=flat-square" alt="规划中"> |
+| **B3 — 完整基线** | Markdown 记忆、产物、多端一致性与集成验收 | <img src="https://img.shields.io/badge/-%E8%A7%84%E5%88%92%E4%B8%AD-9b9f98?style=flat-square" alt="规划中"> |
+| **P1–P3 — 个人产品** | 身份、目标、例行工作、交互和分发 | <img src="https://img.shields.io/badge/-%E8%A7%84%E5%88%92%E4%B8%AD-9b9f98?style=flat-square" alt="规划中"> |
+| **C1 — 云端执行** | 独立的远程 Worker 与控制平面架构 | <img src="https://img.shields.io/badge/-%E8%A7%84%E5%88%92%E4%B8%AD-9b9f98?style=flat-square" alt="规划中"> |
 
 原生沙箱后端**独立暂缓**，不阻塞其余基线工作。当前本地执行不宣称具备沙箱隔离。
 
@@ -191,3 +242,5 @@ bun run check         # 类型检查、Web 构建、测试和终端检查
 ## 许可证
 
 [MIT](LICENSE)。
+
+<p align="right"><a href="#top">回到顶部 ↑</a></p>

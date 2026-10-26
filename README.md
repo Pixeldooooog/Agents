@@ -1,27 +1,46 @@
-<h1 align="center">Kevin</h1>
+<a id="top"></a>
 
 <p align="center">
-  <strong>An open-source personal AI agent for code, research, and everyday work.</strong>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/kevin-banner-dark.svg">
+    <img src="assets/kevin-banner-light.svg" alt="Kevin — personal AI agent" width="100%">
+  </picture>
 </p>
+
+<h3 align="center">An open-source personal AI agent for code, research, and everyday work.</h3>
+
 <p align="center">
-  Run locally. Bring your model. Inspect the work.
+  <a href="https://github.com/Pixeldooooog/Agents/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Pixeldooooog/Agents/ci.yml?branch=main&style=flat-square&label=CI" alt="CI status"></a>
+  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript"></a>
+  <a href="https://bun.sh/"><img src="https://img.shields.io/badge/Bun-1.4.4-14151A?style=flat-square&logo=bun&logoColor=white" alt="Bun 1.4.4"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-0f6b5f?style=flat-square" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/status-development_preview-a96f16?style=flat-square" alt="Development preview">
 </p>
 
 <p align="center">
-  <a href="https://github.com/Pixeldooooog/Agents/actions/workflows/ci.yml"><img src="https://github.com/Pixeldooooog/Agents/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white" alt="TypeScript"></a>
-  <a href="https://bun.sh/"><img src="https://img.shields.io/badge/Bun-1.4.4-14151A?logo=bun&logoColor=white" alt="Bun 1.4.4"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-22A06B" alt="MIT license"></a>
+  <b>English</b> · <a href="README.zh-CN.md">简体中文</a>
+  <br>
+  <a href="#quick-start">Quick start</a> · <a href="#what-you-can-build-on">Capabilities</a> · <a href="#architecture">Architecture</a> · <a href="#roadmap">Roadmap</a> · <a href="#documentation">Docs</a> · <a href="#contributing">Contributing</a>
 </p>
 
-<p align="center">
-  <a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a>
-</p>
-<p align="center">
-  <a href="#quick-start">Quick start</a> · <a href="#what-you-can-build-on">Capabilities</a> · <a href="#roadmap">Roadmap</a> · <a href="#documentation">Documentation</a> · <a href="#contributing">Contributing</a>
-</p>
+<br>
 
----
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <h4>🖥️&nbsp; Run locally</h4>
+      Kevin runs on your machine and the host binds to <code>127.0.0.1</code>. Model requests go only to the endpoint you configure.
+    </td>
+    <td width="33%" valign="top">
+      <h4>🔌&nbsp; Bring your model</h4>
+      OpenAI, Claude, Gemini, or any OpenAI-compatible endpoint — switch with a named profile.
+    </td>
+    <td width="33%" valign="top">
+      <h4>🔍&nbsp; Inspect the work</h4>
+      Tool calls surface as reviewable events, governed by allow/deny rules and explicit approval requests.
+    </td>
+  </tr>
+</table>
 
 Kevin is being built as a personal agent that works with your files, tools, and projects. The goal is one place to hand off work, review progress, and carry useful context forward.
 
@@ -32,21 +51,44 @@ Today, the repository provides a TypeScript agent runtime, a browser interface, 
 
 ## What you can build on
 
-| Capability | Current foundation |
-| --- | --- |
-| **Work with a repository** | Read and edit files, search code, apply patches, inspect Git changes, and run commands or tests. |
-| **Choose your model** | Protocol adapters for OpenAI Chat Completions, OpenAI Responses, Claude Messages, and Gemini, plus named OpenAI-compatible profiles. |
-| **Review execution** | Tool events, enabled/denied tool rules, and explicit approval requests in the runtime. |
-| **Keep execution bounded** | Finite tool loops, validated tool parameters, capped command output, timeouts, and command cancellation through runtime signals. |
-| **Extend the workflow** | Built-in tools for web retrieval, skills, MCP resources/prompts, tasks, and workspace operations; TypeScript SDK and HTTP entrypoints. |
-
-The registry currently contains **120 built-in tools**. Registration and local tests do not establish full integration support: provider credentials, external services, and individual tool behavior still need validation in the target environment.
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <h4>📁&nbsp; Work with a repository</h4>
+      Read and edit files, search code, apply patches, inspect Git changes, and run commands or tests.
+    </td>
+    <td width="50%" valign="top">
+      <h4>🧠&nbsp; Choose your model</h4>
+      Protocol adapters for OpenAI Chat Completions, OpenAI Responses, Claude Messages, and Gemini, plus named OpenAI-compatible profiles.
+    </td>
+  </tr>
+  <tr>
+    <td valign="top">
+      <h4>✅&nbsp; Review execution</h4>
+      Tool events, enabled/denied tool rules, and explicit approval requests in the runtime.
+    </td>
+    <td valign="top">
+      <h4>⏱️&nbsp; Keep execution bounded</h4>
+      Finite tool loops, validated tool parameters, capped command output, timeouts, and command cancellation through runtime signals.
+    </td>
+  </tr>
+  <tr>
+    <td valign="top">
+      <h4>🧩&nbsp; Extend the workflow</h4>
+      Built-in tools for web retrieval, skills, MCP resources/prompts, tasks, and workspace operations; TypeScript SDK and HTTP entrypoints.
+    </td>
+    <td valign="top">
+      <h4>🧰&nbsp; 120 built-in tools</h4>
+      Registration and local tests do not establish full integration support: provider credentials, external services, and individual tool behavior still need validation in the target environment.
+    </td>
+  </tr>
+</table>
 
 ## Quick start
 
 You need **Git**, **[Bun 1.4.4](https://bun.sh/)**, and credentials for a supported model provider. Start on macOS or Linux; Windows command execution is not enabled yet. Docker is optional.
 
-### 1. Get the source
+### ① Get the source
 
 ```bash
 git clone https://github.com/Pixeldooooog/Agents.git kevin
@@ -57,7 +99,7 @@ cp .env.example .env
 
 The product is named **Kevin**. The repository URL, package names, environment-variable prefixes, and some interface labels still use `Agents` during the naming transition.
 
-### 2. Configure a model
+### ② Configure a model
 
 Edit `.env` with a key and a model ID available to your account:
 
@@ -68,7 +110,7 @@ OPENAI_MODEL=your-model-id
 
 For an OpenAI-compatible endpoint, also set `OPENAI_BASE_URL`. See [configuration](docs/configuration.md) for other providers and named profiles. Local execution does not mean offline inference: model requests go to the endpoint you configure.
 
-### 3. Open Kevin
+### ③ Open Kevin
 
 ```bash
 bun run web
@@ -96,10 +138,12 @@ Then try a scoped change:
 
 ## Execution and data
 
-- **Local by default.** The HTTP host binds to `127.0.0.1`. Non-loopback binding requires `ACCESS_TOKEN`; browser origins must be explicitly allowed.
-- **Host execution today.** Local commands can access the host's files, network, and inherited environment. Requests requiring isolation fail closed. Platform sandbox adapters are reserved for a later release.
-- **Bounded commands.** Commands default to 30 seconds with a 120-second ceiling. stdout and stderr each retain up to 128 KiB; larger results are explicitly marked as truncated.
-- **Current storage.** Runs and tasks use a JSON store. SQLite has a feasibility spike, but a production adapter, crash recovery, and durable scheduling are not integrated yet.
+| | Today's behavior |
+| --- | --- |
+| 🔒 **Local by default** | The HTTP host binds to `127.0.0.1`. Non-loopback binding requires `ACCESS_TOKEN`; browser origins must be explicitly allowed. |
+| ⚠️ **Host execution** | Local commands can access the host's files, network, and inherited environment. Requests requiring isolation fail closed. Platform sandbox adapters are reserved for a later release. |
+| ⏱️ **Bounded commands** | Commands default to **30 s** with a **120 s** ceiling. stdout and stderr each retain up to **128 KiB**; larger results are explicitly marked as truncated. |
+| 💾 **Current storage** | Runs and tasks use a JSON store. SQLite has a feasibility spike, but a production adapter, crash recovery, and durable scheduling are not integrated yet. |
 
 Read the [execution decision record](docs/baseline/adr-001-local-execution.md) and [configuration reference](docs/configuration.md) before changing deployment or execution settings.
 
@@ -117,6 +161,13 @@ flowchart LR
     Tools --> Executor[Command executor port]
     Executor --> Local[LocalExecutor]
     Store --> JSON[JSON adapter]
+
+    classDef client fill:#e7f1ef,stroke:#0f6b5f,color:#0b4d44
+    classDef core fill:#0f6b5f,stroke:#0b4d44,color:#ffffff
+    classDef port fill:#f4f5f2,stroke:#9b9f98,color:#20221f
+    class Web,Terminal,SDK client
+    class Host,Core core
+    class Models,Tools,Store,Executor,Local,JSON port
 ```
 
 The core owns model turns, tool dispatch, execution contracts, and storage interfaces. Clients provide interaction; the host assembles services. Native sandbox backends and durable storage plug into dedicated interfaces as they are implemented.
@@ -143,12 +194,12 @@ deploy/        Optional container deployment
 
 | Phase | Focus | Status |
 | --- | --- | --- |
-| **B0 — Foundation** | Capability mapping, versioned contracts, storage ports, safe defaults | In progress; first implementation and evidence available |
-| **B1 — Reliable execution** | Model/tool behavior, authorization, bounds, and cancellation | In progress |
-| **B2 — Durable work** | SQLite, task ownership, action ledger, recovery, budgets, and scheduling | Planned |
-| **B3 — Complete baseline** | Markdown memory, artifacts, client consistency, and integration acceptance | Planned |
-| **P1–P3 — Personal product** | Identity, goals, routines, interaction, and distribution | Planned |
-| **C1 — Cloud execution** | Separate remote worker and control-plane architecture | Planned |
+| **B0 — Foundation** | Capability mapping, versioned contracts, storage ports, safe defaults | <img src="https://img.shields.io/badge/-In%20progress-0f6b5f?style=flat-square" alt="In progress"><br><sub>First implementation and evidence available</sub> |
+| **B1 — Reliable execution** | Model/tool behavior, authorization, bounds, and cancellation | <img src="https://img.shields.io/badge/-In%20progress-0f6b5f?style=flat-square" alt="In progress"> |
+| **B2 — Durable work** | SQLite, task ownership, action ledger, recovery, budgets, and scheduling | <img src="https://img.shields.io/badge/-Planned-9b9f98?style=flat-square" alt="Planned"> |
+| **B3 — Complete baseline** | Markdown memory, artifacts, client consistency, and integration acceptance | <img src="https://img.shields.io/badge/-Planned-9b9f98?style=flat-square" alt="Planned"> |
+| **P1–P3 — Personal product** | Identity, goals, routines, interaction, and distribution | <img src="https://img.shields.io/badge/-Planned-9b9f98?style=flat-square" alt="Planned"> |
+| **C1 — Cloud execution** | Separate remote worker and control-plane architecture | <img src="https://img.shields.io/badge/-Planned-9b9f98?style=flat-square" alt="Planned"> |
 
 Native sandbox backends are **deferred independently** and do not block the remaining baseline work. Current local execution is not advertised as sandboxed.
 
@@ -191,3 +242,5 @@ For frontend development, configure `CORS_ORIGINS=http://localhost:5173,http://1
 ## License
 
 [MIT](LICENSE).
+
+<p align="right"><a href="#top">Back to top ↑</a></p>
