@@ -30,3 +30,6 @@ nexus-code/
 Library/
 **/.DS_Store
 !apps/web/dist/
+
+# Local development references (not part of the build)
+reference/

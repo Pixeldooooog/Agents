@@ -1,7 +1,7 @@
 # Module Map
 
 Kernel ownership and implementation sequence: [kernel boundaries](architecture/kernel-boundaries.md).
-Planned SDK package layout and migration: [SDK design PRD](architecture/sdk-design-prd.md).
+Planned SDK package layout and migration: [SDK design PRD](architecture/sdk-design-prd.md). The previous `core/src/sdk` was removed; a local untracked copy may exist under `reference/`.
 
 ## Workspace
 
@@ -41,12 +41,6 @@ packages/core  -> no app imports
 ## packages/core
 
 - `src/index.ts`: Public exports only.
-- `src/sdk/index.ts`: Public SDK subpath exports for embedders.
-- `src/sdk/agentSdkClient.ts`: TS-native SDK client for query streams, prompt results, and session creation.
-- `src/sdk/sdkSession.ts`: Stable SDK session handle that carries a session id across prompts.
-- `src/sdk/sdkSessionRecords.ts`: SDK session list, info, and persisted message replay projection from run records.
-- `src/sdk/sdkTypes.ts`: SDK query options plus projected stream, approval, tool, result, and replay message contracts.
-- `src/sdk/sdkMessageQueue.ts`: Internal async queue for SDK stream delivery.
 - `src/types/`: Domain contracts; `coreTypes.ts` stays as the public type barrel.
 - `src/config/settings.ts`: Settings types and assembled runtime configuration.
 - `src/config/configFileReaders.ts`: `.env` and simplified TOML file parsing plus config-tree merging.
@@ -77,8 +71,8 @@ packages/core  -> no app imports
 - `src/permissions/permissionRuleSets.ts`: Permission rule grouping and mutation helpers.
 - `src/permissions/permissionDecisions.ts`: Tool permission decisions and explanation payloads.
 - `src/permissions/permissionPayloads.ts`: Permission status and source response shaping.
-- `src/runtime/agentRuntime.ts`: Public SDK runtime entry class for in-memory turn execution and approval continuation.
-- `src/runtime/agentRunService.ts`: Persistent SDK run lifecycle service for spec defaulting, run creation, event recording, approval resume, and final status updates.
+- `src/runtime/agentRuntime.ts`: Runtime entry class for in-memory turn execution and approval continuation.
+- `src/runtime/agentRunService.ts`: Persistent run lifecycle service for spec defaulting, run creation, event recording, approval resume, and final status updates.
 - `src/runtime/runtimeLimits.ts`: Runtime tool-loop limit resolution from settings and structured runtime options.
 - `src/runtime/runtimeOptions.ts`: Runtime dependency contract and tool execution context assembly.
 - `src/runtime/runtimeMessages.ts`: Runtime system/user message construction, memory context, skill metadata, and workspace instructions.
@@ -87,29 +81,6 @@ packages/core  -> no app imports
 - `src/runtime/runtimeToolExecution.ts`: Tool-call execution, pending approval resolution, denied tool results, and tool-result message insertion.
 - `src/runtime/runtimeToolPermissions.ts`: Runtime tool deny and approval gate helpers.
 - `src/runtime/operationFrames.ts`: Operation-frame projection.
-- `src/sdk/agentSdkClient.ts`: Public SDK client for query streams, prompt results, session listing, replay, approval resume, and SDK MCP handler registration.
-- `src/sdk/sdkSession.ts`: Session-scoped SDK facade.
-- `src/sdk/sdkTypes.ts`: SDK query options and public message contracts.
-- `src/sdk/sdkJsonl.ts`: Strict SDK JSONL frame encoding, decoding, and message validation.
-- `src/sdk/sdkJsonlTransport.ts`: SDK JSONL transport contract plus typed read/write helpers.
-- `src/sdk/sdkJsonlTransportRunner.ts`: Bidirectional SDK JSONL transport runner that pumps structured IO outbound messages and emits accepted inbound wire messages.
-- `src/sdk/sdkProtocolRunner.ts`: AgentSdkClient protocol runner for SDK wire messages and concurrent JSONL user/control processing.
-- `src/sdk/sdkQueueJsonlTransport.ts`: In-process SDK JSONL queue transport for embedding and tests.
-- `src/sdk/sdkActiveTurns.ts`: Active SDK turn registry for session, run, and async user-message cancellation.
-- `src/sdk/sdkCommandRecords.ts`: SDK command payload projection helpers.
-- `src/sdk/sdkControlTypes.ts`: SDK control request, response, cancel, keepalive, and wire-message contracts.
-- `src/sdk/sdkControlHandlers.ts`: Default SDK control response routing backed by settings, tools, model profiles, commands, and MCP control handlers.
-- `src/sdk/sdkControlSettings.ts`: SDK control-request settings mutation and effective settings response shaping.
-- `src/sdk/sdkInteractionControlHandlers.ts`: SDK hook callback and elicitation control handlers backed by registered client callbacks.
-- `src/sdk/sdkMcpControlHandlers.ts`: SDK MCP status, set-server, toggle, message, and reconnect control handlers backed by SDK MCP handlers and persisted MCP server records.
-- `src/sdk/sdkMcpControlRecords.ts`: SDK MCP control scope, record construction, status projection, and status merge helpers.
-- `src/sdk/sdkPluginControlHandlers.ts`: SDK plugin reload control handler for commands, skills, plugins, agents, and MCP status.
-- `src/sdk/sdkTaskControlHandlers.ts`: SDK task control handlers for scoped task cancellation.
-- `src/sdk/sdkTurnControlHandlers.ts`: SDK interrupt and async-message cancellation control handlers.
-- `src/sdk/sdkStructuredIo.ts`: Structured SDK control IO with outbound FIFO, pending response resolution, cancellation, and duplicate permission-response suppression.
-- `src/sdk/sdkWireValidation.ts`: Runtime validation for SDK event and control wire messages.
-- `src/sdk/sdkMessageQueue.ts`: Internal async queue primitive for SDK streams and queue transports.
-- `src/sdk/sdkSessionRecords.ts`: Session list, info, and replay projection from persisted runs.
 - `src/store/jsonStateStore.ts`: JSON state store API.
 - `src/store/jsonRunStore.ts`: JSON state run facade methods.
 - `src/store/jsonTaskStore.ts`: JSON state task facade methods.
