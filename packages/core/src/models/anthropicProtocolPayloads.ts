@@ -1,8 +1,10 @@
+import { ModelProtocolError } from "./modelErrors.js";
+import { parseFunctionCall, requireArray, requireRecord, validateCallIds } from "./modelProtocolValidation.js";
 import type { ModelToolDefinition, ModelTurn } from "../types/modelTypes.js";
 import type { Message, ToolCall } from "../types/runtimeTypes.js";
 import type { ModelClientConfig } from "./modelClientTypes.js";
 import { modelUsageFromClaude } from "./modelUsage.js";
-import { objectArguments, recordArray, recordValue, stringValue } from "./modelProtocolValues.js";
+import { recordValue, stringValue } from "./modelProtocolValues.js";
 
 export function claudeMessagesRequestBody(
   config: ModelClientConfig,
@@ -33,7 +35,11 @@ export function claudeMessagesRequestBody(
 }
 
 export function parseClaudeMessagesTurn(payload: unknown): ModelTurn {
-  const content = recordArray(recordValue(payload).content);
+  const root = requireRecord(payload, "Messages response");
+  if (root.type === "error" || root.stop_reason === "max_tokens" || root.stop_reason === "pause_turn") {
+    throw new ModelProtocolError("Messages response did not complete normally");
+  }
+  const content = requireArray(root.content, "Messages content").map(block => requireRecord(block, "Messages content block"));
   return {
     content: content.map(claudeTextBlock).join(""),
     tool_calls: parseClaudeToolCalls(content),
@@ -92,16 +98,8 @@ function appendClaudeToolResult(
 }
 
 function parseClaudeToolCalls(content: Record<string, unknown>[]): ToolCall[] {
-  return content
-    .map((block, index) => {
-      if (block.type !== "tool_use") return undefined;
-      return {
-        id: stringValue(block.id) || `tool_${index}`,
-        name: stringValue(block.name),
-        arguments: objectArguments(block.input)
-      };
-    })
-    .filter((toolCall): toolCall is ToolCall => Boolean(toolCall?.name));
+  return validateCallIds(content.filter(block => block.type === "tool_use")
+    .map(block => parseFunctionCall(block.id, block.name, block.input, "object")));
 }
 
 function claudeTextBlock(block: Record<string, unknown>): string {

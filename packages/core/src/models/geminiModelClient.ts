@@ -1,3 +1,6 @@
+import { requireArray, requireRecord } from "./modelProtocolValidation.js";
+import { recordArray, recordValue, stringValue } from "./modelProtocolValues.js";
+import { ModelProtocolError } from "./modelErrors.js";
 import type { Message } from "../types/runtimeTypes.js";
 import type { ModelTurn } from "../types/modelTypes.js";
 import type { ModelClientConfig } from "./modelClientTypes.js";
@@ -20,9 +23,16 @@ export async function geminiComplete(config: ModelClientConfig, messages: Messag
     contents,
     systemInstruction: { parts: [{ text: systemText }] }
   }, false);
+  const root = requireRecord(payload, "Gemini response");
+  const candidate = requireRecord(requireArray(root.candidates, "Gemini candidates")[0], "Gemini first candidate");
+  if (candidate.finishReason !== undefined && candidate.finishReason !== "STOP") {
+    throw new ModelProtocolError("Gemini response did not complete normally");
+  }
+  const parts = recordArray(recordValue(candidate.content).parts);
+  if (parts.some(part => part.functionCall)) throw new ModelProtocolError("Gemini function calls are not implemented");
   return {
-    content: String(payload.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || "").join("") || ""),
+    content: parts.map(part => stringValue(part.text)).join(""),
     tool_calls: [],
-    usage: modelUsageFromGemini(payload.usageMetadata)
+    usage: modelUsageFromGemini(root.usageMetadata)
   };
 }

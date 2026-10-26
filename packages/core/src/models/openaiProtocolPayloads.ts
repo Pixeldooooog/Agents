@@ -1,9 +1,10 @@
 import type { ModelToolDefinition, ModelTurn } from "../types/modelTypes.js";
 import type { Message, ToolCall } from "../types/runtimeTypes.js";
 import type { ModelClientConfig } from "./modelClientTypes.js";
-import { parseModelJson } from "./modelHttp.js";
+import { ModelProtocolError } from "./modelErrors.js";
+import { parseFunctionCall, requireArray, requireRecord, validateCallIds } from "./modelProtocolValidation.js";
 import { modelUsageFromOpenAIChat, modelUsageFromOpenAIResponses } from "./modelUsage.js";
-import { objectArguments, recordArray, recordValue, stringValue } from "./modelProtocolValues.js";
+import { recordArray, recordValue, stringValue } from "./modelProtocolValues.js";
 
 export function openAIChatRequestBody(
   config: ModelClientConfig,
@@ -20,10 +21,21 @@ export function openAIChatRequestBody(
 }
 
 export function parseOpenAIChatTurn(payload: unknown): ModelTurn {
-  const choice = recordArray(recordValue(payload).choices)[0] || {};
-  const message = recordValue(choice.message);
+  const root = requireRecord(payload, "Chat response");
+  const choices = requireArray(root.choices, "Chat choices");
+  const choice = requireRecord(choices[0], "Chat first choice");
+  if (choice.finish_reason === "length" || choice.finish_reason === "content_filter") {
+    throw new ModelProtocolError("Chat response did not complete normally");
+  }
+  const message = requireRecord(choice.message, "Chat message");
+  if (message.content === undefined && message.refusal === undefined && message.tool_calls === undefined) {
+    throw new ModelProtocolError("Chat message has no content or tool calls");
+  }
+  if (message.content != null && typeof message.content !== "string") {
+    throw new ModelProtocolError("Chat message content must be text or null");
+  }
   return {
-    content: stringValue(message.content),
+    content: stringValue(message.content ?? message.refusal),
     tool_calls: parseOpenAIToolCalls(message.tool_calls),
     usage: modelUsageFromOpenAIChat(recordValue(payload).usage)
   };
@@ -51,6 +63,11 @@ export function responsesRequestBody(
 }
 
 export function parseResponsesTurn(payload: unknown): ModelTurn {
+  const root = requireRecord(payload, "Responses response");
+  if (root.error || (root.status !== undefined && root.status !== "completed")) {
+    throw new ModelProtocolError("Responses response did not complete normally");
+  }
+  requireArray(root.output, "Responses output");
   return {
     content: responseOutputText(payload),
     tool_calls: parseResponsesToolCalls(recordValue(payload).output),
@@ -108,29 +125,24 @@ export function toResponsesInput(messages: Message[]): unknown[] {
 }
 
 function parseOpenAIToolCalls(value: unknown): ToolCall[] {
-  return recordArray(value)
-    .map((payload, index) => {
-      const fn = recordValue(payload.function);
-      return {
-        id: stringValue(payload.id) || `tool_${index}`,
-        name: stringValue(fn.name) || stringValue(payload.name),
-        arguments: parseToolArguments(fn.arguments || payload.arguments)
-      };
-    })
-    .filter((toolCall) => toolCall.name);
+  if (value === undefined) return [];
+  return validateCallIds(requireArray(value, "Chat tool calls").map(item => {
+    const call = requireRecord(item, "Chat tool call");
+    if (call.type !== undefined && call.type !== "function") throw new ModelProtocolError("unsupported Chat tool call type");
+    const fn = requireRecord(call.function, "Chat tool function");
+    return parseFunctionCall(call.id, fn.name, fn.arguments, "json");
+  }));
 }
 
 function parseResponsesToolCalls(value: unknown): ToolCall[] {
-  return recordArray(value)
-    .map((payload, index) => {
-      if (payload.type !== "function_call") return undefined;
-      return {
-        id: stringValue(payload.call_id) || stringValue(payload.id) || `tool_${index}`,
-        name: stringValue(payload.name),
-        arguments: parseToolArguments(payload.arguments)
-      };
-    })
-    .filter((toolCall): toolCall is ToolCall => Boolean(toolCall?.name));
+  const calls: ToolCall[] = [];
+  for (const item of requireArray(value, "Responses output")) {
+    const call = requireRecord(item, "Responses output item");
+    if (call.type !== "function_call") continue;
+    if (call.status !== undefined && call.status !== "completed") throw new ModelProtocolError("incomplete Responses function call");
+    calls.push(parseFunctionCall(call.call_id, call.name, call.arguments, "json"));
+  }
+  return validateCallIds(calls);
 }
 
 function responseOutputText(payload: unknown): string {
@@ -143,9 +155,4 @@ function responseOutputItemText(item: unknown): string {
   const itemRecord = recordValue(item);
   if (typeof itemRecord.text === "string") return itemRecord.text;
   return recordArray(itemRecord.content).map((block) => stringValue(block.text)).join("");
-}
-
-function parseToolArguments(value: unknown): Record<string, unknown> {
-  if (value && typeof value === "object" && !Array.isArray(value)) return objectArguments(value);
-  return objectArguments(parseModelJson(stringValue(value) || "{}"));
 }

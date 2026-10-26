@@ -12,7 +12,3 @@ export function stringValue(value: unknown): string {
   if (typeof value === "string") return value;
   return value == null ? "" : String(value);
 }
-
-export function objectArguments(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}

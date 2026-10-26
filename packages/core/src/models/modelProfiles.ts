@@ -1,27 +1,31 @@
+import { ModelConfigError } from "./modelErrors.js";
+import type { ModelProtocol } from "./modelClientTypes.js";
 import type { AgentSpec } from "../types/agentTypes.js";
 import type { ModelProfile } from "../types/modelTypes.js";
 import type { Settings } from "../config/settings.js";
 
-const protocolAliases: Record<string, string[]> = {
+const protocolAliases: Record<ModelProtocol, string[]> = {
   "openai-chat": ["openai", "chat", "openai-chat-completions", "chat-completions"],
   "openai-responses": ["responses", "response"],
   "claude-messages": ["anthropic", "claude"],
   gemini: ["google", "gemini-generate-content"]
 };
 
-const defaultBaseUrls: Record<string, string> = {
+const defaultBaseUrls: Record<ModelProtocol, string> = {
   "openai-chat": "https://api.openai.com/v1",
   "openai-responses": "https://api.openai.com/v1",
   "claude-messages": "https://api.anthropic.com/v1",
   gemini: "https://generativelanguage.googleapis.com/v1beta"
 };
 
-export function normalizeProtocol(value: string): string {
+export function normalizeProtocol(value: string): ModelProtocol {
   const normalized = String(value || "").trim().toLowerCase();
-  for (const [standard, aliases] of Object.entries(protocolAliases)) {
+  for (const standard of Object.keys(protocolAliases) as ModelProtocol[]) {
+    const aliases = protocolAliases[standard];
     if (normalized === standard || aliases.includes(normalized)) return standard;
   }
-  return normalized || "openai-chat";
+  if (!normalized) return "openai-chat";
+  throw new ModelConfigError(`unsupported model protocol: ${normalized}`);
 }
 
 export function defaultBaseUrl(protocol: string): string {

@@ -7,13 +7,9 @@ import { defaultBaseUrl, normalizeBaseUrl, normalizeProtocol } from "./modelProf
 import { claudeComplete } from "./anthropicModelClient.js";
 import { geminiComplete } from "./geminiModelClient.js";
 import { openAIChatComplete, openAIChatStream, responsesComplete, responsesStream } from "./openaiModelClient.js";
+import { ModelConfigError } from "./modelErrors.js";
 
-export class ModelConfigError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ModelConfigError";
-  }
-}
+export { ModelConfigError } from "./modelErrors.js";
 
 export type { ModelClientConfig, TextDeltaHandler } from "./modelClientTypes.js";
 
@@ -41,16 +37,23 @@ export async function completeText(config: ModelClientConfig, messages: Message[
 }
 
 export async function completeModelTurn(config: ModelClientConfig, messages: Message[], tools: ModelToolDefinition[] = []): Promise<ModelTurn> {
-  if (config.protocol === "claude-messages") return claudeComplete(config, messages, tools);
-  if (config.protocol === "gemini") return geminiComplete(config, messages);
-  if (config.protocol === "openai-responses") return responsesComplete(config, messages, tools);
-  return openAIChatComplete(config, messages, tools);
+  const resolved = { ...config, protocol: normalizeProtocol(config.protocol) };
+  if (resolved.protocol === "gemini" && (tools.length || messages.some(message => message.role === "tool" || message.tool_calls?.length))) {
+    throw new ModelConfigError("Gemini tool calling is not implemented; use a text-only request or another protocol");
+  }
+  switch (resolved.protocol) {
+    case "claude-messages": return claudeComplete(resolved, messages, tools);
+    case "gemini": return geminiComplete(resolved, messages);
+    case "openai-responses": return responsesComplete(resolved, messages, tools);
+    case "openai-chat": return openAIChatComplete(resolved, messages, tools);
+  }
 }
 
 export async function streamText(config: ModelClientConfig, messages: Message[], onDelta: TextDeltaHandler): Promise<string> {
-  if (config.protocol === "openai-chat") return openAIChatStream(config, messages, onDelta);
-  if (config.protocol === "openai-responses") return responsesStream(config, messages, onDelta);
-  const text = await completeText(config, messages);
+  const resolved = { ...config, protocol: normalizeProtocol(config.protocol) };
+  if (resolved.protocol === "openai-chat") return openAIChatStream(resolved, messages, onDelta);
+  if (resolved.protocol === "openai-responses") return responsesStream(resolved, messages, onDelta);
+  const text = await completeText(resolved, messages);
   if (text) onDelta(text);
   return text;
 }

@@ -1,5 +1,7 @@
 # Module Map
 
+Kernel ownership and implementation sequence: [kernel boundaries](architecture/kernel-boundaries.md).
+
 ## Workspace
 
 ```text
@@ -48,10 +50,12 @@ packages/core  -> no app imports
 - `src/config/configFileReaders.ts`: `.env` and simplified TOML file parsing plus config-tree merging.
 - `src/config/settingValues.ts`: Settings value coercion and model setting extraction.
 - `src/models/modelProfiles.ts`: Model profile construction.
-- `src/models/modelClients.ts`: Model client adapters.
+- `src/models/modelClients.ts`: Validated protocol dispatch and configuration resolution.
 - `src/models/modelClientTypes.ts`: Shared model client transport contracts.
 - `src/models/modelHttp.ts`: Shared model HTTP POST, SSE streaming, headers, and JSON parsing.
-- `src/models/modelProtocolValues.ts`: Safe value coercion helpers for model protocol payloads.
+- `src/models/modelProtocolValues.ts`: Optional protocol value extraction helpers; not a substitute for required-field validation.
+- `src/models/modelProtocolValidation.ts`: Required envelope/argument validation and unique tool-call IDs.
+- `src/models/modelErrors.ts`: Configuration, protocol, and HTTP error categories.
 - `src/models/openaiProtocolPayloads.ts`: OpenAI Chat and Responses request payloads, message rendering, and turn parsing.
 - `src/models/anthropicProtocolPayloads.ts`: Claude Messages request payloads, message rendering, and turn parsing.
 - `src/models/openaiModelClient.ts`: OpenAI chat and Responses request shaping, streaming, and tool-call parsing.
