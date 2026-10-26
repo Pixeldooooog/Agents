@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   createSdkControlSuccessResponse,
-  SDKStructuredIO,
+  SdkStructuredIo,
   SdkControlRequestCancelledError,
   SdkControlRequestError,
   SdkControlStreamClosedError,
@@ -177,7 +177,7 @@ describe("SDK structured IO", () => {
     const sentPermissionRequests: SdkControlRequestMessage[] = [];
     const resolvedRequestIds: string[] = [];
     const unexpectedRequestIds: string[] = [];
-    const io = new SDKStructuredIO({
+    const io = new SdkStructuredIo({
       replay_user_messages: true,
       on_control_request_sent: (request) => sentPermissionRequests.push(request),
       on_control_request_resolved: (requestId) => resolvedRequestIds.push(requestId)

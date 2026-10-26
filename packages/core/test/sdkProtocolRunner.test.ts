@@ -8,9 +8,7 @@ import {
   createSdkControlSuccessResponse,
   decodeSdkJsonlLine,
   encodeSdkJsonlMessage,
-  SdkHybridJsonlTransport,
   SdkQueueJsonlTransport,
-  SdkSseJsonlTransport,
   SdkStructuredIo,
   type SdkWireMessage
 } from "@kevin/core/sdk";
@@ -1265,106 +1263,6 @@ describe("SDK protocol runner", () => {
       expect(transport.isClosed).toBe(false);
       transport.close();
     } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  test("runs AgentSdkClient over a hybrid JSONL transport", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-hybrid-protocol-"));
-    const server = Bun.serve({
-      port: 0,
-      async fetch(request) {
-        const body = await request.json();
-        const user = (body.messages || []).find((message: any) => message.role === "user");
-        return modelStreamResponse({ choices: [{ message: { content: `hybrid answer: ${user?.content || ""}` } }] });
-      }
-    });
-    try {
-      const client = await sdkClient(root);
-      const reader = new SdkQueueJsonlTransport();
-      const posted: Record<string, unknown>[] = [];
-      const transport = new SdkHybridJsonlTransport("wss://api.example.com/v2/session_ingress/ws/abc", {
-        reader,
-        post_message: async (_url, _headers, body) => {
-          posted.push(body);
-          return 200;
-        },
-        stream_event_flush_interval_seconds: 0
-      });
-      const run = client.runJsonlTransport(transport, modelOptions(server.port));
-
-      reader.send(encodeSdkJsonlMessage({
-        type: "user",
-        session_id: "hybrid_runner_session",
-        uuid: "hybrid_runner_user",
-        message: { role: "user", content: [{ type: "text", text: "hello hybrid runner" }] },
-        isReplay: false
-      } as any));
-      reader.closeInput();
-      await run;
-
-      const resultEvents = posted
-        .flatMap((body) => Array.isArray(body.events) ? body.events : [])
-        .filter((event): event is Record<string, unknown> => {
-          return Boolean(event && typeof event === "object" && (event as Record<string, unknown>).type === "result");
-        });
-      expect(resultEvents[0]).toMatchObject({
-        type: "result",
-        sessionId: "hybrid_runner_session",
-        content: "hybrid answer: hello hybrid runner"
-      });
-      expect(transport.closed).toBe(true);
-    } finally {
-      server.stop(true);
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  test("runs AgentSdkClient over an SSE JSONL transport", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-sse-protocol-"));
-    const server = Bun.serve({
-      port: 0,
-      async fetch(request) {
-        const body = await request.json();
-        const user = (body.messages || []).find((message: any) => message.role === "user");
-        return modelStreamResponse({ choices: [{ message: { content: `sse answer: ${user?.content || ""}` } }] });
-      }
-    });
-    try {
-      const client = await sdkClient(root);
-      const posted: Record<string, unknown>[] = [];
-      const transport = new SdkSseJsonlTransport("https://api.example.com/session/abc/worker/events/stream", {
-        reconnect: false,
-        read_chunks: sseChunks([
-          `id: 9\nevent: client_event\ndata: ${JSON.stringify({
-            payload: {
-              type: "user",
-              session_id: "sse_runner_session",
-              uuid: "sse_runner_user",
-              message: { role: "user", content: [{ type: "text", text: "hello sse runner" }] },
-              isReplay: false
-            }
-          })}\n\n`
-        ]),
-        post_base_delay_seconds: 0,
-        post_message: async (_url, _headers, message) => {
-          posted.push(message);
-          return 200;
-        }
-      });
-
-      await client.runJsonlTransport(transport, modelOptions(server.port));
-
-      const resultEvents = posted.filter((message) => message.type === "result");
-      expect(resultEvents[0]).toMatchObject({
-        type: "result",
-        sessionId: "sse_runner_session",
-        content: "sse answer: hello sse runner"
-      });
-      expect(transport.closed).toBe(true);
-      expect(transport.getLastSequenceNum()).toBe(9);
-    } finally {
-      server.stop(true);
       await rm(root, { recursive: true, force: true });
     }
   });

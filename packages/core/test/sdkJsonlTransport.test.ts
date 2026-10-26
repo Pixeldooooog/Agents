@@ -22,7 +22,7 @@ import {
   sdkSessionInfoJsonSchema,
   sdkStdinMessageJsonSchema,
   sdkStdoutMessageJsonSchema,
-  SDKQueueJsonlTransport,
+  SdkQueueJsonlTransport,
   SdkQueueJsonlTransport,
   sdkStdinMessagesFromJsonlChunks,
   normalize_sdk_control_message_keys,
@@ -954,7 +954,7 @@ describe("SDK JSONL transport", () => {
       variables: { SDK_BOUNDARY_TEST: "2" }
     }]);
 
-    const pythonStyleTransport = new SDKQueueJsonlTransport();
+    const pythonStyleTransport = new SdkQueueJsonlTransport();
     const pythonStyleReceivedMessages = collectMessages(readSdkJsonlTransport(pythonStyleTransport));
     pythonStyleTransport.send(encodeSdkJsonlMessage(userMessage));
     pythonStyleTransport.close_input();
