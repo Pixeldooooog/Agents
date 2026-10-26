@@ -1,3 +1,5 @@
+import type { Message } from "../types/runtimeTypes.js";
+import { conversationGroups, hasPendingResults } from "./conversationGroups.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { todoSummary } from "../planning/planningState.js";
@@ -102,12 +104,12 @@ export async function handleContextMessages(context: SessionReadContext, args: J
 export async function handleContextCompact(context: SessionEditContext, args: JsonObject): Promise<Record<string, unknown>> {
   const { messages } = context.conversation;
   const beforeMessages = messages.length;
-  const nonSystem = messages.filter((message) => message.role !== "system");
-  if (nonSystem.length <= 4) return { before_messages: beforeMessages, after_messages: messages.length, compacted: false };
+  const groups = conversationGroups(messages);
+  if (groups.length <= 2) return { before_messages: beforeMessages, after_messages: messages.length, compacted: false };
   const maxSummaryChars = Math.max(240, Number(args.target_tokens || 0) * 4 || 2000);
-  const summary = truncate(conversationSummary(nonSystem.slice(0, -2)), maxSummaryChars);
+  const summary = truncate(conversationSummary(groups.slice(0, -2).flat()), maxSummaryChars);
   const systemMessages = messages.filter((message) => message.role === "system");
-  const tailMessages = nonSystem.slice(-2);
+  const tailMessages = groups.slice(-2).flat();
   messages.splice(
     0,
     messages.length,
@@ -123,11 +125,15 @@ export async function handleContextRewind(context: SessionEditContext, args: Jso
   const dropCount = boundedNumber(args.drop_last, 1, 1, 200);
   const beforeMessages = messages.length;
   let droppedMessages = 0;
-  for (let index = messages.length - 1; index >= 0 && droppedMessages < dropCount; index -= 1) {
-    if (messages[index].role !== "system") {
-      messages.splice(index, 1);
-      droppedMessages += 1;
-    }
+  const groups = conversationGroups(messages);
+  const dropped = new Set<Message>();
+  for (let index = groups.length - 1; index >= 0 && droppedMessages < dropCount; index--) {
+    const group = groups[index]!;
+    if (hasPendingResults(group)) continue;
+    for (const message of group) dropped.add(message);
+    droppedMessages += group.length;
   }
+  // Preserve the live call group: the executor still has to append this tool's result.
+  messages.splice(0, messages.length, ...messages.filter(message => !dropped.has(message)));
   return { before_messages: beforeMessages, after_messages: messages.length, dropped_messages: droppedMessages };
 }

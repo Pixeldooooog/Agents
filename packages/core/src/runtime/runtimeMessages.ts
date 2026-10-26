@@ -9,7 +9,7 @@ import type { StateStore } from "../ports/stateStore.js";
 import type { AgentSpec } from "../types/agentTypes.js";
 import type { Message } from "../types/runtimeTypes.js";
 
-export async function runtimeStartMessages(settings: Settings, store: StateStore | undefined, spec: AgentSpec, message: string): Promise<Message[]> {
+export async function runtimeStartMessages(settings: Settings, store: StateStore | undefined, spec: AgentSpec, message: string, history: Message[] = []): Promise<Message[]> {
   const system = [spec.system_prompt || settings.agent.systemPrompt || "You are a precise, helpful agent."];
   const memoryContext = await memoryContextFor(settings, store, spec);
   if (memoryContext) system.push(memoryContext);
@@ -19,6 +19,7 @@ export async function runtimeStartMessages(settings: Settings, store: StateStore
   if (workspace) system.push(workspace);
   return [
     { role: "system", content: system.filter(Boolean).join("\n\n") },
+    ...history.filter(item => item.role !== "system"),
     { role: "user", content: message }
   ];
 }

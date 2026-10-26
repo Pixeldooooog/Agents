@@ -1,14 +1,9 @@
+import { apiEnvelope, chatResponse, runListResponse, traceResponse, profilesResponse, taskResponse, taskListResponse, taskDetailResponse, taskRunResponse, healthResponse, eventResponse } from "./apiValidation";
 import type {
   AgentChatPayload,
-  ModelProfilesResponse,
   RunApprovalPayload,
-  RunListResponse,
-  RunTraceResponse,
   SseEventFrame,
-  TaskCreatePayload,
-  TaskDetailResponse,
-  TaskListResponse,
-  TaskRunResponse
+  TaskCreatePayload
 } from "../types/runtimeTypes";
 
 type AuthConfig = {
@@ -35,10 +30,10 @@ export function createApiClient(config: AuthConfig) {
 
   return {
     chat(payload: AgentChatPayload, signal?: AbortSignal) {
-      return request<any>("/api/v1/agent/chat", { method: "POST", headers: jsonHeaders(), body: JSON.stringify(payload), signal });
+      return request(chatResponse, "/api/v1/agent/chat", { method: "POST", headers: jsonHeaders(), body: JSON.stringify(payload), signal });
     },
     approve(runId: string, payload: RunApprovalPayload, signal?: AbortSignal) {
-      return request<any>(`/api/v1/agent/runs/${runId}/approval`, { method: "POST", headers: jsonHeaders(), body: JSON.stringify(payload), signal });
+      return request(chatResponse, `/api/v1/agent/runs/${runId}/approval`, { method: "POST", headers: jsonHeaders(), body: JSON.stringify(payload), signal });
     },
     async chatStream(payload: AgentChatPayload, onEvent: StreamHandler, signal?: AbortSignal) {
       const response = await fetch(urlFor("/api/v1/agent/chat/stream"), {
@@ -51,11 +46,16 @@ export function createApiClient(config: AuthConfig) {
         throw new Error(`stream request failed: ${response.status} ${response.statusText}`);
       }
       const reader = response.body.getReader();
-      const decoder = new TextDecoder();
+      const decoder = new TextDecoder("utf-8", { fatal: true });
       let buffer = "";
       let completed = false;
       const receive: StreamHandler = frame => {
-        if (frame.event === "done") completed = true;
+        if (completed) throw new Error("runtime event after completion");
+        if (frame.payload.type !== frame.event) throw new Error("runtime event type mismatch");
+        if (frame.event === "done") {
+          if (typeof frame.payload.payload?.status !== "string" || typeof frame.payload.payload?.content !== "string") throw new Error("invalid completion event");
+          completed = true;
+        }
         onEvent(frame);
       };
       try {
@@ -66,15 +66,16 @@ export function createApiClient(config: AuthConfig) {
           if (buffer.length > 2 * 1024 * 1024) throw new Error("runtime event exceeds 2 MiB");
           buffer = emitFrames(buffer, receive);
         }
+        buffer += decoder.decode();
         if (buffer.trim()) throw new Error("incomplete runtime event");
         if (!completed) throw new Error("runtime stream ended before completion");
       } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
     },
     health() {
-      return request<void>("/health", { method: "GET", headers: authHeaders() });
+      return request(healthResponse, "/health", { method: "GET", headers: authHeaders() });
     },
     runTrace(runId: string) {
-      return request<RunTraceResponse>(`/api/v1/agent/runs/${runId}/trace`, { method: "GET", headers: authHeaders() });
+      return request(traceResponse, `/api/v1/agent/runs/${runId}/trace`, { method: "GET", headers: authHeaders() });
     },
     runs(query: { limit?: number; tenant_id?: string; user_id?: string; agent_id?: string } = {}) {
       const search = new URLSearchParams();
@@ -83,13 +84,13 @@ export function createApiClient(config: AuthConfig) {
       if (query.user_id) search.set("user_id", query.user_id);
       if (query.agent_id) search.set("agent_id", query.agent_id);
       const suffix = search.toString() ? `?${search}` : "";
-      return request<RunListResponse>(`/api/v1/agent/runs${suffix}`, { method: "GET", headers: authHeaders() });
+      return request(runListResponse, `/api/v1/agent/runs${suffix}`, { method: "GET", headers: authHeaders() });
     },
     modelProfiles() {
-      return request<ModelProfilesResponse>("/api/v1/agent/model-profiles", { method: "GET", headers: authHeaders() });
+      return request(profilesResponse, "/api/v1/agent/model-profiles", { method: "GET", headers: authHeaders() });
     },
     createTask(payload: TaskCreatePayload) {
-      return request<any>("/api/v1/agent/tasks", { method: "POST", headers: jsonHeaders(), body: JSON.stringify(payload) });
+      return request(taskResponse, "/api/v1/agent/tasks", { method: "POST", headers: jsonHeaders(), body: JSON.stringify(payload) });
     },
     tasks(query: { tenant_id?: string; user_id?: string; agent_id?: string } = {}) {
       const search = new URLSearchParams();
@@ -97,16 +98,16 @@ export function createApiClient(config: AuthConfig) {
       if (query.user_id) search.set("user_id", query.user_id);
       if (query.agent_id) search.set("agent_id", query.agent_id);
       const suffix = search.toString() ? `?${search}` : "";
-      return request<TaskListResponse>(`/api/v1/agent/tasks${suffix}`, { method: "GET", headers: authHeaders() });
+      return request(taskListResponse, `/api/v1/agent/tasks${suffix}`, { method: "GET", headers: authHeaders() });
     },
     task(taskId: string) {
-      return request<TaskDetailResponse>(`/api/v1/agent/tasks/${taskId}`, { method: "GET", headers: authHeaders() });
+      return request(taskDetailResponse, `/api/v1/agent/tasks/${taskId}`, { method: "GET", headers: authHeaders() });
     },
     runTask(taskId: string) {
-      return request<TaskRunResponse>(`/api/v1/agent/tasks/${taskId}/run`, { method: "POST", headers: authHeaders() });
+      return request(taskRunResponse, `/api/v1/agent/tasks/${taskId}/run`, { method: "POST", headers: authHeaders() });
     },
     cancelTask(taskId: string) {
-      return request<any>(`/api/v1/agent/tasks/${taskId}/cancel`, { method: "POST", headers: authHeaders() });
+      return request(taskResponse, `/api/v1/agent/tasks/${taskId}/cancel`, { method: "POST", headers: authHeaders() });
     },
   };
 
@@ -114,13 +115,12 @@ export function createApiClient(config: AuthConfig) {
     return `${config.baseUrl().replace(/\/$/, "")}${path}`;
   }
 
-  async function request<T>(path: string, init: RequestInit): Promise<T> {
+  async function request<T>(decode: (value: unknown) => T, path: string, init: RequestInit): Promise<T> {
     const response = await fetch(urlFor(path), init);
-    const envelope = await response.json().catch(() => ({}));
-    if (!response.ok || envelope.success === false) {
-      throw new Error(envelope?.data?.detail || envelope?.message || `${response.status} ${response.statusText}`);
-    }
-    return (envelope?.data ?? envelope ?? {}) as T;
+    let envelope: unknown;
+    try { envelope = await response.json(); }
+    catch { throw new Error("invalid API response JSON"); }
+    return decode(apiEnvelope(envelope, response.ok));
   }
 }
 
@@ -134,15 +134,7 @@ function emitFrames(buffer: string, onEvent: StreamHandler): string {
       .filter((line) => line.startsWith("data: "))
       .map((line) => line.slice(6))
       .join("\n");
-    onEvent({ event, data, payload: safeJson(data) });
+    onEvent({ event, data, payload: eventResponse(JSON.parse(data)) });
   }
   return rest;
-}
-
-function safeJson(value: string): any {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return { payload: { message: value } };
-  }
 }

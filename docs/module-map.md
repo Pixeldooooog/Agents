@@ -274,3 +274,11 @@ packages/core  -> no app imports
 - `packages/core/test/runtimeHooks.test.ts`: Guidance, gating after approval, observation, scope, and cancellation contracts.
 - `packages/host/test/kernelLifecycle.test.ts`: Actual HTTP disconnect and terminal subprocess cancellation.
 - `packages/host/test/fixtures/kernelBrowserHost.ts`: Isolated temporary workspace and local model for browser acceptance.
+
+## Conversation and client boundary cleanup (2026-10-26)
+
+- `AgentRunService` owns continued-run history via `previousRunId` (`previous_run_id` in chat HTTP payloads). It loads same-scope completed runs, reconstructs current system instructions, and persists input before model I/O and the validated completed conversation afterward.
+- Run records may contain `messages`. Old records without snapshots, unfinished runs, and cross-scope references cannot be continued. Run-list HTTP responses omit the snapshots; detail and explicit continuation use the stored record.
+- Web retains the last successful chat run ID; clearing the conversation resets it. Terminal production `/sessions` and `/resume` use core run records. Old terminal-session JSON files remain fixture-only; they are not silently migrated into model history.
+- `apps/web/src/runtime/apiValidation.ts` validates API envelopes, result fields, and event envelopes. Invalid JSON and incomplete streams fail explicitly. This is not a full replacement of every UI projection's internal types.
+- `packages/host/test/webClientBoundary.test.ts` exercises the actual Web client against a local Host/model, including continued history and terminal resume from that same core snapshot.

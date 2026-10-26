@@ -1,3 +1,4 @@
+import { runtimePermissionDecision, toolAuthorizationSnapshot } from "../src/runtime/runtimeToolPermissions.js";
 import { modelStreamResponse } from "./fixtures/modelResponse.js";
 import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -389,7 +390,9 @@ describe("TS core", () => {
     try {
       const store = new JsonStateStore(path.join(root, "state.json"));
       const spec = specFromPayload({ message: "permissions", tenant_id: "tenant", user_id: "user", agent_id: "agent", workspace_id: "workspace" });
-      const context = { store, spec, runId: "run_permissions" };
+      const settings = await loadSettings(root);
+      const authority = toolAuthorizationSnapshot(settings, spec);
+      const context = { store, spec, runId: "run_permissions", checkToolPermission: (name: string) => runtimePermissionDecision(authority, settings, spec, name) };
 
       const addRule = await executeBuiltinTool(root, "permission.add_rule", { behavior: "deny", tool: "shell.run" }, context);
       expect(JSON.parse(addRule.result.content).status.denied_tools).toContain("shell.run");

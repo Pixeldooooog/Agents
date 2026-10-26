@@ -1,3 +1,4 @@
+import { conversationHistory } from "../session/conversationHistory.js";
 import type { RunStore } from "../ports/runStore.js";
 import {
   claimRunPendingApproval,
@@ -18,6 +19,14 @@ export type JsonStateAccess = {
 
 export function jsonRunStoreMethods(access: JsonStateAccess): RunStore {
   return {
+    setRunMessages: async (runId, messages) => {
+      const snapshot = structuredClone(conversationHistory(messages));
+      await access.mutate(state => {
+        const run = state.runs.find(item => item.run_id === runId);
+        if (!run) throw new Error(`run not found: ${runId}`);
+        run.messages = snapshot;
+      });
+    },
     claimPendingApproval: (runId, approvalId) => claimRunPendingApproval(access.mutate, runId, approvalId),
     startRun: (spec) => startRunRecord(access.mutate, spec),
     recordEvent: (runId, event) => recordRunEvent(access.mutate, runId, event),

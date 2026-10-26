@@ -11,6 +11,7 @@ import type { TerminalEventWriter } from "./terminalEventWriter.js";
 export type TerminalHostCommandResult = "continue" | "exit";
 
 export class TerminalHostSession {
+  private previousRunId?: string;
   private activeTurn?: Promise<void>;
   private activeController?: AbortController;
   private readonly scriptedTurns: ScriptedTerminalTurns;
@@ -65,7 +66,11 @@ export class TerminalHostSession {
         return "continue";
       }
       if (approvalId === "fixture-approval") this.scriptedTurns.approval(String(command.run_id || "fixture-approval-run"), approved);
-      else this.startTurn(signal => resumeTerminalApproval(this.services, this.writer, String(command.run_id || ""), approvalId, approved, signal));
+      else this.startTurn(async signal => {
+        const runId = String(command.run_id || "");
+        await resumeTerminalApproval(this.services, this.writer, runId, approvalId, approved, signal);
+        if ((await this.services.store.loadRun(runId))?.status === "completed") this.previousRunId = runId;
+      });
       return "continue";
     }
     if (commandType === "slash") {
@@ -99,19 +104,26 @@ export class TerminalHostSession {
     const spec = this.services.runs.specFromPayload({ message: text });
     const { run, result } = await this.services.runs.runAgent(spec, text, {
       signal,
+      previousRunId: this.previousRunId,
       stream: true,
       afterRunStarted: (startedRun) => this.writer.write({ type: "turn_started", run_id: startedRun.run_id }),
       onEvent: (event) => this.writer.runtimeEvent(event)
     });
+    if (result.status === "completed") this.previousRunId = run.run_id;
     this.writer.write({ type: "turn_finished", status: result.status, run_id: run.run_id });
   }
 
   private async resumeSession(sessionId: string): Promise<void> {
-    const session = await this.terminalSessions.load(sessionId);
-    if (!session) {
-      this.writer.write({ type: "error", message: `session not found: ${sessionId}` });
+    if (this.activeTurn) throw new Error("cannot switch conversation while a turn is running");
+    if (process.env.KEVIN_TERMINAL_FIXTURE !== "1") {
+      const spec = this.services.runs.specFromPayload({ message: "" });
+      const messages = await this.services.runs.conversationForRun(sessionId, spec);
+      this.previousRunId = sessionId;
+      this.writer.write({ type: "session_resumed", session_id: sessionId, messages: messages.filter(item => item.role === "user" || item.role === "assistant").map(item => ({ role: item.role, content: item.content })) });
       return;
     }
+    const session = await this.terminalSessions.load(sessionId);
+    if (!session) throw new Error(`session not found: ${sessionId}`);
     this.writer.write({ type: "session_resumed", session_id: session.session_id, messages: transcriptMessages(session) });
     if (session.pending_approval) this.writer.runtimeEvent(session.pending_approval);
   }

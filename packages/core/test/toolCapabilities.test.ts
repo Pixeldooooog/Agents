@@ -1,9 +1,10 @@
+import { scopedToolContext } from "../src/tools/toolExecutor.js";
 import { expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { defineTool, type ToolRuntimeContext } from "../src/tools/toolContracts.js";
-import { executeBuiltinTool, listBuiltinTools, scopedToolContext } from "../src/tools/toolRegistry.js";
+import { executeBuiltinTool, listBuiltinTools } from "../src/tools/toolRegistry.js";
 import { JsonStateStore, loadSettings, specFromPayload, TaskService } from "../src/index.js";
 import type { StateStore } from "../src/ports/stateStore.js";
 import type { AgentRunService } from "../src/runtime/agentRunService.js";

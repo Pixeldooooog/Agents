@@ -33,7 +33,7 @@ export const permissionToolDefinitions: RegisteredTool[] = [
     description: "Explain the permission decision and impact for a hypothetical tool call.",
     risk: "low",
     parameters: permissionExplainSchema,
-    requires: [],
+    requires: ["checkToolPermission"],
     handler: permissionExplain
   }),
   defineTool({
@@ -54,9 +54,9 @@ async function permissionSources(context: ToolContext): Promise<Record<string, u
   return permissionSourcesPayload(requiredSpec(context));
 }
 
-async function permissionExplain(context: ToolContext, args: JsonObject): Promise<Record<string, unknown>> {
+async function permissionExplain(context: ToolContext<"checkToolPermission">, args: JsonObject): Promise<Record<string, unknown>> {
   const tool = requiredText(args.tool, "tool");
-  return permissionExplanation(requiredSpec(context), tool, args.arguments);
+  return permissionExplanation(context.checkToolPermission(tool), tool, args.arguments);
 }
 
 async function permissionAddRule(context: ToolContext, args: JsonObject): Promise<Record<string, unknown>> {

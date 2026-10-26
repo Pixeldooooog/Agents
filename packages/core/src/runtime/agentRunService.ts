@@ -1,3 +1,5 @@
+import { conversationHistory } from "../session/conversationHistory.js";
+import { runtimeStartMessages } from "./runtimeMessages.js";
 import type { Settings } from "../config/settings.js";
 import { profileDefaults } from "../models/modelProfiles.js";
 import type { StateStore } from "../ports/stateStore.js";
@@ -19,6 +21,7 @@ export type AgentRunServiceOptions = {
 };
 
 export type AgentRunExecutionOptions = {
+  previousRunId?: string;
   stream?: boolean;
   signal?: AbortSignal;
   fileReadState?: RuntimeOptions["fileReadState"];
@@ -38,7 +41,7 @@ export type PersistedAgentRun = {
   events: RuntimeEvent[];
 };
 
-export type AgentRunServiceErrorCode = "run_not_found" | "run_not_waiting_approval" | "pending_approval_missing" | "approval_conflict" | "approval_id_required" | "invalid_approval_decision";
+export type AgentRunServiceErrorCode = "run_not_found" | "run_not_waiting_approval" | "pending_approval_missing" | "approval_conflict" | "approval_id_required" | "invalid_approval_decision" | "conversation_unavailable";
 
 export class AgentRunServiceError extends Error {
   constructor(
@@ -59,16 +62,19 @@ export class AgentRunService {
   }
 
   async runPayload(payload: AgentChatPayload, options: AgentRunExecutionOptions = {}): Promise<PersistedAgentRun> {
-    return this.runAgent(this.specFromPayload(payload), payload.message, options);
+    return this.runAgent(this.specFromPayload(payload), payload.message, { ...options, previousRunId: payload.previous_run_id ?? options.previousRunId });
   }
 
   async runAgent(spec: AgentSpec, message: string, options: AgentRunExecutionOptions = {}): Promise<PersistedAgentRun> {
+    const history = options.previousRunId !== undefined ? await this.conversationForRun(options.previousRunId, spec) : [];
+    const messages = await runtimeStartMessages(this.options.settings, this.options.store, spec, message, history);
     const queued = await this.options.store.startRun(spec);
+    await this.options.store.setRunMessages(queued.run_id, messages);
     const run = await this.options.store.transitionRun(queued.run_id, ["preparing", "running"]);
     await options.afterRunStarted?.(run);
     const events: RuntimeEvent[] = [];
     const runtime = this.runtimeFor(run.run_id, events, options);
-    const result = await runtime.run(spec, message, run.run_id);
+    const result = await runtime.runConversation(spec, messages, run.run_id);
     await persistAgentRunOutcome(this.options.store, run.run_id, result);
     return {
       run: await this.loadCurrentRun(run),
@@ -95,6 +101,16 @@ export class AgentRunService {
       result,
       events
     };
+  }
+
+  async conversationForRun(runId: string, spec: AgentSpec) {
+    if (typeof runId !== "string" || !runId.trim()) throw new AgentRunServiceError("run_not_found", "previous run ID is required", 400);
+    const run = await this.options.store.loadRun(runId);
+    if (!run || (["tenant_id", "user_id", "agent_id", "workspace_id"] as const).some(key => run[key] !== spec[key])) {
+      throw new AgentRunServiceError("run_not_found", "conversation run not found in this scope", 404);
+    }
+    if (run.status !== "completed" || !run.messages) throw new AgentRunServiceError("conversation_unavailable", "only completed runs with a conversation snapshot can be continued", 409);
+    return conversationHistory(run.messages);
   }
 
   private runtimeFor(runId: string, events: RuntimeEvent[], options: AgentRunExecutionOptions): AgentRuntime {
@@ -138,6 +154,7 @@ export class AgentRunService {
 }
 
 export async function persistAgentRunOutcome(store: StateStore, runId: string, result: AgentResult): Promise<void> {
+  if (result.status === "completed") await store.setRunMessages(runId, result.messages);
   await store.setPendingApproval(runId, result.pending_approval);
   await store.transitionRun(runId, [result.status]);
 }

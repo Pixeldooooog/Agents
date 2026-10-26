@@ -1,5 +1,5 @@
 import { dispatchRuntimeHooks } from "../hooks/runtimeHooks.js";
-import { deniesTool, isToolEnabled, type ToolAuthorization } from "./runtimeToolPermissions.js";
+import { runtimePermissionDecision, deniesTool, isToolEnabled, type ToolAuthorization } from "./runtimeToolPermissions.js";
 import type { AgentSpec } from "../types/agentTypes.js";
 import type { Message, PendingApproval, RuntimeEvent, ToolCall, ToolResult, ToolTurnContinuation } from "../types/runtimeTypes.js";
 import { runtimeEvent } from "../types/runtimeTypes.js";
@@ -49,6 +49,7 @@ export async function executeRuntimeToolCall(input: RuntimeToolCallInput): Promi
         messages: input.messages,
         runtimeEvents: input.runtimeEvents
       }),
+      checkToolPermission: tool => runtimePermissionDecision(authorization, settings, spec, tool),
       onToolStart: input.onEvent ? async event => {
         await input.onEvent!(event);
         startEmitted = true;

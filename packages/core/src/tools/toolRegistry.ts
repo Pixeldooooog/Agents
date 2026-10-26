@@ -1,68 +1,10 @@
 import { mcpExternalTools } from "../mcp/mcpExternalTools.js";
-import { assertToolArguments, prepareToolValidator } from "./toolValidation.js";
-import { boundedToolContent } from "./toolOutput.js";
+import { prepareToolValidator } from "./toolValidation.js";
+import { toolDefinitions } from "./builtinToolCatalog.js";
+import { executeTool } from "./toolExecutor.js";
 import type { JsonObject } from "../types/jsonTypes.js";
 import type { ModelToolDefinition } from "../types/modelTypes.js";
-import type { ToolResult } from "../types/runtimeTypes.js";
-import { runtimeEvent } from "../types/runtimeTypes.js";
-import type { RegisteredTool, ToolCapability, ToolContext, ToolExecution, ToolRuntimeContext } from "./toolContracts.js";
-import { commandToolDefinitions } from "./commandTools.js";
-import { collaborationToolDefinitions } from "../collaboration/collaborationTools.js";
-import { configToolDefinitions } from "../config/configTools.js";
-import { extensionToolDefinitions } from "../extensions/extensionTools.js";
-import { filesystemToolDefinitions } from "./filesystemTools.js";
-import { gitToolDefinitions } from "./gitTools.js";
-import { hookToolDefinitions } from "../hooks/hookTools.js";
-import { memoryToolDefinitions } from "../memory/memoryTools.js";
-import { createMetaToolDefinitions } from "./metaTools.js";
-import { mcpToolDefinitions } from "../mcp/mcpTools.js";
-import { patchToolDefinitions } from "./patchTools.js";
-import { permissionToolDefinitions } from "./permissionTools.js";
-import { planningToolDefinitions } from "../planning/planningTools.js";
-import { processToolDefinitions } from "./processTools.js";
-import { promptToolDefinitions } from "./promptTools.js";
-import { scheduleToolDefinitions } from "../schedules/scheduleTools.js";
-import { searchToolDefinitions } from "./searchTools.js";
-import { sessionContextToolDefinitions } from "../session/sessionContextTools.js";
-import { structuredToolDefinitions } from "./structuredTools.js";
-import { taskToolDefinitions } from "../tasks/taskTools.js";
-import { userInteractionToolDefinitions } from "./userInteractionTools.js";
-import { browserToolDefinitions } from "../web/browserTools.js";
-import { webToolDefinitions } from "../web/webTools.js";
-import { lspToolDefinitions } from "../workspace/lspTools.js";
-import { notebookToolDefinitions } from "../workspace/notebookTools.js";
-import { worktreeToolDefinitions } from "../workspace/worktreeTools.js";
-import { workflowToolDefinitions } from "../workflow/workflowTools.js";
-
-const toolDefinitions: RegisteredTool[] = [
-  ...filesystemToolDefinitions,
-  ...searchToolDefinitions,
-  ...patchToolDefinitions,
-  ...gitToolDefinitions,
-  ...processToolDefinitions,
-  ...webToolDefinitions,
-  ...browserToolDefinitions,
-  ...notebookToolDefinitions,
-  ...lspToolDefinitions,
-  ...worktreeToolDefinitions,
-  ...createMetaToolDefinitions(() => toolDefinitions),
-  ...mcpToolDefinitions,
-  ...extensionToolDefinitions,
-  ...collaborationToolDefinitions,
-  ...taskToolDefinitions,
-  ...scheduleToolDefinitions,
-  ...memoryToolDefinitions,
-  ...planningToolDefinitions,
-  ...sessionContextToolDefinitions,
-  ...permissionToolDefinitions,
-  ...hookToolDefinitions,
-  ...structuredToolDefinitions,
-  ...configToolDefinitions,
-  ...userInteractionToolDefinitions,
-  ...commandToolDefinitions,
-  ...promptToolDefinitions,
-  ...workflowToolDefinitions
-];
+import type { RegisteredTool, ToolExecution, ToolRuntimeContext } from "./toolContracts.js";
 
 const toolByName = new Map<string, RegisteredTool>();
 for (const definition of toolDefinitions) {
@@ -98,59 +40,11 @@ export function modelToolDefinitions(enabledToolNames: string[], providers?: Too
   }));
 }
 
-export async function executeBuiltinTool(repoRoot: string, name: string, args: JsonObject, context: Omit<ToolRuntimeContext, "repoRoot"> = {}): Promise<ToolExecution> {
-  const id = String(args?.id || args?.tool_call_id || `${name}:${Date.now()}`);
+export function executeBuiltinTool(repoRoot: string, name: string, args: JsonObject, context: Omit<ToolRuntimeContext, "repoRoot"> = {}): Promise<ToolExecution> {
   const definition = toolByName.get(name) || mcpExternalTools(context.mcpProviders).find(tool => tool.name === name);
-  const canonicalName = definition?.name || name;
-  const start = runtimeEvent("tool_start", { id, tool_call_id: id, name: canonicalName, requested_name: name }, canonicalName);
-  if (!definition) return toolError(id, canonicalName, `unknown tool: ${name}`, [start]);
-  try {
-    if (context.executionPolicy?.mode === "isolated") throw new Error("isolated_tool_execution_unavailable: sandbox backend deferred");
-    if (context.signal?.aborted) throw new Error("tool_execution_cancelled");
-    assertToolArguments(definition, args);
-    start.payload!.arguments = args;
-    await context.onToolStart?.(start);
-    const payload = await definition.handler(scopedToolContext(definition, { ...context, repoRoot }), args);
-    const content = boundedToolContent(payload);
-    const result: ToolResult = { tool_call_id: id, name: canonicalName, content, is_error: false };
-    return {
-      events: [start, runtimeEvent("tool_result", { tool_call_id: id, name: canonicalName, content, is_error: false }, canonicalName)],
-      result
-    };
-  } catch (error) {
-    return toolError(id, canonicalName, error instanceof Error ? error.message : String(error), [start]);
-  }
-}
-
-/** Least privilege: a handler receives the invocation plus only the capabilities its definition declares. */
-export function scopedToolContext(definition: RegisteredTool, context: ToolRuntimeContext): ToolContext<ToolCapability, ToolCapability> {
-  const scoped: Record<string, unknown> = {
-    repoRoot: context.repoRoot,
-    signal: context.signal,
-    spec: context.spec,
-    runId: context.runId,
-    executionPolicy: context.executionPolicy
-  };
-  for (const capability of definition.requires) {
-    if (context[capability] === undefined) throw new Error(`tool capability unavailable: ${capability}`);
-    scoped[capability] = context[capability];
-  }
-  for (const capability of definition.uses ?? []) {
-    if (context[capability] !== undefined) scoped[capability] = context[capability];
-  }
-  // The declared lists are the type parameters of the handler, so this view matches what it may read.
-  return scoped as ToolContext<ToolCapability, ToolCapability>;
+  return executeTool(definition, repoRoot, name, args, context);
 }
 
 function modelToolName(name: string): string {
   return name.replace(/[^a-zA-Z0-9_-]/g, "__");
-}
-
-function toolError(id: string, name: string, content: string, events: ReturnType<typeof runtimeEvent>[]): ToolExecution {
-  content = boundedToolContent(content);
-  const result: ToolResult = { tool_call_id: id, name, content, is_error: true };
-  return {
-    events: [...events, runtimeEvent("tool_result", { tool_call_id: id, name, content, is_error: true }, name)],
-    result
-  };
 }

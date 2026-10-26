@@ -1,3 +1,4 @@
+import { conversationHistory } from "../session/conversationHistory.js";
 import type { RunState } from "../contracts/execution.js";
 import type { RunRecord } from "../types/runtimeTypes.js";
 import type { TaskRecord, TaskStatus, TaskStepRecord, TaskStepStatus } from "../types/taskTypes.js";
@@ -13,6 +14,7 @@ const taskStepStatuses: ReadonlySet<string> = new Set<TaskStepStatus>(["pending"
 export function validatedRunRecords(value: unknown): RunRecord[] {
   return recordList(value, "runs", (record, index) => {
     requireId(record, "run_id", "runs", index);
+    if (record.messages !== undefined) record.messages = conversationHistory(record.messages);
     requireState(record.status, runStates, `runs[${index}].status`);
     if (!Number.isSafeInteger(record.version) || (record.version as number) < 0) throw invalidState(`runs[${index}].version must be a non-negative integer`);
     if (!Array.isArray(record.events)) throw invalidState(`runs[${index}].events must be an array`);

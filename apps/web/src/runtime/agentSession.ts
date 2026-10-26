@@ -56,7 +56,7 @@ export function createAgentSession() {
 
   const { checkHealth } = createAgentHealthActions({ api, setHealth: state.setHealth, record, updateActivity });
 
-  const { send, decideApproval, cancel } = createAgentConversationActions({
+  const { send, decideApproval, cancel, resetConversation } = createAgentConversationActions({
     api,
     input: state.input,
     busy: state.busy,
@@ -84,6 +84,8 @@ export function createAgentSession() {
   };
 
   const clear = () => {
+    if (state.busy()) return;
+    resetConversation();
     state.setMessages([welcome]);
     state.setActivity(seedActivity());
     state.setOperations([]);

@@ -1,3 +1,4 @@
+import type { ToolPermissionDecision } from "../permissions/permissionDecisions.js";
 import type { CommandExecutor, ExecutionPolicy } from "../ports/commandExecutor.js";
 import type { AgentSpec } from "../types/agentTypes.js";
 import type { JsonObject } from "../types/jsonTypes.js";
@@ -27,6 +28,7 @@ export type ToolConversationView = {
 
 /** Services a tool must declare before the registry passes them to its handler. */
 export type ToolServices = {
+  checkToolPermission: (name: string) => ToolPermissionDecision;
   settings: Settings;
   store: StateStore;
   commandExecutor: CommandExecutor;

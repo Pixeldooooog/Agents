@@ -1,22 +1,31 @@
-import type { AgentSpec } from "../types/agentTypes.js";
+/** Immutable authority at entry, combined with the live policy before each call. */
+export type ToolAuthorization = Readonly<{
+  permissionProfile: string;
+  enabledTools: readonly string[];
+  deniedTools: readonly string[];
+  approvalRequiredTools: readonly string[];
+}>;
 
-const writeOrExecuteTools = new Set(["filesystem.write", "patch.apply", "shell.run", "git.commit"]);
+export type ToolPermissionDecision = {
+  behavior: "allow" | "ask" | "deny";
+  reason: string;
+};
 
-export function permissionExplanation(spec: AgentSpec, tool: string, args: unknown): Record<string, unknown> {
-  const decision = permissionDecision(spec, tool);
-  return {
-    tool,
-    arguments: args && typeof args === "object" ? args : {},
-    decision,
-    impact: {
-      tool,
-      risk: decision.behavior === "deny" ? "blocked" : writeOrExecuteTools.has(tool) ? "writes_or_executes" : "read_or_state"
-    }
-  };
+/** Names and both policies must already be canonicalized by the runtime. */
+export function permissionDecision(start: ToolAuthorization, current: ToolAuthorization, tool: string): ToolPermissionDecision {
+  for (const policy of [start, current]) {
+    if (!policy.enabledTools.includes(tool)) return { behavior: "deny", reason: "tool is not enabled" };
+    if (policy.permissionProfile === "deny" || policy.deniedTools.includes(tool)) return { behavior: "deny", reason: "tool is denied" };
+  }
+  if (/^mcp_[a-f0-9]{56}$/.test(tool) || tool === "hook.add" || tool === "hook.delete") {
+    return { behavior: "ask", reason: "external tool or hook configuration requires approval" };
+  }
+  if ([start, current].some(policy => policy.permissionProfile === "ask" || policy.approvalRequiredTools.includes(tool))) {
+    return { behavior: "ask", reason: "tool requires approval" };
+  }
+  return { behavior: "allow", reason: "tool is allowed" };
 }
 
-export function permissionDecision(spec: Pick<AgentSpec, "permission_profile" | "denied_tools" | "approval_required_tools">, tool: string): Record<string, string> {
-  if (spec.permission_profile === "deny" || spec.denied_tools.includes(tool)) return { behavior: "deny", reason: "tool is denied" };
-  if (spec.permission_profile === "ask" || spec.approval_required_tools.includes(tool)) return { behavior: "ask", reason: "tool requires approval" };
-  return { behavior: "allow", reason: "tool is allowed" };
+export function permissionExplanation(decision: ToolPermissionDecision, tool: string, args: unknown): Record<string, unknown> {
+  return { tool, arguments: args ?? {}, decision };
 }

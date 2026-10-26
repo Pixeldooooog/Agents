@@ -18,7 +18,7 @@ export async function listRuns(services: HostServices, url: URL, response: Serve
     user_id: queryValue(url, "user_id"),
     agent_id: queryValue(url, "agent_id")
   });
-  sendJson(response, 200, ok({ runs: data }));
+  sendJson(response, 200, ok({ runs: data.map(({ messages: _messages, ...run }) => run) }));
   return true;
 }
 

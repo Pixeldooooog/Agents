@@ -25,6 +25,7 @@ export type PublicAgentSpec = Omit<AgentSpec, "api_key"> & { api_key?: never };
 
 export type AgentChatPayload = Partial<Omit<AgentSpec, "metadata" | "runtime">> & {
   message: string;
+  previous_run_id?: string;
   runtime?: Partial<AgentRuntimeConfig>;
   metadata?: Record<string, string>;
 };

@@ -1,13 +1,18 @@
 import { withResponseCancellation } from "../http/responseCancellation.js";
 import type { ServerResponse } from "node:http";
-import type { AgentChatPayload } from "@kevin/core";
+import { AgentRunServiceError, type AgentChatPayload } from "@kevin/core";
 import type { HostServices } from "../services/hostServices.js";
-import { ok, sendJson, sendSse } from "../http/envelope.js";
+import { fail, ok, sendJson, sendSse } from "../http/envelope.js";
 import { responseStatusForRunResult } from "./agentRunLifecycle.js";
 
 export async function runAgentChat(services: HostServices, payload: AgentChatPayload, response: ServerResponse): Promise<true> {
-  const { run, result, events } = await withResponseCancellation(response, signal => services.runs.runPayload(payload, { signal }));
-  sendJson(response, responseStatusForRunResult(result), ok({ ...result, run_id: run.run_id, events }));
+  try {
+    const { run, result, events } = await withResponseCancellation(response, signal => services.runs.runPayload(payload, { signal }));
+    sendJson(response, responseStatusForRunResult(result), ok({ ...result, run_id: run.run_id, events }));
+  } catch (error) {
+    if (!(error instanceof AgentRunServiceError)) throw error;
+    sendJson(response, error.statusCode, fail(String(error.statusCode), error.message, error.statusCode).body);
+  }
   return true;
 }
 

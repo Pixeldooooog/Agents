@@ -3,13 +3,8 @@ import { defaultEnabledTools } from "../models/modelProfiles.js";
 import { builtinToolNames, canonicalToolName } from "../tools/toolRegistry.js";
 import type { AgentSpec } from "../types/agentTypes.js";
 
-/** Authorization fields of a spec, copied so later mutation of the spec cannot change them. */
-export type ToolAuthorization = Readonly<{
-  permissionProfile: string;
-  enabledTools: readonly string[];
-  deniedTools: readonly string[];
-  approvalRequiredTools: readonly string[];
-}>;
+import { permissionDecision, type ToolAuthorization } from "../permissions/permissionDecisions.js";
+export type { ToolAuthorization } from "../permissions/permissionDecisions.js";
 
 /**
  * Taken when a run (or resumed run) starts. Tools receive the live spec and may rewrite it, so every gate
@@ -24,30 +19,21 @@ export function toolAuthorizationSnapshot(settings: Settings, spec: AgentSpec): 
   });
 }
 
+export function runtimePermissionDecision(start: ToolAuthorization, settings: Settings, spec: AgentSpec, toolName: string) {
+  return permissionDecision(start, toolAuthorizationSnapshot(settings, spec), canonicalToolName(toolName));
+}
+
 export function isToolEnabled(start: ToolAuthorization, settings: Settings, spec: AgentSpec, toolName: string): boolean {
-  return enabledBy(start, toolName) && enabledBy(toolAuthorizationSnapshot(settings, spec), toolName);
+  const name = canonicalToolName(toolName);
+  return start.enabledTools.includes(name) && toolAuthorizationSnapshot(settings, spec).enabledTools.includes(name);
 }
 
 export function deniesTool(start: ToolAuthorization, settings: Settings, spec: AgentSpec, toolName: string): boolean {
-  return deniedBy(start, toolName) || deniedBy(toolAuthorizationSnapshot(settings, spec), toolName);
+  return runtimePermissionDecision(start, settings, spec, toolName).behavior === "deny";
 }
 
-/** Callers check deniesTool first; a denied tool is never offered for approval. */
 export function requiresApproval(start: ToolAuthorization, settings: Settings, spec: AgentSpec, toolName: string): boolean {
-  return approvalRequiredBy(start, toolName) || approvalRequiredBy(toolAuthorizationSnapshot(settings, spec), toolName);
-}
-
-function enabledBy(authorization: ToolAuthorization, toolName: string): boolean {
-  return authorization.enabledTools.includes(canonicalToolName(toolName));
-}
-
-function deniedBy(authorization: ToolAuthorization, toolName: string): boolean {
-  return authorization.permissionProfile === "deny" || authorization.deniedTools.includes(canonicalToolName(toolName));
-}
-
-function approvalRequiredBy(authorization: ToolAuthorization, toolName: string): boolean {
-  if (/^mcp_[a-f0-9]{56}$/.test(toolName) || ["hook.add", "hook.delete"].includes(toolName)) return true;
-  return authorization.permissionProfile === "ask" || authorization.approvalRequiredTools.includes(canonicalToolName(toolName));
+  return runtimePermissionDecision(start, settings, spec, toolName).behavior === "ask";
 }
 
 function effectiveEnabledTools(settings: Settings, spec: AgentSpec): string[] {

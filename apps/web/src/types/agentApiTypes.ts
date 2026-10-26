@@ -24,6 +24,7 @@ export type ToolApprovalRequest = {
 
 export type AgentChatPayload = {
   message: string;
+  previous_run_id?: string;
   protocol?: string;
   model?: string;
   base_url?: string;
@@ -89,5 +90,5 @@ export type ModelProfilesResponse = {
 export type SseEventFrame = {
   event: string;
   data: string;
-  payload: any;
+  payload: { type: string; name?: string; payload?: Record<string, unknown> };
 };

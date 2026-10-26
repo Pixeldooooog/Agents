@@ -1,9 +1,10 @@
 import type { AgentSpec } from "../types/agentTypes.js";
 import type { RunState } from "../contracts/execution.js";
-import type { PendingApproval, PersistedRunEvent, RunRecord, RuntimeEvent } from "../types/runtimeTypes.js";
+import type { Message, PendingApproval, PersistedRunEvent, RunRecord, RuntimeEvent } from "../types/runtimeTypes.js";
 import type { RunListFilters } from "../store/storeFilters.js";
 
 export type RunStore = {
+  setRunMessages(runId: string, messages: Message[]): Promise<void>;
   /** Creates the run in the `queued` state. */
   startRun(spec: AgentSpec): Promise<RunRecord>;
   /** Moves a `waiting_approval` run back to `queued` once per approval ID. */

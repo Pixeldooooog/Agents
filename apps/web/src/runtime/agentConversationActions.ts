@@ -40,6 +40,9 @@ type AgentConversationActionsOptions = {
 };
 
 export function createAgentConversationActions(options: AgentConversationActionsOptions) {
+  let previousRunId: string | undefined;
+  const resetConversation = () => { previousRunId = undefined; };
+  const payload = (text: string) => ({ ...options.payload(text), previous_run_id: previousRunId });
   let activeRequest: AbortController | undefined;
   const cancel = () => activeRequest?.abort();
   const send = async () => {
@@ -66,6 +69,7 @@ export function createAgentConversationActions(options: AgentConversationActions
       const data = await options.api().approve(request.runId, { approval_id: request.approvalId, approved, decision }, activeRequest.signal);
       options.updateActivity(id, { status: "done", detail: "200 OK" });
       options.setPendingApprovals((current) => current.filter((item) => item.approvalId !== request.approvalId));
+      if (data.status === "completed") previousRunId = data.run_id;
       consumeRuntimeEvents(data.events || [], options.eventDeps());
       if (data.status !== "waiting_approval") options.push("assistant", data.content || copy.chat.emptyResponse);
       await options.syncOperationTrace(request.runId);
@@ -79,7 +83,7 @@ export function createAgentConversationActions(options: AgentConversationActions
     }
   };
 
-  return { send, decideApproval, cancel };
+  return { send, decideApproval, cancel, resetConversation };
 
   async function sendChat(text: string) {
     const started = performance.now();
@@ -87,10 +91,11 @@ export function createAgentConversationActions(options: AgentConversationActions
     options.setBusy(true);
     const requestId = options.record("system", copy.activity.modelRequest, "POST /api/v1/agent/chat", "running");
     try {
-      const data = await options.api().chat(options.payload(text), activeRequest.signal);
+      const data = await options.api().chat(payload(text), activeRequest.signal);
       options.setLatency(Math.round(performance.now() - started));
       options.updateActivity(requestId, { status: "done", detail: "200 OK" });
       options.setRunId(data.run_id || "");
+      if (data.status === "completed") previousRunId = data.run_id;
       consumeRuntimeEvents(data.events || [], options.eventDeps());
       if (data.status !== "waiting_approval") options.push("assistant", data.content || copy.chat.emptyResponse);
     } catch (error) {
@@ -103,13 +108,20 @@ export function createAgentConversationActions(options: AgentConversationActions
   }
 
   async function sendStream(text: string) {
+    let currentRunId: string | undefined;
+    let completed = false;
     const started = performance.now();
     activeRequest = new AbortController();
     options.setBusy(true);
     const assistantId = options.push("assistant", "");
     const streamId = options.record("stream", copy.activity.streamOpen, "POST /api/v1/agent/chat/stream", "running");
     try {
-      await options.api().chatStream(options.payload(text), (frame) => handleStreamFrame(frame, assistantId, streamId, options.streamDeps()), activeRequest.signal);
+      await options.api().chatStream(payload(text), (frame) => {
+        if (frame.event === "run_created" && typeof frame.payload.payload?.run_id === "string") currentRunId = frame.payload.payload.run_id;
+        if (frame.event === "done") completed = frame.payload.payload?.status === "completed";
+        handleStreamFrame(frame, assistantId, streamId, options.streamDeps());
+      }, activeRequest.signal);
+      if (completed) previousRunId = currentRunId;
       options.setLatency(Math.round(performance.now() - started));
       options.updateActivity(streamId, { status: "done", detail: copy.activity.streamClosed });
     } catch (error) {

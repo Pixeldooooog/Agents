@@ -71,6 +71,8 @@ export type PendingApproval = {
 };
 
 export type RunRecord = {
+  /** Validated conversation snapshot; older records may not have one. */
+  messages?: Message[];
   run_id: string;
   agent_id: string;
   tenant_id: string;

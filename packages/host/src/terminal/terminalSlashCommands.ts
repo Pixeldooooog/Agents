@@ -66,10 +66,10 @@ export async function handleTerminalSlashCommand(text: string, context: Terminal
       switchModel(slashCommand.argument, context);
       return;
     case "/sessions":
-      context.writer.write({ type: "sessions", sessions: await context.sessions.list() });
+      context.writer.write({ type: "sessions", sessions: await sessionRows(context) });
       return;
     case "/resume":
-      if (!slashCommand.argument) context.writer.write({ type: "sessions", sessions: await context.sessions.list() });
+      if (!slashCommand.argument) context.writer.write({ type: "sessions", sessions: await sessionRows(context) });
       else await context.resumeSession(slashCommand.argument);
       return;
     default:
@@ -101,4 +101,12 @@ function doctorRows(context: TerminalSlashCommandContext): Record<string, string
 function parseSlashCommand(text: string): { name: string; argument: string } {
   const [name, ...argumentParts] = text.trim().split(/\s+/);
   return { name, argument: argumentParts.join(" ") };
+}
+
+async function sessionRows(context: TerminalSlashCommandContext) {
+  if (process.env.KEVIN_TERMINAL_FIXTURE === "1") return context.sessions.list();
+  return (await context.services.store.listRuns()).filter(run => run.status === "completed" && run.messages).map(run => ({
+    id: run.run_id, short_id: run.run_id, updated: new Date(run.updated_at * 1000).toISOString(),
+    model: run.spec.model, messages: String(run.messages!.length), workspace: run.workspace_id
+  }));
 }

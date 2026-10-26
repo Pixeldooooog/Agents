@@ -38,19 +38,21 @@ export function consumeRuntimeEvents(events: any[], deps: EventDeps) {
 
 export function handleStreamFrame(frame: SseEventFrame, assistantId: number, streamId: number, deps: StreamDeps) {
   if (frame.event === "text_delta") {
-    const delta = frame.payload?.payload?.delta || frame.payload?.delta || "";
+    const delta = eventText(frame.payload.payload?.delta);
     deps.updateMessage(assistantId, delta, true);
     deps.updateActivity(streamId, { detail: copy.activity.streamDelta(delta.length) });
     return;
   }
   if (frame.event === "done") {
-    const result = frame.payload?.payload || frame.payload;
+    const result = frame.payload.payload || {};
     if (result?.status === "waiting_approval" && !result?.content) deps.removeMessage(assistantId);
-    else deps.updateMessage(assistantId, result?.content || "");
+    else deps.updateMessage(assistantId, eventText(result?.content));
   }
   if (frame.event === "error") {
     deps.removeMessage(assistantId);
-    deps.push("error", frame.payload?.payload?.message || frame.payload?.message || copy.activity.streamError);
+    deps.push("error", eventText(frame.payload.payload?.message) || copy.activity.streamError);
   }
-  consumeRuntimeEvents([{ type: frame.event, name: frame.payload?.name, payload: frame.payload?.payload || frame.payload }], deps);
+  consumeRuntimeEvents([{ type: frame.event, name: frame.payload?.name, payload: frame.payload.payload || {} }], deps);
 }
+
+function eventText(value: unknown): string { return typeof value === "string" ? value : ""; }
