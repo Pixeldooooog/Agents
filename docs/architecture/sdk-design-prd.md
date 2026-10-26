@@ -1,257 +1,293 @@
-# PRD：Kevin SDK 目录与公共接口设计
+# Kevin Agent SDK：内核模块、功能与开发计划
 
-> 状态：设计提案，未实施。日期：2026-10-26。
-> 关联：[内核边界](kernel-boundaries.md)、[Agent 系统基线](../agent-system-baseline.md)、[模块地图](../module-map.md)。
+> 状态：目标设计与实施清单，未因落文而新增运行能力。更新：2026-10-26。
+> 本版替代此前以 SDK 客户端迁移为主的提案。旧 `packages/core/src/sdk` 已迁出，`reference/legacy-core-sdk` 仅为本地参考，不重新接回生产链路。
 
-## 1. 背景与问题
+## 1. 要开发的是什么
 
-`packages/core/src/sdk/` 目前有 86 个文件、约 12,500 行，约占 core 源码的三分之一；对应测试约 8,100 行，占全部测试的 74%。但 host、Web、Terminal 和 core 的其他模块**都没有引用它**。
+Kevin Agent SDK 是一套可以嵌入宿主、通过服务调用、被不同产品复用的单智能体执行能力。它要完成：接收用户输入，组织上下文，请求模型，验证并授权工具调用，执行工具，将结果送回模型，处理审批、取消和失败，留下可查询的运行记录。
 
-主要问题：
+这里区分两个对象：
 
-| 问题 | 现状 | 影响 |
-|---|---|---|
-| 位置错误 | SDK 放在 `core` 内部，并通过 `@kevin/core/sdk` 导出 | 内核与对外接口耦合；core 依赖面和体积被 SDK 拉大 |
-| 职责混杂 | 同一目录里有客户端 API、会话存储、文件历史回滚、上下文统计、MCP elicitation、权限模式、wire 校验、远程 worker 传输 | 领域逻辑落在“SDK”名下，真正的所有者（session、workspace、mcp、permissions）反而缺失 |
-| 复刻无关协议 | CCR 远程 worker、批量上传、混合传输、WebSocket 代理/TLS 等约 2,600 行 | 这是编码 CLI 的远程运行协议，不是个人智能体的对外 SDK；当前没有消费者 |
-| 公共面失控 | `index.ts` 用 `export *` 导出 60+ 个文件；`sdkPublicAliases.ts` 再给同一批符号起 `SDK*` 大写别名 | 无法判断哪些是稳定 API；任何内部重命名都是破坏性变更 |
-| 运行模式单一 | 只能进程内调用 `AgentRunService` | 不能作为远程客户端连接常驻 host，与基线“客户端连接同一服务”的目标冲突 |
+- **Agent 内核**：实际执行智能体，代码继续归 `packages/core`。
+- **公开 SDK**：提供稳定的会话、运行、事件和控制接口；仅在内核接口与真实消费者对齐后建立 `packages/sdk`，不接管领域行为。
 
-## 2. 目标与非目标
+首要目标是把现有内核收敛为可靠的执行闭环，而不是先搭一个庞大的 SDK 壳。Terminal、Web、未来桌面 App 共用相同内核语义，界面不自行实现审批、历史拼接或重试策略。
 
-### 目标
+### 范围与文档关系
 
-1. SDK 作为**独立 package** `@kevin/sdk`，是第三方和 Kevin 自有客户端访问智能体的**唯一受支持入口**。
-2. 同一套公共 API 支持两种运行模式：**远程**（连接常驻 host，默认）和**嵌入**（进程内运行，用于测试、脚本和单机集成）。
-3. 公共面小且显式：每个导出都有归属和稳定级别，内部模块不可从包外导入。
-4. 公共事件与 wire 协议有版本号，校验发生在边界，外部数据一律按 `unknown` 处理。
-5. SDK 不承担领域逻辑：会话存储、文件历史、上下文、权限、MCP 都由 core 中对应模块负责，SDK 只做投影和转发。
+- [系统基线](../agent-system-baseline.md) 仍规定整体生命周期、不变量和 B0–B3 / 产品 / 云端范围。
+- [内核边界](kernel-boundaries.md) 与 [验收记录](kernel-acceptance.md) 保留现有 P0–P6 的实现和历史证据；本文件定义下一轮模块收敛与 SDK 交付方式，不把已完成阶段清零重做。
+- [nexus-code 审查](nexus-code-review.md) 提供历史实现经验；[参考评估](kernel-reference-assessment.md) 区分它与 nxs 的借鉴价值。两者都不是 Kevin 的正确性标准。
+- 下文 D0–D6 是本方案的开发批次，与原 P0–P6 不同，也不替代系统基线的 B/P/C 阶段。超出现有批准范围的目标单独列出，不能悄悄并入本轮。
 
-### 非目标
+## 2. 完整目标与当前不启动的能力
 
-- 不实现 CCR 远程 worker、批量事件上传、WebSocket 代理。若未来需要云端 worker，按 C1 阶段另起 package。
-- 不提供浏览器专用 bundle。Web 应用暂时继续使用自己的 `apiClient`，等 SDK 远程模式稳定后再迁移。
-- 不兼容旧的 `SDK*` 别名和 `@kevin/core/sdk` 导入路径。项目尚未发布，按 AGENTS.md 规则不保留兼容层。
+### SDK 应支持的使用方式
 
-## 3. 用户与场景
+| 使用者 | 要完成的工作 | 接入方式 |
+| --- | --- | --- |
+| 自有 Terminal / Web / 桌面 App | 对话、工具进度、审批、取消、结果与历史查询 | Host 的受控服务接口；逐步共用公开 SDK |
+| 本地脚本与测试 | 注入模型、工具和存储，执行一次任务或连续会话 | 进程内嵌入接口 |
+| 第三方应用 | 发起运行、订阅事件、响应交互，不接触内部对象 | 稳定 SDK + Host API |
 
-| 用户 | 场景 | 运行模式 |
-|---|---|---|
-| Kevin Terminal / Web | 发起任务、接收流式事件、审批、取消、查看会话 | 远程 |
-| 开发者脚本 | 写一个定时脚本让 Kevin 汇总资料并返回结构化结果 | 远程或嵌入 |
-| 第三方集成 | 在自己的应用里嵌入 Kevin，提供自定义工具和审批 UI | 远程 |
-| 内核测试 | 用假模型、假传输做确定性契约测试 | 嵌入 + `testing` |
+### 当前主线
 
-## 4. 设计原则
+单智能体、多轮工具调用；Chat Completions / Messages / Responses；会话历史与上下文投影；统一工具和权限；Skill / MCP / Hook；本地单进程持久化；宿主取消与资源清理；小而稳定的公开接口。
 
-1. **依赖方向**：`apps → @kevin/sdk → @kevin/core/contracts`。只有 `@kevin/sdk/embedded` 子路径允许依赖 core 运行时。core 永远不导入 sdk。
-2. **传输与 API 分离**：公共 API 只依赖 `Transport` 接口；HTTP/SSE、stdio JSONL、进程内都是可替换的实现。
-3. **一个概念一个名字**：类型统一用 `Kevin` 或领域名前缀（`KevinClient`、`Session`、`Run`、`RunEvent`），不再出现 `Sdk` / `SDK` 双套命名。
-4. **公共面显式列出**：`src/index.ts` 只逐个具名导出；禁止 `export *`。
-5. **错误可区分**：配置错误、传输错误、协议错误、服务端拒绝、超时、用户取消分别用不同错误码，不吞成通用 `Error`。
-6. **资源有归属**：每个流都有明确的关闭路径；`AbortSignal` 贯穿所有 I/O；`for await` 提前退出时释放读取器和监听器。
+### 完整目标中暂缓的部分
 
-## 5. 目标目录结构
+- 原生沙箱后端继续暂缓，只保留实际宿主执行端口与能力声明；不创建空沙箱框架。
+- SQLite、跨进程 lease、Action Ledger、checkpoint 与崩溃后持久任务恢复属于 B2。当前 JSON store 不宣称这些保证。
+- 云端 worker、跨设备执行、远程客户端工具回调桥、多智能体团队调度、自动长期任务与发行矩阵另行推进。
+- stdio 现有产品链路继续维护，但不预先为公开 SDK 新建 HTTP、WebSocket、stdio 等全套可插拔传输。
+- 不恢复旧 SDK* 别名，不兼容未发布的废弃协议，不根据参考项目功能数量扩张范围。
+
+## 3. 模块与依赖方向
 
 ```text
-packages/sdk/
-├── package.json             # exports: ".", "./embedded", "./transports/stdio", "./testing"
-├── tsconfig.json
-├── src/
-│   ├── index.ts             # 公共面：逐个具名导出，唯一入口
-│   │
-│   ├── client/              # 入口对象与配置
-│   │   ├── kevinClient.ts       # createKevinClient() → KevinClient
-│   │   └── clientOptions.ts     # 选项类型与边界校验
-│   │
-│   ├── sessions/            # 会话句柄与查询（数据由服务端/core 拥有）
-│   │   ├── session.ts           # Session：send / resume / close
-│   │   └── sessionQueries.ts    # list / get / messages / fork / rename
-│   │
-│   ├── runs/                # 一次运行的流与控制
-│   │   ├── runHandle.ts         # Run：events（AsyncIterable）+ result（Promise）
-│   │   ├── runControl.ts        # approve / deny / interrupt / cancel / sendInput
-│   │   └── runResult.ts         # 终态结果类型与从事件归约
-│   │
-│   ├── events/              # 公共事件模型（版本化）
-│   │   ├── runEventTypes.ts     # RunEvent 判别联合，schema_version: 1
-│   │   └── runEventGuards.ts    # 类型守卫与窄化
-│   │
-│   ├── tools/               # 客户端自定义工具
-│   │   ├── defineTool.ts        # defineTool({ name, schema, handler, risk })
-│   │   └── clientToolBridge.ts  # 调用请求 → 本地 handler → 结果回传
-│   │
-│   ├── approvals/           # 审批回调契约
-│   │   └── approvalHandler.ts   # onApproval(request) → decision
-│   │
-│   ├── transports/          # 传输实现（API 只依赖接口）
-│   │   ├── transport.ts         # Transport 接口
-│   │   ├── httpTransport.ts     # REST + SSE，连接常驻 host（默认）
-│   │   └── stdioTransport.ts    # 子进程 JSONL（子路径导出）
-│   │
-│   ├── wire/                # 线协议：编码、分帧、校验
-│   │   ├── wireSchema.ts        # v1 消息 JSON Schema
-│   │   ├── wireValidation.ts    # unknown → 已验证消息
-│   │   ├── jsonlFraming.ts      # JSONL 分帧
-│   │   └── sseFraming.ts        # SSE 分帧（可复用 core/models 的实现）
-│   │
-│   ├── errors/
-│   │   └── kevinSdkError.ts     # KevinSdkError + code 枚举
-│   │
-│   ├── embedded/            # 进程内模式，唯一允许依赖 core 运行时
-│   │   ├── embeddedTransport.ts # 包装 AgentRunService，实现 Transport
-│   │   └── runEventProjection.ts# core RuntimeEvent → 公共 RunEvent
-│   │
-│   └── testing/             # 公开的测试工具
-│       ├── fakeTransport.ts     # 脚本化事件序列
-│       └── recordedRuns.ts      # 录制/回放 wire 记录
-│
-└── test/
-    ├── contract/            # 公共 API 契约：事件顺序、审批、取消、错误码
-    ├── transports/          # 本地 HTTP fixture server、stdio 子进程
-    ├── wire/                # 分帧、损坏输入、超限、版本不匹配
-    └── fixtures/            # 录制的 wire 记录（golden files）
+apps/terminal、apps/web、未来桌面 App
+       ↓
+公开 SDK / 现有宿主客户端
+       ↓
+Host：鉴权、配置、凭据、连接管理、资源装配
+       ↓
+Run Service：运行领取、状态转换、持久事件、控制命令
+       ↓
+Runtime：模型—工具循环、预算、取消、有限恢复
+       ├─ Context / Session：历史读取、请求投影、摘要与边界
+       ├─ Models：内部契约 ↔ 协议适配 ↔ HTTP/SSE
+       └─ Tools：参数验证 → 权限与审批 → 执行 → 结果处理
+                          ↑
+                    内置工具 / MCP 工具
+
+Skill 提供指令与资源；Hook 在明确生命周期节点介入。
+存储与环境实现由 Host 注入，core 不依赖 App、HTTP 路由或 UI。
 ```
 
-**命名约定**：目录是稳定的领域名（`sessions`、`runs`、`transports`）；文件名是该领域内的具体职责（`runControl.ts`、`httpTransport.ts`）。文件名不加 `sdk` 前缀，因为 package 名已经表达了这一点。
+目录表示稳定责任域；有实际调用者和独立变化理由才拆文件/包。`models`、`extensions` 等已有名称可继续使用，不为了目标图批量重命名。
 
-### package.json 导出
+## 4. 每个模块写什么
 
-```json
-{
-  "name": "@kevin/sdk",
-  "exports": {
-    ".": "./src/index.ts",
-    "./embedded": "./src/embedded/index.ts",
-    "./transports/stdio": "./src/transports/stdioTransport.ts",
-    "./testing": "./src/testing/index.ts"
-  },
-  "dependencies": { "@kevin/core": "workspace:*" }
-}
+### 4.1 Contracts：统一语言与公共边界
+
+**位置：** `core/src/contracts`；模型、工具内部专用类型保留在各自领域，不把所有类型倒进一个全局目录。
+
+**功能：** 定义 Session、Run、模型 Turn、调用与结果 ID、状态、控制命令、事件信封、预算和稳定错误分类。公开字段在边界版本化，内部结构变化通过投影隔离。
+
+**关键语义：**
+
+- Session 是连续会话，Run 是一次输入触发的执行，模型 Turn 是一次生成；一个 Run 可经过多个模型 Turn。
+- `waiting_approval`、`waiting_input` 是可继续的等待状态，不是成功或最终结束。一次 HTTP 请求结束也不代表 Run 结束。
+- 公共 `run.finished` 仅表示真正终态；暂停使用 `run.waiting`。运行状态沿用已有 contracts，不再复制另一套枚举。
+- 持久事件带现有 event_id / schema_version / occurred_at / run_id / sequence；文本增量是暂态，不能承诺断线完整回放。
+
+**验收：** 非法转换拒绝；重复和过期控制命令不重复执行；未实现状态或命令明确返回 unsupported，不靠类型声明冒充支持。
+
+### 4.2 Models：协议与能力适配
+
+**位置：** 现有 `core/src/models`。
+
+**功能：** 请求编码、流式分帧、内容与工具参数组装、完整回合校验、usage、结束原因、供应商原生上下文回放、超时和取消；分别适配三种主协议。
+
+**输入输出：** 归一化消息/工具定义/模型配置 → 暂态增量 + 已验证 ModelTurn，或明确的错误。
+
+**开发重点：**
+
+- 保留已有三协议解析器与完整 turn 校验，补充能力声明，按 protocol + endpoint + model 确定支持范围。
+- 明确文本、图片、工具、结构化输出、原生 reasoning 等支持与拒绝条件；Gemini 的现有有限能力不得伪装成完整工具支持。
+- 终态缺失、工具 ID 冲突、参数损坏、输出截断、provider 拒绝、限流、取消分别处理。
+- 结构化输出在声明支持的路径做 schema 验证；不支持的能力显式拒绝，不能退化后仍宣称成功。
+- 模型切换只回放兼容原生内容；密钥不写入会话与事件。
+
+**禁止：** 执行工具、加载 Skill、判定权限、修改 Run。
+
+**验收：** 多工具交错参数、尾 usage、空流、截断、取消、reasoning 回放的协议 fixture；真实端点另列验证记录。
+
+### 4.3 Runtime / Run Service：执行与状态归属
+
+**位置：** 现有 `core/src/runtime`。
+
+**功能：** 模型—工具循环；有界轮数、工具次数、时间和 token 预算；审批暂停与续跑；取消传播；错误恢复策略；最终结果。
+
+**责任拆分：**
+
+- AgentRuntime / turn loop 负责执行决策，不直接解析 provider JSON。
+- AgentRunService 负责面向调用者的状态领取、持久记录与控制入口；保持唯一状态写路径。
+- 故障分类属于 models，采取重试、续写、压缩后重试还是结束属于 runtime。重试预算统一，避免传输层与循环层叠加无限尝试。
+- 默认完整模型回合验证后才执行工具；文本可以先展示，但未完成内容不作为最终消息落库。
+- 工具执行后失败或取消，不宣称副作用已撤销；结果不确定时明确记录，不自动重放。
+
+**验收：** 请求 → 多工具 → 等待审批 → 继续 → 完成；拒绝、预算耗尽、工具失败、模型失败、取消都具有明确状态和事件顺序。
+
+### 4.4 Tools：定义、注册、执行与结果
+
+**位置：** `core/src/tools` 与现有各领域工具模块。
+
+**功能：** 工具 schema、唯一身份、来源和版本；所需服务声明；输入校验；输入相关资源影响；取消、超时、结果限额和错误归一化。
+
+**执行流程：**
+
+```text
+模型提议 → Schema 验证 → 资源影响描述 → 权限决定
+→ 必要审批 → 重新核对策略/定义 → 执行 → 结果限制/产物引用 → 回填模型
 ```
 
-根入口只用到 `@kevin/core/contracts` 的类型；只有导入 `@kevin/sdk/embedded` 时才会加载 core 运行时。远程模式的使用者因此不需要带上 runtime、工具和存储。
+保留当前 requires / uses 的窄服务声明，避免给所有 handler 整个 Host 对象。注册文件只装配，文件、shell、搜索等行为留在所属模块。
 
-## 6. 公共 API
+先保持顺序执行。只有确定工具输入无冲突、允许并发且结果能稳定关联时，才加入有界并发；未知影响按顺序执行。缓存编译后的 schema 时以定义版本为边界，并设置有界生命周期，不每次调用重新编译。
 
-### 6.1 使用示例
+**验收：** 非法参数不执行；缺失依赖明确失败；结果与调用 ID 一一对应；输出超限有明确截断或产物引用；取消释放资源。副作用工具不可因重连自动重试。
 
-```ts
-import { createKevinClient, httpTransport } from "@kevin/sdk";
+### 4.5 Permissions：唯一授权决定
 
-const kevin = createKevinClient({
-  transport: httpTransport({ baseUrl: "http://127.0.0.1:8787", token: process.env.KEVIN_TOKEN })
-});
+**位置：** 现有 `core/src/permissions`；runtime 只消费决定并处理审批。
 
-const session = await kevin.sessions.create({ title: "周报" });
-const run = session.send("汇总本周 docs/ 下的改动", { signal });
+**功能：** 基于工具身份、已验证参数、实际资源范围、当前用户/工作空间和策略版本返回 allow / ask / deny，以及原因、来源和审批范围。
 
-for await (const event of run.events) {
-  if (event.type === "message.delta") process.stdout.write(event.delta);
-  if (event.type === "approval.requested") await run.approve(event.approvalId);
-}
+统一权限解释接口与真实执行路径，删除重复规则。一次 approval_id 绑定具体调用和参数；参数、工具定义或授权范围变化后重新评估。审批期间撤销策略仍然生效。外部 MCP 和 Hook 配置变更保持现有严格约束，不能通过“统一”放宽。
 
-const result = await run.result; // { status, content, usage, ... }
-```
+Hook 可以进一步拒绝，不能扩大授权；如果未来支持参数修改，修改后必须重新走验证和权限流程。
 
-嵌入模式只替换传输，其余代码不变：
+**验收：** 解释与执行一致；deny 优先；重复批准、过期批准和变化后的调用拒绝；Skill/Plugin 启用不改变权限。
 
-```ts
-import { embeddedTransport } from "@kevin/sdk/embedded";
-const kevin = createKevinClient({ transport: await embeddedTransport({ repoRoot }) });
-```
+### 4.6 Session / Context：历史与请求投影
 
-### 6.2 核心对象
+**位置：** 现有 `core/src/session`；当预算与投影成为独立职责时再新增 `core/src/context`。
 
-| 对象 | 职责 | 主要成员 |
-|---|---|---|
-| `KevinClient` | 入口，持有传输和配置 | `sessions`、`runs.get(runId)`、`close()` |
-| `Session` | 一段持续对话 | `send()`、`messages()`、`fork()`、`rename()` |
-| `Run` | 一次运行 | `events`、`result`、`approve()`、`deny()`、`interrupt()`、`cancel()`、`sendInput()` |
-| `RunEvent` | 公共事件判别联合 | 见 6.3 |
-| `Transport` | 传输接口 | `startRun()`、`control()`、`subscribe()`、`query()`、`close()` |
+**功能：** 用户输入与完整消息记录、历史读取、会话继续、模型请求投影、token 预算、工具输出裁剪、摘要、压缩边界和回退。
 
-`run.events` 只能被消费一次；`run.result` 可在不消费事件的情况下等待终态（内部自行排空）。
+- 历史记录保存事实，Context 只生成本轮模型输入，不能通过裁剪覆盖事实源。
+- 普通新输入必须明确关联 Session；不能仅依赖 UI 的历史列表，也不能把 session ID 当作自动完成历史拼接。
+- 按工具调用/结果关联组划定合法切点；不能简单保留最后 N 条消息。fork/rewind 不撤销外部副作用。
+- 压缩摘要记录来源范围、摘要版本和保留组；失败有上限，可取消；不能循环压缩同一无效上下文。
+- 每个 Session 初期只允许一个活动前台 Run，冲突明确返回。中途补充输入的目标是类型化排队并在安全点消费；持久队列进入 B2 前不能声称重启不丢失。
+- 权限、工作空间规则和可信系统约束不因摘要被提升、覆盖或遗失；外部材料保持来源标记。
 
-### 6.3 公共事件（schema v1）
+**验收：** 连续两次输入确实带入有效历史；压缩后无孤立工具结果；回退可重复解释；模型切换不回放不兼容原生内容；并发提交不交错污染历史。
 
-| 事件 | 含义 |
-|---|---|
-| `run.started` | 运行开始，携带 `runId`、`sessionId` |
-| `message.delta` | 文本增量，暂态，不保证可重放 |
-| `message.completed` | 已校验的完整模型消息 |
-| `tool.started` / `tool.completed` | 工具调用开始与结果（含 `isError`） |
-| `approval.requested` | 需要审批，携带 `approvalId`、工具名、参数摘要 |
-| `input.requested` | 智能体请求用户补充输入 |
-| `run.completed` | 终态：`completed` / `waiting_approval` / `failed` / `cancelled`（与 contracts `RunState` 一致） |
+### 4.7 Skills / Extensions：按需指令
 
-所有事件都带 `event_id`、`schema_version`、`occurred_at`、`run_id` 和 run 内单调递增的 `sequence`，与基线文档第 8 节的事件契约保持一致。core 内部 `RuntimeEvent` 的字段变化只影响投影层，不影响公共事件。
+**位置：** 现有 `core/src/extensions`，不另建重复 Skill 系统。
 
-### 6.4 Transport 接口
+**功能：** 发现、元信息、同名优先级、显式加载、启停、参数文本替换、来源和路径范围。先提供技能目录，按需注入正文。
 
-```ts
-export interface Transport {
-  startRun(request: StartRunRequest, signal?: AbortSignal): Promise<RunSubscription>;
-  control(runId: string, command: RunControlCommand, signal?: AbortSignal): Promise<void>;
-  query<K extends QueryKind>(kind: K, params: QueryParams[K], signal?: AbortSignal): Promise<QueryResult[K]>;
-  close(): Promise<void>;
-}
+资源读取和脚本执行使用正常工具授权；加载过程不自动执行 shell。allowed-tools 是提示而非权限。保留现有 realpath、大小与安装范围校验。
 
-export interface RunSubscription extends AsyncIterable<RunEvent> {
-  readonly runId: string;
-  close(): Promise<void>;
-}
-```
+**验收：** 禁用技能不可调用；损坏高优先级项不偷偷回退；越界资源被拒；加载技能前后授权完全一致。
 
-`RunControlCommand` 覆盖 `approve`、`deny`、`interrupt`、`cancel`、`input`。审批命令必须回传事件里收到的 `approvalId`，与现有 HTTP 审批接口一致。
+### 4.8 MCP：外部能力接入
 
-### 6.5 错误码
+**位置：** 现有 `core/src/mcp`，连接由 Host 持有。
 
-`KevinSdkError.code` 的取值：`invalid_options`、`transport_unavailable`、`protocol_error`、`unsupported_schema_version`、`unauthorized`、`not_found`、`conflict`、`timeout`、`canceled`、`server_error`。HTTP 状态码映射集中在 `httpTransport.ts`。
+**功能：** stdio / Streamable HTTP 连接、能力协商、发现、分页和大小限制、工具/资源/prompt 映射、取消、撤销、显式重连和关闭。
 
-## 7. 现有 `core/src/sdk` 的迁移去向
+保留官方 SDK 实现协议，Kevin 负责可信配置与权限。模型生成的 server 配置不能自动启动进程。工具定义变化使旧审批失效；重连不复活旧对象，不重放副作用。资源和 prompt 的使用方式明确，远端返回内容不成为本地授权依据。
 
-| 现有内容（约行数） | 去向 | 理由 |
-|---|---|---|
-| `agentSdkClient`、`sdkFacade`、`sdkSession`、`sdkQueryOptions`、`sdkTypes`（~1,100） | 重写为 `sdk/client`、`sdk/sessions`、`sdk/runs` | 保留能力，按新 API 收窄 |
-| 消息与事件投影 `sdkMessages`、`sdkEvent*`、`sdk*Messages`（~1,800） | `sdk/events` + `sdk/embedded/runEventProjection` | 公共事件模型重新定义；投影只保留嵌入模式需要的部分 |
-| wire 校验、JSON Schema、JSONL/SSE 分帧、`sdkStructuredIo`（~2,300） | `sdk/wire` | 与 core/models 的 SSE 分帧去重 |
-| 控制处理、活动 turn、异步消息队列、`sdkProtocolRunner`（~2,000） | 控制契约放到 `sdk/runs/runControl`；**输入队列与中断语义下沉到 core 执行层** | 基线 K10 要求输入队列是持久事实，归执行层所有 |
-| 本地 JSONL 传输（~270） | `sdk/transports/stdioTransport` | 保留子进程模式 |
-| 会话记录、fork/rename/tag、压缩（~690） | `core/session` | 会话数据属于领域层；SDK 只调用 |
-| 文件历史、回滚、读状态（~1,350） | `core/workspace/fileHistory` | 文件快照是工具与工作区的职责 |
-| 上下文用量（~200） | `core/context` | 上下文预算是 runtime 的职责 |
-| MCP elicitation 与控制记录、权限模式 | `core/mcp`、`core/permissions` | 回到能力的所有者 |
-| CCR 客户端、混合/SSE worker 传输、批量上传、WebSocket 连接/代理/TLS、传输 URL（~2,600） | **删除** | 编码 CLI 的远程 worker 协议，无消费者；C1 需要时另行设计 |
-| `sdkPublicAliases`（~190） | **删除** | 重复命名 |
-| `sdkFileHistoryMigration` | **删除** | 迁移来源不属于本项目 |
+**验收：** 使用真实本地子进程和 HTTP fixture，覆盖断开、取消、分页异常、定义变化、旧 provider 撤销和有界关闭。
 
-预计迁移后 SDK 包约 3,000–4,000 行；约 2,000 行领域逻辑回到 core 的正确位置；约 2,800 行删除。
+### 4.9 Hooks：受限生命周期扩展
 
-## 8. 分阶段实施
+**位置：** 现有 `core/src/hooks`。
 
-| 阶段 | 内容 | 完成标准 |
-|---|---|---|
-| S0 冻结 | 停止向 `core/src/sdk` 添加功能；为第 7 节每一行建 issue 或清单项 | 迁移清单无未归属项 |
-| S1 领域下沉 | 会话、文件历史、上下文用量、MCP elicitation、权限模式迁入 core 对应模块，测试随迁 | core 测试全绿；`core/src/sdk` 不再包含领域逻辑 |
-| S2 新包骨架 | 建 `packages/sdk`：`client`、`runs`、`events`、`errors`、`transports/transport.ts`、`embedded` | 嵌入模式跑通“发起 → 流式 → 审批 → 完成/取消”契约测试 |
-| S3 远程模式 | `httpTransport` 对接 host 的 REST + SSE；host 补齐版本化事件流与断线重连游标 | 本地 HTTP fixture 与真实 host 两套测试通过 |
-| S4 切换与删除 | Terminal 改用 SDK；删除 `core/src/sdk` 与 `@kevin/core/sdk` 导出；更新模块地图 | 仓库中无 `core/sdk` 引用；`bun run check` 通过 |
-| S5 自定义工具 | `defineTool` + 客户端工具桥，经过与内置工具相同的权限与审批入口 | 客户端工具被拒绝、超时、取消均有测试 |
+**功能：** 先收敛已实现的 before_request、after_response、pre_tool_use、post_tool_use 及工作区观察事件。每种事件明确输入、允许动作、顺序、超时、取消和失败语义。
 
-每阶段单独提交，使用 emoji commit。S1 与 S2 可以并行；S3 依赖 host 事件流。
+控制 Hook 失败阻止继续；观察 Hook 失败记录但不抹除成功结果。状态不向回调任意开放，Hook 不直接调用工具。stop/session_end 如有真实消费者再扩展，并定义阻止停止次数上限；任意 shell Hook 不在本轮。
 
-## 9. 验收标准
+**验收：** 顺序确定，作用域隔离；审批后重读控制 Hook；超时有界；无法提权或形成无限停止循环。
 
-1. `@kevin/sdk` 根入口不会传递加载 core 运行时（通过检查依赖图验证）。
-2. 公共导出清单不超过约 40 个符号，并且每个都有文档注释。
-3. 同一份契约测试分别在嵌入传输和 HTTP 传输上运行，结果一致。
-4. 失败路径都有测试：损坏帧、未知 `schema_version`、断线重连、重复审批（409）、中途取消、`for await` 提前退出后资源被释放。
-5. core 中没有任何文件导入 sdk；sdk 只通过 `@kevin/core/contracts`（根入口）或 `@kevin/core`（embedded）访问内核。
-6. 文档：模块地图更新，公共 API 示例可直接运行。
+### 4.10 Storage / Memory / Artifacts：持久事实与大结果
 
-## 10. 待决问题
+**位置：** 现有 `ports`、`store`、`memory`；产物行为有实际调用后再拆独立模块。
 
-1. 嵌入模式是否继续允许与常驻 host 共用状态目录？基线文档要求隔离，建议嵌入模式强制使用独立状态目录。
-2. 公共事件是否直接采用 `contracts/` 中的 Event v1 类型？建议采用，以免出现第三套事件模型；前提是 runtime 先切换到 contracts。
-3. Web 何时从自有 `apiClient` 切换到 SDK？建议在 S3 稳定后进行，并评估浏览器端 bundle 体积。
+**功能：** Run 状态、完整消息、审批和持久事件；长期 Markdown 记忆；大工具结果与文件产物的受控引用。模型文本增量不逐 token 写盘。
+
+存储实现由宿主注入，读取损坏数据应失败；不能静默重置。产物记录来源、所属会话/运行、类型、大小和引用范围；禁止把任意本地路径直接暴露给远程调用者。长期记忆写入使用明确工具，摘要不自动升级成用户事实。
+
+保持当前单进程保证。运行状态与事件跨崩溃的一致性需要 B2 事务/账本设计；接口存在不代表已经 durable。不要先移植 nxs transcript 或旧 SDK 文件历史产生第二套事实源。
+
+**验收：** 状态和事件可查询；损坏记录拒绝；跨 scope 产物不可访问；关闭/重启测试准确报告可恢复与不可恢复范围。
+
+### 4.11 Host 与公开 SDK：装配和调用
+
+**位置：** `packages/host`；未来 `packages/sdk`。
+
+Host 负责配置验证、认证、凭据注入、存储与模型装配、MCP 连接和命令执行资源。core 不读取 UI 状态，也不自己决定使用哪份系统凭据。
+
+公开 SDK 只暴露少量稳定对象：
+
+| 对象 | 功能 | 不承担 |
+| --- | --- | --- |
+| Client / Embedded Agent | 创建或连接运行服务，关闭自身资源 | 第二套执行循环 |
+| Session | 创建、读取历史、提交输入；后续按需求增加 fork/rename | 本地拼接并保存另一套权威历史 |
+| RunHandle | runId、状态查询、事件订阅、等待终态、取消、审批响应 | 自行推断审批或自动允许工具 |
+| Tool 定义入口 | 嵌入模式注册自定义工具，声明依赖/schema/影响 | 远程客户端 handler 自动回调桥 |
+| Error / Event | 稳定错误分类、版本化公共事件 | 将 provider 原始对象泄漏给产品 |
+
+先用嵌入调用和现有 Host HTTP 两个真实消费场景确定必要接口，再判断是否需要 Transport 抽象。core 不依赖 sdk；SDK 的远程入口不运行或加载工具；嵌入入口单独导出。包体积与运行依赖隔离需用实际打包验证，不因 type-only import 就声称完全独立。
+
+## 5. 公共 API 的关键语义
+
+下列是目标契约，不是当前已经可以导入的代码；方法名称在 D0 冻结，不预建大量别名。
+
+- `session.submit(input)` 接受输入并返回 RunHandle；先记录被接受的输入，再开始模型 I/O。
+- `run.respondApproval(approvalId, decision)` 仅对绑定调用生效；必须由真实用户选择或显式宿主策略产生，示例和默认行为都不自动批准。
+- `run.cancel()` 提交取消意图；最终状态以运行事件为准，不承诺已发生副作用回滚。
+- `run.subscribe()` 订阅事件；`run.waitForTerminal()` 等待真正终态，等待审批时不会把它解析成 completed。
+- 内部只有一个有界事件读取/分发管道；等待结果与 UI 订阅不竞争消费同一流。慢订阅者不得无限缓冲：暂态增量允许明确失效并要求刷新快照，持久事件通过游标恢复或报告过期。
+- 关闭订阅只释放观察资源，取消 Run 使用独立命令。现有前台 HTTP 断连会取消执行，必须显式保留为该入口的行为；新增可重连观察流前不能声称现有 API 支持 detach。
+- client.close() 关闭其拥有的连接；嵌入实例关闭时终止自己拥有的活动执行并等待有界清理。外部注入资源的关闭责任在配置中明确。
+
+持久事件重放按 run_id + sequence 去重；暂态增量不与持久序号混用。远程断线后的命令重试，只有具备明确幂等契约才允许自动进行。
+
+## 6. 从 nexus-code 和 nxs 具体借鉴什么
+
+| 参考 | 转化为 Kevin 开发项 | 不采用 |
+| --- | --- | --- |
+| nexus-code 会话与循环场景 | Session/Run 区分、完整 turn 后执行、输入/取消/停止场景测试 | 整体复制 QueryEngine/query |
+| 工具行为声明 | 输入相关影响、执行预算、并发限制、结果关联 | React Tool 接口和巨大上下文对象 |
+| 上下文处理 | 工具结果预算、合法消息组、有限压缩恢复 | 按消息数硬切、空 reactiveCompact 等占位 |
+| OpenAI 适配经验 | reasoning 回放、最终 arguments、失败与终态 fixture | 以 Anthropic Beta 类型作为 Kevin 全局内部协议 |
+| 扩展系统经验 | Skill 按需加载、MCP 生命周期、受限 Hook | Skill 自动增权、隐藏命令执行 |
+| nxs 工程划分 | runtime 装配、query 决策、session 持久化、context 投影各有归属 | Go 目录/锁/协程逐行翻译，以及无消费者的 facade |
+
+参考案例必须转成我们自己的行为测试。已在 Kevin 正确实现的能力保留，不为了借鉴重复造轮子。
+
+## 7. 开发顺序、交付物与停止条件
+
+清理中的工作区不作为稳定基线；每个批次从新的干净提交核对现有实现，标注“保留 / 收敛 / 新增 / 延后”，不从历史文档测试数量推导当前通过。
+
+| 批次 | 做什么 | 交付物与验收 | 与既有计划关系 |
+| --- | --- | --- | --- |
+| D0 契约与清单 | 对齐现有 types/contracts；冻结 Session/Run/Turn、等待与终态、事件、错误、公开 API 最小集合 | 一份实际代码差距清单；每项有所有者、调用方、验收；不新增空接口 | P0–P6 收口前置工作 |
+| D1 模型与权限收敛 | 保留三协议完整 turn 解析；统一权限解释与执行；明确能力与错误分类 | 三协议 fixture；同一输入权限一致；MCP/Hook 原有约束不退化 | P0/P1/P2 回归与补缺 |
+| D2 执行闭环 | 收敛工具定义/依赖、预算、顺序、审批、取消和有限恢复 | 真文件工具的批准/拒绝/取消/失败链；重复审批不执行；无资源泄漏 | P2/P5/P6 补缺 |
+| D3 会话与上下文 | 普通输入带入历史；请求投影；合法压缩/rewind；大结果引用 | 连续对话与恢复 fixture；调用组完整；边界可追溯 | P0–P6 之外的会话扩展需与 B1/B2 排期对齐；持久队列/崩溃恢复留 B2 |
+| D4 扩展集成收口 | Skill/MCP/Hook 复用已有实现，检查生命周期与统一权限 | 本地 MCP 协议 fixture；Skill 不提权；Hook 有界；关闭旧连接不可复用 | P3/P4/P5 回归 |
+| D5 公开 SDK 与产品接入 | 先接一个嵌入示例和一个真实 Host 客户端，再提取公共包 | 使用者不导入内部模块；等待/取消/事件语义一致；真实界面接入证明 | 独立 SDK 交付，明确新增范围，不恢复 legacy |
+| D6 验收与文档 | 更新模块图、API 示例、能力/环境矩阵及失败说明 | 本地完整检查；各真实 provider 单独记录；没有证据的能力明确未验收 | P6 + 对应基线关口 |
+
+每批使用 emoji commit，提交只包含该批完整改动；推送按用户授权执行。若需要新增能力或放宽权限，先改契约和验收条目，不用占位实现绕过关口。
+
+## 8. 第一批开发应落到哪些文件
+
+完成当前结构清理后，先做 D0/D1，避免立即创建新 SDK 包：
+
+1. 对照 `contracts/execution.ts`、`contracts/events.ts`、`types/runtimeTypes.ts` 消除实际冲突；区分目标字段与已实现字段，确保 waiting 状态不作为 SDK 终态。
+2. 对照 `models/modelClientTypes.ts`、`modelErrors.ts`、`modelTurnStream.ts` 及三种流解析器，复用已有契约，形成支持能力与失败路径清单，补缺而非重写解析器。
+3. 合并 `permissions/permissionDecisions.ts` 与 `runtime/runtimeToolPermissions.ts` 的策略来源，让解释、审批前判定和恢复后重查一致。
+4. 沿 `tools/toolContracts.ts`、`toolRegistry.ts`、`runtimeToolExecution.ts` 核对窄依赖声明、输入验证、取消和结果预算是否全链路生效；保留正在清理的结构成果。
+5. 明确 `runtimeMessages.ts` 与 `session` 的历史读取归属，为 D3 留下有调用者的接口需求；此批不提前建设 checkpoint 或云端 worker。
+
+## 9. 完成定义
+
+一次可复现验收至少覆盖：建立会话 → 输入 → 模型流式输出 → 多工具提议 → 一次审批 → 工具结果 → 下一轮模型 → 最终结果 → 后续输入读取历史。
+
+同一链路还必须验证：拒绝、模型损坏输出、空流、工具失败、取消、超时、重复审批、定义变化、输出过大、压缩失败和断连。验收按以下等级记录：
+
+1. 确定性单元/契约 fixture：证明状态、协议和边界。
+2. 本地真实 HTTP、子进程、文件工具及 App：证明集成接线。
+3. 指定 provider + model + endpoint：证明该组合的线上行为。
+4. 指定平台与干净环境：证明对应分发和资源清理能力。
+
+当前 P0–P6 的历史本地证据可作为回归基线，不能自动升级为后两级。没有业务消费者的抽象、只返回默认值的占位模块、为搬运旧代码而新增的兼容层，不计入交付成果。

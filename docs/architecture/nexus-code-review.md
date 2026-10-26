@@ -2,6 +2,8 @@
 
 日期：2026-10-26。参考仓库：工作区同级 `../nexus-code`，HEAD `13ef6bf`。
 
+开发落地方案见 [Kevin Agent SDK：内核模块、功能与开发计划](sdk-design-prd.md)。本文件保留参考项目审查证据，不作为开发任务清单。
+
 ## 结论与来源更正
 
 用户确认 nexus-code 是此前迁移、补全的一套 CC 风格实现。因此，不能把目录名 `src-origin` 当作官方来源证明，也不能把 `src` 中补齐的接口当作完整功能。此前 [参考评估](kernel-reference-assessment.md) 中对“CC 成熟行为”的表述应按此更正。
