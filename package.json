@@ -19,7 +19,7 @@
     "build-web": "cd apps/web && bun run build",
     "typecheck": "bun run --cwd packages/core typecheck && bun run --cwd packages/host typecheck && bun run --cwd apps/terminal typecheck && bun run build-web",
     "test": "bun test packages",
-    "test-terminal": "bun run --cwd apps/terminal typecheck && bun run --cwd apps/terminal render-smoke && bun run --cwd apps/terminal interaction-smoke && bun run --cwd apps/terminal app-smoke",
+    "test-terminal": "bun run --cwd apps/terminal typecheck && bun run --cwd apps/terminal file-index-smoke && bun run --cwd apps/terminal render-smoke && bun run --cwd apps/terminal interaction-smoke && bun run --cwd apps/terminal app-smoke",
     "check": "bun run typecheck && bun run test && bun run test-terminal"
   },
   "devDependencies": {

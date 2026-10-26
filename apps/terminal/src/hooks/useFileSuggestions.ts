@@ -1,4 +1,4 @@
-import {spawn} from 'node:child_process'
+import {readWorkspaceFileIndex} from '../files/workspaceFileIndex.js'
 import path from 'node:path'
 import {useEffect, useMemo, useState} from 'react'
 import {charLength, sliceChars} from '../ui/textBuffer.js'
@@ -9,7 +9,6 @@ type ActiveReference = {
   query: string
 }
 
-const ignoredPathParts = new Set(['.git', 'node_modules', 'nexus-code', 'artifacts', 'logs'])
 const fileIndexCache = new Map<string, Promise<string[]>>()
 
 export function useFileSuggestions({
@@ -100,30 +99,10 @@ async function loadFileIndex(repoRoot: string): Promise<string[]> {
   const root = path.resolve(repoRoot)
   const cached = fileIndexCache.get(root)
   if (cached) return cached
-  const promise = readRgFiles(root).then(paths => paths.filter(shouldKeepPath))
+  const promise = readWorkspaceFileIndex(root).catch(error => {
+    fileIndexCache.delete(root)
+    throw error
+  })
   fileIndexCache.set(root, promise)
   return promise
-}
-
-function shouldKeepPath(value: string): boolean {
-  return !value.split('/').some(part => ignoredPathParts.has(part))
-}
-
-function readRgFiles(cwd: string): Promise<string[]> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('rg', ['--files', '--hidden'], {cwd, stdio: ['ignore', 'pipe', 'ignore']})
-    let output = ''
-    child.stdout.setEncoding('utf8')
-    child.stdout.on('data', chunk => {
-      output += chunk
-    })
-    child.on('error', reject)
-    child.on('close', code => {
-      if (code !== 0) {
-        reject(new Error(`rg exited with ${code}`))
-        return
-      }
-      resolve(output.split('\n').map(line => line.trim()).filter(Boolean))
-    })
-  })
 }

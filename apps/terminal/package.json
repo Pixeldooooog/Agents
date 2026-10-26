@@ -28,7 +28,8 @@
     "manual-smoke:check": "bun run scripts/manual-smoke.ts --print-only",
     "manual-smoke:record": "bun run scripts/manual-smoke.ts --record",
     "manual-smoke:verify": "bun run scripts/manual-smoke.ts --verify",
-    "fixture": "AGENTS_TERMINAL_FIXTURE=1 AGENTS_TERMINAL_HISTORY_PATH=/tmp/agents-terminal-fixture-history.json AGENTS_TERMINAL_SESSION_STORE=/tmp/agents-terminal-fixture-sessions bun run src/main.tsx --repo-root ../.. --terminal-host-fixture fixture"
+    "fixture": "AGENTS_TERMINAL_FIXTURE=1 AGENTS_TERMINAL_HISTORY_PATH=/tmp/agents-terminal-fixture-history.json AGENTS_TERMINAL_SESSION_STORE=/tmp/agents-terminal-fixture-sessions bun run src/main.tsx --repo-root ../.. --terminal-host-fixture fixture",
+    "file-index-smoke": "bun run scripts/file-index-smoke.ts"
   },
   "dependencies": {
     "chalk": "^5.6.2",
