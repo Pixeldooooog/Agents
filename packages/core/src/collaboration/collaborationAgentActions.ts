@@ -2,11 +2,11 @@ import type { AgentProfileRecord } from "../types/collaborationTypes.js";
 import type { AgentSpec } from "../types/agentTypes.js";
 import { publicSpec } from "../types/agentTypes.js";
 import type { JsonObject } from "../types/jsonTypes.js";
-import type { ToolExecutionContext } from "../tools/toolContracts.js";
+import type { CollaborationToolContext } from "./collaborationState.js";
 import { numberArg, stringArg } from "../tools/toolInputs.js";
 import { childAgentSpec, currentSpec, requiredText, scope, stringList } from "./collaborationState.js";
 
-export async function agentProfiles(context: ToolExecutionContext, args: JsonObject) {
+export async function agentProfiles(context: CollaborationToolContext, args: JsonObject) {
   const profiles = context.store ? await context.store.listAgentProfiles(scope(context)) : [];
   const query = stringArg(args.query).toLowerCase();
   const matches = query ? profiles.filter((profile) => profileHaystack(profile).includes(query)) : profiles;
@@ -14,7 +14,7 @@ export async function agentProfiles(context: ToolExecutionContext, args: JsonObj
   return { profiles: matches.slice(0, limit), count: Math.min(matches.length, limit), total: profiles.length };
 }
 
-export async function agentSaveProfile(context: ToolExecutionContext, args: JsonObject) {
+export async function agentSaveProfile(context: CollaborationToolContext, args: JsonObject) {
   if (!context.store) throw new Error("state store is not available");
   const base = currentSpec(context);
   const spec: AgentSpec = {
@@ -37,11 +37,11 @@ export async function agentSaveProfile(context: ToolExecutionContext, args: Json
   return { profile: await context.store.saveAgentProfile(profile) };
 }
 
-export async function agentRunTool(context: ToolExecutionContext, args: JsonObject) {
+export async function agentRunTool(context: CollaborationToolContext, args: JsonObject) {
   return runDelegatedAgent(context, args, false);
 }
 
-export async function runDelegatedAgent(context: ToolExecutionContext, args: JsonObject, runInBackground: boolean) {
+export async function runDelegatedAgent(context: CollaborationToolContext, args: JsonObject, runInBackground: boolean) {
   const prompt = requiredText(args.prompt, "prompt");
   const childSpec = childAgentSpec(context, args);
   const runId = `subagent_${crypto.randomUUID().replaceAll("-", "")}`;

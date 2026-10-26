@@ -1,6 +1,6 @@
 import type { CommandExecutor, ExecutionPolicy } from "../ports/commandExecutor.js";
 import type { JsonObject } from "../types/jsonTypes.js";
-import type { ToolExecutionContext } from "./toolContracts.js";
+import type { ToolContext } from "./toolContracts.js";
 import { numberArg } from "./toolInputs.js";
 import {
   backgroundOutput,
@@ -32,7 +32,7 @@ export function startBackgroundCommand(
   };
 }
 
-export async function shellOutput(_context: ToolExecutionContext, args: JsonObject) {
+export async function shellOutput(_context: ToolContext, args: JsonObject) {
   const command = resolveBackgroundCommand(args.task_id);
   if (args.block !== false && command.ended_at === 0) {
     await waitWithTimeout(command.done, Math.max(0, Math.min(120, numberArg(args.timeout_seconds, 30))) * 1000);
@@ -53,7 +53,7 @@ export async function shellBackgrounds() {
   return { background_commands: backgroundCommands.map(backgroundPayload), count: backgroundCommands.length };
 }
 
-export async function shellKill(_context: ToolExecutionContext, args: JsonObject) {
+export async function shellKill(_context: ToolContext, args: JsonObject) {
   const command = resolveBackgroundCommand(args.task_id);
   if (command.status === "running") {
     command.execution.stop();

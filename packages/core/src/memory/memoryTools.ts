@@ -1,7 +1,9 @@
 import type { AgentSpec } from "../types/agentTypes.js";
 import type { JsonObject } from "../types/jsonTypes.js";
 import type { MemoryRecord } from "../types/memoryTypes.js";
-import type { ToolDefinition, ToolExecutionContext } from "../tools/toolContracts.js";
+import { defineTool, type RegisteredTool, type ToolContext } from "../tools/toolContracts.js";
+
+type MemoryToolContext = ToolContext<"store">;
 import { createMemoryRecord, memoryScopeFromSpec, memoryWithContent, normalizeMemoryScope, requiredText, resolveMemory, stringRecord } from "./memoryRecords.js";
 
 const memoryScopeValues = ["user", "agent", "workspace", "run"];
@@ -42,40 +44,44 @@ const memoryForgetSchema = {
   required: ["memory_id"]
 };
 
-export const memoryToolDefinitions: ToolDefinition[] = [
-  {
+export const memoryToolDefinitions: RegisteredTool[] = [
+  defineTool({
     name: "memory.list",
     description: "List memories visible to the current user, agent, and workspace scope.",
     risk: "low",
     parameters: memoryListSchema,
+    requires: ["store"],
     handler: memoryList
-  },
-  {
+  }),
+  defineTool({
     name: "memory.add",
     description: "Save a memory for future context retrieval.",
     risk: "medium",
     parameters: memoryAddSchema,
+    requires: ["store"],
     handler: memoryAdd
-  },
-  {
+  }),
+  defineTool({
     name: "memory.edit",
     description: "Update a visible memory by id or short id.",
     risk: "medium",
     parameters: memoryEditSchema,
+    requires: ["store"],
     handler: memoryEdit
-  },
-  {
+  }),
+  defineTool({
     name: "memory.forget",
     description: "Delete a visible memory by id or short id.",
     risk: "medium",
     parameters: memoryForgetSchema,
+    requires: ["store"],
     handler: memoryForget
-  }
+  })
 ];
 
-async function memoryList(context: ToolExecutionContext, args: JsonObject = {}): Promise<Record<string, unknown>> {
+async function memoryList(context: MemoryToolContext, args: JsonObject = {}): Promise<Record<string, unknown>> {
   const scope = args.scope ? normalizeMemoryScope(args.scope) : "";
-  const memories = await requiredStore(context).listMemories({
+  const memories = await context.store.listMemories({
     ...memoryScopeFromSpec(context.spec),
     scope,
     query: String(args.query || ""),
@@ -84,7 +90,7 @@ async function memoryList(context: ToolExecutionContext, args: JsonObject = {}):
   return { memories, count: memories.length, total: memories.length };
 }
 
-async function memoryAdd(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+async function memoryAdd(context: MemoryToolContext, args: JsonObject): Promise<Record<string, unknown>> {
   const memory = createMemoryRecord({
     spec: requiredSpec(context),
     content: requiredText(args.content, "content"),
@@ -92,32 +98,28 @@ async function memoryAdd(context: ToolExecutionContext, args: JsonObject): Promi
     metadata: { source: "tool", ...stringRecord(args.metadata) },
     runId: context.runId
   });
-  return { memory: await requiredStore(context).saveMemory(memory) };
+  return { memory: await context.store.saveMemory(memory) };
 }
 
-async function memoryEdit(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+async function memoryEdit(context: MemoryToolContext, args: JsonObject): Promise<Record<string, unknown>> {
   const memory = await resolveScopedMemory(context, requiredText(args.memory_id, "memory_id"));
-  const updatedMemory = await requiredStore(context).saveMemory(memoryWithContent(memory, requiredText(args.content, "content")));
+  const updatedMemory = await context.store.saveMemory(memoryWithContent(memory, requiredText(args.content, "content")));
   return { memory: updatedMemory };
 }
 
-async function memoryForget(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+async function memoryForget(context: MemoryToolContext, args: JsonObject): Promise<Record<string, unknown>> {
   const memory = await resolveScopedMemory(context, requiredText(args.memory_id, "memory_id"));
-  await requiredStore(context).deleteMemory(memory.memory_id);
+  await context.store.deleteMemory(memory.memory_id);
   return { memory, forgotten: true };
 }
 
-async function resolveScopedMemory(context: ToolExecutionContext, memoryId: string): Promise<MemoryRecord> {
-  const memories = await requiredStore(context).listMemories({ ...memoryScopeFromSpec(context.spec), limit: 100 });
+async function resolveScopedMemory(context: MemoryToolContext, memoryId: string): Promise<MemoryRecord> {
+  const memories = await context.store.listMemories({ ...memoryScopeFromSpec(context.spec), limit: 100 });
   return resolveMemory(memories, memoryId);
 }
 
-function requiredStore(context: ToolExecutionContext) {
-  if (!context.store) throw new Error("memory store is not available");
-  return context.store;
-}
 
-function requiredSpec(context: ToolExecutionContext): AgentSpec {
+function requiredSpec(context: MemoryToolContext): AgentSpec {
   if (!context.spec) throw new Error("agent spec is not available");
   return context.spec;
 }

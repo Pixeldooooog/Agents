@@ -1,7 +1,7 @@
 import { closeMcpProviders, mcpTimeoutMilliseconds } from "./mcpProviderLifecycle.js";
 import type { JsonObject } from "../types/jsonTypes.js";
 import type { McpServerRecord } from "../types/mcpTypes.js";
-import type { ToolExecutionContext } from "../tools/toolContracts.js";
+import type { McpToolContext } from "./mcpRecords.js";
 import { stringArg } from "../tools/toolInputs.js";
 import {
   clearMcpSettings,
@@ -17,7 +17,7 @@ import {
   saveMcpRecord
 } from "./mcpRecords.js";
 
-export async function readMcpServers(context: ToolExecutionContext): Promise<Record<string, unknown>> {
+export async function readMcpServers(context: McpToolContext): Promise<Record<string, unknown>> {
   await hydrateMcpSettings(context);
   const providers = mcpProviders(context);
   return {
@@ -28,12 +28,12 @@ export async function readMcpServers(context: ToolExecutionContext): Promise<Rec
   };
 }
 
-export async function configureMcpServer(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+export async function configureMcpServer(context: McpToolContext, args: JsonObject): Promise<Record<string, unknown>> {
   await saveMcpRecord(context, mcpServerRecordFromArgs(context, args));
   return readMcpServers(context);
 }
 
-export async function enableMcpServer(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+export async function enableMcpServer(context: McpToolContext, args: JsonObject): Promise<Record<string, unknown>> {
   const target = targetServerName(context, args);
   const record = await findMcpRecord(context, target);
   if (!record) throw new Error(`mcp server not found: ${target}`);
@@ -41,7 +41,7 @@ export async function enableMcpServer(context: ToolExecutionContext, args: JsonO
   return { enabled: enabled.name, configured: (await readMcpServers(context)).configured };
 }
 
-export async function disableMcpServer(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+export async function disableMcpServer(context: McpToolContext, args: JsonObject): Promise<Record<string, unknown>> {
   const timeoutMs = mcpTimeoutMilliseconds(context);
   const target = targetServerName(context, args);
   const record = await findMcpRecord(context, target);
@@ -52,7 +52,7 @@ export async function disableMcpServer(context: ToolExecutionContext, args: Json
   return { disabled: target, removed_providers: removedProviders.length, configured: (await readMcpServers(context)).configured };
 }
 
-export async function removeMcpServer(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+export async function removeMcpServer(context: McpToolContext, args: JsonObject): Promise<Record<string, unknown>> {
   const timeoutMs = mcpTimeoutMilliseconds(context);
   const target = targetServerName(context, args);
   await deleteMcpRecord(context, target);
@@ -62,7 +62,7 @@ export async function removeMcpServer(context: ToolExecutionContext, args: JsonO
   return { removed: target, removed_providers: removedProviders.length, configured: (await readMcpServers(context)).configured };
 }
 
-export async function clearMcpServers(context: ToolExecutionContext): Promise<Record<string, unknown>> {
+export async function clearMcpServers(context: McpToolContext): Promise<Record<string, unknown>> {
   const timeoutMs = mcpTimeoutMilliseconds(context);
   const records = await listMcpRecords(context);
   for (const record of records) await deleteMcpRecord(context, record.name);
@@ -72,7 +72,7 @@ export async function clearMcpServers(context: ToolExecutionContext): Promise<Re
   return { cleared: true, removed_providers: providers.length, configured: (await readMcpServers(context)).configured };
 }
 
-function targetServerName(context: ToolExecutionContext, args: JsonObject): string {
+function targetServerName(context: McpToolContext, args: JsonObject): string {
   return stringArg(args.name, context.settings?.mcp.serverName || "default");
 }
 

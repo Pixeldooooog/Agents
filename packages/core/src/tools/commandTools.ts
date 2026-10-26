@@ -1,7 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { Buffer } from "node:buffer";
 import type { JsonObject } from "../types/jsonTypes.js";
-import type { ToolDefinition, ToolExecutionContext } from "./toolContracts.js";
+import { defineTool, type RegisteredTool, type ToolContext } from "./toolContracts.js";
 import {
   commandDirectoryPath,
   commandFileContent,
@@ -21,45 +21,50 @@ import {
   commandSaveSchema
 } from "./commandToolSchemas.js";
 
-export const commandToolDefinitions: ToolDefinition[] = [
-  {
+export const commandToolDefinitions: RegisteredTool[] = [
+  defineTool({
     name: "command.discover",
     description: "Discover prompt-backed slash commands in the workspace.",
     risk: "low",
     parameters: commandDiscoverSchema,
+    requires: [],
     handler: commandDiscover
-  },
-  {
+  }),
+  defineTool({
     name: "command.render",
     description: "Render a prompt-backed slash command.",
     risk: "low",
     parameters: commandRenderSchema,
+    requires: [],
     handler: commandRender
-  },
-  {
+  }),
+  defineTool({
     name: "command.read",
     description: "Read a prompt-backed slash command file.",
     risk: "low",
     parameters: commandReadSchema,
+    requires: [],
     handler: commandRead
-  },
-  {
+  }),
+  defineTool({
     name: "command.save",
     description: "Save a prompt-backed slash command.",
     risk: "medium",
     parameters: commandSaveSchema,
+    requires: [],
     handler: commandSave
-  },
-  {
+  }),
+  defineTool({
     name: "command.delete",
     description: "Delete a prompt-backed slash command.",
     risk: "medium",
     parameters: commandDeleteSchema,
+    requires: [],
     handler: commandDelete
-  }
+  })
 ];
 
-async function commandDiscover(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+async function commandDiscover(context: ToolContext, args: JsonObject): Promise<Record<string, unknown>> {
   let commands = await discoverCommands(context.repoRoot);
   const query = String(args.query || "").trim().toLowerCase();
   if (query) commands = commands.filter((command) => commandMatchesQuery(command, query));
@@ -67,21 +72,21 @@ async function commandDiscover(context: ToolExecutionContext, args: JsonObject):
   return { commands: commands.slice(0, limit), count: Math.min(commands.length, limit), total: commands.length };
 }
 
-async function commandRender(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+async function commandRender(context: ToolContext, args: JsonObject): Promise<Record<string, unknown>> {
   const command = await findCommand(context.repoRoot, args.name);
   const body = await readFile(command.absolutePath, "utf8");
   const { content } = parseCommandFrontmatter(body);
   return { command: publicCommand(command), arguments: String(args.arguments || ""), prompt: renderTemplate(content.trim(), {}, String(args.arguments || "")) };
 }
 
-async function commandRead(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+async function commandRead(context: ToolContext, args: JsonObject): Promise<Record<string, unknown>> {
   const command = await findCommand(context.repoRoot, args.name);
   const result = await readLimitedFile(command.absolutePath, boundedLimit(args.max_bytes, 20000, 200000));
   const parsed = parseCommandFrontmatter(result.content);
   return { command: publicCommand(command), metadata: parsed.metadata, content: parsed.content, path: command.path, bytes: result.bytes, truncated: result.truncated };
 }
 
-async function commandSave(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+async function commandSave(context: ToolContext, args: JsonObject): Promise<Record<string, unknown>> {
   const commandName = commandNameFromValue(args.name);
   const filePath = commandMarkdownPath(context.repoRoot, commandName);
   if (!args.overwrite && await commandFileExists(filePath)) throw new Error(`command already exists: ${commandName}`);
@@ -91,7 +96,7 @@ async function commandSave(context: ToolExecutionContext, args: JsonObject): Pro
   return { name: commandName, path: relativeCommandPath(context.repoRoot, filePath), bytes: Buffer.byteLength(content) };
 }
 
-async function commandDelete(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+async function commandDelete(context: ToolContext, args: JsonObject): Promise<Record<string, unknown>> {
   const commandName = commandNameFromValue(args.name);
   let filePath = commandMarkdownPath(context.repoRoot, commandName);
   try {

@@ -1,11 +1,11 @@
 import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { readLimitedFile } from "../tools/promptTools.js";
-import type { ToolExecutionContext } from "../tools/toolContracts.js";
+import type { ToolContext } from "../tools/toolContracts.js";
 import { relativeWorkspacePath, resolveWorkspacePath } from "../tools/toolInputs.js";
 import { parseWorkflowJson, validateWorkflow, workflowPayload, workflowSummary, type WorkflowPlan } from "./workflowModels.js";
 
-export async function listSavedWorkflows(context: ToolExecutionContext): Promise<Record<string, unknown>[]> {
+export async function listSavedWorkflows(context: ToolContext): Promise<Record<string, unknown>[]> {
   const directoryPath = resolveWorkspacePath(context.repoRoot, ".kevin/workflows");
   try {
     const entries = await readdir(directoryPath, { withFileTypes: true });
@@ -25,13 +25,13 @@ export async function listSavedWorkflows(context: ToolExecutionContext): Promise
   }
 }
 
-export async function readSavedWorkflow(context: ToolExecutionContext, name: string): Promise<Record<string, unknown>> {
+export async function readSavedWorkflow(context: ToolContext, name: string): Promise<Record<string, unknown>> {
   const filePath = workflowPath(context, name);
   const content = await readLimitedFile(filePath, 200000);
   return { name, path: relativeWorkspacePath(context.repoRoot, filePath), workflow: parseWorkflowJson(content.content, name) };
 }
 
-export async function saveWorkflowTemplate(context: ToolExecutionContext, name: string, plan: WorkflowPlan, overwrite: boolean): Promise<Record<string, unknown>> {
+export async function saveWorkflowTemplate(context: ToolContext, name: string, plan: WorkflowPlan, overwrite: boolean): Promise<Record<string, unknown>> {
   const filePath = workflowPath(context, name);
   if (!overwrite && await fileExists(filePath)) throw new Error(`workflow already exists: ${name}`);
 
@@ -45,13 +45,13 @@ export async function saveWorkflowTemplate(context: ToolExecutionContext, name: 
   return { name, path: relativePath, bytes: Buffer.byteLength(content), workflow: workflowSummary(name, relativePath, payload) };
 }
 
-export async function deleteSavedWorkflow(context: ToolExecutionContext, name: string): Promise<Record<string, unknown>> {
+export async function deleteSavedWorkflow(context: ToolContext, name: string): Promise<Record<string, unknown>> {
   const filePath = workflowPath(context, name);
   await rm(filePath, { force: true });
   return { name, path: relativeWorkspacePath(context.repoRoot, filePath), deleted: true, result: { deleted: true } };
 }
 
-function workflowPath(context: ToolExecutionContext, name: string): string {
+function workflowPath(context: ToolContext, name: string): string {
   return resolveWorkspacePath(context.repoRoot, `.kevin/workflows/${name}.json`);
 }
 

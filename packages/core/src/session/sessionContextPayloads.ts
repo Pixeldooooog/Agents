@@ -1,13 +1,13 @@
 import { planningStateId } from "../planning/planningState.js";
 import type { Message } from "../types/runtimeTypes.js";
-import type { ToolExecutionContext } from "../tools/toolContracts.js";
+import type { ToolContext } from "../tools/toolContracts.js";
 
-export async function loadPlanningState(context: ToolExecutionContext) {
+export async function loadPlanningState(context: ToolContext<never, "store">) {
   if (!context.store) return undefined;
   return context.store.loadPlanningState(planningStateId({ spec: context.spec, runId: context.runId }));
 }
 
-export function workspacePayload(context: ToolExecutionContext): Record<string, string> {
+export function workspacePayload(context: ToolContext): Record<string, string> {
   return {
     tenant_id: context.spec?.tenant_id || "",
     user_id: context.spec?.user_id || "",

@@ -2,7 +2,10 @@ import { isMcpProviderActive } from "./mcpProviderLifecycle.js";
 import type { McpSettings } from "../config/settings.js";
 import type { JsonObject } from "../types/jsonTypes.js";
 import type { McpServerRecord } from "../types/mcpTypes.js";
-import type { McpProvider, ToolExecutionContext } from "../tools/toolContracts.js";
+import type { McpProvider, ToolContext } from "../tools/toolContracts.js";
+
+/** MCP management tools persist records when a store exists and mirror the active server into shared settings. */
+export type McpToolContext = ToolContext<never, "store" | "settings" | "mcpProviders">;
 import { booleanArg, stringArg } from "../tools/toolInputs.js";
 
 export const supportedMcpTransports = ["stdio", "sse", "sse-ide", "http", "ws", "ws-ide", "sdk", "claudeai-proxy"];
@@ -26,7 +29,7 @@ export function configuredMcpServerPayload(settings: McpSettings | undefined) {
   };
 }
 
-export function mcpServerRecordFromArgs(context: ToolExecutionContext, args: JsonObject): McpServerRecord {
+export function mcpServerRecordFromArgs(context: McpToolContext, args: JsonObject): McpServerRecord {
   const settings = context.settings?.mcp;
   const transport = normalizeMcpTransport(stringArg(args.transport, settings?.serverTransport || "stdio"));
   const command = stringArg(args.command);
@@ -53,33 +56,33 @@ export function mcpServerRecordFromArgs(context: ToolExecutionContext, args: Jso
   };
 }
 
-export async function listMcpRecords(context: ToolExecutionContext): Promise<McpServerRecord[]> {
+export async function listMcpRecords(context: McpToolContext): Promise<McpServerRecord[]> {
   if (!context.store) return [];
   return context.store.listMcpServers(mcpScope(context));
 }
 
-export async function findMcpRecord(context: ToolExecutionContext, name: string): Promise<McpServerRecord | undefined> {
+export async function findMcpRecord(context: McpToolContext, name: string): Promise<McpServerRecord | undefined> {
   const target = name || "default";
   return (await listMcpRecords(context)).find((record) => record.name === target);
 }
 
-export async function saveMcpRecord(context: ToolExecutionContext, record: McpServerRecord): Promise<McpServerRecord> {
+export async function saveMcpRecord(context: McpToolContext, record: McpServerRecord): Promise<McpServerRecord> {
   applyMcpRecordToSettings(context, record);
   if (!context.store) return record;
   return context.store.saveMcpServer(record);
 }
 
-export async function deleteMcpRecord(context: ToolExecutionContext, name: string): Promise<boolean> {
+export async function deleteMcpRecord(context: McpToolContext, name: string): Promise<boolean> {
   if (!context.store) return false;
   return context.store.deleteMcpServer(name || "default", mcpScope(context));
 }
 
-export async function hydrateMcpSettings(context: ToolExecutionContext): Promise<void> {
+export async function hydrateMcpSettings(context: McpToolContext): Promise<void> {
   const active = (await listMcpRecords(context)).find((record) => record.enabled);
   if (active) applyMcpRecordToSettings(context, active);
 }
 
-export function applyMcpRecordToSettings(context: ToolExecutionContext, record: McpServerRecord): void {
+export function applyMcpRecordToSettings(context: McpToolContext, record: McpServerRecord): void {
   if (!context.settings) return;
   context.settings.mcp.serverName = record.name;
   context.settings.mcp.serverCommand = record.command;
@@ -90,7 +93,7 @@ export function applyMcpRecordToSettings(context: ToolExecutionContext, record: 
   context.settings.mcp.sandboxProfile = record.sandbox_profile;
 }
 
-export function clearMcpSettings(context: ToolExecutionContext): void {
+export function clearMcpSettings(context: McpToolContext): void {
   if (!context.settings) return;
   context.settings.mcp.serverName = "";
   context.settings.mcp.serverCommand = "";
@@ -110,14 +113,14 @@ export function mcpProviderPayload(provider: McpProvider) {
   };
 }
 
-export function mcpProviders(context: ToolExecutionContext, server = ""): McpProvider[] {
+export function mcpProviders(context: McpToolContext, server = ""): McpProvider[] {
   const wanted = server.trim();
   const providers = (context.mcpProviders || []).filter(isMcpProviderActive);
   return wanted ? providers.filter((provider) => provider.server.name === wanted) : providers;
 }
 
 /** Mutate the host-owned array: tool execution contexts are shallow copies. */
-export function removeMcpProviders(context: ToolExecutionContext, name?: string): McpProvider[] {
+export function removeMcpProviders(context: McpToolContext, name?: string): McpProvider[] {
   const providers = context.mcpProviders;
   if (!providers) return [];
   const removed = providers.filter(provider => name === undefined || provider.server.name === name);
@@ -126,7 +129,7 @@ export function removeMcpProviders(context: ToolExecutionContext, name?: string)
   return removed;
 }
 
-export function mcpScope(context: ToolExecutionContext) {
+export function mcpScope(context: McpToolContext) {
   return {
     tenant_id: context.spec?.tenant_id || "",
     user_id: context.spec?.user_id || "",

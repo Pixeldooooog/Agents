@@ -1,7 +1,7 @@
 import { confinedExtensionPath, readExtensionManifest } from "./extensionFilesystem.js";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
-import type { ToolExecutionContext } from "../tools/toolContracts.js";
+import type { ToolContext } from "../tools/toolContracts.js";
 import type { ExtensionKind, ExtensionManifest } from "./extensionManifestTypes.js";
 import { invalidExtensionManifest, normalizeExtensionManifest } from "./extensionManifestRecords.js";
 import {
@@ -14,7 +14,7 @@ import {
 } from "./extensionManifestPaths.js";
 import { parseSkillMarkdownManifest } from "./extensionSkillMarkdown.js";
 
-export async function discoverManifests(context: ToolExecutionContext, kind: ExtensionKind): Promise<ExtensionManifest[]> {
+export async function discoverManifests(context: ToolContext, kind: ExtensionKind): Promise<ExtensionManifest[]> {
   const roots = kind === "skill" ? skillSearchRoots(context) : pluginSearchRoots(context);
   const manifests: ExtensionManifest[] = [];
   for (const root of roots) {

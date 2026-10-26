@@ -5,7 +5,7 @@ import type { JsonObject } from "../types/jsonTypes.js";
 import type { ModelToolDefinition } from "../types/modelTypes.js";
 import type { ToolResult } from "../types/runtimeTypes.js";
 import { runtimeEvent } from "../types/runtimeTypes.js";
-import type { ToolDefinition, ToolExecution, ToolExecutionContext } from "./toolContracts.js";
+import type { RegisteredTool, ToolCapability, ToolContext, ToolExecution, ToolRuntimeContext } from "./toolContracts.js";
 import { commandToolDefinitions } from "./commandTools.js";
 import { collaborationToolDefinitions } from "../collaboration/collaborationTools.js";
 import { configToolDefinitions } from "../config/configTools.js";
@@ -34,7 +34,7 @@ import { notebookToolDefinitions } from "../workspace/notebookTools.js";
 import { worktreeToolDefinitions } from "../workspace/worktreeTools.js";
 import { workflowToolDefinitions } from "../workflow/workflowTools.js";
 
-const toolDefinitions: ToolDefinition[] = [
+const toolDefinitions: RegisteredTool[] = [
   ...filesystemToolDefinitions,
   ...searchToolDefinitions,
   ...patchToolDefinitions,
@@ -64,7 +64,7 @@ const toolDefinitions: ToolDefinition[] = [
   ...workflowToolDefinitions
 ];
 
-const toolByName = new Map<string, ToolDefinition>();
+const toolByName = new Map<string, RegisteredTool>();
 for (const definition of toolDefinitions) {
   prepareToolValidator(definition);
   toolByName.set(definition.name, definition);
@@ -74,14 +74,14 @@ for (const definition of toolDefinitions) {
 export const builtinToolNames = toolDefinitions.map((definition) => definition.name);
 
 export function listBuiltinTools() {
-  return toolDefinitions.map(({ name, description, risk }) => ({ name, description, risk }));
+  return toolDefinitions.map(({ name, description, risk, requires, uses = [] }) => ({ name, description, risk, requires: [...requires], uses: [...uses] }));
 }
 
 export function canonicalToolName(name: string): string {
   return toolByName.get(name)?.name || name;
 }
 
-export function modelToolDefinitions(enabledToolNames: string[], providers?: ToolExecutionContext["mcpProviders"]): ModelToolDefinition[] {
+export function modelToolDefinitions(enabledToolNames: string[], providers?: ToolRuntimeContext["mcpProviders"]): ModelToolDefinition[] {
   const available = new Map(toolByName);
   for (const tool of mcpExternalTools(providers)) available.set(tool.name, tool);
   const selected = enabledToolNames.length
@@ -98,7 +98,7 @@ export function modelToolDefinitions(enabledToolNames: string[], providers?: Too
   }));
 }
 
-export async function executeBuiltinTool(repoRoot: string, name: string, args: JsonObject, context: Partial<ToolExecutionContext> = {}): Promise<ToolExecution> {
+export async function executeBuiltinTool(repoRoot: string, name: string, args: JsonObject, context: Omit<ToolRuntimeContext, "repoRoot"> = {}): Promise<ToolExecution> {
   const id = String(args?.id || args?.tool_call_id || `${name}:${Date.now()}`);
   const definition = toolByName.get(name) || mcpExternalTools(context.mcpProviders).find(tool => tool.name === name);
   const canonicalName = definition?.name || name;
@@ -110,7 +110,7 @@ export async function executeBuiltinTool(repoRoot: string, name: string, args: J
     assertToolArguments(definition, args);
     start.payload!.arguments = args;
     await context.onToolStart?.(start);
-    const payload = await definition.handler({ ...context, repoRoot }, args);
+    const payload = await definition.handler(scopedToolContext(definition, { ...context, repoRoot }), args);
     const content = boundedToolContent(payload);
     const result: ToolResult = { tool_call_id: id, name: canonicalName, content, is_error: false };
     return {
@@ -120,6 +120,26 @@ export async function executeBuiltinTool(repoRoot: string, name: string, args: J
   } catch (error) {
     return toolError(id, canonicalName, error instanceof Error ? error.message : String(error), [start]);
   }
+}
+
+/** Least privilege: a handler receives the invocation plus only the capabilities its definition declares. */
+export function scopedToolContext(definition: RegisteredTool, context: ToolRuntimeContext): ToolContext<ToolCapability, ToolCapability> {
+  const scoped: Record<string, unknown> = {
+    repoRoot: context.repoRoot,
+    signal: context.signal,
+    spec: context.spec,
+    runId: context.runId,
+    executionPolicy: context.executionPolicy
+  };
+  for (const capability of definition.requires) {
+    if (context[capability] === undefined) throw new Error(`tool capability unavailable: ${capability}`);
+    scoped[capability] = context[capability];
+  }
+  for (const capability of definition.uses ?? []) {
+    if (context[capability] !== undefined) scoped[capability] = context[capability];
+  }
+  // The declared lists are the type parameters of the handler, so this view matches what it may read.
+  return scoped as ToolContext<ToolCapability, ToolCapability>;
 }
 
 function modelToolName(name: string): string {

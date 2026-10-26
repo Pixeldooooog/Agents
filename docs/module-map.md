@@ -136,7 +136,8 @@ packages/core  -> no app imports
 - `src/mcp/mcpServerActions.ts`: MCP server configure, enable, disable, remove, clear, and status actions.
 - `src/mcp/mcpToolSchemas.ts`: MCP tool input schemas.
 - `src/mcp/mcpTools.ts`: MCP tool registration and provider call adapters.
-- `src/tools/toolRegistry.ts`: Built-in tool registry and execution wrapper.
+- `src/tools/toolContracts.ts`: Tool definition contract: invocation fields, declarable capabilities (`ToolServices`), `requires`/`uses`, and `defineTool`.
+- `src/tools/toolRegistry.ts`: Built-in tool registry and execution wrapper; `scopedToolContext` passes each handler only its declared capabilities.
 - `src/tools/toolInputs.ts`: Tool argument coercion and workspace path guards.
 - `src/tools/commandToolSchemas.ts`: Prompt-backed command tool input schemas.
 - `src/tools/commandTools.ts`: Prompt-backed command tool registration and handler adapters.
@@ -147,7 +148,7 @@ packages/core  -> no app imports
 - `src/tools/userInteractionTools.ts`: User interaction tool registration.
 - `src/tools/userInteractionSchemas.ts`: User question and message tool input schemas.
 - `src/tools/userInteractionPayloads.ts`: User question/message payload normalization and attachment metadata.
-- `src/tasks/taskService.ts`: Task runner service, task-step lifecycle, and task execution coordination.
+- `src/tasks/taskService.ts`: Task lifecycle and task-step records; executes through the injected shared run service.
 - `src/tasks/taskToolHandlers.ts`: Task tool handler actions and response shaping.
 - `src/tasks/taskToolInputs.ts`: Task tool input coercion, metadata patches, limits, and required context guards.
 - `src/tasks/taskResolution.ts`: Shared task lookup by scoped full ID or unambiguous short ID.

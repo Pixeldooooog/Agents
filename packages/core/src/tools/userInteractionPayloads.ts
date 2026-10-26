@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import type { JsonObject } from "../types/jsonTypes.js";
-import type { ToolExecutionContext } from "./toolContracts.js";
+import type { ToolContext } from "./toolContracts.js";
 import { relativeWorkspacePath, resolveWorkspacePath } from "./toolInputs.js";
 
 const imageExtensions = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".svg"]);
@@ -16,7 +16,7 @@ export function askUserQuestion(args: JsonObject): Record<string, unknown> {
   return payload;
 }
 
-export async function sendUserMessage(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+export async function sendUserMessage(context: ToolContext, args: JsonObject): Promise<Record<string, unknown>> {
   const status = String(args.status || "normal").trim();
   if (!["normal", "proactive"].includes(status)) throw new Error("status must be normal or proactive");
   const attachments = await resolveAttachments(context, Array.isArray(args.attachments) ? args.attachments : []);
@@ -65,7 +65,7 @@ function normalizeOptions(value: unknown, question: string): Record<string, stri
   });
 }
 
-async function resolveAttachments(context: ToolExecutionContext, attachments: unknown[]): Promise<Record<string, unknown>[]> {
+async function resolveAttachments(context: ToolContext, attachments: unknown[]): Promise<Record<string, unknown>[]> {
   const resolvedAttachments: Record<string, unknown>[] = [];
   for (const attachment of attachments) {
     const requestedPath = requiredText(attachment, "attachment");

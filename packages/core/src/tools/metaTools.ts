@@ -1,6 +1,8 @@
 import { mcpExternalTools } from "../mcp/mcpExternalTools.js";
 import type { JsonObject } from "../types/jsonTypes.js";
-import type { ToolDefinition, ToolExecutionContext } from "./toolContracts.js";
+import { defineTool, type RegisteredTool, type ToolContext } from "./toolContracts.js";
+
+type CatalogTool = Pick<RegisteredTool, "name" | "description" | "risk">;
 import { booleanArg, numberArg, stringArg } from "./toolInputs.js";
 
 const toolSearchSchema = {
@@ -12,19 +14,21 @@ const toolSearchSchema = {
   }
 };
 
-export function createMetaToolDefinitions(toolCatalog: () => ToolDefinition[]): ToolDefinition[] {
+export function createMetaToolDefinitions(toolCatalog: () => RegisteredTool[]): RegisteredTool[] {
   return [
-    {
+    defineTool({
       name: "tool.search",
       description: "Search registered tools by name, description, or exact select:<tool> lookup.",
       risk: "low",
       parameters: toolSearchSchema,
+      requires: [],
+      uses: ["mcpProviders"],
       handler: (context, args) => toolSearch(context, args, [...toolCatalog(), ...mcpExternalTools(context.mcpProviders)])
-    }
+    })
   ];
 }
 
-async function toolSearch(context: ToolExecutionContext, args: JsonObject, tools: ToolDefinition[]) {
+async function toolSearch(context: ToolContext, args: JsonObject, tools: CatalogTool[]) {
   const query = stringArg(args.query);
   const enabled = new Set(context.spec?.enabled_tools || []);
   const includeAll = booleanArg(args.include_all);
@@ -39,7 +43,7 @@ async function toolSearch(context: ToolExecutionContext, args: JsonObject, tools
   };
 }
 
-function rankedToolMatches(tools: ToolDefinition[], query: string, maxResults: number, enabled: Set<string>) {
+function rankedToolMatches(tools: CatalogTool[], query: string, maxResults: number, enabled: Set<string>) {
   const terms = queryTerms(query);
   const exact = selectExact(query);
   return tools

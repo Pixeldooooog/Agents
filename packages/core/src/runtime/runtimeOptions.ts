@@ -2,21 +2,21 @@ import type { Settings } from "../config/settings.js";
 import type { StateStore } from "../ports/stateStore.js";
 import type { AgentSpec } from "../types/agentTypes.js";
 import type { Message, RuntimeEvent } from "../types/runtimeTypes.js";
-import type { FileReadState, ToolExecutionContext } from "../tools/toolContracts.js";
+import type { FileReadState, ToolRuntimeContext, ToolServices } from "../tools/toolContracts.js";
 
 export type RuntimeOptions = {
   settings: Settings;
   store?: StateStore;
-  taskRunner?: ToolExecutionContext["taskRunner"];
-  mcpProviders?: ToolExecutionContext["mcpProviders"];
-  lspProvider?: ToolExecutionContext["lspProvider"];
-  agentRunner?: ToolExecutionContext["agentRunner"];
+  taskRunner?: ToolServices["taskRunner"];
+  mcpProviders?: ToolServices["mcpProviders"];
+  lspProvider?: ToolServices["lspProvider"];
+  agentRunner?: ToolServices["agentRunner"];
   stream?: boolean;
   signal?: AbortSignal;
-  commandExecutor?: ToolExecutionContext["commandExecutor"];
-  executionPolicy?: ToolExecutionContext["executionPolicy"];
+  commandExecutor?: ToolServices["commandExecutor"];
+  executionPolicy?: ToolRuntimeContext["executionPolicy"];
   fileReadState?: FileReadState;
-  sleepWake?: ToolExecutionContext["sleepWake"];
+  sleepWake?: ToolServices["sleepWake"];
   onEvent?: (event: RuntimeEvent) => void | Promise<void>;
 };
 
@@ -30,7 +30,7 @@ export type RuntimeToolContextInput = {
 export function runtimeToolExecutionContext(
   options: RuntimeOptions,
   input: RuntimeToolContextInput
-): Partial<ToolExecutionContext> {
+): Omit<ToolRuntimeContext, "repoRoot"> {
   return {
     settings: options.settings,
     signal: options.signal,
@@ -39,8 +39,7 @@ export function runtimeToolExecutionContext(
     store: options.store,
     spec: input.spec,
     runId: input.runId,
-    messages: input.messages,
-    runtimeEvents: input.runtimeEvents,
+    conversation: { messages: input.messages, runtimeEvents: input.runtimeEvents },
     fileReadState: options.fileReadState,
     sleepWake: options.sleepWake,
     mcpProviders: options.mcpProviders,

@@ -1,5 +1,5 @@
 import type { JsonObject } from "../types/jsonTypes.js";
-import type { ToolDefinition, ToolExecutionContext } from "../tools/toolContracts.js";
+import { defineTool, type RegisteredTool, type ToolContext } from "../tools/toolContracts.js";
 
 type ConfigSetting = {
   valueType: "string" | "boolean";
@@ -32,8 +32,8 @@ const supportedSettings: Record<string, ConfigSetting> = {
   agentPushNotifEnabled: { valueType: "boolean", defaultValue: false }
 };
 
-export const configToolDefinitions: ToolDefinition[] = [
-  {
+export const configToolDefinitions: RegisteredTool[] = [
+  defineTool({
     name: "config.manage",
     description: "Get or set configuration settings.",
     risk: "medium",
@@ -46,11 +46,12 @@ export const configToolDefinitions: ToolDefinition[] = [
       required: ["setting"],
       additionalProperties: false
     },
+    requires: [],
     handler: configManage
-  }
+  })
 ];
 
-async function configManage(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+async function configManage(context: ToolContext, args: JsonObject): Promise<Record<string, unknown>> {
   const setting = requiredSetting(args.setting);
   const config = supportedSettings[setting];
   if (!config) throw new Error(`Unknown setting: "${setting}"`);
@@ -63,7 +64,7 @@ async function configManage(context: ToolExecutionContext, args: JsonObject): Pr
   return { success: true, operation: "set", setting, previousValue, newValue: nextValue };
 }
 
-function currentValue(context: ToolExecutionContext, setting: string, config: ConfigSetting): string | boolean {
+function currentValue(context: ToolContext, setting: string, config: ConfigSetting): string | boolean {
   const override = context.spec?.metadata[`config.${setting}`];
   if (override !== undefined) return decodeConfigValue(override);
   if (setting === "model") return context.spec?.model || config.defaultValue;
@@ -71,7 +72,7 @@ function currentValue(context: ToolExecutionContext, setting: string, config: Co
   return config.defaultValue;
 }
 
-function applyConfigValue(context: ToolExecutionContext, setting: string, value: string | boolean): void {
+function applyConfigValue(context: ToolContext, setting: string, value: string | boolean): void {
   if (!context.spec) throw new Error("agent spec is not available");
   if (setting === "model") {
     context.spec.model = String(value);

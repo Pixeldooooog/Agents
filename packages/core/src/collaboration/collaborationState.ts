@@ -2,10 +2,12 @@ import type { AgentSpec } from "../types/agentTypes.js";
 import type { JsonObject } from "../types/jsonTypes.js";
 import type { TeamMemberRecord, TeamMessageRecord, TeamRecord } from "../types/collaborationTypes.js";
 import { specFromPayload } from "../types/agentTypes.js";
-import type { ToolExecutionContext } from "../tools/toolContracts.js";
+import type { ToolContext } from "../tools/toolContracts.js";
+
+export type CollaborationToolContext = ToolContext<never, "store" | "agentRunner">;
 import { stringArg } from "../tools/toolInputs.js";
 
-export function childAgentSpec(context: ToolExecutionContext, args: JsonObject): AgentSpec {
+export function childAgentSpec(context: CollaborationToolContext, args: JsonObject): AgentSpec {
   const base = currentSpec(context);
   return {
     ...base,
@@ -15,18 +17,18 @@ export function childAgentSpec(context: ToolExecutionContext, args: JsonObject):
   };
 }
 
-export function currentSpec(context: ToolExecutionContext): AgentSpec {
+export function currentSpec(context: CollaborationToolContext): AgentSpec {
   return context.spec || specFromPayload({ message: "" });
 }
 
-export async function requireTeam(context: ToolExecutionContext, teamId: string): Promise<TeamRecord> {
+export async function requireTeam(context: CollaborationToolContext, teamId: string): Promise<TeamRecord> {
   if (!context.store) throw new Error("state store is not available");
   const team = await context.store.loadTeam(safeId(teamId || "default"), scope(context));
   if (!team) throw new Error(`team not found: ${teamId || "default"}`);
   return team;
 }
 
-export function memberPayload(context: ToolExecutionContext, raw: Record<string, unknown>): TeamMemberRecord {
+export function memberPayload(context: CollaborationToolContext, raw: Record<string, unknown>): TeamMemberRecord {
   const agentId = safeId(raw.agent_id);
   if (!agentId) throw new Error("member agent_id is required");
   return {
@@ -39,7 +41,7 @@ export function memberPayload(context: ToolExecutionContext, raw: Record<string,
   };
 }
 
-export function teamMessage(context: ToolExecutionContext, teamId: string, fromAgent: string, toAgent: string, message: string, messageType: string, metadata: Record<string, string> = {}): TeamMessageRecord {
+export function teamMessage(context: CollaborationToolContext, teamId: string, fromAgent: string, toAgent: string, message: string, messageType: string, metadata: Record<string, string> = {}): TeamMessageRecord {
   const now = Date.now() / 1000;
   return {
     ...scope(context),
@@ -67,7 +69,7 @@ export function teamPayload(team: TeamRecord) {
   };
 }
 
-export function scope(context: ToolExecutionContext) {
+export function scope(context: CollaborationToolContext) {
   return {
     tenant_id: context.spec?.tenant_id || "",
     user_id: context.spec?.user_id || "",

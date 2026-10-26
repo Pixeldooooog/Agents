@@ -2,14 +2,17 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { todoSummary } from "../planning/planningState.js";
 import type { JsonObject } from "../types/jsonTypes.js";
-import type { ToolExecutionContext } from "../tools/toolContracts.js";
+import type { ToolContext } from "../tools/toolContracts.js";
+
+type SessionReadContext = ToolContext<never, "conversation">;
+type SessionEditContext = ToolContext<"conversation">;
 import { relativeWorkspacePath } from "../tools/toolInputs.js";
 import { exportFormat, exportPath, jsonExport, markdownExport } from "./sessionContextExports.js";
 import { filteredMessages, loadPlanningState, roleCounts, workspacePayload } from "./sessionContextPayloads.js";
 import { boundedNumber, conversationSummary, estimateTokens, truncate } from "./sessionContextText.js";
 
-export async function handleSessionStatus(context: ToolExecutionContext): Promise<Record<string, unknown>> {
-  const messages = context.messages || [];
+export async function handleSessionStatus(context: ToolContext<never, "conversation" | "store">): Promise<Record<string, unknown>> {
+  const messages = context.conversation?.messages || [];
   const planning = await loadPlanningState(context);
   return {
     workspace: workspacePayload(context),
@@ -24,16 +27,16 @@ export async function handleSessionStatus(context: ToolExecutionContext): Promis
       estimated_tokens: estimateTokens(messages),
       max_context_tokens: 0
     },
-    context_trace: context.runtimeEvents?.length || 0,
+    context_trace: context.conversation?.runtimeEvents.length || 0,
     todos: todoSummary(planning?.todos || []),
     plan_mode: Boolean(planning?.plan_mode)
   };
 }
 
-export async function handleSessionExport(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+export async function handleSessionExport(context: SessionReadContext, args: JsonObject): Promise<Record<string, unknown>> {
   const format = exportFormat(args.format);
   const targetPath = exportPath(context.repoRoot, String(args.path || ""), format);
-  const messages = filteredMessages(context.messages || [], Boolean(args.include_system));
+  const messages = filteredMessages(context.conversation?.messages || [], Boolean(args.include_system));
   const content = format === "json" ? jsonExport(context, messages) : markdownExport(context, messages);
   await mkdir(path.dirname(targetPath), { recursive: true });
   await writeFile(targetPath, content);
@@ -45,8 +48,8 @@ export async function handleSessionExport(context: ToolExecutionContext, args: J
   };
 }
 
-export async function handleSessionSummary(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
-  const messages = filteredMessages(context.messages || [], Boolean(args.include_system));
+export async function handleSessionSummary(context: SessionReadContext, args: JsonObject): Promise<Record<string, unknown>> {
+  const messages = filteredMessages(context.conversation?.messages || [], Boolean(args.include_system));
   const limit = boundedNumber(args.max_messages, 50, 1, 200);
   const maxChars = boundedNumber(args.max_chars, 2000, 80, 20000);
   const selectedMessages = messages.slice(-limit);
@@ -60,10 +63,10 @@ export async function handleSessionSummary(context: ToolExecutionContext, args: 
   };
 }
 
-export async function handleContextTrace(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+export async function handleContextTrace(context: SessionReadContext, args: JsonObject): Promise<Record<string, unknown>> {
   const maxChars = boundedNumber(args.max_chars, 240, 0, 20000);
   const includeText = Boolean(args.include_text);
-  const items = (context.runtimeEvents || []).map((event, index) => {
+  const items = (context.conversation?.runtimeEvents || []).map((event, index) => {
     const eventText = JSON.stringify(event);
     const previewText = JSON.stringify(event.payload || event.raw || event.type);
     return {
@@ -79,8 +82,8 @@ export async function handleContextTrace(context: ToolExecutionContext, args: Js
   return { items, count: items.length };
 }
 
-export async function handleContextMessages(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
-  const messages = filteredMessages(context.messages || [], Boolean(args.include_system));
+export async function handleContextMessages(context: SessionReadContext, args: JsonObject): Promise<Record<string, unknown>> {
+  const messages = filteredMessages(context.conversation?.messages || [], Boolean(args.include_system));
   const limit = boundedNumber(args.max_messages, 50, 1, 200);
   const maxChars = boundedNumber(args.max_chars, 240, 0, 20000);
   const selectedMessages = messages.slice(-limit);
@@ -96,9 +99,8 @@ export async function handleContextMessages(context: ToolExecutionContext, args:
   };
 }
 
-export async function handleContextCompact(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
-  const messages = context.messages;
-  if (!messages) throw new Error("session messages are not available");
+export async function handleContextCompact(context: SessionEditContext, args: JsonObject): Promise<Record<string, unknown>> {
+  const { messages } = context.conversation;
   const beforeMessages = messages.length;
   const nonSystem = messages.filter((message) => message.role !== "system");
   if (nonSystem.length <= 4) return { before_messages: beforeMessages, after_messages: messages.length, compacted: false };
@@ -116,9 +118,8 @@ export async function handleContextCompact(context: ToolExecutionContext, args: 
   return { before_messages: beforeMessages, after_messages: messages.length, compacted: true };
 }
 
-export async function handleContextRewind(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
-  const messages = context.messages;
-  if (!messages) throw new Error("session messages are not available");
+export async function handleContextRewind(context: SessionEditContext, args: JsonObject): Promise<Record<string, unknown>> {
+  const { messages } = context.conversation;
   const dropCount = boundedNumber(args.drop_last, 1, 1, 200);
   const beforeMessages = messages.length;
   let droppedMessages = 0;

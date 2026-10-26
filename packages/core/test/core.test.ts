@@ -360,7 +360,7 @@ describe("TS core", () => {
         { role: "assistant" as const, content: "First response" },
         { role: "user" as const, content: "Second request" }
       ];
-      const context = { store, spec, runId: "run_session", messages, runtimeEvents: [{ type: "model_message", payload: { content: "hello" } }] };
+      const context = { store, spec, runId: "run_session", conversation: { messages, runtimeEvents: [{ type: "model_message", payload: { content: "hello" } }] } };
 
       const status = await executeBuiltinTool(root, "session.status", {}, context);
       expect(JSON.parse(status.result.content).messages.non_system).toBe(3);

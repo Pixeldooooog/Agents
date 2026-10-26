@@ -1,6 +1,6 @@
 import type { Settings } from "../config/settings.js";
 import { profileDefaults } from "../models/modelProfiles.js";
-import { AgentRunService, type AgentRunServiceOptions } from "../runtime/agentRunService.js";
+import type { AgentRunService } from "../runtime/agentRunService.js";
 import type { StateStore } from "../ports/stateStore.js";
 import type { AgentChatPayload } from "../types/agentTypes.js";
 import type { AgentResult, RunOutcome } from "../types/runtimeTypes.js";
@@ -17,7 +17,8 @@ const taskStepStatusForOutcome: Record<RunOutcome, TaskStepStatus> = {
 
 export class TaskService {
   private readonly active = new Map<string, AbortController>();
-  constructor(private readonly settings: Settings, private readonly store: StateStore, private readonly runtimeOptions: Pick<AgentRunServiceOptions, "mcpProviders"> = {}) {}
+  /** Runs go through the host's shared run service so tasks get the same tools, providers, and executors as chat runs. */
+  constructor(private readonly settings: Settings, private readonly store: StateStore, private readonly runs: Pick<AgentRunService, "runAgent">) {}
 
   async create(payload: AgentChatPayload): Promise<TaskRecord> {
     const spec = specFromPayload(payload, profileDefaults(this.settings));
@@ -35,13 +36,7 @@ export class TaskService {
 
       const spec = specFromPayload({ message: task.input, ...task.spec }, profileDefaults(this.settings));
       let step: TaskStepRecord | undefined;
-      const runs = new AgentRunService({
-        ...this.runtimeOptions,
-        settings: this.settings,
-        store: this.store,
-        taskRunner: this
-      });
-      const { result } = await runs.runAgent(spec, task.input, {
+      const { result } = await this.runs.runAgent(spec, task.input, {
         signal: controller.signal,
         afterRunStarted: async (run) => {
           step = await this.store.createStep(task, run.run_id);

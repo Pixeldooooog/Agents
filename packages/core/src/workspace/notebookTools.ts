@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import type { JsonObject } from "../types/jsonTypes.js";
-import type { ToolDefinition, ToolExecutionContext } from "../tools/toolContracts.js";
+import { defineTool, type RegisteredTool, type ToolContext } from "../tools/toolContracts.js";
 import { relativeWorkspacePath, resolveWorkspacePath, stringArg } from "../tools/toolInputs.js";
 import {
   applyNotebookCellEdit,
@@ -26,17 +26,18 @@ const notebookEditSchema = {
   required: ["notebook_path", "new_source"]
 };
 
-export const notebookToolDefinitions: ToolDefinition[] = [
-  {
+export const notebookToolDefinitions: RegisteredTool[] = [
+  defineTool({
     name: "notebook.edit",
     description: "Edit a specific cell in a Jupyter notebook.",
     risk: "medium",
     parameters: notebookEditSchema,
+    requires: [],
     handler: notebookEdit
-  }
+  })
 ];
 
-async function notebookEdit(context: ToolExecutionContext, args: JsonObject) {
+async function notebookEdit(context: ToolContext, args: JsonObject) {
   const requestedPath = stringArg(args.notebook_path);
   if (!requestedPath.endsWith(".ipynb")) throw new Error("File must be a Jupyter notebook (.ipynb file).");
   const notebookPath = resolveWorkspacePath(context.repoRoot, requestedPath);

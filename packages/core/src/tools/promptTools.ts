@@ -1,51 +1,56 @@
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { JsonObject } from "../types/jsonTypes.js";
-import type { ToolDefinition, ToolExecutionContext } from "./toolContracts.js";
+import { defineTool, type RegisteredTool, type ToolContext } from "./toolContracts.js";
 import { relativeWorkspacePath, resolveWorkspacePath } from "./toolInputs.js";
 import { safeName } from "../workspace/workspaceNames.js";
 
 export { safeName } from "../workspace/workspaceNames.js";
 
-export const promptToolDefinitions: ToolDefinition[] = [
-  {
+export const promptToolDefinitions: RegisteredTool[] = [
+  defineTool({
     name: "prompt.templates",
     description: "List saved prompt templates.",
     risk: "low",
     parameters: { type: "object", properties: { query: { type: "string" }, max_results: { type: "integer", minimum: 1, maximum: 100 } } },
+    requires: [],
     handler: promptTemplates
-  },
-  {
+  }),
+  defineTool({
     name: "prompt.read",
     description: "Read a saved prompt template.",
     risk: "low",
     parameters: { type: "object", properties: { name: { type: "string" }, max_bytes: { type: "integer", minimum: 1, maximum: 200000 } }, required: ["name"] },
+    requires: [],
     handler: promptRead
-  },
-  {
+  }),
+  defineTool({
     name: "prompt.render",
     description: "Render a saved prompt template with named arguments.",
     risk: "low",
     parameters: { type: "object", properties: { name: { type: "string" }, arguments: { type: "object" }, raw_arguments: { type: "string" } }, required: ["name"] },
+    requires: [],
     handler: promptRender
-  },
-  {
+  }),
+  defineTool({
     name: "prompt.save",
     description: "Save a prompt template.",
     risk: "medium",
     parameters: { type: "object", properties: { name: { type: "string" }, content: { type: "string" }, overwrite: { type: "boolean" } }, required: ["name", "content"] },
+    requires: [],
     handler: promptSave
-  },
-  {
+  }),
+  defineTool({
     name: "prompt.delete",
     description: "Delete a saved prompt template.",
     risk: "medium",
     parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+    requires: [],
     handler: promptDelete
-  }
+  })
 ];
 
-async function promptTemplates(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+async function promptTemplates(context: ToolContext, args: JsonObject): Promise<Record<string, unknown>> {
   let templates = await listTemplates(context);
   const query = String(args.query || "").trim().toLowerCase();
   if (query) templates = templates.filter((template) => `${template.name} ${template.preview}`.toLowerCase().includes(query));
@@ -53,7 +58,7 @@ async function promptTemplates(context: ToolExecutionContext, args: JsonObject):
   return { templates: templates.slice(0, limit), count: Math.min(templates.length, limit), total: templates.length };
 }
 
-async function promptRead(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+async function promptRead(context: ToolContext, args: JsonObject): Promise<Record<string, unknown>> {
   const name = safeName(args.name, "prompt template");
   const maxBytes = boundedLimit(args.max_bytes, 20000, 200000);
   const filePath = templatePath(context, name);
@@ -65,7 +70,7 @@ async function promptRead(context: ToolExecutionContext, args: JsonObject): Prom
   };
 }
 
-async function promptRender(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+async function promptRender(context: ToolContext, args: JsonObject): Promise<Record<string, unknown>> {
   const read = await promptRead(context, { name: args.name, max_bytes: 200000 });
   return {
     name: read.name,
@@ -76,7 +81,7 @@ async function promptRender(context: ToolExecutionContext, args: JsonObject): Pr
   };
 }
 
-async function promptSave(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+async function promptSave(context: ToolContext, args: JsonObject): Promise<Record<string, unknown>> {
   const name = safeName(args.name, "prompt template");
   const filePath = templatePath(context, name);
   if (!args.overwrite && await fileExists(filePath)) throw new Error(`prompt template already exists: ${name}`);
@@ -86,14 +91,14 @@ async function promptSave(context: ToolExecutionContext, args: JsonObject): Prom
   return { name, path: relativeWorkspacePath(context.repoRoot, filePath), bytes: Buffer.byteLength(content) };
 }
 
-async function promptDelete(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+async function promptDelete(context: ToolContext, args: JsonObject): Promise<Record<string, unknown>> {
   const name = safeName(args.name, "prompt template");
   const filePath = templatePath(context, name);
   await rm(filePath, { force: true });
   return { name, path: relativeWorkspacePath(context.repoRoot, filePath), deleted: true, result: { deleted: true } };
 }
 
-async function listTemplates(context: ToolExecutionContext): Promise<Record<string, string>[]> {
+async function listTemplates(context: ToolContext): Promise<Record<string, string>[]> {
   const directoryPath = resolveWorkspacePath(context.repoRoot, ".kevin/prompts");
   try {
     const entries = await readdir(directoryPath, { withFileTypes: true });
@@ -108,7 +113,7 @@ async function listTemplates(context: ToolExecutionContext): Promise<Record<stri
   }
 }
 
-function templatePath(context: ToolExecutionContext, name: string): string {
+function templatePath(context: ToolContext, name: string): string {
   return resolveWorkspacePath(context.repoRoot, `.kevin/prompts/${name}.md`);
 }
 

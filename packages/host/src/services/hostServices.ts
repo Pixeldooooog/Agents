@@ -15,8 +15,15 @@ export async function createHostServices(repoRoot = process.cwd()) {
   }
   const mcp = new McpConnectionManager(connections);
   // Connections are explicit via the authenticated reconnect endpoint; host startup never launches a configured process.
-  const tasks = new TaskService(settings, store, { mcpProviders: mcp.providers });
-  const runs = new AgentRunService({ settings, store, taskRunner: tasks, mcpProviders: mcp.providers });
+  // Runs and tasks reference each other: tool calls may run tasks, and tasks execute through the shared run service.
+  let tasks: TaskService | undefined;
+  const taskRunner = {
+    run: (taskId: string) => requireTasks().run(taskId),
+    cancel: (taskId: string) => requireTasks().cancel(taskId)
+  };
+  const requireTasks = () => { if (!tasks) throw new Error("task service is not ready"); return tasks; };
+  const runs = new AgentRunService({ settings, store, taskRunner, mcpProviders: mcp.providers });
+  tasks = new TaskService(settings, store, runs);
   return {
     mcp,
     close: () => mcp.close(),

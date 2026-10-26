@@ -2,27 +2,29 @@ import { grepSchema, globSchema } from "./searchSchemas.js";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { JsonObject } from "../types/jsonTypes.js";
-import type { ToolDefinition, ToolExecutionContext } from "./toolContracts.js";
+import { defineTool, type RegisteredTool, type ToolContext } from "./toolContracts.js";
 import { numberArg, relativeWorkspacePath, resolveWorkspacePath, stringArg } from "./toolInputs.js";
 
-export const searchToolDefinitions: ToolDefinition[] = [
-  {
+export const searchToolDefinitions: RegisteredTool[] = [
+  defineTool({
     name: "search.grep",
     parameters: grepSchema,
     description: "Search workspace text files with a regular expression.",
     risk: "low",
+    requires: [],
     handler: grepWorkspace
-  },
-  {
+  }),
+  defineTool({
     name: "search.glob",
     parameters: globSchema,
     description: "Find workspace files matching a glob pattern.",
     risk: "low",
+    requires: [],
     handler: globWorkspace
-  }
+  })
 ];
 
-async function grepWorkspace(context: ToolExecutionContext, args: JsonObject) {
+async function grepWorkspace(context: ToolContext, args: JsonObject) {
   const pattern = stringArg(args.pattern);
   if (!pattern) throw new Error("pattern is required");
   const regex = new RegExp(pattern, stringArg(args.flags, (args.case_sensitive === false || args.case_sensitive === "false") ? "i" : ""));
@@ -46,7 +48,7 @@ async function grepWorkspace(context: ToolExecutionContext, args: JsonObject) {
   return { pattern, matches, count: matches.length };
 }
 
-async function globWorkspace(context: ToolExecutionContext, args: JsonObject) {
+async function globWorkspace(context: ToolContext, args: JsonObject) {
   const pattern = stringArg(args.pattern, "**/*");
   const root = resolveWorkspacePath(context.repoRoot, stringArg(args.path, "."));
   const limit = Math.max(1, numberArg(args.limit, 200));

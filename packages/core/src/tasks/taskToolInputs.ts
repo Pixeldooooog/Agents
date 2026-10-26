@@ -1,14 +1,11 @@
-import type { ToolExecutionContext } from "../tools/toolContracts.js";
+import type { ToolContext } from "../tools/toolContracts.js";
+
+export type TaskToolContext = ToolContext<"store", "taskRunner">;
 import type { AgentSpec } from "../types/agentTypes.js";
 import type { TaskStatus } from "../types/taskTypes.js";
 import { taskStatusValues } from "./taskToolSchemas.js";
 
-export function requiredStore(context: ToolExecutionContext) {
-  if (!context.store) throw new Error("task store is not available");
-  return context.store;
-}
-
-export function requiredSpec(context: ToolExecutionContext): AgentSpec {
+export function requiredSpec(context: ToolContext): AgentSpec {
   if (!context.spec) throw new Error("agent spec is not available");
   return context.spec;
 }

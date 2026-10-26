@@ -1,4 +1,4 @@
-import type { McpProvider, ToolExecutionContext } from "../tools/toolContracts.js";
+import type { McpProvider, ToolContext } from "../tools/toolContracts.js";
 
 type ProviderState = { controller: AbortController; closing?: Promise<void> };
 const states = new WeakMap<McpProvider, ProviderState>();
@@ -19,11 +19,14 @@ function stateFor(provider: McpProvider): ProviderState {
   return state;
 }
 
+/** MCP calls need cancellation and, when configured, the client timeout setting. */
+export type McpCallContext = ToolContext<never, "settings">;
+
 export function isMcpProviderActive(provider: McpProvider): boolean {
   return !states.get(provider)?.controller.signal.aborted;
 }
 
-export function mcpTimeoutMilliseconds(context: ToolExecutionContext): number {
+export function mcpTimeoutMilliseconds(context: McpCallContext): number {
   const seconds = context.settings?.mcp.clientTimeout ?? 30;
   if (!Number.isFinite(seconds) || seconds <= 0 || seconds > 2147483) throw new Error("invalid MCP client timeout");
   return Math.ceil(seconds * 1000);
@@ -31,7 +34,7 @@ export function mcpTimeoutMilliseconds(context: ToolExecutionContext): number {
 
 /** Cancellation stops waiting even if an injected provider ignores its signal. */
 export async function callMcpProvider<T>(
-  context: ToolExecutionContext,
+  context: McpCallContext,
   provider: McpProvider,
   call: (signal: AbortSignal) => Promise<T>
 ): Promise<T> {

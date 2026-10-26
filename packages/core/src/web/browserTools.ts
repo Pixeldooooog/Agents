@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { JsonObject } from "../types/jsonTypes.js";
-import type { ToolDefinition, ToolExecutionContext } from "../tools/toolContracts.js";
+import { defineTool, type RegisteredTool, type ToolContext } from "../tools/toolContracts.js";
 import { numberArg, relativeWorkspacePath, resolveWorkspacePath, stringArg } from "../tools/toolInputs.js";
 import { defaultDownloadPath, fetchWebResource } from "./webFetch.js";
 
@@ -26,24 +26,28 @@ const browserDownloadSchema = {
   required: ["url"]
 };
 
-export const browserToolDefinitions: ToolDefinition[] = [
-  {
+export const browserToolDefinitions: RegisteredTool[] = [
+  defineTool({
     name: "browser.open",
     description: "Fetch an HTTP page into the workspace and return a text preview.",
     risk: "medium",
     parameters: browserOpenSchema,
+    requires: [],
+    uses: ["settings"],
     handler: browserOpen
-  },
-  {
+  }),
+  defineTool({
     name: "browser.download",
     description: "Download an HTTP resource into the workspace.",
     risk: "medium",
     parameters: browserDownloadSchema,
+    requires: [],
+    uses: ["settings"],
     handler: browserDownload
-  }
+  })
 ];
 
-async function browserOpen(context: ToolExecutionContext, args: JsonObject) {
+async function browserOpen(context: ToolContext<never, "settings">, args: JsonObject) {
   const url = stringArg(args.url);
   const maxBytes = Math.max(1, Math.min(2000000, numberArg(args.max_bytes, 200000)));
   const outputPath = stringArg(args.output_path) || defaultBrowserOpenPath(url);
@@ -61,7 +65,7 @@ async function browserOpen(context: ToolExecutionContext, args: JsonObject) {
   };
 }
 
-async function browserDownload(context: ToolExecutionContext, args: JsonObject) {
+async function browserDownload(context: ToolContext<never, "settings">, args: JsonObject) {
   const url = stringArg(args.url);
   const maxBytes = Math.max(1, Math.min(20000000, numberArg(args.max_bytes, 20000000)));
   const outputPath = stringArg(args.path) || defaultDownloadPath(url, "download.bin");

@@ -1,9 +1,10 @@
 import { callMcpProvider, McpCallInterruptedError } from "./mcpProviderLifecycle.js";
-import type { McpProvider, ToolExecutionContext } from "../tools/toolContracts.js";
+import type { McpProvider } from "../tools/toolContracts.js";
+import type { McpToolContext } from "./mcpRecords.js";
 import { mcpProviders } from "./mcpRecords.js";
 import { clampResultLimit, normalizeList, objectRecord, requiredText } from "./mcpProviderPayloads.js";
 
-export async function listMcpPrompts(context: ToolExecutionContext, server: string, query: string, maxResults: number) {
+export async function listMcpPrompts(context: McpToolContext, server: string, query: string, maxResults: number) {
   const prompts: Record<string, unknown>[] = [];
   const errors: Record<string, string>[] = [];
   const needle = query.trim().toLowerCase();
@@ -23,7 +24,7 @@ export async function listMcpPrompts(context: ToolExecutionContext, server: stri
   return { prompts: prompts.slice(0, limit), count: Math.min(prompts.length, limit), total: prompts.length, errors };
 }
 
-export async function getMcpPrompt(context: ToolExecutionContext, name: string, server: string, args: Record<string, unknown>) {
+export async function getMcpPrompt(context: McpToolContext, name: string, server: string, args: Record<string, unknown>) {
   const promptName = requiredText(name, "name");
   const errors: Record<string, string>[] = [];
   const providers = mcpProviders(context, server);
@@ -40,13 +41,13 @@ export async function getMcpPrompt(context: ToolExecutionContext, name: string, 
   throw new Error(`failed to get MCP prompt ${promptName}: ${JSON.stringify(errors)}`);
 }
 
-async function callListPrompts(context: ToolExecutionContext, provider: McpProvider): Promise<unknown[]> {
+async function callListPrompts(context: McpToolContext, provider: McpProvider): Promise<unknown[]> {
   const listPrompts = provider.listPrompts || provider.list_prompts;
   if (!listPrompts) return [];
   return normalizeList(await callMcpProvider(context, provider, signal => listPrompts.call(provider, signal)));
 }
 
-async function callGetPrompt(context: ToolExecutionContext, provider: McpProvider, name: string, args: Record<string, unknown>): Promise<unknown> {
+async function callGetPrompt(context: McpToolContext, provider: McpProvider, name: string, args: Record<string, unknown>): Promise<unknown> {
   const getPrompt = provider.getPrompt || provider.get_prompt;
   if (!getPrompt) throw new Error("provider does not support prompt rendering");
   return callMcpProvider(context, provider, signal => getPrompt.call(provider, name, args, signal));

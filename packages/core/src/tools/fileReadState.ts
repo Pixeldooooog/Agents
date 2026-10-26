@@ -1,5 +1,5 @@
 import { stat } from "node:fs/promises";
-import type { FileReadStateRecord, ToolExecutionContext } from "./toolContracts.js";
+import type { FileReadStateRecord, ToolContext } from "./toolContracts.js";
 import { relativeWorkspacePath } from "./toolInputs.js";
 
 export const PRE_READ_REQUIRED_ERROR = "File has not been read yet. Read it first before writing to it.";
@@ -15,7 +15,7 @@ export type FileReadStateOptions = {
 };
 
 export async function recordFileReadState(
-  context: ToolExecutionContext,
+  context: ToolContext<never, "fileReadState">,
   absolutePath: string,
   content: string,
   options: FileReadStateOptions = {}
@@ -38,7 +38,7 @@ export async function recordFileReadState(
 }
 
 export function ensureExistingFileReadIsCurrent(
-  context: ToolExecutionContext,
+  context: ToolContext<never, "fileReadState">,
   absolutePath: string,
   currentContent: string
 ): string {

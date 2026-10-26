@@ -1,11 +1,11 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import type { JsonObject } from "../types/jsonTypes.js";
-import type { ToolDefinition, ToolExecutionContext } from "../tools/toolContracts.js";
+import { defineTool, type RegisteredTool, type ToolContext } from "../tools/toolContracts.js";
 import { booleanArg, numberArg, stringArg } from "../tools/toolInputs.js";
 import { countWorktreeChanges, git, gitRoot, isGitWorktree, preparePrRef } from "./worktreeGit.js";
 import { flattenSlug, worktreeRequest } from "./worktreeNaming.js";
-import { activeSession, clearActiveSession, setActiveSession, switchRepoRoot } from "./worktreeSession.js";
+import { activeSession, clearActiveSession, setActiveSession, switchRepoRoot, type WorktreeToolContext } from "./worktreeSession.js";
 import { worktreeEnterSchema, worktreeExitSchema } from "./worktreeSchemas.js";
 import type { WorktreeSession } from "./worktreeTypes.js";
 
@@ -15,24 +15,28 @@ const noActiveWorktreeSessionMessage = [
   "No filesystem changes were made."
 ].join(" ");
 
-export const worktreeToolDefinitions: ToolDefinition[] = [
-  {
+export const worktreeToolDefinitions: RegisteredTool[] = [
+  defineTool({
     name: "worktree.enter",
     description: "Create or resume an isolated git worktree and switch the session workspace to it.",
     risk: "medium",
     parameters: worktreeEnterSchema,
+    requires: [],
+    uses: ["settings"],
     handler: enterWorktree
-  },
-  {
+  }),
+  defineTool({
     name: "worktree.exit",
     description: "Exit the active git worktree, preserving or removing it after safety checks.",
     risk: "medium",
     parameters: worktreeExitSchema,
+    requires: [],
+    uses: ["settings"],
     handler: exitWorktree
-  }
+  })
 ];
 
-async function enterWorktree(context: ToolExecutionContext, args: JsonObject) {
+async function enterWorktree(context: WorktreeToolContext, args: JsonObject) {
   const currentSession = activeSession(context.spec);
   if (currentSession) throw new Error(`Already in a worktree session at ${currentSession.worktreePath || "unknown"}`);
   const requested = worktreeRequest(stringArg(args.name), numberArg(args.pr_number, 0));
@@ -74,7 +78,7 @@ async function enterWorktree(context: ToolExecutionContext, args: JsonObject) {
   };
 }
 
-async function exitWorktree(context: ToolExecutionContext, args: JsonObject) {
+async function exitWorktree(context: WorktreeToolContext, args: JsonObject) {
   const action = stringArg(args.action);
   if (!["keep", "remove"].includes(action)) throw new Error("action must be keep or remove");
   const session = activeSession(context.spec);

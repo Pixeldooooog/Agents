@@ -2,10 +2,10 @@ import { existsSync, readdirSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { resolveWorkspacePath } from "../tools/toolInputs.js";
-import type { ToolExecutionContext } from "../tools/toolContracts.js";
+import type { ToolContext } from "../tools/toolContracts.js";
 import type { ExtensionKind } from "./extensionManifestTypes.js";
 
-export function skillSearchRoots(context: ToolExecutionContext): string[] {
+export function skillSearchRoots(context: ToolContext): string[] {
   return [
     resolveWorkspacePath(context.repoRoot, ".kevin/skills"),
     resolveWorkspacePath(context.repoRoot, ".claude/skills"),
@@ -13,18 +13,18 @@ export function skillSearchRoots(context: ToolExecutionContext): string[] {
   ];
 }
 
-export function pluginSearchRoots(context: ToolExecutionContext): string[] {
+export function pluginSearchRoots(context: ToolContext): string[] {
   return [
     resolveWorkspacePath(context.repoRoot, ".kevin/plugins"),
     resolveWorkspacePath(context.repoRoot, "plugins")
   ];
 }
 
-export function installRoot(context: ToolExecutionContext, kind: ExtensionKind): string {
+export function installRoot(context: ToolContext, kind: ExtensionKind): string {
   return resolveWorkspacePath(context.repoRoot, kind === "skill" ? ".kevin/skills" : ".kevin/plugins");
 }
 
-export function resolveSourcePath(context: ToolExecutionContext, source: string): string {
+export function resolveSourcePath(context: ToolContext, source: string): string {
   const text = String(source || "").trim();
   if (!text) throw new Error("source is required");
   return path.isAbsolute(text) ? path.resolve(text) : resolveWorkspacePath(context.repoRoot, text);

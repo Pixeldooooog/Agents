@@ -1,10 +1,10 @@
 import { gitSchemas } from "./gitSchemas.js";
 import type { JsonObject } from "../types/jsonTypes.js";
-import type { ToolDefinition, ToolExecutionContext } from "./toolContracts.js";
+import { defineTool, type RegisteredTool, type ToolContext } from "./toolContracts.js";
 import { stringArg } from "./toolInputs.js";
-import { processToolDefinitions } from "./processTools.js";
+import { runShell } from "./processTools.js";
 
-export const gitToolDefinitions: ToolDefinition[] = [
+export const gitToolDefinitions: RegisteredTool[] = [
   gitTool("git.status", "git status --short", "Show Git working tree status."),
   gitTool("git.diff", "git diff --stat && git diff --", "Show Git diff."),
   gitTool("git.log", "git log --oneline -20", "Show recent Git history."),
@@ -13,21 +13,21 @@ export const gitToolDefinitions: ToolDefinition[] = [
   gitTool("git.commit", "", "Create a Git commit.", "high")
 ];
 
-function gitTool(name: string, command: string, description: string, risk: "low" | "medium" | "high" = name === "git.add" || name === "git.commit" ? "high" : "low"): ToolDefinition {
-  return {
+function gitTool(name: string, command: string, description: string, risk: "low" | "medium" | "high" = name === "git.add" || name === "git.commit" ? "high" : "low"): RegisteredTool {
+  return defineTool({
     name,
     parameters: gitSchemas[name],
     description,
     risk,
+    requires: [],
+    uses: ["commandExecutor"],
     handler: async (context, args) => runGit(context, args, name, command)
-  };
+  });
 }
 
-async function runGit(context: ToolExecutionContext, args: JsonObject, name: string, defaultCommand: string) {
-  const shellRun = processToolDefinitions.find((tool) => tool.name === "shell.run");
-  if (!shellRun) throw new Error("shell runner unavailable");
+async function runGit(context: ToolContext<never, "commandExecutor">, args: JsonObject, name: string, defaultCommand: string) {
   const command = gitCommand(name, args, defaultCommand);
-  return shellRun.handler(context, { command, timeout_ms: args.timeout_ms ?? 30000 });
+  return runShell(context, { command, timeout_ms: args.timeout_ms ?? 30000 });
 }
 
 function gitCommand(name: string, args: JsonObject, fallback: string): string {

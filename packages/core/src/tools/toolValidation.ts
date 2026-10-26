@@ -1,16 +1,18 @@
 import Ajv, { type ValidateFunction } from "ajv";
-import type { ToolDefinition } from "./toolContracts.js";
+import type { RegisteredTool } from "./toolContracts.js";
+
+type ValidatedTool = Pick<RegisteredTool, "name" | "parameters">;
 
 export const MAX_TOOL_INPUT_BYTES = 256 * 1024;
 const ajv = new Ajv({ strict: false, allErrors: false, coerceTypes: false, useDefaults: false, removeAdditional: false, validateFormats: false });
-const validators = new WeakMap<ToolDefinition, ValidateFunction>();
+const validators = new WeakMap<ValidatedTool, ValidateFunction>();
 
-export function prepareToolValidator(definition: ToolDefinition): void {
+export function prepareToolValidator(definition: ValidatedTool): void {
   validators.set(definition, ajv.compile(definition.parameters));
 }
 
 /** Runs before the handler. Does not coerce, default, or mutate approved arguments. */
-export function assertToolArguments(definition: ToolDefinition, args: unknown): void {
+export function assertToolArguments(definition: ValidatedTool, args: unknown): void {
   if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error("invalid_tool_arguments: expected object");
   let serialized: string;
   try { serialized = JSON.stringify(args); }

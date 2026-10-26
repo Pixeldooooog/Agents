@@ -3,14 +3,15 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { executeBuiltinTool, loadSettings, specFromPayload } from "../src/index.js";
-import type { McpProvider, ToolExecutionContext } from "../src/tools/toolContracts.js";
+import type { McpProvider } from "../src/tools/toolContracts.js";
+import type { McpToolContext } from "../src/mcp/mcpRecords.js";
 import { callMcpProvider, closeMcpProviders, isMcpProviderActive } from "../src/mcp/mcpProviderLifecycle.js";
 import { readMcpResource, listMcpResources } from "../src/mcp/mcpProviderResourceCalls.js";
 import { getMcpPrompt, listMcpPrompts } from "../src/mcp/mcpProviderPromptCalls.js";
 import { executeRuntimeToolCall } from "../src/runtime/runtimeToolExecution.js";
 import { AgentRuntime } from "../src/runtime/agentRuntime.js";
 
-async function fixture(run: (context: ToolExecutionContext) => Promise<void>) {
+async function fixture(run: (context: McpToolContext) => Promise<void>) {
   const root = await mkdtemp(path.join(tmpdir(), "kevin-mcp-lifecycle-"));
   try { await run({ repoRoot: root, settings: await loadSettings(root) }); }
   finally { await rm(root, { recursive: true, force: true }); }
@@ -67,10 +68,10 @@ test("revocation interrupts an in-flight provider even when it ignores cancellat
 
 test("all resource and prompt calls receive cancellation and do not fall back", () => fixture(async context => {
   const operations = [
-    (ctx: ToolExecutionContext) => listMcpResources(ctx, "", "", 50),
-    (ctx: ToolExecutionContext) => readMcpResource(ctx, "docs://intro", ""),
-    (ctx: ToolExecutionContext) => listMcpPrompts(ctx, "", "", 50),
-    (ctx: ToolExecutionContext) => getMcpPrompt(ctx, "release", "", {})
+    (ctx: McpToolContext) => listMcpResources(ctx, "", "", 50),
+    (ctx: McpToolContext) => readMcpResource(ctx, "docs://intro", ""),
+    (ctx: McpToolContext) => listMcpPrompts(ctx, "", "", 50),
+    (ctx: McpToolContext) => getMcpPrompt(ctx, "release", "", {})
   ];
   for (const operation of operations) {
     const controller = new AbortController();

@@ -1,9 +1,10 @@
 import { callMcpProvider, McpCallInterruptedError } from "./mcpProviderLifecycle.js";
-import type { McpProvider, ToolExecutionContext } from "../tools/toolContracts.js";
+import type { McpProvider } from "../tools/toolContracts.js";
+import type { McpToolContext } from "./mcpRecords.js";
 import { mcpProviders } from "./mcpRecords.js";
 import { clampResultLimit, normalizeList, objectRecord, requiredText } from "./mcpProviderPayloads.js";
 
-export async function listMcpResources(context: ToolExecutionContext, server: string, uriPrefix: string, maxResults: number) {
+export async function listMcpResources(context: McpToolContext, server: string, uriPrefix: string, maxResults: number) {
   const resources: Record<string, unknown>[] = [];
   const errors: Record<string, string>[] = [];
   for (const provider of mcpProviders(context, server)) {
@@ -22,7 +23,7 @@ export async function listMcpResources(context: ToolExecutionContext, server: st
   return { resources: resources.slice(0, limit), count: Math.min(resources.length, limit), total: resources.length, errors };
 }
 
-export async function readMcpResource(context: ToolExecutionContext, uri: string, server: string) {
+export async function readMcpResource(context: McpToolContext, uri: string, server: string) {
   const targetUri = requiredText(uri, "uri");
   const errors: Record<string, string>[] = [];
   const providers = mcpProviders(context, server);
@@ -39,13 +40,13 @@ export async function readMcpResource(context: ToolExecutionContext, uri: string
   throw new Error(`failed to read MCP resource ${targetUri}: ${JSON.stringify(errors)}`);
 }
 
-async function callListResources(context: ToolExecutionContext, provider: McpProvider): Promise<unknown[]> {
+async function callListResources(context: McpToolContext, provider: McpProvider): Promise<unknown[]> {
   const listResources = provider.listResources || provider.list_resources;
   if (!listResources) return [];
   return normalizeList(await callMcpProvider(context, provider, signal => listResources.call(provider, signal)));
 }
 
-async function callReadResource(context: ToolExecutionContext, provider: McpProvider, uri: string): Promise<unknown> {
+async function callReadResource(context: McpToolContext, provider: McpProvider, uri: string): Promise<unknown> {
   const readResource = provider.readResource || provider.read_resource;
   if (!readResource) throw new Error("provider does not support resource reads");
   return callMcpProvider(context, provider, signal => readResource.call(provider, uri, signal));

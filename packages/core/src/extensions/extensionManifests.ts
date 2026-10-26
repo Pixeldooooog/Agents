@@ -3,7 +3,7 @@ import { isPortableManifestName } from "./extensionManifestRecords.js";
 import { cp, mkdir, readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { relativeWorkspacePath } from "../tools/toolInputs.js";
-import type { ToolExecutionContext } from "../tools/toolContracts.js";
+import type { ToolContext } from "../tools/toolContracts.js";
 import { renderTemplate } from "../tools/promptTools.js";
 import { discoverManifests, parseManifest } from "./extensionManifestDiscovery.js";
 import {
@@ -17,35 +17,35 @@ import type { ExtensionKind, ExtensionManifest } from "./extensionManifestTypes.
 
 export type { ExtensionKind, ExtensionManifest } from "./extensionManifestTypes.js";
 
-export async function discoverSkills(context: ToolExecutionContext): Promise<ExtensionManifest[]> {
+export async function discoverSkills(context: ToolContext): Promise<ExtensionManifest[]> {
   return discoverManifests(context, "skill");
 }
 
-export async function discoverPlugins(context: ToolExecutionContext): Promise<ExtensionManifest[]> {
+export async function discoverPlugins(context: ToolContext): Promise<ExtensionManifest[]> {
   return discoverManifests(context, "plugin");
 }
 
-export async function installSkill(context: ToolExecutionContext, source: string): Promise<ExtensionManifest> {
+export async function installSkill(context: ToolContext, source: string): Promise<ExtensionManifest> {
   return installExtension(context, "skill", source);
 }
 
-export async function installPlugin(context: ToolExecutionContext, source: string): Promise<ExtensionManifest> {
+export async function installPlugin(context: ToolContext, source: string): Promise<ExtensionManifest> {
   return installExtension(context, "plugin", source);
 }
 
-export async function uninstallSkill(context: ToolExecutionContext, name: string): Promise<string> {
+export async function uninstallSkill(context: ToolContext, name: string): Promise<string> {
   return uninstallExtension(context, "skill", name);
 }
 
-export async function uninstallPlugin(context: ToolExecutionContext, name: string): Promise<string> {
+export async function uninstallPlugin(context: ToolContext, name: string): Promise<string> {
   return uninstallExtension(context, "plugin", name);
 }
 
-export async function loadSkill(context: ToolExecutionContext, name: string): Promise<ExtensionManifest> {
+export async function loadSkill(context: ToolContext, name: string): Promise<ExtensionManifest> {
   return loadExtension(context, "skill", name);
 }
 
-export async function loadPlugin(context: ToolExecutionContext, name: string): Promise<ExtensionManifest> {
+export async function loadPlugin(context: ToolContext, name: string): Promise<ExtensionManifest> {
   return loadExtension(context, "plugin", name);
 }
 
@@ -55,7 +55,7 @@ export async function renderExtensionPrompt(manifest: ExtensionManifest, args: u
   return renderTemplate(prompt.replaceAll("$ARGUMENTS", "{{arguments}}"), args, rawArguments);
 }
 
-export function publicExtensionPayload(context: ToolExecutionContext, manifest: ExtensionManifest, includePrompt = false) {
+export function publicExtensionPayload(context: ToolContext, manifest: ExtensionManifest, includePrompt = false) {
   const payload: Record<string, unknown> = {
     name: manifest.name,
     format: manifest.format,
@@ -83,7 +83,7 @@ export function publicExtensionPayload(context: ToolExecutionContext, manifest: 
   return payload;
 }
 
-async function installExtension(context: ToolExecutionContext, kind: ExtensionKind, source: string): Promise<ExtensionManifest> {
+async function installExtension(context: ToolContext, kind: ExtensionKind, source: string): Promise<ExtensionManifest> {
   const sourcePath = resolveSourcePath(context, source);
   const sourceInfo = await stat(sourcePath);
   const manifestPath = await sourceManifestPath(kind, sourcePath, sourceInfo.isDirectory());
@@ -122,7 +122,7 @@ async function installExtension(context: ToolExecutionContext, kind: ExtensionKi
   return loadExtension(context, kind, name);
 }
 
-async function uninstallExtension(context: ToolExecutionContext, kind: ExtensionKind, name: string): Promise<string> {
+async function uninstallExtension(context: ToolContext, kind: ExtensionKind, name: string): Promise<string> {
   const extensionName = requireExtensionName(name);
   const root = await confinedExtensionPath(context.repoRoot, installRoot(context, kind));
   const flat = kind === "plugin" ? path.join(root, `${extensionName}.json`) : "";
@@ -133,7 +133,7 @@ async function uninstallExtension(context: ToolExecutionContext, kind: Extension
   return extensionName;
 }
 
-async function loadExtension(context: ToolExecutionContext, kind: ExtensionKind, name: string): Promise<ExtensionManifest> {
+async function loadExtension(context: ToolContext, kind: ExtensionKind, name: string): Promise<ExtensionManifest> {
   const wanted = requireExtensionName(String(name || "").replace(/^\//, ""));
   const manifest = (await discoverManifests(context, kind)).find((item) => {
     return item.name === wanted;

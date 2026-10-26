@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import type { JsonObject } from "../types/jsonTypes.js";
-import type { LspProvider, ToolDefinition, ToolExecutionContext } from "../tools/toolContracts.js";
+import { defineTool, type LspProvider, type RegisteredTool, type ToolContext } from "../tools/toolContracts.js";
 import { numberArg, resolveWorkspacePath, stringArg } from "../tools/toolInputs.js";
 
 const lspOperations = [
@@ -30,11 +30,19 @@ const lspQuerySchema = {
   additionalProperties: false
 };
 
-export const lspToolDefinitions: ToolDefinition[] = [
-  { name: "lsp.query", description: "Run a read-only language-server query for a source file.", risk: "low", parameters: lspQuerySchema, handler: lspQuery }
+export const lspToolDefinitions: RegisteredTool[] = [
+  defineTool({
+    name: "lsp.query",
+    description: "Run a read-only language-server query for a source file.",
+    risk: "low",
+    parameters: lspQuerySchema,
+    requires: [],
+    uses: ["lspProvider"],
+    handler: lspQuery
+  })
 ];
 
-async function lspQuery(context: ToolExecutionContext, args: JsonObject) {
+async function lspQuery(context: ToolContext<never, "lspProvider">, args: JsonObject) {
   const operation = stringArg(args.operation);
   if (!lspOperations.includes(operation)) throw new Error(`Unsupported LSP operation: ${operation}`);
   const line = numberArg(args.line, 0);

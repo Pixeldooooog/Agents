@@ -184,3 +184,12 @@ SDK：`session.resumeApproval(runId, approved, approvalId)`；client 使用 `cli
 - 持久事件由 `RunStore.recordEvent` 补齐 `EventContract` 身份：`event_id`、`schema_version: 1`、`occurred_at`、`actor`、`run_id` 和 run 内连续的 `sequence`（`run_created` 为 0）。`AgentRunService` 先落盘再把带信封的事件交给订阅者；`text_delta` 仍是暂态，不落盘也没有 ID。读取时缺少信封的事件直接报错。
 - 边界：版本号目前只在单进程串行写入内递增，尚未用于跨进程乐观并发；租约、Action Ledger、checkpoint 仍属 B2。
 
+## 工具能力声明（最小权限）
+
+- 每个工具通过 `defineTool` 声明 `requires`（缺失即失败）和 `uses`（存在才传入）。可声明的能力是 `ToolServices` 的键：`settings`、`store`、`commandExecutor`、`fileReadState`、`mcpProviders`、`lspProvider`、`agentRunner`、`taskRunner`、`sleepWake`、`conversation`。
+- Registry 的 `scopedToolContext` 只传调用身份（`repoRoot`、`signal`、`spec`、`runId`、`executionPolicy`）加已声明能力；`onToolStart` 等 runtime 内部回调不进入 handler。缺少必需能力统一报 `tool capability unavailable: <name>`。
+- 必需能力由类型检查保证：handler 的上下文类型来自声明列表，读取未声明的必需能力无法编译。可选能力无法静态证明，按 handler 实际读取逐个声明。
+- `listBuiltinTools()` 输出每个工具的 `requires` / `uses`，供后续 Grant 与 `ToolCapabilityContract` 对接。
+- `TaskService` 不再自建 `AgentRunService`，由 Host 注入共享实例，任务与对话运行获得相同的工具、MCP 与执行器装配。
+- 已知缺口：`spec` 仍以可变对象进入工具；`config.manage` 可改写 `spec.permission_profile`，`worktree.*` 与 `mcp.*` 会改写共享 `settings`。这些是带副作用的隐式状态，需在 Grant/授权阶段收口，不能视为已隔离。
+

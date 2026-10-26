@@ -1,5 +1,5 @@
 import type { WebSearchSettings } from "../config/settings.js";
-import type { ToolExecutionContext } from "../tools/toolContracts.js";
+import type { ToolContext } from "../tools/toolContracts.js";
 
 const creditsByRun = new Map<string, number>();
 
@@ -97,7 +97,7 @@ export class WebRequestPolicy {
   }
 }
 
-export function webSettingsForContext(context: ToolExecutionContext): WebSearchSettings {
+export function webSettingsForContext(context: ToolContext<never, "settings">): WebSearchSettings {
   return context.settings?.webSearch || fallbackWebSearchSettings;
 }
 

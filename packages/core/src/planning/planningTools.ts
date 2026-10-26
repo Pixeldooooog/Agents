@@ -1,48 +1,55 @@
 import type { JsonObject } from "../types/jsonTypes.js";
 import type { PlanningStateRecord } from "../types/planningTypes.js";
-import type { ToolDefinition, ToolExecutionContext } from "../tools/toolContracts.js";
+import { defineTool, type RegisteredTool, type ToolContext } from "../tools/toolContracts.js";
+
+type PlanningToolContext = ToolContext<"store">;
 import { defaultPlanningState, normalizeAllowedPrompts, normalizeTodos, planningStateId, requiredText, todoSummary } from "./planningState.js";
 import { planExitSchema, todoWriteSchema } from "./planningToolSchemas.js";
 
-export const planningToolDefinitions: ToolDefinition[] = [
-  {
+export const planningToolDefinitions: RegisteredTool[] = [
+  defineTool({
     name: "todo.write",
     description: "Replace the current session todo list.",
     risk: "medium",
     parameters: todoWriteSchema,
+    requires: ["store"],
     handler: todoWrite
-  },
-  {
+  }),
+  defineTool({
     name: "todo.read",
     description: "Read the current session todo list.",
     risk: "low",
     parameters: { type: "object", properties: {}, additionalProperties: false },
+    requires: ["store"],
     handler: todoRead
-  },
-  {
+  }),
+  defineTool({
     name: "plan.enter",
     description: "Enter read-only planning mode for the current session.",
     risk: "low",
     parameters: { type: "object", properties: {} },
+    requires: ["store"],
     handler: planEnter
-  },
-  {
+  }),
+  defineTool({
     name: "plan.status",
     description: "Read current plan mode state and todos.",
     risk: "low",
     parameters: { type: "object", properties: {} },
+    requires: ["store"],
     handler: planStatus
-  },
-  {
+  }),
+  defineTool({
     name: "plan.exit",
     description: "Exit planning mode with a concrete plan.",
     risk: "medium",
     parameters: planExitSchema,
+    requires: ["store"],
     handler: planExit
-  }
+  })
 ];
 
-async function todoWrite(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+async function todoWrite(context: PlanningToolContext, args: JsonObject): Promise<Record<string, unknown>> {
   const state = await loadPlanningState(context);
   const oldTodos = [...state.todos];
   const newTodos = normalizeTodos(args.todos);
@@ -58,12 +65,12 @@ async function todoWrite(context: ToolExecutionContext, args: JsonObject): Promi
   };
 }
 
-async function todoRead(context: ToolExecutionContext): Promise<Record<string, unknown>> {
+async function todoRead(context: PlanningToolContext): Promise<Record<string, unknown>> {
   const state = await loadPlanningState(context);
   return { todos: state.todos, summary: todoSummary(state.todos) };
 }
 
-async function planEnter(context: ToolExecutionContext): Promise<Record<string, unknown>> {
+async function planEnter(context: PlanningToolContext): Promise<Record<string, unknown>> {
   const state = await loadPlanningState(context);
   await savePlanningState(context, { ...state, plan_mode: true });
   return {
@@ -72,7 +79,7 @@ async function planEnter(context: ToolExecutionContext): Promise<Record<string, 
   };
 }
 
-async function planStatus(context: ToolExecutionContext): Promise<Record<string, unknown>> {
+async function planStatus(context: PlanningToolContext): Promise<Record<string, unknown>> {
   const state = await loadPlanningState(context);
   return {
     mode: state.plan_mode ? "plan" : "default",
@@ -82,7 +89,7 @@ async function planStatus(context: ToolExecutionContext): Promise<Record<string,
   };
 }
 
-async function planExit(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+async function planExit(context: PlanningToolContext, args: JsonObject): Promise<Record<string, unknown>> {
   const state = await loadPlanningState(context);
   if (!state.plan_mode) throw new Error("not in plan mode");
   const plan = requiredText(args.plan, "plan");
@@ -98,17 +105,13 @@ async function planExit(context: ToolExecutionContext, args: JsonObject): Promis
   };
 }
 
-async function loadPlanningState(context: ToolExecutionContext): Promise<PlanningStateRecord> {
-  const store = requiredStore(context);
+async function loadPlanningState(context: PlanningToolContext): Promise<PlanningStateRecord> {
+  const { store } = context;
   const stateId = planningStateId({ spec: context.spec, runId: context.runId });
   return (await store.loadPlanningState(stateId)) || defaultPlanningState({ spec: context.spec, runId: context.runId, stateId });
 }
 
-async function savePlanningState(context: ToolExecutionContext, state: PlanningStateRecord): Promise<PlanningStateRecord> {
-  return requiredStore(context).savePlanningState(state);
+async function savePlanningState(context: PlanningToolContext, state: PlanningStateRecord): Promise<PlanningStateRecord> {
+  return context.store.savePlanningState(state);
 }
 
-function requiredStore(context: ToolExecutionContext) {
-  if (!context.store) throw new Error("planning state store is not available");
-  return context.store;
-}

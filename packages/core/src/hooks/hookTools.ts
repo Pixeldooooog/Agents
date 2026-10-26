@@ -1,19 +1,22 @@
 import { validateExecutableHook } from "./runtimeHooks.js";
 import type { JsonObject } from "../types/jsonTypes.js";
-import type { ToolDefinition, ToolExecutionContext } from "../tools/toolContracts.js";
+import { defineTool, type RegisteredTool, type ToolContext } from "../tools/toolContracts.js";
+
+type HookToolContext = ToolContext<"store">;
 import { hookActions, hookEvents } from "./hookCatalog.js";
 import { createHookRecord, resolveHook } from "./hookRecords.js";
 import { hookScopeFromSpec } from "./hookScopes.js";
 
-export const hookToolDefinitions: ToolDefinition[] = [
-  {
+export const hookToolDefinitions: RegisteredTool[] = [
+  defineTool({
     name: "hook.events",
     description: "List supported session hook events and actions.",
     risk: "low",
     parameters: { type: "object", properties: {} },
+    requires: [],
     handler: async () => ({ events: hookEvents, actions: hookActions })
-  },
-  {
+  }),
+  defineTool({
     name: "hook.list",
     description: "List session hooks configured for the current agent session.",
     risk: "low",
@@ -25,9 +28,10 @@ export const hookToolDefinitions: ToolDefinition[] = [
         limit: { type: "integer", minimum: 1, maximum: 100 }
       }
     },
+    requires: ["store"],
     handler: hookList
-  },
-  {
+  }),
+  defineTool({
     name: "hook.add",
     description: "Add a session hook that can append request guidance, record events, or gate tool use.",
     risk: "medium",
@@ -44,9 +48,10 @@ export const hookToolDefinitions: ToolDefinition[] = [
       },
       required: ["event", "name", "action"]
     },
+    requires: ["store"],
     handler: hookAdd
-  },
-  {
+  }),
+  defineTool({
     name: "hook.delete",
     description: "Delete a session hook by id or short id.",
     risk: "medium",
@@ -57,12 +62,13 @@ export const hookToolDefinitions: ToolDefinition[] = [
       },
       required: ["hook_id"]
     },
+    requires: ["store"],
     handler: hookDelete
-  }
+  })
 ];
 
-async function hookList(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
-  const hooks = await requiredStore(context).listHooks({
+async function hookList(context: HookToolContext, args: JsonObject): Promise<Record<string, unknown>> {
+  const hooks = await context.store.listHooks({
     ...hookScopeFromSpec(context.spec),
     event: String(args.event || ""),
     enabled: typeof args.enabled === "boolean" ? args.enabled : undefined,
@@ -71,7 +77,7 @@ async function hookList(context: ToolExecutionContext, args: JsonObject): Promis
   return { hooks, count: hooks.length };
 }
 
-async function hookAdd(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
+async function hookAdd(context: HookToolContext, args: JsonObject): Promise<Record<string, unknown>> {
   const hook = createHookRecord({
     spec: context.spec,
     event: args.event,
@@ -83,20 +89,16 @@ async function hookAdd(context: ToolExecutionContext, args: JsonObject): Promise
     metadata: { source: "tool", ...stringMetadata(args.metadata) }
   });
   validateExecutableHook(hook);
-  return { hook: await requiredStore(context).saveHook(hook) };
+  return { hook: await context.store.saveHook(hook) };
 }
 
-async function hookDelete(context: ToolExecutionContext, args: JsonObject): Promise<Record<string, unknown>> {
-  const hooks = await requiredStore(context).listHooks({ ...hookScopeFromSpec(context.spec), limit: 100 });
+async function hookDelete(context: HookToolContext, args: JsonObject): Promise<Record<string, unknown>> {
+  const hooks = await context.store.listHooks({ ...hookScopeFromSpec(context.spec), limit: 100 });
   const hook = resolveHook(hooks, requiredText(args.hook_id, "hook_id"));
-  await requiredStore(context).deleteHook(hook.hook_id);
+  await context.store.deleteHook(hook.hook_id);
   return { hook, deleted: true };
 }
 
-function requiredStore(context: ToolExecutionContext) {
-  if (!context.store) throw new Error("hook store is not available");
-  return context.store;
-}
 
 function requiredText(value: unknown, name: string): string {
   const text = String(value || "").trim();

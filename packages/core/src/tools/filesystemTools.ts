@@ -2,49 +2,59 @@ import { filesystemReadSchema, filesystemListSchema, filesystemWriteSchema, file
 import { mkdir, readdir, readFile, rm, stat, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
 import type { JsonObject } from "../types/jsonTypes.js";
-import type { ToolDefinition, ToolExecutionContext } from "./toolContracts.js";
+import { defineTool, type RegisteredTool, type ToolContext } from "./toolContracts.js";
+
+type FileToolContext = ToolContext<never, "fileReadState">;
 import { ensureExistingFileReadIsCurrent, recordFileReadState } from "./fileReadState.js";
 import { assertDirectory, assertFile, booleanArg, numberArg, relativeWorkspacePath, resolveWorkspacePath, stringArg } from "./toolInputs.js";
 
-export const filesystemToolDefinitions: ToolDefinition[] = [
-  {
+export const filesystemToolDefinitions: RegisteredTool[] = [
+  defineTool({
     name: "filesystem.read",
     parameters: filesystemReadSchema,
     description: "Read a UTF-8 workspace file.",
     risk: "low",
+    requires: [],
+    uses: ["fileReadState"],
     handler: readWorkspaceFile
-  },
-  {
+  }),
+  defineTool({
     name: "filesystem.list",
     parameters: filesystemListSchema,
     description: "List workspace directory entries.",
     risk: "low",
+    requires: [],
     handler: listWorkspaceDirectory
-  },
-  {
+  }),
+  defineTool({
     name: "filesystem.write",
     parameters: filesystemWriteSchema,
     description: "Create or replace a UTF-8 workspace file.",
     risk: "medium",
+    requires: [],
+    uses: ["fileReadState"],
     handler: writeWorkspaceFile
-  },
-  {
+  }),
+  defineTool({
     name: "filesystem.delete",
     parameters: filesystemDeleteSchema,
     description: "Delete a workspace file or directory.",
     risk: "medium",
+    requires: [],
+    uses: ["fileReadState"],
     handler: deleteWorkspacePath
-  },
-  {
+  }),
+  defineTool({
     name: "filesystem.move",
     parameters: filesystemMoveSchema,
     description: "Move or rename a workspace file or directory.",
     risk: "medium",
+    requires: [],
     handler: moveWorkspacePath
-  }
+  })
 ];
 
-async function readWorkspaceFile(context: ToolExecutionContext, args: JsonObject) {
+async function readWorkspaceFile(context: FileToolContext, args: JsonObject) {
   const requestedPath = stringArg(args.path);
   const filePath = await assertFile(context.repoRoot, requestedPath);
   const content = await readFile(filePath, "utf8");
@@ -69,7 +79,7 @@ async function readWorkspaceFile(context: ToolExecutionContext, args: JsonObject
   };
 }
 
-async function listWorkspaceDirectory(context: ToolExecutionContext, args: JsonObject) {
+async function listWorkspaceDirectory(context: FileToolContext, args: JsonObject) {
   const directoryPath = await assertDirectory(context.repoRoot, stringArg(args.path, "."));
   const entries = await readdir(directoryPath, { withFileTypes: true });
   return {
@@ -81,7 +91,7 @@ async function listWorkspaceDirectory(context: ToolExecutionContext, args: JsonO
   };
 }
 
-async function writeWorkspaceFile(context: ToolExecutionContext, args: JsonObject) {
+async function writeWorkspaceFile(context: FileToolContext, args: JsonObject) {
   const requestedPath = stringArg(args.path);
   const filePath = resolveWorkspacePath(context.repoRoot, requestedPath);
   const content = String(args.content ?? "");
@@ -107,7 +117,7 @@ async function writeWorkspaceFile(context: ToolExecutionContext, args: JsonObjec
   };
 }
 
-async function deleteWorkspacePath(context: ToolExecutionContext, args: JsonObject) {
+async function deleteWorkspacePath(context: FileToolContext, args: JsonObject) {
   const requestedPath = stringArg(args.path);
   const targetPath = resolveWorkspacePath(context.repoRoot, requestedPath);
   const originalFile = await readExistingTextFileForDelete(targetPath);
@@ -126,7 +136,7 @@ async function deleteWorkspacePath(context: ToolExecutionContext, args: JsonObje
   };
 }
 
-async function moveWorkspacePath(context: ToolExecutionContext, args: JsonObject) {
+async function moveWorkspacePath(context: FileToolContext, args: JsonObject) {
   const sourcePath = resolveWorkspacePath(context.repoRoot, stringArg(args.source));
   const targetPath = resolveWorkspacePath(context.repoRoot, stringArg(args.destination));
   await mkdir(path.dirname(targetPath), { recursive: true });

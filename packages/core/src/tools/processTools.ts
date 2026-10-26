@@ -2,7 +2,7 @@ import { shellRunSchema, shellOutputSchema, shellKillSchema } from "./processSch
 import { commandTimeoutMs } from "../execution/localCommand.js";
 import { localExecutor } from "../execution/localExecutor.js";
 import type { JsonObject } from "../types/jsonTypes.js";
-import type { ToolDefinition, ToolExecutionContext } from "./toolContracts.js";
+import { defineTool, type RegisteredTool, type ToolContext } from "./toolContracts.js";
 import { numberArg, stringArg } from "./toolInputs.js";
 import {
   shellBackgrounds,
@@ -11,50 +11,58 @@ import {
   startBackgroundCommand
 } from "./shellBackgroundTools.js";
 
-export const processToolDefinitions: ToolDefinition[] = [
-  {
+export const processToolDefinitions: RegisteredTool[] = [
+  defineTool({
     name: "shell.run",
     parameters: shellRunSchema,
     description: "Run a shell command in the workspace.",
     risk: "high",
+    requires: [],
+    uses: ["commandExecutor"],
     handler: runShell
-  },
-  {
+  }),
+  defineTool({
     name: "shell.output",
     parameters: shellOutputSchema,
     description: "Read output from a background shell command.",
     risk: "low",
+    requires: [],
     handler: shellOutput
-  },
-  {
+  }),
+  defineTool({
     name: "shell.backgrounds",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     description: "List background shell commands.",
     risk: "low",
+    requires: [],
     handler: shellBackgrounds
-  },
-  {
+  }),
+  defineTool({
     name: "shell.kill",
     parameters: shellKillSchema,
     description: "Stop a background shell command.",
     risk: "medium",
+    requires: [],
     handler: shellKill
-  },
-  {
+  }),
+  defineTool({
     name: "test.discover",
     parameters: { type: "object", properties: {}, additionalProperties: false },
     description: "Suggest likely project test commands.",
     risk: "low",
+    requires: [],
     handler: discoverTests
-  },
-  {
+  }),
+  defineTool({
     name: "test.run",
     parameters: shellRunSchema,
     description: "Run a test command in the workspace.",
     risk: "high",
+    requires: [],
+    uses: ["commandExecutor"],
     handler: runShell
-  },
-  {
+  }),
+  defineTool({
     name: "sleep.wait",
     description: "Wait for a bounded duration.",
     risk: "low",
@@ -66,11 +74,13 @@ export const processToolDefinitions: ToolDefinition[] = [
         reason: { type: "string" }
       }
     },
+    requires: [],
+    uses: ["sleepWake"],
     handler: sleepWait
-  }
+  })
 ];
 
-async function runShell(context: ToolExecutionContext, args: JsonObject) {
+export async function runShell(context: ToolContext<never, "commandExecutor">, args: JsonObject) {
   const command = stringArg(args.command);
   if (!command) throw new Error("command is required");
   if (args.dangerouslyDisableSandbox) throw new Error("dangerouslyDisableSandbox is not supported by this runtime");
@@ -97,7 +107,7 @@ async function discoverTests() {
   };
 }
 
-async function sleepWait(context: ToolExecutionContext, args: JsonObject) {
+async function sleepWait(context: ToolContext<never, "sleepWake">, args: JsonObject) {
   const requestedSeconds = Math.max(0, Math.min(600, numberArg(args.duration_seconds ?? args.seconds, 1)));
   const startedAt = performance.now();
   const wokeForNotification = requestedSeconds > 0
@@ -111,7 +121,7 @@ async function sleepWait(context: ToolExecutionContext, args: JsonObject) {
   };
 }
 
-async function waitForSleepOrWake(context: ToolExecutionContext, milliseconds: number): Promise<boolean> {
+async function waitForSleepOrWake(context: ToolContext<never, "sleepWake">, milliseconds: number): Promise<boolean> {
   if (context.sleepWake?.isWakeRequested()) return true;
   if (context.sleepWake) return context.sleepWake.wait(milliseconds);
   await new Promise((resolve) => setTimeout(resolve, milliseconds));

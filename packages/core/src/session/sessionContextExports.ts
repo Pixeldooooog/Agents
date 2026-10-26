@@ -1,12 +1,12 @@
 import path from "node:path";
 import type { Message } from "../types/runtimeTypes.js";
-import type { ToolExecutionContext } from "../tools/toolContracts.js";
+import type { ToolContext } from "../tools/toolContracts.js";
 import { resolveWorkspacePath } from "../tools/toolInputs.js";
 import { workspacePayload } from "./sessionContextPayloads.js";
 
 export type SessionExportFormat = "json" | "markdown";
 
-export function jsonExport(context: ToolExecutionContext, messages: Message[]): string {
+export function jsonExport(context: ToolContext, messages: Message[]): string {
   return `${JSON.stringify({
     exported_at: Date.now() / 1000,
     workspace: workspacePayload(context),
@@ -15,7 +15,7 @@ export function jsonExport(context: ToolExecutionContext, messages: Message[]): 
   }, null, 2)}\n`;
 }
 
-export function markdownExport(context: ToolExecutionContext, messages: Message[]): string {
+export function markdownExport(context: ToolContext, messages: Message[]): string {
   const lines = [
     "# Session Export",
     "",

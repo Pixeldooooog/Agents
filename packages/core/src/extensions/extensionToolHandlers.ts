@@ -1,7 +1,7 @@
 import { isPortableManifestName } from "./extensionManifestRecords.js";
 import { disabledSkills, setSkillEnabled } from "./extensionSkillEnablement.js";
 import type { JsonObject } from "../types/jsonTypes.js";
-import type { ToolExecutionContext } from "../tools/toolContracts.js";
+import type { ToolContext } from "../tools/toolContracts.js";
 import { booleanArg, numberArg, stringArg } from "../tools/toolInputs.js";
 import {
   disableExtensionInSpec,
@@ -23,65 +23,65 @@ import {
   type ExtensionManifest
 } from "./extensionManifests.js";
 
-export async function handleSkillDiscover(context: ToolExecutionContext, args: JsonObject) {
+export async function handleSkillDiscover(context: ToolContext, args: JsonObject) {
   const skills = await discoverSkills(context);
   return extensionDiscoveryPayload(context, skills, args, "skills", "total_available_skills");
 }
 
-export async function handlePluginDiscover(context: ToolExecutionContext, args: JsonObject) {
+export async function handlePluginDiscover(context: ToolContext, args: JsonObject) {
   const plugins = await discoverPlugins(context);
   return extensionDiscoveryPayload(context, plugins, args, "plugins", "total_available_plugins");
 }
 
-export async function handleSkillInstall(context: ToolExecutionContext, args: JsonObject) {
+export async function handleSkillInstall(context: ToolContext, args: JsonObject) {
   const skill = await installSkill(context, stringArg(args.source));
   return { skill: publicExtensionPayload(context, skill), installed: true };
 }
 
-export async function handlePluginInstall(context: ToolExecutionContext, args: JsonObject) {
+export async function handlePluginInstall(context: ToolContext, args: JsonObject) {
   const plugin = await installPlugin(context, stringArg(args.source));
   return { plugin: publicExtensionPayload(context, plugin), installed: true };
 }
 
-export async function handleSkillUninstall(context: ToolExecutionContext, args: JsonObject) {
+export async function handleSkillUninstall(context: ToolContext, args: JsonObject) {
   const name = stringArg(args.name);
   if (enabledExtensions(context.spec, "enabled_skills").has(name)) throw new Error(`disable skill before uninstalling: ${name}`);
   return { skill: await uninstallSkill(context, name), uninstalled: true };
 }
 
-export async function handlePluginUninstall(context: ToolExecutionContext, args: JsonObject) {
+export async function handlePluginUninstall(context: ToolContext, args: JsonObject) {
   const name = stringArg(args.name);
   if (enabledExtensions(context.spec, "enabled_plugins").has(name)) throw new Error(`disable plugin before uninstalling: ${name}`);
   return { plugin: await uninstallPlugin(context, name), uninstalled: true };
 }
 
-export async function handleSkillUse(context: ToolExecutionContext, args: JsonObject) {
+export async function handleSkillUse(context: ToolContext, args: JsonObject) {
   const skill = await loadSkill(context, stringArg(args.name));
   if (skill.disable_model_invocation) throw new Error(`skill does not allow model invocation: ${skill.name}`);
   const effect = enableExtensionInSpec(context.spec, "enabled_skills", skill);
   return { skill: publicExtensionPayload(context, skill), ...effect, enabled: true };
 }
 
-export async function handleSkillDisable(context: ToolExecutionContext, args: JsonObject) {
+export async function handleSkillDisable(context: ToolContext, args: JsonObject) {
   const name = stringArg(args.name);
   if (!isPortableManifestName(name)) throw new Error("invalid skill name");
   const effect = context.spec ? setSkillEnabled(context.spec, name, false) : { added_tools: [], removed_tools: [], restored_tools: [] };
   return { skill: name, ...effect, enabled: false };
 }
 
-export async function handlePluginEnable(context: ToolExecutionContext, args: JsonObject) {
+export async function handlePluginEnable(context: ToolContext, args: JsonObject) {
   const plugin = await loadPlugin(context, stringArg(args.name));
   const effect = enableExtensionInSpec(context.spec, "enabled_plugins", plugin);
   return { plugin: publicExtensionPayload(context, plugin), ...effect, enabled: true };
 }
 
-export async function handlePluginDisable(context: ToolExecutionContext, args: JsonObject) {
+export async function handlePluginDisable(context: ToolContext, args: JsonObject) {
   const plugin = await loadPlugin(context, stringArg(args.name));
   const effect = disableExtensionInSpec(context.spec, "enabled_plugins", plugin);
   return { plugin: plugin.name, ...effect, enabled: false };
 }
 
-export async function handleSkillInvoke(context: ToolExecutionContext, args: JsonObject) {
+export async function handleSkillInvoke(context: ToolContext, args: JsonObject) {
   const skill = await loadSkill(context, stringArg(args.skill).replace(/^\//, ""));
   if (skill.disable_model_invocation) throw new Error(`skill does not allow model invocation: ${skill.name}`);
   if (disabledSkills(context.spec).has(skill.name)) throw new Error(`skill is disabled: ${skill.name}`);
@@ -111,7 +111,7 @@ export async function handleSkillInvoke(context: ToolExecutionContext, args: Jso
 }
 
 function extensionDiscoveryPayload(
-  context: ToolExecutionContext,
+  context: ToolContext,
   manifests: ExtensionManifest[],
   args: JsonObject,
   key: "skills" | "plugins",

@@ -2,21 +2,23 @@ import { patchSchema } from "./patchSchema.js";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { JsonObject } from "../types/jsonTypes.js";
-import type { ToolDefinition, ToolExecutionContext } from "./toolContracts.js";
+import { defineTool, type RegisteredTool, type ToolContext } from "./toolContracts.js";
 import { ensureExistingFileReadIsCurrent, recordFileReadState } from "./fileReadState.js";
 import { booleanArg, relativeWorkspacePath, resolveWorkspacePath, stringArg } from "./toolInputs.js";
 
-export const patchToolDefinitions: ToolDefinition[] = [
-  {
+export const patchToolDefinitions: RegisteredTool[] = [
+  defineTool({
     name: "patch.apply",
     parameters: patchSchema,
     description: "Apply exact text edits to a workspace file.",
     risk: "medium",
+    requires: [],
+    uses: ["fileReadState"],
     handler: applyPatch
-  }
+  })
 ];
 
-async function applyPatch(context: ToolExecutionContext, args: JsonObject) {
+async function applyPatch(context: ToolContext<never, "fileReadState">, args: JsonObject) {
   const requestedPath = stringArg(args.path);
   if (!requestedPath) throw new Error("path is required");
   const filePath = resolveWorkspacePath(context.repoRoot, requestedPath);
