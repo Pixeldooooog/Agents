@@ -44,7 +44,7 @@ function fileHistoryBackupRoots(snapshot: SdkFileHistorySnapshot, options: SdkFi
     metadata.claudeConfigDir || "",
     options.configDir || "",
     process.env.CLAUDE_CONFIG_DIR || "",
-    options.repoRoot ? path.join(options.repoRoot, ".agents", "sdk") : "",
+    options.repoRoot ? path.join(options.repoRoot, ".kevin", "sdk") : "",
     path.join(os.homedir(), ".claude")
   ]);
   const sessionIds = fileHistorySessionIds(snapshot, options);

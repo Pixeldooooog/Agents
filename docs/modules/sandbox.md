@@ -91,15 +91,15 @@ run 完成或失败时，server 会把该 run 下的 sandbox leases 标记为 `r
 workspace 文件和 runtime artifact 是两类不同的数据。用户要求生成的代码、文档、数据文件写入 workspace 正常路径；工具中间产物、截图、下载页面、raw 响应和日志进入控制面的 run-scoped artifact blob store：
 
 ```text
-CLI:    ~/.agents/projects/{workspace_hash}/runs/{run_id}/artifacts/{downloads,screenshots,logs,raw}/
-Server: .agents/server/artifacts/{tenant_id}/{user_id}/{agent_id}/{workspace_id}/runs/{run_id}/artifacts/{downloads,screenshots,logs,raw}/
+CLI:    ~/.kevin/projects/{workspace_hash}/runs/{run_id}/artifacts/{downloads,screenshots,logs,raw}/
+Server: .kevin/server/artifacts/{tenant_id}/{user_id}/{agent_id}/{workspace_id}/runs/{run_id}/artifacts/{downloads,screenshots,logs,raw}/
 ```
 
 CLI 默认不写数据库，使用内存态 run/checkpoint/trace/artifact index，artifact 文件写到用户级项目缓存。Server 默认写 SQLite，`artifact_records` 只保存 URI、hash、size、kind、role、run_id、task_id 和 tool_call_id，不保存大文件本体。托管部署可以把同一个 artifact blob store 替换为对象存储。
 
-本地默认 workspace 会落在 `.agents/workspaces/local/default`。`tenant_id / user_id / agent_id / workspace_id` 仍作为逻辑 scope 记录到 run、memory、permission 和 sandbox audit 里；真实多租户部署可以通过 scoped workspace layout 落盘到 `.agents/workspaces/{tenant_id}/{user_id}/{agent_id}/{workspace_id}`。
+本地默认 workspace 会落在 `.kevin/workspaces/local/default`。`tenant_id / user_id / agent_id / workspace_id` 仍作为逻辑 scope 记录到 run、memory、permission 和 sandbox audit 里；真实多租户部署可以通过 scoped workspace layout 落盘到 `.kevin/workspaces/{tenant_id}/{user_id}/{agent_id}/{workspace_id}`。
 
-工具执行前会记录 `before` workspace snapshot，工具执行后会记录 `after` snapshot 和 diff summary。snapshot 默认跳过 `.agents`、`.git`、`.venv`、`node_modules` 和 `__pycache__`，避免把依赖目录和运行态数据误当成用户代码变更。
+工具执行前会记录 `before` workspace snapshot，工具执行后会记录 `after` snapshot 和 diff summary。snapshot 默认跳过 `.kevin`、`.git`、`.venv`、`node_modules` 和 `__pycache__`，避免把依赖目录和运行态数据误当成用户代码变更。
 
 ## 和早期代码片段执行器的关系
 

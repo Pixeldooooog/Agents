@@ -80,7 +80,7 @@ export async function loadSettings(repoRoot = process.cwd()): Promise<Settings> 
     repoRoot,
     host: {
       debug: boolSetting(env.DEBUG, valueOrFallback(host.debug, false)),
-      projectName: stringSetting(env.PROJECT_NAME, valueOrFallback(host.project_name, "Agents")),
+      projectName: stringSetting(env.PROJECT_NAME, valueOrFallback(host.project_name, "Kevin")),
       apiPrefix: stringSetting(env.API_PREFIX, valueOrFallback(host.api_prefix, "/api")),
       bindHost: stringSetting(env.HOST, valueOrFallback(host.host, "127.0.0.1")),
       port: numberSetting(env.PORT, valueOrFallback(host.port, 8020)),
@@ -97,8 +97,8 @@ export async function loadSettings(repoRoot = process.cwd()): Promise<Settings> 
       enabledTools: listSetting(env.AGENT_ENABLED_TOOLS, valueOrFallback(agent.enabled_tools, "")),
       builtinTools: listSetting(env.AGENT_BUILTIN_TOOLS, valueOrFallback(agent.builtin_tools, "")),
       maxConcurrentRequests: numberSetting(env.AGENT_MAX_CONCURRENT_REQUESTS, valueOrFallback(agent.max_concurrent_requests, 20)),
-      runRoot: stringSetting(env.AGENT_RUN_ROOT, valueOrFallback(agent.run_root, ".agents/runs")),
-      statePath: stringSetting(env.AGENT_STATE_PATH, valueOrFallback(agent.state_path, ".agents/host/state.json")),
+      runRoot: stringSetting(env.AGENT_RUN_ROOT, valueOrFallback(agent.run_root, ".kevin/runs")),
+      statePath: stringSetting(env.AGENT_STATE_PATH, valueOrFallback(agent.state_path, ".kevin/host/state.json")),
       memoryContextLimit: numberSetting(env.AGENT_MEMORY_CONTEXT_LIMIT, valueOrFallback(agent.memory_context_limit, 20)),
       claude: {
         apiKey: stringSetting(env.AGENT_CLAUDE_API_KEY, ""),

@@ -3,7 +3,7 @@ import { TerminalEventWriter } from "./terminalEventWriter.js";
 import { createHostServices } from "../services/hostServices.js";
 import { TerminalHostSession } from "./terminalHostSession.js";
 
-const repoRoot = valueAfter("--repo-root") || process.env.AGENTS_REPO_ROOT || process.cwd();
+const repoRoot = valueAfter("--repo-root") || process.env.KEVIN_REPO_ROOT || process.cwd();
 const services = await createHostServices(repoRoot);
 const writer = new TerminalEventWriter();
 const terminalHostSession = new TerminalHostSession(repoRoot, services, writer);

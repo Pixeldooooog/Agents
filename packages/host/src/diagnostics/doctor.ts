@@ -1,4 +1,4 @@
-import { buildModelProfiles, builtinToolNames, loadSettings } from "@agents/core";
+import { buildModelProfiles, builtinToolNames, loadSettings } from "@kevin/core";
 
 const settings = await loadSettings(valueAfter("--repo-root") || process.cwd());
 const profiles = buildModelProfiles(settings);

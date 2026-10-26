@@ -8,7 +8,7 @@ import {
   normalizeCcrSessionUrl,
   pathWithQuery,
   type SdkCcrRequestHandler
-} from "@agents/core/sdk";
+} from "@kevin/core/sdk";
 
 describe("SDK CCR client", () => {
   test("initializes worker state and acks transport delivery events", async () => {

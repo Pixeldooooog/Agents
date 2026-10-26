@@ -7,7 +7,7 @@ import { executeBuiltinTool, loadSettings, specFromPayload } from "../src/index.
 
 describe("workspace editing and navigation tools", () => {
   test("edits a Jupyter notebook cell", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-notebook-tools-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-notebook-tools-"));
     try {
       await writeFile(path.join(root, "notebook.ipynb"), JSON.stringify({
         nbformat: 4,
@@ -31,7 +31,7 @@ describe("workspace editing and navigation tools", () => {
   });
 
   test("queries an injected LSP provider", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-lsp-tools-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-lsp-tools-"));
     try {
       await writeFile(path.join(root, "src.ts"), "export const target = 1;\n");
       const queried = await executeBuiltinTool(root, "lsp.query", {
@@ -53,7 +53,7 @@ describe("workspace editing and navigation tools", () => {
   });
 
   test("enters and removes a git worktree session", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-worktree-tools-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-worktree-tools-"));
     try {
       runGit(root, ["init"]);
       runGit(root, ["config", "user.email", "test@example.com"]);

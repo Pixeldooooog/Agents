@@ -87,7 +87,7 @@ async function writeWorkspaceBytes(repoRoot: string, requestedPath: string, body
 
 function defaultBrowserOpenPath(url: string): string {
   const digest = createHash("sha256").update(url).digest("hex").slice(0, 8);
-  return path.join(".agents", "downloads", `browser-open-${digest}.html`);
+  return path.join(".kevin", "downloads", `browser-open-${digest}.html`);
 }
 
 function sha256(buffer: Buffer): string {

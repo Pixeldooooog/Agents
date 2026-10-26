@@ -19,4 +19,4 @@
 
 复现：`bun --no-env-file scripts/baseline/migration-inventory.ts --check`。更改旧 revision、领域映射或工具描述时，重新生成并审查差异。尚未完成完整行为等价验收。
 
-2026-10-26 更新：上述 Linux 与镜像证据对应提交 `4ec09da` 的 [CI 运行](https://github.com/Pixeldooooog/Agents/actions/runs/40293126321)。原生沙箱和真实模型服务仍不在本次通过范围内。
+2026-10-26 更新：上述 Linux 与镜像证据对应提交 `4ec09da` 的 [CI 运行](https://github.com/Pixeldooooog/Kevin/actions/runs/40293126321)。原生沙箱和真实模型服务仍不在本次通过范围内。

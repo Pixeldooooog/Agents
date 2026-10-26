@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { sdkMessagesFromRuntimeEvent } from "@agents/core/sdk";
+import { sdkMessagesFromRuntimeEvent } from "@kevin/core/sdk";
 import type { RuntimeEvent } from "../src/index.js";
 
 describe("SDK event projection", () => {
@@ -618,7 +618,7 @@ describe("SDK event projection", () => {
         task_id: "shell_123",
         tool_call_id: "shell_output_call",
         status: "succeeded",
-        output_file: ".agents/task-output/shell_123.log",
+        output_file: ".kevin/task-output/shell_123.log",
         summary: "tests passed",
         usage: { total_tokens: 10, tool_uses: 2, duration_ms: 42 }
       }
@@ -630,7 +630,7 @@ describe("SDK event projection", () => {
       taskId: "shell_123",
       toolUseId: "shell_output_call",
       status: "completed",
-      outputFile: ".agents/task-output/shell_123.log",
+      outputFile: ".kevin/task-output/shell_123.log",
       summary: "tests passed",
       usage: {
         totalTokens: 10,

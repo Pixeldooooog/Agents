@@ -4,7 +4,7 @@
 
 ## 本批落地
 
-- `@agents/core/contracts` 提供 schema v1 的 Task / Run / Action / Checkpoint / Grant / Approval / Event / Input / Goal / Plan / Routine 契约。纯函数检查状态转换、租约 epoch、授权/审批绑定和副作用恢复决策。旧 runtime 尚未切换，不能将类型声明算作持久执行实现。
+- `@kevin/core/contracts` 提供 schema v1 的 Task / Run / Action / Checkpoint / Grant / Approval / Event / Input / Goal / Plan / Routine 契约。纯函数检查状态转换、租约 epoch、授权/审批绑定和副作用恢复决策。旧 runtime 尚未切换，不能将类型声明算作持久执行实现。
 - 抽出 `core/src/ports` 的七类 StateStore 接口；runtime、工具、Task、SDK 依赖接口。默认适配器仍为 JSON，接口不提供事务、租约或原子 outbox 保证。
 - Host 默认 loopback、显式 Origin、远程绑定强制 token；防止浏览器跨站写入和 loopback DNS rebinding。静态 UI / health 无敏感信息可匿名读取。首次本地 token 配置尚未实现。
 - 工具循环默认 40 轮，请求只能降低上限。尚无持久 token/cost/time 预算。

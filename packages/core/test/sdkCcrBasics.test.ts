@@ -31,12 +31,12 @@ import {
   decodeJwtExpiry,
   extract_bearer_token,
   extractBearerToken
-} from "@agents/core/sdk";
+} from "@kevin/core/sdk";
 import type {
   SDKCCRDeliveryStatus,
   SDKCCRRequestHandler,
   SDKCCRShutdownReason
-} from "@agents/core/sdk";
+} from "@kevin/core/sdk";
 
 describe("SDK CCR basics", () => {
   test("exposes Python-style CCR public names", async () => {

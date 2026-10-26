@@ -3,7 +3,7 @@ import {
   SDKSerialBatchUploader,
   SdkRetryableBatchError,
   SdkSerialBatchUploader
-} from "@agents/core/sdk";
+} from "@kevin/core/sdk";
 
 describe("SDK serial batch uploader", () => {
   test("honors retry-after seconds aliases on retryable batch errors", async () => {

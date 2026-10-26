@@ -7,9 +7,9 @@ import {render, type Instance, type RenderOptions} from 'ink'
 import {App} from '../src/app/App.js'
 
 const repoRoot = path.resolve(process.cwd(), '../..')
-process.env.AGENTS_TERMINAL_HISTORY_PATH = path.join(tmpdir(), `agents-terminal-real-history-${process.pid}.json`)
-process.env.AGENTS_TERMINAL_SESSION_STORE = path.join(tmpdir(), `agents-terminal-real-sessions-${process.pid}`)
-process.env.AGENTS_TERMINAL_DB_PATH = path.join(tmpdir(), `agents-terminal-real-${process.pid}.db`)
+process.env.KEVIN_TERMINAL_HISTORY_PATH = path.join(tmpdir(), `kevin-terminal-real-history-${process.pid}.json`)
+process.env.KEVIN_TERMINAL_SESSION_STORE = path.join(tmpdir(), `kevin-terminal-real-sessions-${process.pid}`)
+process.env.KEVIN_TERMINAL_DB_PATH = path.join(tmpdir(), `kevin-terminal-real-${process.pid}.db`)
 
 async function waitForOutput(output: TestOutput, expected: string, timeoutMs = 5000): Promise<void> {
   await waitForOutputAfter(output, expected, 0, timeoutMs)
@@ -125,7 +125,7 @@ try {
     } as unknown as RenderOptions
   )
 
-  await waitForOutput(stdout, 'Agents Code')
+  await waitForOutput(stdout, 'Kevin')
   const marker = stdout.content.length
   stdin.press('Respond with the two-letter word represented by NATO letters Oscar Kilo and nothing else.')
   await settle()

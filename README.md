@@ -10,7 +10,7 @@
 <h3 align="center">An open-source personal AI agent for code, research, and everyday work.</h3>
 
 <p align="center">
-  <a href="https://github.com/Pixeldooooog/Agents/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Pixeldooooog/Agents/ci.yml?branch=main&style=flat-square&label=CI" alt="CI status"></a>
+  <a href="https://github.com/Pixeldooooog/Kevin/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Pixeldooooog/Kevin/ci.yml?branch=main&style=flat-square&label=CI" alt="CI status"></a>
   <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript"></a>
   <a href="https://bun.sh/"><img src="https://img.shields.io/badge/Bun-1.4.4-14151A?style=flat-square&logo=bun&logoColor=white" alt="Bun 1.4.4"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-0f6b5f?style=flat-square" alt="MIT license"></a>
@@ -91,13 +91,11 @@ You need **Git**, **[Bun 1.4.4](https://bun.sh/)**, and credentials for a suppor
 ### ① Get the source
 
 ```bash
-git clone https://github.com/Pixeldooooog/Agents.git kevin
+git clone https://github.com/Pixeldooooog/Kevin.git kevin
 cd kevin
 bun install --frozen-lockfile
 cp .env.example .env
 ```
-
-The product is named **Kevin**. The repository URL, package names, environment-variable prefixes, and some interface labels still use `Agents` during the naming transition.
 
 ### ② Configure a model
 
@@ -221,7 +219,7 @@ Kevin is under active development. Useful contributions include reproducible bug
 1. Read the [baseline plan](docs/agent-system-baseline.md) and choose a bounded change.
 2. Keep client/host wiring thin; put behavior in the relevant core domain module.
 3. Run `bun run check` and describe what you verified. Distinguish fixture tests from real-provider or platform validation.
-4. Open a [pull request](https://github.com/Pixeldooooog/Agents/pulls) with the problem, change, and evidence. Use [issues](https://github.com/Pixeldooooog/Agents/issues) for bugs and proposals.
+4. Open a [pull request](https://github.com/Pixeldooooog/Kevin/pulls) with the problem, change, and evidence. Use [issues](https://github.com/Pixeldooooog/Kevin/issues) for bugs and proposals.
 
 <details>
 <summary><strong>Development commands</strong></summary>

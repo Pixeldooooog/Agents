@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os'
 import path from 'node:path'
 import {readWorkspaceFileIndex} from '../src/files/workspaceFileIndex.js'
 
-const root = await mkdtemp(path.join(tmpdir(), 'agents-file-index-'))
+const root = await mkdtemp(path.join(tmpdir(), 'kevin-file-index-'))
 try {
   execFileSync('git', ['init', '--quiet', root])
   const emptyGlobalIgnore = path.join(root, '.git', 'empty-global-ignore')

@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "agents-ts",
+      "name": "kevin",
       "devDependencies": {
         "@types/bun": "1.3.11",
         "@types/node": "^25.0.0",
@@ -40,7 +40,7 @@
       },
     },
     "packages/core": {
-      "name": "@agents/core",
+      "name": "@kevin/core",
       "version": "0.1.0",
       "dependencies": {
         "ajv": "8.17.1",
@@ -51,10 +51,10 @@
       },
     },
     "packages/host": {
-      "name": "@agents/host",
+      "name": "@kevin/host",
       "version": "0.1.0",
       "dependencies": {
-        "@agents/core": "workspace:*",
+        "@kevin/core": "workspace:*",
       },
       "devDependencies": {
         "@types/node": "^25.0.0",
@@ -63,9 +63,9 @@
     },
   },
   "packages": {
-    "@agents/core": ["@agents/core@workspace:packages/core"],
+    "@kevin/core": ["@kevin/core@workspace:packages/core"],
 
-    "@agents/host": ["@agents/host@workspace:packages/host"],
+    "@kevin/host": ["@kevin/host@workspace:packages/host"],
 
     "@alcalzone/ansi-tokenize": ["@alcalzone/ansi-tokenize@0.2.5", "https://registry.npmmirror.com/@alcalzone/ansi-tokenize/-/ansi-tokenize-0.2.5.tgz", { "dependencies": { "ansi-styles": "^6.2.1", "is-fullwidth-code-point": "^5.0.0" } }, "sha512-3NX/MpTdroi0aKz134A6RC2Gb2iXVECN4QaAXnvCIxxIm3C3AVB1mkUe8NaaiyvOpDfsrqWhYtj+Q6a62RrTsw=="],
 

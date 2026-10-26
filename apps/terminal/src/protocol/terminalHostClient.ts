@@ -27,7 +27,7 @@ export class TerminalHostClient {
     const terminalHostEntry = path.join(repoRoot, 'packages/host/src/terminal/main.ts')
     const child = spawn(process.execPath, ['run', terminalHostEntry, '--repo-root', repoRoot, ...this.options.args], {
       cwd: repoRoot,
-      env: {...process.env, AGENTS_REPO_ROOT: repoRoot, ...(this.options.fixture ? {AGENTS_TERMINAL_FIXTURE: '1'} : {})},
+      env: {...process.env, KEVIN_REPO_ROOT: repoRoot, ...(this.options.fixture ? {KEVIN_TERMINAL_FIXTURE: '1'} : {})},
       stdio: ['pipe', 'pipe', 'pipe']
     })
     this.child = child

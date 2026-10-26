@@ -12,12 +12,12 @@ import {
   SdkSseJsonlTransport,
   SdkStructuredIo,
   type SdkWireMessage
-} from "@agents/core/sdk";
+} from "@kevin/core/sdk";
 import { JsonStateStore, loadSettings, specFromPayload } from "../src/index.js";
 
 describe("SDK protocol runner", () => {
   test("runs wire user messages through the AgentSdkClient", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-wire-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-wire-"));
     const server = Bun.serve({
       port: 0,
       async fetch(request) {
@@ -54,7 +54,7 @@ describe("SDK protocol runner", () => {
   });
 
   test("runs src-origin user wire messages through the AgentSdkClient", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-src-user-wire-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-src-user-wire-"));
     const server = Bun.serve({
       port: 0,
       async fetch(request) {
@@ -93,10 +93,10 @@ describe("SDK protocol runner", () => {
   });
 
   test("handles default SDK control requests", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-control-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-control-"));
     try {
-      await mkdir(path.join(root, ".agents/commands"), { recursive: true });
-      await writeFile(path.join(root, ".agents/commands/review.md"), "---\ndescription: Review code\nargumentHint: file\naliases: inspect\n---\nReview.");
+      await mkdir(path.join(root, ".kevin/commands"), { recursive: true });
+      await writeFile(path.join(root, ".kevin/commands/review.md"), "---\ndescription: Review code\nargumentHint: file\naliases: inspect\n---\nReview.");
       const client = await sdkClient(root);
       const outputs = await collectWireMessages(client.runWireMessages([
         {
@@ -184,7 +184,7 @@ describe("SDK protocol runner", () => {
   });
 
   test("accepts Python-style protocol option aliases", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-option-aliases-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-option-aliases-"));
     try {
       const client = await sdkClient(root);
       const structuredIo = new SdkStructuredIo();
@@ -217,7 +217,7 @@ describe("SDK protocol runner", () => {
   });
 
   test("pumps direct structured IO control requests while waiting for host responses", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-direct-structured-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-direct-structured-"));
     try {
       const client = await sdkClient(root);
       let deliverHostResponse: (message: SdkWireMessage) => void = () => undefined;
@@ -270,7 +270,7 @@ describe("SDK protocol runner", () => {
   });
 
   test("applies SDK control settings to later wire user messages", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-control-settings-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-control-settings-"));
     const requests: any[] = [];
     const server = Bun.serve({
       port: 0,
@@ -407,7 +407,7 @@ describe("SDK protocol runner", () => {
   });
 
   test("normalizes snake_case SDK control messages in direct wire runners", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-control-snake-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-control-snake-"));
     try {
       const client = await sdkClient(root);
       const outputs = await collectWireMessages(client.runWireMessages([
@@ -459,7 +459,7 @@ describe("SDK protocol runner", () => {
   });
 
   test("stops scoped tasks through SDK control requests", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-task-control-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-task-control-"));
     try {
       const settings = await loadSettings(root);
       const store = new JsonStateStore(path.join(root, "state.json"));
@@ -528,7 +528,7 @@ describe("SDK protocol runner", () => {
   });
 
   test("reports SDK MCP status from persisted server records", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-mcp-control-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-mcp-control-"));
     try {
       const settings = await loadSettings(root);
       const store = new JsonStateStore(path.join(root, "state.json"));
@@ -581,7 +581,7 @@ describe("SDK protocol runner", () => {
   });
 
   test("sets and toggles SDK MCP servers in scoped state", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-mcp-state-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-mcp-state-"));
     try {
       const settings = await loadSettings(root);
       const store = new JsonStateStore(path.join(root, "state.json"));
@@ -706,7 +706,7 @@ describe("SDK protocol runner", () => {
   });
 
   test("routes SDK MCP messages and reconnects registered SDK MCP servers", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-mcp-runtime-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-mcp-runtime-"));
     try {
       const settings = await loadSettings(root);
       const store = new JsonStateStore(path.join(root, "state.json"));
@@ -808,7 +808,7 @@ describe("SDK protocol runner", () => {
   });
 
   test("runs wire messages through an SDK session facade", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-session-wire-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-session-wire-"));
     try {
       const client = await sdkClient(root);
       const session = client.createSession({ sessionId: "session_wire_facade", model: "session-model" });
@@ -870,7 +870,7 @@ describe("SDK protocol runner", () => {
   });
 
   test("runs AgentSdkClient over a JSONL transport", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-jsonl-protocol-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-jsonl-protocol-"));
     const server = Bun.serve({
       port: 0,
       async fetch(request) {
@@ -935,7 +935,7 @@ describe("SDK protocol runner", () => {
   });
 
   test("replays JSONL host control responses when SDK replay option is enabled", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-jsonl-replay-control-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-jsonl-replay-control-"));
     try {
       const client = await sdkClient(root);
       const transport = new SdkQueueJsonlTransport();
@@ -981,7 +981,7 @@ describe("SDK protocol runner", () => {
   });
 
   test("runs AgentSdkClient over split JSONL chunks", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-jsonl-chunks-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-jsonl-chunks-"));
     const server = Bun.serve({
       port: 0,
       async fetch(request) {
@@ -1039,7 +1039,7 @@ describe("SDK protocol runner", () => {
   });
 
   test("runs session JSONL chunks with session defaults", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-session-jsonl-chunks-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-session-jsonl-chunks-"));
     const server = Bun.serve({
       port: 0,
       async fetch(request) {
@@ -1079,7 +1079,7 @@ describe("SDK protocol runner", () => {
   });
 
   test("interrupts active JSONL user messages through SDK controls", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-jsonl-interrupt-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-jsonl-interrupt-"));
     const server = slowModelServer();
     try {
       const settings = await loadSettings(root);
@@ -1129,7 +1129,7 @@ describe("SDK protocol runner", () => {
   });
 
   test("cancels active JSONL user messages by message uuid", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-jsonl-cancel-message-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-jsonl-cancel-message-"));
     const server = slowModelServer();
     try {
       const settings = await loadSettings(root);
@@ -1178,8 +1178,8 @@ describe("SDK protocol runner", () => {
   });
 
   test("applies JSONL environment variable updates to later user messages", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-jsonl-env-update-"));
-    const envKey = "AGENTS_SDK_JSONL_ENV_TEST";
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-jsonl-env-update-"));
+    const envKey = "KEVIN_SDK_JSONL_ENV_TEST";
     const previousValue = process.env[envKey];
     const server = Bun.serve({
       port: 0,
@@ -1236,7 +1236,7 @@ describe("SDK protocol runner", () => {
   });
 
   test("can leave caller-owned JSONL transports open", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-jsonl-owned-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-jsonl-owned-"));
     try {
       const client = await sdkClient(root);
       const transport = new SdkQueueJsonlTransport();
@@ -1265,7 +1265,7 @@ describe("SDK protocol runner", () => {
   });
 
   test("runs AgentSdkClient over a hybrid JSONL transport", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-hybrid-protocol-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-hybrid-protocol-"));
     const server = Bun.serve({
       port: 0,
       async fetch(request) {
@@ -1316,7 +1316,7 @@ describe("SDK protocol runner", () => {
   });
 
   test("runs AgentSdkClient over an SSE JSONL transport", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-sse-protocol-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-sse-protocol-"));
     const server = Bun.serve({
       port: 0,
       async fetch(request) {

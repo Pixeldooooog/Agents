@@ -16,4 +16,4 @@ services:
     volumes:
       - ../logs:/opt/app/logs
       - ../cache:/opt/app/cache
-      - ../.agents:/opt/app/.agents
+      - ../.kevin:/opt/app/.kevin

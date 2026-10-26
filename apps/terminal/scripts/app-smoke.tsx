@@ -10,15 +10,15 @@ import {App} from '../src/app/App.js'
 import {isFullscreenLayoutEnabled} from '../src/app/terminalLayout.js'
 
 const repoRoot = await createAppSmokeWorkspace(path.resolve(import.meta.dir, '../../..'))
-const terminalRows = Number(process.env.AGENTS_TERMINAL_ROWS ?? 30)
-const terminalColumns = Number(process.env.AGENTS_TERMINAL_COLUMNS ?? 100)
+const terminalRows = Number(process.env.KEVIN_TERMINAL_ROWS ?? 30)
+const terminalColumns = Number(process.env.KEVIN_TERMINAL_COLUMNS ?? 100)
 const compactTerminal = terminalRows < 29 || terminalColumns < 80
 const tinyTerminal = terminalColumns < 40
 const fullscreenLayout = isFullscreenLayoutEnabled()
 const promptReadyText = terminalColumns < 36 ? 'for commands' : 'ask or type / for commands'
-process.env.AGENTS_TERMINAL_HISTORY_PATH = path.join(repoRoot, '.test-state', 'history.json')
-process.env.AGENTS_TERMINAL_SESSION_STORE = path.join(repoRoot, '.test-state', 'sessions')
-process.env.AGENTS_TERMINAL_DB_PATH = path.join(repoRoot, '.test-state', 'terminal.db')
+process.env.KEVIN_TERMINAL_HISTORY_PATH = path.join(repoRoot, '.test-state', 'history.json')
+process.env.KEVIN_TERMINAL_SESSION_STORE = path.join(repoRoot, '.test-state', 'sessions')
+process.env.KEVIN_TERMINAL_DB_PATH = path.join(repoRoot, '.test-state', 'terminal.db')
 
 async function waitForOutput(output: TestOutput, expected: string, timeoutMs = 5000): Promise<void> {
   const startedAt = Date.now()
@@ -133,7 +133,7 @@ const originalError = console.error
 let instance: Instance | undefined
 
 try {
-  await seedSessionStore(process.env.AGENTS_TERMINAL_SESSION_STORE)
+  await seedSessionStore(process.env.KEVIN_TERMINAL_SESSION_STORE)
   console.warn = (...args: unknown[]) => consoleMessages.push(args.map(String).join(' '))
   console.error = (...args: unknown[]) => consoleMessages.push(args.map(String).join(' '))
   instance = render(
@@ -148,7 +148,7 @@ try {
   )
 
   if (compactTerminal) await waitForOutput(stdout, promptReadyText)
-  else await waitForOutput(stdout, 'Agents Code')
+  else await waitForOutput(stdout, 'Kevin')
   assert.equal(stdout.content.includes('● idle'), false, 'app should not render the old idle/model status line above the prompt')
   assert.equal(stdout.content.includes('folded'), false, 'app should not show folded state chrome in the prompt area')
   assert.match(stdout.content, /\u001B\[5 q/, 'App should switch the terminal cursor to a steady bar while mounted')
@@ -170,7 +170,7 @@ try {
     )
     const beforeRestore = stdout.content.length
     stdout.resize(terminalColumns, terminalRows)
-    await waitForOutputAfter(stdout, 'Agents Code', beforeRestore)
+    await waitForOutputAfter(stdout, 'Kevin', beforeRestore)
     const beforePromptResize = stdout.content.length
     stdin.press('resize prompt 你好世界你好世界')
     await settle()

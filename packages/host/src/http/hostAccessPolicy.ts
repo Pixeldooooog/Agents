@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import { isIP } from "node:net";
-import type { Settings } from "@agents/core";
+import type { Settings } from "@kevin/core";
 
 export type HostAccessPolicy = {
   loopbackOnly: boolean;

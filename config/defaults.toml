@@ -3,7 +3,7 @@
 
 [host]
 debug = false
-project_name = "Agents"
+project_name = "Kevin"
 api_prefix = "/api"
 host = "127.0.0.1"
 port = 8020
@@ -18,10 +18,10 @@ max_tool_iterations = 40
 system_prompt = ""
 enabled_tools = ""
 skills = ""
-workspace_root = ".agents/workspaces"
+workspace_root = ".kevin/workspaces"
 run_store = "json"
-run_root = ".agents/runs"
-state_path = ".agents/host/state.json"
+run_root = ".kevin/runs"
+state_path = ".kevin/host/state.json"
 http_proxy = ""
 https_proxy = ""
 all_proxy = ""

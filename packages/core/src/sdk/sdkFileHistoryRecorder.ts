@@ -180,7 +180,7 @@ export function sdkFileHistoryEnabled(metadata: Record<string, string> | undefin
 
 function sdkFileHistoryConfigDir(repoRoot: string, metadata: Record<string, string> | undefined): string {
   const values = metadata || {};
-  return path.resolve(String(values.claude_config_dir || values.claudeConfigDir || path.join(repoRoot, ".agents", "sdk")));
+  return path.resolve(String(values.claude_config_dir || values.claudeConfigDir || path.join(repoRoot, ".kevin", "sdk")));
 }
 
 function latestBackupForPath(

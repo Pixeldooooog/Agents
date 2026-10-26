@@ -8,7 +8,7 @@ import {
 } from "./commandFiles.js";
 import type { CommandRecord, PublicCommandRecord } from "./commandRecords.js";
 
-const commandDirectories = [".agents/commands", "commands"];
+const commandDirectories = [".kevin/commands", "commands"];
 
 export async function discoverCommands(repoRoot: string): Promise<CommandRecord[]> {
   const commands: CommandRecord[] = [];

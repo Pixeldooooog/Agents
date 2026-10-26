@@ -7,7 +7,7 @@ const server = createAgentHttpServer(services);
 
 server.listen(services.settings.host.port, services.settings.host.bindHost, () => {
   const displayHost = services.settings.host.bindHost === "0.0.0.0" ? "localhost" : services.settings.host.bindHost;
-  console.log(`Agents TS host listening on http://${displayHost}:${services.settings.host.port}`);
+  console.log(`Kevin host listening on http://${displayHost}:${services.settings.host.port}`);
   console.log(`GUI: http://${displayHost}:${services.settings.host.port}/ui/`);
 });
 

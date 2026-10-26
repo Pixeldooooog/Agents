@@ -6,7 +6,7 @@ import { executeBuiltinTool, JsonStateStore, specFromPayload } from "../src/inde
 
 describe("agent and team collaboration tools", () => {
   test("saves profiles and runs agents through an injected runner", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-collab-tools-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-collab-tools-"));
     try {
       const store = new JsonStateStore(path.join(root, "state.json"));
       const spec = specFromPayload({ message: "collab", tenant_id: "tenant", user_id: "user", agent_id: "lead", workspace_id: "workspace", enabled_tools: ["filesystem.read"] });
@@ -34,7 +34,7 @@ describe("agent and team collaboration tools", () => {
   });
 
   test("creates teams, sends messages, reads inboxes, runs members, and deletes teams", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-team-tools-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-team-tools-"));
     try {
       const store = new JsonStateStore(path.join(root, "state.json"));
       const spec = specFromPayload({ message: "team", tenant_id: "tenant", user_id: "user", agent_id: "lead", workspace_id: "workspace" });

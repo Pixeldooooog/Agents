@@ -21,15 +21,15 @@ export function Welcome({
 }) {
   return (
     <Box flexDirection="column" marginTop={1} marginBottom={1}>
-      <Text color={colors.warning}>Tip: You can launch Agents Code with just <Text bold>make cli</Text></Text>
-      <Text color={colors.accent}>  Agents Code v0.1.0</Text>
+      <Text color={colors.warning}>Tip: You can launch Kevin with just <Text bold>make tui</Text></Text>
+      <Text color={colors.accent}>  Kevin v0.1.0</Text>
       <Panel>
         <Box flexDirection="row">
           <Box width="34%" minWidth={34} flexDirection="column" alignItems="center" paddingY={1}>
             <Text bold>Welcome back!</Text>
             <Box height={1} />
             <Text color={colors.accent} bold>
-              Agents Code
+              Kevin
             </Text>
             <Text dimColor>local coding agent</Text>
             <Box height={1} />

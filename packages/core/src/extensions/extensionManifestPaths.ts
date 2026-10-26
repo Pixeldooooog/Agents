@@ -7,7 +7,7 @@ import type { ExtensionKind } from "./extensionManifestTypes.js";
 
 export function skillSearchRoots(context: ToolExecutionContext): string[] {
   return [
-    resolveWorkspacePath(context.repoRoot, ".agents/skills"),
+    resolveWorkspacePath(context.repoRoot, ".kevin/skills"),
     resolveWorkspacePath(context.repoRoot, ".claude/skills"),
     resolveWorkspacePath(context.repoRoot, "skills")
   ];
@@ -15,13 +15,13 @@ export function skillSearchRoots(context: ToolExecutionContext): string[] {
 
 export function pluginSearchRoots(context: ToolExecutionContext): string[] {
   return [
-    resolveWorkspacePath(context.repoRoot, ".agents/plugins"),
+    resolveWorkspacePath(context.repoRoot, ".kevin/plugins"),
     resolveWorkspacePath(context.repoRoot, "plugins")
   ];
 }
 
 export function installRoot(context: ToolExecutionContext, kind: ExtensionKind): string {
-  return resolveWorkspacePath(context.repoRoot, kind === "skill" ? ".agents/skills" : ".agents/plugins");
+  return resolveWorkspacePath(context.repoRoot, kind === "skill" ? ".kevin/skills" : ".kevin/plugins");
 }
 
 export function resolveSourcePath(context: ToolExecutionContext, source: string): string {

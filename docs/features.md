@@ -57,4 +57,4 @@ The tool registry lives in `packages/core/src/tools/toolRegistry.ts`, while indi
 - Tasks
 - Terminal session-facing state
 
-The default state path is `.agents/host/state.json`.
+The default state path is `.kevin/host/state.json`.

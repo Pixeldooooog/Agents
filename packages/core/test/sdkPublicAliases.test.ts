@@ -110,7 +110,7 @@ import {
   type SDKWebSocketConnectOptions,
   type SDKWebSocketConnector,
   type SDKWorkerStateUploader
-} from "@agents/core/sdk";
+} from "@kevin/core/sdk";
 
 type PublicSdkFacadeTypeMap = {
   apiRetry: SDKAPIRetryMessage;

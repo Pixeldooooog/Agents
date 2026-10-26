@@ -6,7 +6,7 @@ import { relativeWorkspacePath, resolveWorkspacePath } from "../tools/toolInputs
 import { parseWorkflowJson, validateWorkflow, workflowPayload, workflowSummary, type WorkflowPlan } from "./workflowModels.js";
 
 export async function listSavedWorkflows(context: ToolExecutionContext): Promise<Record<string, unknown>[]> {
-  const directoryPath = resolveWorkspacePath(context.repoRoot, ".agents/workflows");
+  const directoryPath = resolveWorkspacePath(context.repoRoot, ".kevin/workflows");
   try {
     const entries = await readdir(directoryPath, { withFileTypes: true });
     const workflows = await Promise.all(entries.filter((entry) => entry.isFile() && entry.name.endsWith(".json")).map(async (entry) => {
@@ -52,7 +52,7 @@ export async function deleteSavedWorkflow(context: ToolExecutionContext, name: s
 }
 
 function workflowPath(context: ToolExecutionContext, name: string): string {
-  return resolveWorkspacePath(context.repoRoot, `.agents/workflows/${name}.json`);
+  return resolveWorkspacePath(context.repoRoot, `.kevin/workflows/${name}.json`);
 }
 
 async function fileExists(filePath: string): Promise<boolean> {

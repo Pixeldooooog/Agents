@@ -6,7 +6,7 @@ import { executeBuiltinTool, loadSettings, specFromPayload } from "../src/index.
 
 describe("extension tool enablement", () => {
   test("keeps overlapping skill tool permissions stable", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-skill-overlap-tools-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-skill-overlap-tools-"));
     try {
       for (const name of ["shared-a", "shared-b"]) {
         await writeSkill(root, name, {
@@ -51,7 +51,7 @@ describe("extension tool enablement", () => {
   });
 
   test("keeps skill and plugin tool ownership stable when enablement is interleaved", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-skill-plugin-interleave-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-skill-plugin-interleave-"));
     try {
       await writeSkill(root, "reader", {
         name: "reader",
@@ -85,7 +85,7 @@ describe("extension tool enablement", () => {
   });
 
   test("tracks plugin-owned tools even when an active skill suppresses them", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-skill-plugin-suppressed-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-skill-plugin-suppressed-"));
     try {
       await writeBlockingSkill(root);
       await writePlugin(root, "docs-plugin", ["mcp.resources"]);
@@ -116,7 +116,7 @@ describe("extension tool enablement", () => {
   });
 
   test("does not treat pre-enabled plugin tools as the skill baseline", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-plugin-before-skill-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-plugin-before-skill-"));
     try {
       await writeBlockingSkill(root);
       await writePlugin(root, "docs-plugin", ["mcp.resources"]);
@@ -149,7 +149,7 @@ describe("extension tool enablement", () => {
   });
 
   test("uses configured default tools as the skill baseline when spec tools are empty", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-skill-default-tools-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-skill-default-tools-"));
     try {
       await mkdir(path.join(root, "config"), { recursive: true });
       await writeFile(path.join(root, "config", "defaults.toml"), [

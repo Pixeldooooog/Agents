@@ -34,7 +34,7 @@ import {
   unstableV2CreateSession,
   unstableV2Prompt,
   type SdkWireMessage
-} from "@agents/core/sdk";
+} from "@kevin/core/sdk";
 import { loadSettings, JsonStateStore, specFromPayload } from "../src/index.js";
 
 describe("TS SDK client", () => {
@@ -84,7 +84,7 @@ describe("TS SDK client", () => {
   });
 
   test("exposes module-level SDK helpers over an explicit client", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-module-helpers-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-module-helpers-"));
     const server = Bun.serve({
       port: 0,
       async fetch(request) {
@@ -288,7 +288,7 @@ describe("TS SDK client", () => {
   });
 
   test("exposes Python-style AgentSdkClient instance aliases", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-client-aliases-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-client-aliases-"));
     try {
       const settings = await loadSettings(root);
       const store = new JsonStateStore(path.join(root, "state.json"));
@@ -356,7 +356,7 @@ describe("TS SDK client", () => {
   });
 
   test("streams SDK messages and stores stable session metadata", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-client-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-client-"));
     const requests: any[] = [];
     const server = Bun.serve({
       port: 0,
@@ -438,7 +438,7 @@ describe("TS SDK client", () => {
   });
 
   test("handles session control requests and applies updated session defaults", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-session-controls-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-session-controls-"));
     const requests: any[] = [];
     const server = Bun.serve({
       port: 0,
@@ -535,7 +535,7 @@ describe("TS SDK client", () => {
   });
 
   test("lists session info and replays persisted SDK messages", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-sessions-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-sessions-"));
     const server = Bun.serve({
       port: 0,
       async fetch(request) {
@@ -612,7 +612,7 @@ describe("TS SDK client", () => {
   });
 
   test("manages SDK session metadata, filters, message slices, and forks", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-session-management-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-session-management-"));
     let clock = Date.now();
     const clockSpy = spyOn(Date, "now").mockImplementation(() => ++clock);
     try {
@@ -743,7 +743,7 @@ describe("TS SDK client", () => {
   });
 
   test("resumes stored SDK sessions with validated defaults", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-session-resume-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-session-resume-"));
     try {
       const settings = await loadSettings(root);
       const store = new JsonStateStore(path.join(root, "state.json"));
@@ -791,7 +791,7 @@ describe("TS SDK client", () => {
   });
 
   test("replays SDK system init messages from stored run metadata", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-system-init-replay-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-system-init-replay-"));
     try {
       const settings = await loadSettings(root);
       const store = new JsonStateStore(path.join(root, "state.json"));
@@ -844,7 +844,7 @@ describe("TS SDK client", () => {
   });
 
   test("replays SDK system init messages from stored spec metadata fallback", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-system-init-spec-metadata-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-system-init-spec-metadata-"));
     const stateFile = path.join(root, "state.json");
     try {
       const settings = await loadSettings(root);
@@ -892,7 +892,7 @@ describe("TS SDK client", () => {
   });
 
   test("coalesces session info from latest metadata and first non-empty fields", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-session-info-coalesce-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-session-info-coalesce-"));
     try {
       const settings = await loadSettings(root);
       const store = new JsonStateStore(path.join(root, "state.json"));
@@ -941,7 +941,7 @@ describe("TS SDK client", () => {
   });
 
   test("queues, cancels, and drains SDK async user messages by priority", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-async-messages-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-async-messages-"));
     const requests: any[] = [];
     const server = Bun.serve({
       port: 0,
@@ -1066,7 +1066,7 @@ describe("TS SDK client", () => {
   });
 
   test("wakes SDK sleep waits when async user messages are queued", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-async-sleep-wake-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-async-sleep-wake-"));
     const requests: any[] = [];
     let issuedSleepCall = false;
     const server = Bun.serve({
@@ -1160,7 +1160,7 @@ describe("TS SDK client", () => {
   });
 
   test("session prompt drains queued async messages and returns the final result", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-prompt-async-drain-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-prompt-async-drain-"));
     const requests: any[] = [];
     const server = Bun.serve({
       port: 0,
@@ -1208,7 +1208,7 @@ describe("TS SDK client", () => {
   });
 
   test("compacts SDK session replay around compact boundaries", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-session-compaction-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-session-compaction-"));
     try {
       const settings = await loadSettings(root);
       const store = new JsonStateStore(path.join(root, "state.json"));
@@ -1313,7 +1313,7 @@ describe("TS SDK client", () => {
   });
 
   test("keeps compact replay order when preserved segments span runs", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-session-cross-run-compaction-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-session-cross-run-compaction-"));
     try {
       const settings = await loadSettings(root);
       const store = new JsonStateStore(path.join(root, "state.json"));
@@ -1391,7 +1391,7 @@ describe("TS SDK client", () => {
   });
 
   test("resumes pending approvals through the SDK session", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-approval-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-approval-"));
     const requests: any[] = [];
     const server = Bun.serve({
       port: 0,
@@ -1480,7 +1480,7 @@ describe("TS SDK client", () => {
   });
 
   test("projects persisted tool events into structured SDK system messages", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-event-projection-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-event-projection-"));
     try {
       const settings = await loadSettings(root);
       const store = new JsonStateStore(path.join(root, "state.json"));

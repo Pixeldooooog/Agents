@@ -1,6 +1,6 @@
 # Architecture
 
-Agents is now a TypeScript workspace.
+Kevin is now a TypeScript workspace.
 
 ```mermaid
 graph TB

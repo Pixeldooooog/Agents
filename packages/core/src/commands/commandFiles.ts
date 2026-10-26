@@ -10,7 +10,7 @@ export function commandNameFromValue(value: unknown): string {
 }
 
 export function commandMarkdownPath(repoRoot: string, commandName: string): string {
-  return resolveWorkspacePath(repoRoot, `.agents/commands/${commandName.slice(1)}.md`);
+  return resolveWorkspacePath(repoRoot, `.kevin/commands/${commandName.slice(1)}.md`);
 }
 
 export function relativeCommandPath(repoRoot: string, absolutePath: string): string {

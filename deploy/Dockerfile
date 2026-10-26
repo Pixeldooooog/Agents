@@ -14,7 +14,7 @@ ENV TZ=Asia/Shanghai
 WORKDIR /opt/app
 
 COPY --from=build --chown=bun:bun /opt/app ./
-RUN mkdir -p /opt/app/.agents /opt/app/logs /opt/app/cache \
+RUN mkdir -p /opt/app/.kevin /opt/app/logs /opt/app/cache \
     && chown -R bun:bun /opt/app
 
 USER bun

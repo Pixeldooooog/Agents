@@ -8,7 +8,7 @@
 
 ## 0. 复核结论、假设和边界
 
-这份文档是目标设计和实施顺序，不代表目标能力已经存在。当前仓库仍是 `Agents` 命名、JSON state store、单进程任务执行和本地 host；只有完成对应阶段并通过验收，才可以把某项能力写成 Kevin 已支持的功能。
+这份文档是目标设计和实施顺序，不代表目标能力已经存在。当前仓库仍是 JSON state store、单进程任务执行和本地 host；只有完成对应阶段并通过验收，才可以把某项能力写成 Kevin 已支持的功能。
 
 本计划采用以下经过复核的假设：
 
@@ -106,7 +106,7 @@ Local Bridge <------ signed, scoped, short-lived capability token
 - 字符串 `enabled_tools` → 结构化 capability/policy。
 - 混合 API route → 明确的 application service 和 domain service。
 - 当前 Web UI → Kevin 产品界面和活动中心。
-- `Agents` 命名 → `Kevin` 命令、包名、配置前缀和文档。
+- ~~`Agents` 命名 → `Kevin` 命令、包名、配置前缀和文档。~~（已完成）
 - 现有团队/多 Agent 能力 → 隐藏在默认产品面之外，暂不作为核心路线。
 - 运行状态、日志和本地脏文件 → 完整的发布仓库清理策略。
 

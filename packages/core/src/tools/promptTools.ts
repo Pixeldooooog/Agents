@@ -94,7 +94,7 @@ async function promptDelete(context: ToolExecutionContext, args: JsonObject): Pr
 }
 
 async function listTemplates(context: ToolExecutionContext): Promise<Record<string, string>[]> {
-  const directoryPath = resolveWorkspacePath(context.repoRoot, ".agents/prompts");
+  const directoryPath = resolveWorkspacePath(context.repoRoot, ".kevin/prompts");
   try {
     const entries = await readdir(directoryPath, { withFileTypes: true });
     const templates = await Promise.all(entries.filter((entry) => entry.isFile() && entry.name.endsWith(".md")).map(async (entry) => {
@@ -109,7 +109,7 @@ async function listTemplates(context: ToolExecutionContext): Promise<Record<stri
 }
 
 function templatePath(context: ToolExecutionContext, name: string): string {
-  return resolveWorkspacePath(context.repoRoot, `.agents/prompts/${name}.md`);
+  return resolveWorkspacePath(context.repoRoot, `.kevin/prompts/${name}.md`);
 }
 
 export function renderTemplate(content: string, args: unknown, rawArguments: string): string {

@@ -3,7 +3,7 @@ import path from "node:path";
 import { domainFromUrl, parseHttpUrl } from "./webPolicy.js";
 import type { FetchedWebResource, WebSource } from "./webTypes.js";
 
-const defaultUserAgent = "AgentsTS/0.1";
+const defaultUserAgent = "Kevin/0.1";
 
 export async function fetchWebResource(url: string, maxBytes: number, timeoutSeconds: number): Promise<FetchedWebResource> {
   parseHttpUrl(url);
@@ -87,7 +87,7 @@ export function defaultDownloadPath(url: string, fallbackName: string): string {
   const digest = createHash("sha256").update(url).digest("hex").slice(0, 8);
   const extension = path.extname(filename);
   const stem = extension ? filename.slice(0, -extension.length) : filename;
-  return path.join(".agents", "downloads", `${stem}-${digest}${extension || ".bin"}`);
+  return path.join(".kevin", "downloads", `${stem}-${digest}${extension || ".bin"}`);
 }
 
 async function readResponseBody(response: Response, maxBytes: number): Promise<{ buffer: Buffer; truncated: boolean }> {

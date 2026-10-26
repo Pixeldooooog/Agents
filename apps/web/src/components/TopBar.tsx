@@ -24,7 +24,7 @@ export function TopBar(props: Props) {
       <div class="brand-block">
         <div class="mark"><Sparkles size={19} /></div>
         <div>
-          <h1>Agents Code</h1>
+          <h1>Kevin</h1>
           <p>Web Console</p>
         </div>
       </div>

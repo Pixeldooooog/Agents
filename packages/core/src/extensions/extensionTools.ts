@@ -22,7 +22,7 @@ export const extensionToolDefinitions: ToolDefinition[] = [
   { name: "skill.use", description: "Enable a local skill for the current session.", risk: "medium", parameters: extensionNameSchema, handler: handleSkillUse },
   { name: "skill.disable", description: "Disable a previously enabled local skill.", risk: "medium", parameters: extensionNameSchema, handler: handleSkillDisable },
   { name: "plugin.discover", description: "Discover local plugins and their tool/prompt contributions.", risk: "low", parameters: extensionDiscoverSchema, handler: handlePluginDiscover },
-  { name: "plugin.install", description: "Install a local plugin directory into .agents/plugins.", risk: "medium", parameters: extensionInstallSchema, handler: handlePluginInstall },
+  { name: "plugin.install", description: "Install a local plugin directory into .kevin/plugins.", risk: "medium", parameters: extensionInstallSchema, handler: handlePluginInstall },
   { name: "plugin.uninstall", description: "Uninstall an installed plugin by name.", risk: "medium", parameters: extensionNameSchema, handler: handlePluginUninstall },
   { name: "plugin.enable", description: "Enable a local plugin for the current session.", risk: "medium", parameters: extensionNameSchema, handler: handlePluginEnable },
   { name: "plugin.disable", description: "Disable a previously enabled local plugin.", risk: "medium", parameters: extensionNameSchema, handler: handlePluginDisable }

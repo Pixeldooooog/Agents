@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { AgentSdkClient, rewindEntriesFromToolResult, SdkFileReadStates, type SdkWireMessage } from "@agents/core/sdk";
+import { AgentSdkClient, rewindEntriesFromToolResult, SdkFileReadStates, type SdkWireMessage } from "@kevin/core/sdk";
 import { JsonStateStore, loadSettings, specFromPayload } from "../src/index.js";
 
 describe("SDK file control handlers", () => {
   test("seeds read state for safe writes and rewinds changed files", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-file-controls-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-file-controls-"));
     const server = Bun.serve({
       port: 0,
       async fetch(request) {
@@ -91,7 +91,7 @@ describe("SDK file control handlers", () => {
   });
 
   test("seeds only text read state and preserves detected encoding", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-read-state-text-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-read-state-text-"));
     try {
       const readStates = new SdkFileReadStates();
       const utf16Path = path.join(root, "utf16.txt");
@@ -121,7 +121,7 @@ describe("SDK file control handlers", () => {
   });
 
   test("rewinds file-history snapshot backups", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-file-history-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-file-history-"));
     try {
       const store = new JsonStateStore(path.join(root, "state.json"));
       const settings = await loadSettings(root);
@@ -176,7 +176,7 @@ describe("SDK file control handlers", () => {
   });
 
   test("rewinds file-history snapshot bytes and file modes", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-file-history-bytes-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-file-history-bytes-"));
     try {
       const store = new JsonStateStore(path.join(root, "state.json"));
       const settings = await loadSettings(root);
@@ -238,7 +238,7 @@ describe("SDK file control handlers", () => {
   });
 
   test("rewinds legacy SDK tool payloads after event message ids", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-legacy-file-rewind-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-legacy-file-rewind-"));
     try {
       const store = new JsonStateStore(path.join(root, "state.json"));
       const settings = await loadSettings(root);
@@ -292,7 +292,7 @@ describe("SDK file control handlers", () => {
   });
 
   test("rewinds legacy raw tool result payloads", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-raw-file-rewind-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-raw-file-rewind-"));
     try {
       const store = new JsonStateStore(path.join(root, "state.json"));
       const settings = await loadSettings(root);
@@ -337,7 +337,7 @@ describe("SDK file control handlers", () => {
   });
 
   test("resolves file-history backups from run metadata roots", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-file-history-metadata-root-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-file-history-metadata-root-"));
     try {
       const store = new JsonStateStore(path.join(root, "state.json"));
       const settings = await loadSettings(root);
@@ -413,7 +413,7 @@ describe("SDK file control handlers", () => {
   });
 
   test("records file-history snapshots during SDK queries", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-file-history-recorder-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-file-history-recorder-"));
     const server = Bun.serve({
       port: 0,
       async fetch(request) {
@@ -470,7 +470,7 @@ describe("SDK file control handlers", () => {
       const snapshot = snapshotEvents[1].payload?.snapshot as Record<string, any>;
       const backup = snapshot.trackedFileBackups["history.txt"];
       const backupRoot = String(snapshotEvents[1].payload?.backupRoot || "");
-      expect(backupRoot).toBe(path.join(root, ".agents", "sdk", "file-history", sessionId));
+      expect(backupRoot).toBe(path.join(root, ".kevin", "sdk", "file-history", sessionId));
       expect(backup.backupFileName).toEqual(expect.any(String));
       expect(await readFile(path.join(backupRoot, backup.backupFileName), "utf8")).toBe("original\n");
     } finally {
@@ -480,14 +480,14 @@ describe("SDK file control handlers", () => {
   });
 
   test("migrates file-history backups when forking sessions", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-file-history-fork-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-file-history-fork-"));
     try {
       const store = new JsonStateStore(path.join(root, "state.json"));
       const settings = await loadSettings(root);
       const client = new AgentSdkClient({ settings, store });
       const sourceSessionId = "source_history_session";
       const messageId = "message_fork_1";
-      const sourceBackupRoot = path.join(root, ".agents", "sdk", "file-history", sourceSessionId);
+      const sourceBackupRoot = path.join(root, ".kevin", "sdk", "file-history", sourceSessionId);
       await mkdir(sourceBackupRoot, { recursive: true });
       await writeFile(path.join(sourceBackupRoot, "history@v1"), "original\n");
       const run = await store.startRun(specFromPayload({
@@ -527,7 +527,7 @@ describe("SDK file control handlers", () => {
         sessionId: forked.sessionId,
         backupRoot
       });
-      expect(backupRoot).toBe(path.join(root, ".agents", "sdk", "file-history", forked.sessionId));
+      expect(backupRoot).toBe(path.join(root, ".kevin", "sdk", "file-history", forked.sessionId));
       expect(await readFile(path.join(backupRoot, "history@v1"), "utf8")).toBe("original\n");
     } finally {
       await rm(root, { recursive: true, force: true });

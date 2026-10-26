@@ -6,7 +6,7 @@ import { executeBuiltinTool } from "../src/index.js";
 
 describe("web and browser tools", () => {
   test("fetches, maps, searches URL queries, and downloads through TypeScript", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-web-tools-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-web-tools-"));
     const server = Bun.serve({
       port: 0,
       fetch(request) {

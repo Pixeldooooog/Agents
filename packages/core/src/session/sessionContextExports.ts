@@ -37,7 +37,7 @@ export function exportFormat(value: unknown): SessionExportFormat {
 
 export function exportPath(repoRoot: string, requestedPath: string, format: SessionExportFormat): string {
   const suffix = format === "markdown" ? "md" : "json";
-  const defaultPath = `.agents/exports/session-${timestampLabel()}.${suffix}`;
+  const defaultPath = `.kevin/exports/session-${timestampLabel()}.${suffix}`;
   const target = String(requestedPath || defaultPath).trim();
   if (!target || target.endsWith("/") || target.endsWith("\\")) {
     throw new Error("export path must include a file name");

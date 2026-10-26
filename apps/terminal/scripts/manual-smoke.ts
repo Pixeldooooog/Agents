@@ -8,7 +8,7 @@ const repoRoot = path.resolve(process.cwd(), '../..')
 const printOnly = process.argv.includes('--print-only')
 const record = process.argv.includes('--record')
 const verify = process.argv.includes('--verify')
-const reportPath = valueAfter('--report-path') ?? '/tmp/agents-terminal-manual-smoke-report.json'
+const reportPath = valueAfter('--report-path') ?? '/tmp/kevin-terminal-manual-smoke-report.json'
 const reportApp = 'apps/terminal'
 const reportCommand = 'bun run --cwd apps/terminal manual-smoke:record'
 
@@ -53,9 +53,9 @@ const child = spawn(
     cwd: path.join(repoRoot, 'apps/terminal'),
     env: {
       ...process.env,
-      AGENTS_TERMINAL_FIXTURE: '1',
-      AGENTS_TERMINAL_HISTORY_PATH: '/tmp/agents-terminal-manual-history.json',
-      AGENTS_TERMINAL_SESSION_STORE: '/tmp/agents-terminal-manual-sessions'
+      KEVIN_TERMINAL_FIXTURE: '1',
+      KEVIN_TERMINAL_HISTORY_PATH: '/tmp/kevin-terminal-manual-history.json',
+      KEVIN_TERMINAL_SESSION_STORE: '/tmp/kevin-terminal-manual-sessions'
     },
     stdio: 'inherit'
   }

@@ -39,7 +39,7 @@ import {
   type SdkMessage,
   type SdkWireInputMessage,
   type SdkWireMessage
-} from "@agents/core/sdk";
+} from "@kevin/core/sdk";
 
 describe("SDK JSONL transport", () => {
   test("encodes SDK messages as safe JSONL lines", () => {

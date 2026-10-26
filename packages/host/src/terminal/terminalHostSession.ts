@@ -1,4 +1,4 @@
-import { buildModelProfiles, listBuiltinTools } from "@agents/core";
+import { buildModelProfiles, listBuiltinTools } from "@kevin/core";
 import type { HostServices } from "../services/hostServices.js";
 import { TerminalModelProfiles } from "./terminalModelProfiles.js";
 import { terminalCommandCatalog } from "./terminalCommandCatalog.js";
@@ -21,7 +21,7 @@ export class TerminalHostSession {
     private readonly writer: TerminalEventWriter
   ) {
     this.scriptedTurns = new ScriptedTerminalTurns(writer);
-    this.terminalSessions = new TerminalSessionStore(process.env.AGENTS_TERMINAL_SESSION_STORE || `${repoRoot}/.agents/terminal-sessions`);
+    this.terminalSessions = new TerminalSessionStore(process.env.KEVIN_TERMINAL_SESSION_STORE || `${repoRoot}/.kevin/terminal-sessions`);
     this.modelProfiles = new TerminalModelProfiles(buildModelProfiles(services.settings));
     this.builtinToolNames = listBuiltinTools().map((tool) => tool.name);
   }

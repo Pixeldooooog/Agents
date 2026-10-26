@@ -1,5 +1,5 @@
 import type { ServerResponse } from "node:http";
-import { createMemoryRecord, memoryScopeFromSpec, memoryWithContent, normalizeMemoryScope, resolveMemory, type JsonObject } from "@agents/core";
+import { createMemoryRecord, memoryScopeFromSpec, memoryWithContent, normalizeMemoryScope, resolveMemory, type JsonObject } from "@kevin/core";
 import type { HostServices } from "../services/hostServices.js";
 import { queryNumber, queryValue, readJson } from "../http/body.js";
 import { fail, ok, sendJson } from "../http/envelope.js";

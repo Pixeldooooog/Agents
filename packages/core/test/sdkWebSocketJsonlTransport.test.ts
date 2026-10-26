@@ -5,7 +5,7 @@ import {
   shouldBypassProxy,
   type SdkWebSocketConnectOptions,
   type SdkWebSocketConnection
-} from "@agents/core/sdk";
+} from "@kevin/core/sdk";
 
 describe("SDK WebSocket JSONL transport", () => {
   test("resolves proxy and connection options for connector transports", async () => {
@@ -62,9 +62,9 @@ describe("SDK WebSocket JSONL transport", () => {
       },
       tls_ca_file: "/explicit/ca.pem",
       env: {
-        AGENTS_SDK_CA_CERTS: "/env/ca.pem",
+        KEVIN_SDK_CA_CERTS: "/env/ca.pem",
         CLAUDE_CODE_CLIENT_CERT: "/env/client.pem",
-        AGENTS_SDK_CLIENT_KEY: "/env/client.key",
+        KEVIN_SDK_CLIENT_KEY: "/env/client.key",
         CLAUDE_CODE_CLIENT_KEY_PASSPHRASE: "secret"
       },
       ping_interval_seconds: null,

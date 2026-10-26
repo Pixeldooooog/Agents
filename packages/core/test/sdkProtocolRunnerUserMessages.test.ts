@@ -8,12 +8,12 @@ import {
   type SdkQueryOptions,
   type SdkUserMessage,
   type SdkWireMessage
-} from "@agents/core/sdk";
+} from "@kevin/core/sdk";
 import { JsonStateStore, loadSettings } from "../src/index.js";
 
 describe("SDK protocol runner user messages", () => {
   test("acknowledges duplicate replay user frames without running them twice", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-wire-users-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-wire-users-"));
     const requests: unknown[] = [];
     const server = Bun.serve({
       port: 0,
@@ -63,7 +63,7 @@ describe("SDK protocol runner user messages", () => {
   });
 
   test("drops duplicate user frames when replay is disabled", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-wire-users-no-replay-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-wire-users-no-replay-"));
     const requests: unknown[] = [];
     const server = Bun.serve({
       port: 0,

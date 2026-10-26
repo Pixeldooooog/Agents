@@ -7,7 +7,7 @@ import type { McpProvider } from "../src/toolContracts.js";
 
 describe("MCP and meta tools", () => {
   test("searches registered tools by keyword and select syntax", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-meta-tools-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-meta-tools-"));
     try {
       const search = await executeBuiltinTool(root, "tool.search", { query: "mcp resource", include_all: true });
       const matches = JSON.parse(search.result.content).matches.map((match: { name: string }) => match.name);
@@ -21,7 +21,7 @@ describe("MCP and meta tools", () => {
   });
 
   test("persists MCP server config and reads provider resources and prompts", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-mcp-tools-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-mcp-tools-"));
     try {
       const settings = await loadSettings(root);
       const store = new JsonStateStore(path.join(root, "state.json"));

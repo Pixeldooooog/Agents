@@ -1,4 +1,4 @@
-import type { ModelProfile } from "@agents/core";
+import type { ModelProfile } from "@kevin/core";
 
 export type TerminalRuntimeInfo = {
   protocol: string;

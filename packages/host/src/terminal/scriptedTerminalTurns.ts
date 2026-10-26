@@ -34,7 +34,7 @@ export class ScriptedTerminalTurns {
     if (text.includes("interruptible")) return this.interruptible(runId);
     if (text.includes("stream scroll")) return this.streamScroll(runId);
     if (text.includes("hang")) return this.hang(runId);
-    if (text.includes("fixture") || process.env.AGENTS_TERMINAL_FIXTURE === "1") return this.normal(runId, text);
+    if (text.includes("fixture") || process.env.KEVIN_TERMINAL_FIXTURE === "1") return this.normal(runId, text);
     return false;
   }
 

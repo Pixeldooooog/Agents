@@ -7,7 +7,7 @@ import {
   SdkControlStreamClosedError,
   SdkStructuredIo,
   type SdkControlRequestMessage
-} from "@agents/core/sdk";
+} from "@kevin/core/sdk";
 
 describe("SDK structured IO", () => {
   test("queues control requests and resolves successful responses", async () => {

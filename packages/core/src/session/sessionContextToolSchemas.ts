@@ -6,7 +6,7 @@ export const sessionStatusSchema = {
 export const sessionExportSchema = {
   type: "object",
   properties: {
-    path: { type: "string", description: "Workspace-relative export path. Defaults to .agents/exports/<timestamp>.json or .md." },
+    path: { type: "string", description: "Workspace-relative export path. Defaults to .kevin/exports/<timestamp>.json or .md." },
     format: { type: "string", enum: ["json", "markdown"] },
     include_system: { type: "boolean" }
   }

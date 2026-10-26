@@ -71,7 +71,7 @@ function fileHistoryMigrationTargetRoot(
 ): string {
   if (snapshot.backupRoot) return path.join(path.dirname(path.resolve(snapshot.backupRoot)), targetSessionId);
   const configDir = String(metadata.claude_config_dir || metadata.claudeConfigDir || process.env.CLAUDE_CONFIG_DIR || "").trim()
-    || path.join(String(metadata.sdk_cwd || metadata.cwd || process.cwd()), ".agents", "sdk");
+    || path.join(String(metadata.sdk_cwd || metadata.cwd || process.cwd()), ".kevin", "sdk");
   return path.join(path.resolve(configDir), "file-history", targetSessionId);
 }
 

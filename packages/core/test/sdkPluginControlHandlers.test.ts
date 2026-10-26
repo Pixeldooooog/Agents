@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { AgentSdkClient, type SdkWireMessage } from "@agents/core/sdk";
+import { AgentSdkClient, type SdkWireMessage } from "@kevin/core/sdk";
 import { JsonStateStore, loadSettings } from "../src/index.js";
 
 describe("SDK plugin control handlers", () => {
   test("reloads plugin state from commands, extensions, and MCP records", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-reload-plugins-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-reload-plugins-"));
     try {
       await writeReloadPluginFixtures(root);
       const settings = await loadSettings(root);
@@ -55,14 +55,14 @@ describe("SDK plugin control handlers", () => {
       expect(payload.skills).toContainEqual(expect.objectContaining({
         name: "release-skill",
         version: "1.2.0",
-        path: ".agents/skills/release",
+        path: ".kevin/skills/release",
         invalid: false
       }));
       expect(payload.plugins).toContainEqual(expect.objectContaining({
         name: "docs-plugin",
         version: "0.3.0",
         tools: ["mcp.resources"],
-        path: ".agents/plugins/docs",
+        path: ".kevin/plugins/docs",
         invalid: false
       }));
       expect(payload.agents).toContainEqual(expect.objectContaining({
@@ -80,7 +80,7 @@ describe("SDK plugin control handlers", () => {
       expect(payload.errors).toContainEqual(expect.objectContaining({
         kind: "skill",
         name: "broken",
-        manifestPath: ".agents/skills/broken/SKILL.md"
+        manifestPath: ".kevin/skills/broken/SKILL.md"
       }));
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -89,10 +89,10 @@ describe("SDK plugin control handlers", () => {
 });
 
 async function writeReloadPluginFixtures(root: string): Promise<void> {
-  await mkdir(path.join(root, ".agents/commands"), { recursive: true });
-  await writeFile(path.join(root, ".agents/commands/review.md"), "---\ndescription: Review code\naliases: inspect\n---\nReview.");
-  await mkdir(path.join(root, ".agents/skills/release"), { recursive: true });
-  await writeFile(path.join(root, ".agents/skills/release/SKILL.md"), [
+  await mkdir(path.join(root, ".kevin/commands"), { recursive: true });
+  await writeFile(path.join(root, ".kevin/commands/review.md"), "---\ndescription: Review code\naliases: inspect\n---\nReview.");
+  await mkdir(path.join(root, ".kevin/skills/release"), { recursive: true });
+  await writeFile(path.join(root, ".kevin/skills/release/SKILL.md"), [
     "---",
     "name: release-skill",
     "version: 1.2.0",
@@ -103,10 +103,10 @@ async function writeReloadPluginFixtures(root: string): Promise<void> {
     "",
     "Use this skill for release workflow notes."
   ].join("\n"));
-  await mkdir(path.join(root, ".agents/skills/broken"), { recursive: true });
-  await writeFile(path.join(root, ".agents/skills/broken/SKILL.md"), "# Missing frontmatter\n");
-  await mkdir(path.join(root, ".agents/plugins/docs/.codex-plugin"), { recursive: true });
-  await writeFile(path.join(root, ".agents/plugins/docs/.codex-plugin/plugin.json"), JSON.stringify({
+  await mkdir(path.join(root, ".kevin/skills/broken"), { recursive: true });
+  await writeFile(path.join(root, ".kevin/skills/broken/SKILL.md"), "# Missing frontmatter\n");
+  await mkdir(path.join(root, ".kevin/plugins/docs/.codex-plugin"), { recursive: true });
+  await writeFile(path.join(root, ".kevin/plugins/docs/.codex-plugin/plugin.json"), JSON.stringify({
     name: "docs-plugin",
     version: "0.3.0",
     description: "Docs plugin",

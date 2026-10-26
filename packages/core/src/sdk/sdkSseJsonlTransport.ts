@@ -379,7 +379,7 @@ export class SdkSseJsonlTransport implements SdkJsonlTransport {
     const headers = this.freshHeaders();
     headers.Accept ??= "text/event-stream";
     headers["anthropic-version"] ??= "2023-06-01";
-    headers["User-Agent"] ??= "agents-sdk";
+    headers["User-Agent"] ??= "kevin-sdk";
     if (this.lastSequenceNumber > 0) headers["Last-Event-ID"] = String(this.lastSequenceNumber);
     return headers;
   }
@@ -388,7 +388,7 @@ export class SdkSseJsonlTransport implements SdkJsonlTransport {
     const headers = this.freshHeaders();
     headers["Content-Type"] ??= "application/json";
     headers["anthropic-version"] ??= "2023-06-01";
-    headers["User-Agent"] ??= "agents-sdk";
+    headers["User-Agent"] ??= "kevin-sdk";
     return headers;
   }
 

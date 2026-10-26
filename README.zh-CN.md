@@ -10,7 +10,7 @@
 <h3 align="center">面向代码、资料与日常工作的开源个人智能体。</h3>
 
 <p align="center">
-  <a href="https://github.com/Pixeldooooog/Agents/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Pixeldooooog/Agents/ci.yml?branch=main&style=flat-square&label=CI" alt="CI 状态"></a>
+  <a href="https://github.com/Pixeldooooog/Kevin/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/Pixeldooooog/Kevin/ci.yml?branch=main&style=flat-square&label=CI" alt="CI 状态"></a>
   <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript"></a>
   <a href="https://bun.sh/"><img src="https://img.shields.io/badge/Bun-1.4.4-14151A?style=flat-square&logo=bun&logoColor=white" alt="Bun 1.4.4"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-0f6b5f?style=flat-square" alt="MIT 许可证"></a>
@@ -91,13 +91,11 @@ Kevin 正在成为一个围绕你的文件、工具和项目工作的个人智�
 ### ① 获取代码
 
 ```bash
-git clone https://github.com/Pixeldooooog/Agents.git kevin
+git clone https://github.com/Pixeldooooog/Kevin.git kevin
 cd kevin
 bun install --frozen-lockfile
 cp .env.example .env
 ```
-
-产品名称为 **Kevin**。命名迁移期间，仓库地址、包名、环境变量前缀和部分界面文案仍保留 `Agents`。
 
 ### ② 配置模型
 
@@ -221,7 +219,7 @@ Kevin 正在积极开发中。欢迎提交可复现的问题、范围明确的�
 1. 先阅读[基线计划](docs/agent-system-baseline.md)，选择范围清晰的改动。
 2. 保持客户端和 Host 的组装代码简洁，将行为放入对应领域模块。
 3. 执行 `bun run check`，说明实际验证了什么，区分 fixture 测试、真实模型和平台验证。
-4. 提交 [Pull Request](https://github.com/Pixeldooooog/Agents/pulls)，描述问题、改动与证据。Bug 和方案建议请使用 [Issues](https://github.com/Pixeldooooog/Agents/issues)。
+4. 提交 [Pull Request](https://github.com/Pixeldooooog/Kevin/pulls)，描述问题、改动与证据。Bug 和方案建议请使用 [Issues](https://github.com/Pixeldooooog/Kevin/issues)。
 
 <details>
 <summary><strong>开发命令</strong></summary>

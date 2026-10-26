@@ -9,7 +9,7 @@ __pycache__
 .coverage
 htmlcov
 
-.agents
+.kevin
 logs
 cache
 data

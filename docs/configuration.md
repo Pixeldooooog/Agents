@@ -23,7 +23,7 @@ config/defaults.toml < config/local.toml < .env / shell env
 | `CORS_ORIGINS` | Explicit comma-separated browser origins | empty (same origin only) |
 | `ACCESS_TOKEN` | Bearer token; required for non-loopback binding | empty on loopback |
 | `AGENT_MAX_TOOL_ITERATIONS` | Operator tool-loop ceiling; request hints can only reduce it | `40` |
-| `AGENT_STATE_PATH` | JSON state file | `.agents/host/state.json` |
+| `AGENT_STATE_PATH` | JSON state file | `.kevin/host/state.json` |
 
 ## Agent Runtime
 

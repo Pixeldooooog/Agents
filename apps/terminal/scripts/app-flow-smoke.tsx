@@ -9,8 +9,8 @@ import {App} from '../src/app/App.js'
 import {isFullscreenLayoutEnabled} from '../src/app/terminalLayout.js'
 
 const repoRoot = path.resolve(process.cwd(), '../..')
-process.env.AGENTS_TERMINAL_HISTORY_PATH = path.join(tmpdir(), `agents-terminal-flow-history-${process.pid}.json`)
-process.env.AGENTS_TERMINAL_SESSION_STORE = path.join(tmpdir(), `agents-terminal-flow-sessions-${process.pid}`)
+process.env.KEVIN_TERMINAL_HISTORY_PATH = path.join(tmpdir(), `kevin-terminal-flow-history-${process.pid}.json`)
+process.env.KEVIN_TERMINAL_SESSION_STORE = path.join(tmpdir(), `kevin-terminal-flow-sessions-${process.pid}`)
 const fullscreenLayout = isFullscreenLayoutEnabled()
 
 async function waitForOutput(output: TestOutput, expected: string, timeoutMs = 5000): Promise<void> {
@@ -144,7 +144,7 @@ try {
     } as unknown as RenderOptions
   )
 
-  await waitForOutput(stdout, 'Agents Code')
+  await waitForOutput(stdout, 'Kevin')
   stdin.press('/diff')
   await settle()
   stdin.press('\r')

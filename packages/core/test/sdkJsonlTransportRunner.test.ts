@@ -9,7 +9,7 @@ import {
   SdkStructuredIo,
   type SdkMessage,
   type SdkWireMessage
-} from "@agents/core/sdk";
+} from "@kevin/core/sdk";
 
 describe("SDK JSONL transport runner", () => {
   test("emits accepted inbound wire messages", async () => {

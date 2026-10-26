@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { AgentSdkClient, type SdkWireMessage } from "@agents/core/sdk";
+import { AgentSdkClient, type SdkWireMessage } from "@kevin/core/sdk";
 import { JsonStateStore, loadSettings } from "../src/index.js";
 
 describe("SDK context usage", () => {
   test("reports estimated usage from persisted SDK session runs", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-context-usage-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-context-usage-"));
     const server = Bun.serve({
       port: 0,
       async fetch(request) {
@@ -74,7 +74,7 @@ describe("SDK context usage", () => {
   });
 
   test("keeps empty usage explicit when no SDK session is selected", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-empty-context-usage-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-empty-context-usage-"));
     try {
       const client = await sdkClient(root);
       await expect(client.getContextUsage({ model: "mock" })).resolves.toMatchObject({
@@ -92,7 +92,7 @@ describe("SDK context usage", () => {
   });
 
   test("includes tool calls and tool results in estimated usage", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-tool-context-usage-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-tool-context-usage-"));
     const server = Bun.serve({
       port: 0,
       async fetch(request) {

@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { AgentSdkClient, type SdkWireMessage } from "@agents/core/sdk";
+import { AgentSdkClient, type SdkWireMessage } from "@kevin/core/sdk";
 import { JsonStateStore, loadSettings } from "../src/index.js";
 
 describe("SDK thinking control handlers", () => {
   test("applies thinking token controls to later Claude messages", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-thinking-control-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-thinking-control-"));
     const requests: any[] = [];
     const server = Bun.serve({
       port: 0,

@@ -7,7 +7,7 @@ import { createAgentHttpServer } from "../src/http/agentHttpServer.js";
 import { createHostAccessPolicy } from "../src/http/hostAccessPolicy.js";
 
 test("HTTP boundary rejects foreign browser writes and enforces bearer authentication", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "agents-access-"));
+  const root = await mkdtemp(path.join(tmpdir(), "kevin-access-"));
   const services = await createHostServices(root);
   services.settings.host = { ...services.settings.host, bindHost: "127.0.0.1", accessToken: "test-token", corsOrigins: ["http://localhost:5173"] };
   const server = createAgentHttpServer(services);

@@ -6,10 +6,10 @@ import { loadSettings, runtimeStartMessages, specFromPayload } from "../src/inde
 
 describe("runtime start messages", () => {
   test("loads skill metadata without leaking skill bodies into startup context", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-skill-context-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-skill-context-"));
     try {
-      await mkdir(path.join(root, ".agents", "skills", "release-helper"), { recursive: true });
-      await writeFile(path.join(root, ".agents", "skills", "release-helper", "SKILL.md"), [
+      await mkdir(path.join(root, ".kevin", "skills", "release-helper"), { recursive: true });
+      await writeFile(path.join(root, ".kevin", "skills", "release-helper", "SKILL.md"), [
         "---",
         "name: release-helper",
         "description: Helps prepare release notes from repository changes.",

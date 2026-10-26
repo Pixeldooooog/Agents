@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { AgentSdkClient, type SdkElicitationRequest, type SdkWireMessage } from "@agents/core/sdk";
+import { AgentSdkClient, type SdkElicitationRequest, type SdkWireMessage } from "@kevin/core/sdk";
 import { JsonStateStore, loadSettings } from "../src/index.js";
 
 describe("SDK interaction control handlers", () => {
   test("routes hook callbacks and elicitations through registered SDK handlers", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-interactions-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-interactions-"));
     try {
       const settings = await loadSettings(root);
       const client = new AgentSdkClient({ settings, store: new JsonStateStore(path.join(root, "state.json")) });
@@ -97,7 +97,7 @@ describe("SDK interaction control handlers", () => {
   });
 
   test("normalizes MCP elicitation params through the SDK client handler", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-mcp-elicitations-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-sdk-mcp-elicitations-"));
     try {
       const settings = await loadSettings(root);
       const client = new AgentSdkClient({ settings, store: new JsonStateStore(path.join(root, "state.json")) });

@@ -1,5 +1,5 @@
 import type { ServerResponse } from "node:http";
-import { activeProfileName, buildModelProfiles, buildOperationFrames } from "@agents/core";
+import { activeProfileName, buildModelProfiles, buildOperationFrames } from "@kevin/core";
 import type { HostServices } from "../services/hostServices.js";
 import { queryNumber, queryValue } from "../http/body.js";
 import { fail, ok, sendJson } from "../http/envelope.js";

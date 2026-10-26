@@ -5,7 +5,7 @@ import {
   SdkQueueJsonlTransport,
   derive_hybrid_post_url,
   deriveHybridPostUrl
-} from "@agents/core/sdk";
+} from "@kevin/core/sdk";
 
 describe("SDK hybrid JSONL transport", () => {
   test("derives hybrid post URLs from websocket ingress URLs", () => {

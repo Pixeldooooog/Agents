@@ -5,7 +5,7 @@ import {useCallback, useEffect, useMemo, useState} from 'react'
 const DEFAULT_LIMIT = 200
 
 export function usePersistentHistory(repoRoot: string, limit = DEFAULT_LIMIT) {
-  const historyPath = useMemo(() => process.env.AGENTS_TERMINAL_HISTORY_PATH || path.join(path.resolve(repoRoot), '.agents', 'terminal-history.json'), [repoRoot])
+  const historyPath = useMemo(() => process.env.KEVIN_TERMINAL_HISTORY_PATH || path.join(path.resolve(repoRoot), '.kevin', 'terminal-history.json'), [repoRoot])
   const [history, setHistory] = useState<string[]>([])
 
   useEffect(() => {

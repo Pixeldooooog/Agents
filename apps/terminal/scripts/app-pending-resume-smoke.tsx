@@ -9,10 +9,10 @@ import {render, type Instance, type RenderOptions} from 'ink'
 import {App} from '../src/app/App.js'
 
 const repoRoot = path.resolve(process.cwd(), '../..')
-const sessionRoot = path.join(tmpdir(), `agents-terminal-pending-sessions-${process.pid}`)
-process.env.AGENTS_TERMINAL_HISTORY_PATH = path.join(tmpdir(), `agents-terminal-pending-history-${process.pid}.json`)
-process.env.AGENTS_TERMINAL_SESSION_STORE = sessionRoot
-process.env.AGENTS_TERMINAL_DB_PATH = path.join(tmpdir(), `agents-terminal-pending-${process.pid}.db`)
+const sessionRoot = path.join(tmpdir(), `kevin-terminal-pending-sessions-${process.pid}`)
+process.env.KEVIN_TERMINAL_HISTORY_PATH = path.join(tmpdir(), `kevin-terminal-pending-history-${process.pid}.json`)
+process.env.KEVIN_TERMINAL_SESSION_STORE = sessionRoot
+process.env.KEVIN_TERMINAL_DB_PATH = path.join(tmpdir(), `kevin-terminal-pending-${process.pid}.db`)
 
 async function waitForOutput(output: TestOutput, expected: string, timeoutMs = 5000): Promise<void> {
   const startedAt = Date.now()
@@ -113,7 +113,7 @@ try {
     } as unknown as RenderOptions
   )
 
-  await waitForOutput(stdout, 'Agents Code')
+  await waitForOutput(stdout, 'Kevin')
   stdin.press('/resume')
   await settle()
   stdin.press('\r')

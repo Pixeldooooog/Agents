@@ -63,7 +63,7 @@ async function collectFiles(repoRoot: string, root: string): Promise<string[]> {
   const entries = await readdir(root, { withFileTypes: true });
   const files: string[] = [];
   for (const entry of entries) {
-    if (entry.name === ".git" || entry.name === "node_modules" || entry.name === ".agents") continue;
+    if (entry.name === ".git" || entry.name === "node_modules" || entry.name === ".kevin") continue;
     const fullPath = path.join(root, entry.name);
     if (entry.isDirectory()) files.push(...await collectFiles(repoRoot, fullPath));
     else if (entry.isFile()) files.push(fullPath);

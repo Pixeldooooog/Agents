@@ -1,5 +1,5 @@
 import type { ServerResponse } from "node:http";
-import type { AgentChatPayload } from "@agents/core";
+import type { AgentChatPayload } from "@kevin/core";
 import type { HostServices } from "../services/hostServices.js";
 import { ok, sendJson, sendSse } from "../http/envelope.js";
 import { responseStatusForRunResult } from "./agentRunLifecycle.js";

@@ -15,7 +15,7 @@ const PICKER_ROWS = 12
 const PROMPT_OVERLAY_ROWS = 9
 
 export function isFullscreenLayoutEnabled(): boolean {
-  return ["1", "true", "yes", "on"].includes(String(process.env.AGENTS_TERMINAL_FULLSCREEN ?? "").toLowerCase())
+  return ["1", "true", "yes", "on"].includes(String(process.env.KEVIN_TERMINAL_FULLSCREEN ?? "").toLowerCase())
 }
 
 export function withLiveTurnItems(items: TranscriptItem[], reasoning: string, assistant: string): TranscriptItem[] {

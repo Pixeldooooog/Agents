@@ -1,4 +1,4 @@
-import { AgentRunService, JsonStateStore, TaskService, loadSettings, statePath } from "@agents/core";
+import { AgentRunService, JsonStateStore, TaskService, loadSettings, statePath } from "@kevin/core";
 
 export type HostServices = Awaited<ReturnType<typeof createHostServices>>;
 

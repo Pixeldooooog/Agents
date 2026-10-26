@@ -28,8 +28,8 @@ const runtime = {
 }
 
 const workspace = {
-  path: '/tmp/agents',
-  display: '~/program/Agents',
+  path: '/tmp/kevin',
+  display: '~/program/kevin',
   tenant_id: 'local',
   user_id: 'user',
   agent_id: 'agent',
@@ -41,16 +41,16 @@ const profiles: ModelProfile[] = [
   {name: 'fallback', protocol: 'scripted', model: 'echo', configured: false}
 ]
 
-delete process.env.AGENTS_TERMINAL_FULLSCREEN
+delete process.env.KEVIN_TERMINAL_FULLSCREEN
 assert.equal(isFullscreenLayoutEnabled(), false)
-process.env.AGENTS_TERMINAL_FULLSCREEN = '1'
+process.env.KEVIN_TERMINAL_FULLSCREEN = '1'
 assert.equal(isFullscreenLayoutEnabled(), true)
-process.env.AGENTS_TERMINAL_FULLSCREEN = '0'
+process.env.KEVIN_TERMINAL_FULLSCREEN = '0'
 assert.equal(isFullscreenLayoutEnabled(), false)
-delete process.env.AGENTS_TERMINAL_FULLSCREEN
+delete process.env.KEVIN_TERMINAL_FULLSCREEN
 
 const sessions: SessionRecord[] = [
-  {id: 'session_1234567890abcdef', short_id: '1234567890abcdef', updated: '2026-05-07 10:00', model: 'openai-responses · gpt-5.4', messages: '8', workspace: '~/program/Agents'}
+  {id: 'session_1234567890abcdef', short_id: '1234567890abcdef', updated: '2026-05-07 10:00', model: 'openai-responses · gpt-5.4', messages: '8', workspace: '~/program/kevin'}
 ]
 
 const approval: PendingApproval = {
@@ -73,7 +73,7 @@ const transcript: TranscriptItem[] = [
 assertContains(
   'Welcome',
   renderClean(<Welcome runtime={runtime} workspace={workspace} profile="coding" permission="guarded" sandbox="local" toolCount={6} />),
-  ['Agents Code', 'gpt-5.4', '~/program/Agents', '/model']
+  ['Kevin', 'gpt-5.4', '~/program/kevin', '/model']
 )
 assert.equal(renderClean(<Welcome runtime={runtime} workspace={workspace} profile="coding" permission="guarded" sandbox="local" toolCount={6} />).split('\n').length, WELCOME_ROWS)
 
@@ -256,7 +256,7 @@ assert.equal(dynamicCommands.some(command => command.name === '/memory'), true)
 assert.equal(commandMatches('/mem', dynamicCommands)[0]?.name, '/memory')
 assert.deepEqual(commandHelpRows(dynamicCommands).find(row => row[0] === '/memory'), ['/memory', 'manage memories · <action> · skill · idle'])
 assert.deepEqual(sessionTableRows([]), [['sessions', 'none']])
-assert.deepEqual(sessionTableRows(sessions), [['1234567890abcdef', '2026-05-07 10:00 · 8 messages · openai-responses · gpt-5.4 · ~/program/Agents']])
+assert.deepEqual(sessionTableRows(sessions), [['1234567890abcdef', '2026-05-07 10:00 · 8 messages · openai-responses · gpt-5.4 · ~/program/kevin']])
 assert.deepEqual(transcriptFromSession([{role: 'user', content: 'hi'}, {role: 'assistant', content: 'ok'}]), [
   {kind: 'user', text: 'hi'},
   {kind: 'assistant', text: 'ok'}

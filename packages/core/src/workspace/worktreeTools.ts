@@ -37,7 +37,7 @@ async function enterWorktree(context: ToolExecutionContext, args: JsonObject) {
   if (currentSession) throw new Error(`Already in a worktree session at ${currentSession.worktreePath || "unknown"}`);
   const requested = worktreeRequest(stringArg(args.name), numberArg(args.pr_number, 0));
   const repoRoot = await gitRoot(context.repoRoot);
-  const worktreePath = path.join(repoRoot, ".agents", "worktrees", flattenSlug(requested.slug));
+  const worktreePath = path.join(repoRoot, ".kevin", "worktrees", flattenSlug(requested.slug));
   const branch = `worktree-${flattenSlug(requested.slug)}`;
   await mkdir(path.dirname(worktreePath), { recursive: true });
   const existed = await isGitWorktree(worktreePath);

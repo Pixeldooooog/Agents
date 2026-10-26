@@ -11,7 +11,7 @@ import {
   SDKSSEJsonlTransport,
   SdkSseJsonlTransport,
   type SdkMessage
-} from "@agents/core/sdk";
+} from "@kevin/core/sdk";
 
 describe("SDK SSE JSONL transport", () => {
   test("parses SSE frames and derives remote SDK URLs", () => {
@@ -145,7 +145,7 @@ describe("SDK SSE JSONL transport", () => {
           Authorization: "Bearer static",
           "Content-Type": "application/json",
           "anthropic-version": "2023-06-01",
-          "User-Agent": "agents-sdk"
+          "User-Agent": "kevin-sdk"
         },
         message: resultMessage
       },
@@ -155,7 +155,7 @@ describe("SDK SSE JSONL transport", () => {
           Authorization: "Bearer static",
           "Content-Type": "application/json",
           "anthropic-version": "2023-06-01",
-          "User-Agent": "agents-sdk"
+          "User-Agent": "kevin-sdk"
         },
         message: resultMessage
       }

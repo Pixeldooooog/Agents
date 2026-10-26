@@ -6,7 +6,7 @@ import { executeBuiltinTool, specFromPayload } from "../src/index.js";
 
 describe("skill and plugin extension tools", () => {
   test("installs, discovers, invokes, enables, disables, and uninstalls a standard SKILL.md skill", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-standard-skill-tools-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-standard-skill-tools-"));
     try {
       await mkdir(path.join(root, "source-standard-skill"), { recursive: true });
       await mkdir(path.join(root, "source-standard-skill", "references"), { recursive: true });
@@ -61,9 +61,9 @@ describe("skill and plugin extension tools", () => {
       const invokedSkill = JSON.parse(invoked.result.content);
       expect(invokedSkill.prompt).toContain("v2");
       expect(invokedSkill.prompt).toContain("references/guide.md");
-      expect(invokedSkill.skill.path).toBe(".agents/skills/release-standard");
-      expect(invokedSkill.path).toBe(".agents/skills/release-standard");
-      expect(invokedSkill.manifestPath).toBe(".agents/skills/release-standard/SKILL.md");
+      expect(invokedSkill.skill.path).toBe(".kevin/skills/release-standard");
+      expect(invokedSkill.path).toBe(".kevin/skills/release-standard");
+      expect(invokedSkill.manifestPath).toBe(".kevin/skills/release-standard/SKILL.md");
       expect(invokedSkill.allowedTools).toEqual(["filesystem.read", "shell.run"]);
       expect(invokedSkill.disallowedTools).toEqual(["filesystem.write"]);
       expect(invokedSkill.model).toBe("gpt-test");
@@ -92,7 +92,7 @@ describe("skill and plugin extension tools", () => {
   });
 
   test("rejects legacy skill.json skill packages", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-legacy-skill-tools-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-legacy-skill-tools-"));
     try {
       await mkdir(path.join(root, "legacy-skill"), { recursive: true });
       await writeFile(path.join(root, "legacy-skill", "skill.json"), JSON.stringify({
@@ -111,7 +111,7 @@ describe("skill and plugin extension tools", () => {
   });
 
   test("rejects non-standard SKILL.md files", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-invalid-skill-tools-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-invalid-skill-tools-"));
     try {
       await mkdir(path.join(root, "missing-frontmatter"), { recursive: true });
       await writeFile(path.join(root, "missing-frontmatter", "SKILL.md"), "# Missing frontmatter\n");
@@ -163,7 +163,7 @@ describe("skill and plugin extension tools", () => {
   });
 
   test("supports single-file SKILL.md installs and lowercase skill.md packages", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-skill-file-tools-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-skill-file-tools-"));
     try {
       await mkdir(path.join(root, "single-source"), { recursive: true });
       await writeFile(path.join(root, "single-source", "SKILL.md"), [
@@ -191,8 +191,8 @@ describe("skill and plugin extension tools", () => {
       const singleInstalled = await executeBuiltinTool(root, "skill.install", { source: "single-source/SKILL.md" }, context);
       const singleSkill = JSON.parse(singleInstalled.result.content).skill;
       expect(singleSkill.name).toBe("single-file");
-      expect(singleSkill.path).toBe(".agents/skills/single-file");
-      expect(singleSkill.manifest_path).toBe(".agents/skills/single-file/SKILL.md");
+      expect(singleSkill.path).toBe(".kevin/skills/single-file");
+      expect(singleSkill.manifest_path).toBe(".kevin/skills/single-file/SKILL.md");
 
       const lowerInstalled = await executeBuiltinTool(root, "skill.install", { source: "lower-source" }, context);
       const lowerSkill = JSON.parse(lowerInstalled.result.content).skill;
@@ -211,7 +211,7 @@ describe("skill and plugin extension tools", () => {
   });
 
   test("installs, discovers, enables, disables, and uninstalls a plugin", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-plugin-tools-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-plugin-tools-"));
     try {
       await mkdir(path.join(root, "source-plugin", ".codex-plugin"), { recursive: true });
       await writeFile(path.join(root, "source-plugin", ".codex-plugin", "plugin.json"), JSON.stringify({

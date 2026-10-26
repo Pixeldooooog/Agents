@@ -1,5 +1,5 @@
 import type { ServerResponse } from "node:http";
-import { AgentRunServiceError, type RunApprovalPayload } from "@agents/core";
+import { AgentRunServiceError, type RunApprovalPayload } from "@kevin/core";
 import type { HostServices } from "../services/hostServices.js";
 import { fail, ok, sendJson } from "../http/envelope.js";
 import { responseStatusForRunResult } from "./agentRunLifecycle.js";

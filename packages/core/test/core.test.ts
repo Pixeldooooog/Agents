@@ -8,7 +8,7 @@ import { runtimeToolLoopBudget } from "../src/runtime/runtimeLimits.js";
 
 describe("TS core", () => {
   test("loads workspace instructions unless metadata omits them", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-core-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-core-"));
     try {
       await writeFile(path.join(root, "AGENTS.md"), "Project instruction.");
       const settings = await loadSettings(root);
@@ -21,7 +21,7 @@ describe("TS core", () => {
   });
 
   test("persists runs in a JSON state store", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-store-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-store-"));
     try {
       const file = path.join(root, "state.json");
       const store = new JsonStateStore(file);
@@ -36,7 +36,7 @@ describe("TS core", () => {
   });
 
   test("keeps Claude agent overrides outside model providers", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-config-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-config-"));
     try {
       await writeFile(path.join(root, ".env"), [
         "ANTHROPIC_API_KEY=anthropic-key",
@@ -67,7 +67,7 @@ describe("TS core", () => {
   });
 
   test("loads runtime tool iteration limits from settings", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-runtime-limits-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-runtime-limits-"));
     try {
       await writeFile(path.join(root, ".env"), "AGENT_MAX_TOOL_ITERATIONS=3\n");
       const settings = await loadSettings(root);
@@ -84,7 +84,7 @@ describe("TS core", () => {
   });
 
   test("executes core workspace file tools", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-tools-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-tools-"));
     try {
       await executeBuiltinTool(root, "filesystem.write", { path: "notes/todo.txt", content: "alpha\nbeta" });
       const read = await executeBuiltinTool(root, "filesystem.read", { path: "notes/todo.txt" });
@@ -103,7 +103,7 @@ describe("TS core", () => {
   });
 
   test("executes search and patch tools", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-search-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-search-"));
     try {
       await mkdir(path.join(root, "src"), { recursive: true });
       await writeFile(path.join(root, "src", "file.ts"), "export const target = 'old';\n");
@@ -130,7 +130,7 @@ describe("TS core", () => {
   });
 
   test("executes process and git utility tools", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-process-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-process-"));
     try {
       await writeFile(path.join(root, "README.md"), "hello");
       const shell = await executeBuiltinTool(root, "shell.run", { command: "printf ok" });
@@ -203,7 +203,7 @@ describe("TS core", () => {
   });
 
   test("keeps default builtin tools aligned with the canonical registry", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-default-tools-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-default-tools-"));
     const previousBuiltinTools = process.env.AGENT_BUILTIN_TOOLS;
     try {
       const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -222,7 +222,7 @@ describe("TS core", () => {
   });
 
   test("executes task state tools", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-tasks-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-tasks-"));
     try {
       const store = new JsonStateStore(path.join(root, "state.json"));
       const spec = specFromPayload({ message: "task", tenant_id: "tenant", user_id: "user", agent_id: "agent", workspace_id: "workspace" });
@@ -256,7 +256,7 @@ describe("TS core", () => {
   });
 
   test("executes schedule state tools", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-schedules-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-schedules-"));
     try {
       const store = new JsonStateStore(path.join(root, "state.json"));
       const spec = specFromPayload({ message: "schedule", tenant_id: "tenant", user_id: "user", agent_id: "agent", workspace_id: "workspace" });
@@ -285,7 +285,7 @@ describe("TS core", () => {
   });
 
   test("executes scoped memory state tools", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-memory-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-memory-"));
     try {
       const store = new JsonStateStore(path.join(root, "state.json"));
       const spec = specFromPayload({ message: "memory", tenant_id: "tenant", user_id: "user", agent_id: "agent", workspace_id: "workspace" });
@@ -310,7 +310,7 @@ describe("TS core", () => {
   });
 
   test("executes todo and plan state tools", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-planning-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-planning-"));
     try {
       const store = new JsonStateStore(path.join(root, "state.json"));
       const spec = specFromPayload({ message: "plan", tenant_id: "tenant", user_id: "user", agent_id: "agent", workspace_id: "workspace" });
@@ -349,7 +349,7 @@ describe("TS core", () => {
   });
 
   test("executes session and context state tools", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-session-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-session-"));
     try {
       const store = new JsonStateStore(path.join(root, "state.json"));
       const spec = specFromPayload({ message: "session", model: "mock", tenant_id: "tenant", user_id: "user", agent_id: "agent", workspace_id: "workspace" });
@@ -384,7 +384,7 @@ describe("TS core", () => {
   });
 
   test("executes permission and hook state tools", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-permission-hooks-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-permission-hooks-"));
     try {
       const store = new JsonStateStore(path.join(root, "state.json"));
       const spec = specFromPayload({ message: "permissions", tenant_id: "tenant", user_id: "user", agent_id: "agent", workspace_id: "workspace" });
@@ -417,7 +417,7 @@ describe("TS core", () => {
   });
 
   test("executes structured, config, and user interaction tools", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-ux-tools-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-ux-tools-"));
     try {
       await writeFile(path.join(root, "attachment.png"), "fake image bytes");
       const spec = specFromPayload({ message: "ux", model: "initial", tenant_id: "tenant", user_id: "user", agent_id: "agent", workspace_id: "workspace" });
@@ -455,7 +455,7 @@ describe("TS core", () => {
   });
 
   test("executes command, prompt, and workflow template tools", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-template-tools-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-template-tools-"));
     try {
       const store = new JsonStateStore(path.join(root, "state.json"));
       const spec = specFromPayload({ message: "templates", tenant_id: "tenant", user_id: "user", agent_id: "agent", workspace_id: "workspace" });
@@ -464,8 +464,8 @@ describe("TS core", () => {
       const promptSaved = await executeBuiltinTool(root, "prompt.save", { name: "release", content: "Ship {name} with {{arguments}}", overwrite: false }, context);
       expect(JSON.parse(promptSaved.result.content).name).toBe("release");
 
-      const promptRendered = await executeBuiltinTool(root, "prompt.render", { name: "release", arguments: { name: "Agents" }, raw_arguments: "tests" }, context);
-      expect(JSON.parse(promptRendered.result.content).prompt).toContain("Agents with tests");
+      const promptRendered = await executeBuiltinTool(root, "prompt.render", { name: "release", arguments: { name: "Kevin" }, raw_arguments: "tests" }, context);
+      expect(JSON.parse(promptRendered.result.content).prompt).toContain("Kevin with tests");
 
       const commandSaved = await executeBuiltinTool(root, "command.save", {
         name: "/ship",
@@ -503,7 +503,7 @@ describe("TS core", () => {
   });
 
   test("uses builtin tools as default enabled tools", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-default-tools-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-default-tools-"));
     try {
       await mkdir(path.join(root, "config"), { recursive: true });
       await writeFile(path.join(root, "config", "defaults.toml"), [
@@ -520,7 +520,7 @@ describe("TS core", () => {
   });
 
   test("runs an OpenAI-compatible tool call loop", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-tool-loop-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-tool-loop-"));
     const requests: any[] = [];
     const server = Bun.serve({
       port: 0,
@@ -569,7 +569,7 @@ describe("TS core", () => {
   });
 
   test("pauses tool calls when approval is required", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-tool-approval-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-tool-approval-"));
     const server = Bun.serve({
       port: 0,
       async fetch() {
@@ -609,7 +609,7 @@ describe("TS core", () => {
   });
 
   test("continues the turn with a denied tool result", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-tool-deny-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-tool-deny-"));
     const requests: any[] = [];
     const server = Bun.serve({
       port: 0,
@@ -662,7 +662,7 @@ describe("TS core", () => {
   });
 
   test("stops tool loops at the spec runtime iteration limit", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-tool-limit-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-tool-limit-"));
     const server = Bun.serve({
       port: 0,
       async fetch() {
@@ -705,7 +705,7 @@ describe("TS core", () => {
   });
 
   test("resumes an approved tool call", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-tool-resume-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-tool-resume-"));
     const requests: any[] = [];
     const server = Bun.serve({
       port: 0,
@@ -758,7 +758,7 @@ describe("TS core", () => {
   });
 
   test("persists approval runs through the SDK run service", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-run-service-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-run-service-"));
     const requests: any[] = [];
     const server = Bun.serve({
       port: 0,
@@ -820,7 +820,7 @@ describe("TS core", () => {
   });
 
   test("uses the tool loop in stream mode", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "agents-stream-tools-"));
+    const root = await mkdtemp(path.join(tmpdir(), "kevin-stream-tools-"));
     const server = Bun.serve({
       port: 0,
       async fetch(request) {
