@@ -1,123 +1,193 @@
-# Agents
+<h1 align="center">Kevin</h1>
 
-Agents is a TypeScript-first agent runtime with a Bun HTTP host, an Ink terminal app, and a Solid web UI.
+<p align="center">
+  <strong>An open-source personal AI agent for code, research, and everyday work.</strong>
+</p>
+<p align="center">
+  Run locally. Bring your model. Inspect the work.
+</p>
 
-[![TypeScript](https://img.shields.io/badge/typescript-5.x-blue.svg)](https://www.typescriptlang.org/)
-[![Bun](https://img.shields.io/badge/runtime-bun-black.svg)](https://bun.sh/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+<p align="center">
+  <a href="https://github.com/Pixeldooooog/Agents/actions/workflows/ci.yml"><img src="https://github.com/Pixeldooooog/Agents/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white" alt="TypeScript"></a>
+  <a href="https://bun.sh/"><img src="https://img.shields.io/badge/Bun-1.4.4-14151A?logo=bun&logoColor=white" alt="Bun 1.4.4"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-22A06B" alt="MIT license"></a>
+</p>
 
-## Quick Start
+<p align="center">
+  <a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a>
+</p>
+<p align="center">
+  <a href="#quick-start">Quick start</a> · <a href="#what-you-can-build-on">Capabilities</a> · <a href="#roadmap">Roadmap</a> · <a href="#documentation">Documentation</a> · <a href="#contributing">Contributing</a>
+</p>
+
+---
+
+Kevin is being built as a personal agent that works with your files, tools, and projects. The goal is one place to hand off work, review progress, and carry useful context forward.
+
+Today, the repository provides a TypeScript agent runtime, a browser interface, a terminal interface, and an SDK. The current focus is completing the execution and persistence foundation before expanding the personal product.
+
+> [!NOTE]
+> **Development preview.** Durable task recovery, Markdown-based personal memory, and background routines are still on the roadmap. Native sandbox backends are deferred; current local commands run with the host process's permissions. See the [support matrix](docs/baseline/support-matrix.md) for the tested scope.
+
+## What you can build on
+
+| Capability | Current foundation |
+| --- | --- |
+| **Work with a repository** | Read and edit files, search code, apply patches, inspect Git changes, and run commands or tests. |
+| **Choose your model** | Protocol adapters for OpenAI Chat Completions, OpenAI Responses, Claude Messages, and Gemini, plus named OpenAI-compatible profiles. |
+| **Review execution** | Tool events, enabled/denied tool rules, and explicit approval requests in the runtime. |
+| **Keep execution bounded** | Finite tool loops, validated tool parameters, capped command output, timeouts, and command cancellation through runtime signals. |
+| **Extend the workflow** | Built-in tools for web retrieval, skills, MCP resources/prompts, tasks, and workspace operations; TypeScript SDK and HTTP entrypoints. |
+
+The registry currently contains **120 built-in tools**. Registration and local tests do not establish full integration support: provider credentials, external services, and individual tool behavior still need validation in the target environment.
+
+## Quick start
+
+You need **Git**, **[Bun 1.4.4](https://bun.sh/)**, and credentials for a supported model provider. Start on macOS or Linux; Windows command execution is not enabled yet. Docker is optional.
+
+### 1. Get the source
 
 ```bash
-git clone https://github.com/Pixeldooooog/Agents.git
-cd Agents
-bun install
-
-# Add at least one model provider key.
+git clone https://github.com/Pixeldooooog/Agents.git kevin
+cd kevin
+bun install --frozen-lockfile
 cp .env.example .env
+```
 
-# Terminal app
-bun run tui
+The product is named **Kevin**. The repository URL, package names, environment-variable prefixes, and some interface labels still use `Agents` during the naming transition.
 
-# Web UI served by the TS host
+### 2. Configure a model
+
+Edit `.env` with a key and a model ID available to your account:
+
+```dotenv
+OPENAI_API_KEY=your-api-key
+OPENAI_MODEL=your-model-id
+```
+
+For an OpenAI-compatible endpoint, also set `OPENAI_BASE_URL`. See [configuration](docs/configuration.md) for other providers and named profiles. Local execution does not mean offline inference: model requests go to the endpoint you configure.
+
+### 3. Open Kevin
+
+```bash
 bun run web
 ```
 
-The HTTP host listens on `http://localhost:8020` by default and serves the web UI at `/ui/`.
+Open **[http://127.0.0.1:8020/ui/](http://127.0.0.1:8020/ui/)**.
 
-## Project Layout
+For the terminal interface, run this instead:
+
+```bash
+bun run tui
+```
+
+The terminal provides `/status`, `/model`, `/sessions`, and `/resume`. Client behavior is still being consolidated around the shared runtime; see the [baseline plan](docs/agent-system-baseline.md).
+
+### Try a first task
+
+Start with a concrete request whose result you can review:
+
+> Summarize this repository's entrypoints and explain how a message reaches the model. Include the relevant file paths.
+
+Then try a scoped change:
+
+> Find one small bug, explain it, make the smallest fix, and run the relevant tests. Show me the diff and test results.
+
+## Execution and data
+
+- **Local by default.** The HTTP host binds to `127.0.0.1`. Non-loopback binding requires `ACCESS_TOKEN`; browser origins must be explicitly allowed.
+- **Host execution today.** Local commands can access the host's files, network, and inherited environment. Requests requiring isolation fail closed. Platform sandbox adapters are reserved for a later release.
+- **Bounded commands.** Commands default to 30 seconds with a 120-second ceiling. stdout and stderr each retain up to 128 KiB; larger results are explicitly marked as truncated.
+- **Current storage.** Runs and tasks use a JSON store. SQLite has a feasibility spike, but a production adapter, crash recovery, and durable scheduling are not integrated yet.
+
+Read the [execution decision record](docs/baseline/adr-001-local-execution.md) and [configuration reference](docs/configuration.md) before changing deployment or execution settings.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    Web[Web · Solid] --> Host[HTTP / Terminal Host]
+    Terminal[Terminal · Ink] --> Host
+    Host --> Core[Agent Core · TypeScript]
+    SDK[TypeScript SDK] --> Core
+    Core --> Models[Model adapters]
+    Core --> Tools[Tool registry]
+    Core --> Store[Storage ports]
+    Tools --> Executor[Command executor port]
+    Executor --> Local[LocalExecutor]
+    Store --> JSON[JSON adapter]
+```
+
+The core owns model turns, tool dispatch, execution contracts, and storage interfaces. Clients provide interaction; the host assembles services. Native sandbox backends and durable storage plug into dedicated interfaces as they are implemented.
+
+<details>
+<summary><strong>Repository layout</strong></summary>
 
 ```text
 apps/
-  terminal/    Ink terminal interface
-  web/         Solid browser UI
+  web/         Browser interface
+  terminal/    Terminal interface
 packages/
-  host/        Bun HTTP host, static web serving, terminal host process
-  core/        SDK facade, shared runtime, model profile, state, task, and tool contracts
-config/        Non-secret defaults and local override shape
-deploy/        Container and compose entrypoints
+  core/        Runtime, SDK, models, tools, contracts, and storage ports
+  host/        HTTP API and terminal host
+config/        Runtime defaults
+docs/          Architecture, product plan, and verification evidence
+scripts/       Baseline inventory and feasibility checks
+deploy/        Optional container deployment
 ```
 
-`apps/*` are product entrypoints. `packages/*` contain shared runtime/domain code. Entry files stay thin and delegate behavior into focused modules.
+</details>
 
-## Commands
+## Roadmap
 
-```bash
-bun run host          # Start the HTTP host
-bun run terminal-host # Start the terminal host process
-bun run tui           # Start the terminal app
-bun run web           # Build web assets and serve them through the host
-bun run dev-web       # Run the host plus Vite dev server
-bun run typecheck     # Type-check core/host/terminal and build web
-bun run test          # Run TS tests
-bun run check         # Full local verification
-```
+| Phase | Focus | Status |
+| --- | --- | --- |
+| **B0 — Foundation** | Capability mapping, versioned contracts, storage ports, safe defaults | In progress; first implementation and evidence available |
+| **B1 — Reliable execution** | Model/tool behavior, authorization, bounds, and cancellation | In progress |
+| **B2 — Durable work** | SQLite, task ownership, action ledger, recovery, budgets, and scheduling | Planned |
+| **B3 — Complete baseline** | Markdown memory, artifacts, client consistency, and integration acceptance | Planned |
+| **P1–P3 — Personal product** | Identity, goals, routines, interaction, and distribution | Planned |
+| **C1 — Cloud execution** | Separate remote worker and control-plane architecture | Planned |
 
-The `makefile` mirrors these commands for local and container workflows:
+Native sandbox backends are **deferred independently** and do not block the remaining baseline work. Current local execution is not advertised as sandboxed.
 
-```bash
-make setup
-make check
-make build
-make up
-```
-
-## Runtime
-
-The host and runtime are implemented in TypeScript under `packages/host` and `packages/core`.
-
-- `packages/core/src/config/settings.ts` loads TOML/env settings.
-- `packages/core/src/sdk/agentSdkClient.ts` exposes the TS SDK client.
-- `packages/core/src/models/modelProfiles.ts` builds named model profiles.
-- `packages/core/src/runtime/agentRunService.ts` owns persistent run lifecycle.
-- `packages/core/src/runtime/agentRuntime.ts` runs model turns and emits protocol-neutral events.
-- `packages/core/src/store/jsonStateStore.ts` persists runs and tasks to JSON state.
-- `packages/host/src/api/agentRoutes.ts` exposes the HTTP API.
-- `packages/host/src/terminal/main.ts` exposes the terminal host process.
-
-## Model Configuration
-
-Add provider keys in `.env` or shell environment:
-
-```bash
-OPENAI_API_KEY=...
-OPENAI_MODEL=gpt-4o
-
-AGENT_CLAUDE_API_KEY=...
-AGENT_CLAUDE_MODEL=claude-opus-4-7
-
-GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-2.5-pro
-```
-
-Custom OpenAI-compatible profiles use named groups:
-
-```bash
-AGENT_MODEL_PROFILES=kimi
-AGENT_MODEL_PROFILE_KIMI_PROTOCOL=openai-chat
-AGENT_MODEL_PROFILE_KIMI_BASE_URL=https://api.moonshot.cn/v1
-AGENT_MODEL_PROFILE_KIMI_MODEL=kimi-k2
-AGENT_MODEL_PROFILE_KIMI_API_KEY=...
-```
-
-Switch profiles in the terminal with `/model`.
-
-## HTTP API
-
-```bash
-curl -fsS http://127.0.0.1:8020/health
-
-curl -fsS http://127.0.0.1:8020/api/v1/agent/model-profiles
-
-curl -X POST http://127.0.0.1:8020/api/v1/agent/chat \
-  -H 'Content-Type: application/json' \
-  -d '{"message":"Hello","model_profile":"openai"}'
-```
+See the [implementation roadmap](docs/kevin-implementation-roadmap.md) for dependencies and acceptance criteria, and the [product architecture](docs/kevin-product-architecture-plan.md) for Kevin's longer-term direction.
 
 ## Documentation
 
-- [Quickstart](docs/quickstart.md)
-- [Architecture](docs/architecture.md)
-- [Configuration](docs/configuration.md)
-- [Module Map](docs/module-map.md)
-- [Features](docs/features.md)
+| Start here | Go deeper |
+| --- | --- |
+| [Quickstart](docs/quickstart.md) | [System baseline](docs/agent-system-baseline.md) |
+| [Configuration](docs/configuration.md) | [Architecture](docs/architecture.md) |
+| [Support matrix](docs/baseline/support-matrix.md) | [Module map](docs/module-map.md) |
+| [Implementation evidence](docs/baseline/b1-execution-evidence.md) | [Python → TypeScript migration](docs/typescript-migration-plan.md) |
+
+## Contributing
+
+Kevin is under active development. Useful contributions include reproducible bugs, focused fixes, provider compatibility checks, and missing baseline tests.
+
+1. Read the [baseline plan](docs/agent-system-baseline.md) and choose a bounded change.
+2. Keep client/host wiring thin; put behavior in the relevant core domain module.
+3. Run `bun run check` and describe what you verified. Distinguish fixture tests from real-provider or platform validation.
+4. Open a [pull request](https://github.com/Pixeldooooog/Agents/pulls) with the problem, change, and evidence. Use [issues](https://github.com/Pixeldooooog/Agents/issues) for bugs and proposals.
+
+<details>
+<summary><strong>Development commands</strong></summary>
+
+```bash
+bun run host          # HTTP host without rebuilding the web UI
+bun run tui           # Terminal interface
+bun run web           # Build and serve the web UI
+bun run test          # Core and host tests
+bun run test-terminal # Terminal checks and smoke tests
+bun run check         # Type checks, web build, tests, and terminal checks
+```
+
+For frontend development, configure `CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173` for the host, then run `bun run dev-web`.
+
+</details>
+
+## License
+
+[MIT](LICENSE).

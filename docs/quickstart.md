@@ -1,9 +1,9 @@
-# Quickstart
+# Kevin Quickstart
 
 ## Requirements
 
-- Bun
-- Node-compatible shell environment
+- Bun 1.4.4 and Git
+- macOS or Linux for local command execution
 - At least one model provider key
 - Docker only if you build or run the container image
 
@@ -18,7 +18,7 @@ Add a provider key:
 
 ```bash
 OPENAI_API_KEY=...
-OPENAI_MODEL=gpt-4o
+OPENAI_MODEL=your-model-id
 ```
 
 ## Run The Terminal
@@ -48,7 +48,13 @@ bun run web
 
 Open `http://localhost:8020/ui/`.
 
-For local frontend iteration:
+For local frontend iteration, explicitly configure the Host browser origins in `.env`:
+
+```dotenv
+CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+```
+
+Then run:
 
 ```bash
 bun run dev-web

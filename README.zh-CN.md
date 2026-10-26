@@ -1,103 +1,193 @@
-# Agents
+<h1 align="center">Kevin</h1>
 
-Agents 是一个 TypeScript-first 的 agent runtime：后端使用 Bun/TypeScript，终端使用 Ink/TypeScript，Web 使用 Solid/TypeScript。
+<p align="center">
+  <strong>面向代码、资料与日常工作的开源个人智能体。</strong>
+</p>
+<p align="center">
+  本地运行，自选模型，工作过程可查看。
+</p>
 
-[![TypeScript](https://img.shields.io/badge/typescript-5.x-blue.svg)](https://www.typescriptlang.org/)
-[![Bun](https://img.shields.io/badge/runtime-bun-black.svg)](https://bun.sh/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+<p align="center">
+  <a href="https://github.com/Pixeldooooog/Agents/actions/workflows/ci.yml"><img src="https://github.com/Pixeldooooog/Agents/actions/workflows/ci.yml/badge.svg" alt="CI 状态"></a>
+  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white" alt="TypeScript"></a>
+  <a href="https://bun.sh/"><img src="https://img.shields.io/badge/Bun-1.4.4-14151A?logo=bun&logoColor=white" alt="Bun 1.4.4"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-22A06B" alt="MIT 许可证"></a>
+</p>
+
+<p align="center">
+  <a href="README.md">English</a> · <a href="README.zh-CN.md">简体中文</a>
+</p>
+<p align="center">
+  <a href="#快速开始">快速开始</a> · <a href="#现有能力">现有能力</a> · <a href="#路线图">路线图</a> · <a href="#文档">文档</a> · <a href="#参与贡献">参与贡献</a>
+</p>
+
+---
+
+Kevin 正在成为一个围绕你的文件、工具和项目工作的个人智能体。你可以在同一个地方交办工作、查看进展，并逐步积累可以继续使用的项目上下文。
+
+当前仓库提供 TypeScript 智能体运行时、Web 界面、终端界面与 SDK。现阶段先补齐执行与持久化基线，再完善个人产品体验。
+
+> [!NOTE]
+> **开发预览阶段。** 持久任务恢复、基于 Markdown 的个人记忆、后台例行工作仍在规划与开发中。原生沙箱后端暂缓上线；当前本地命令以宿主进程权限执行。已验证范围见[支持矩阵](docs/baseline/support-matrix.md)。
+
+## 现有能力
+
+| 能力 | 当前基础 |
+| --- | --- |
+| **围绕代码仓库工作** | 读取和编辑文件、搜索代码、应用补丁、查看 Git 变更，以及运行命令和测试。 |
+| **选择适合的模型** | 支持 OpenAI Chat Completions、OpenAI Responses、Claude Messages、Gemini 协议适配，以及命名的 OpenAI-compatible 配置。 |
+| **查看和审批执行** | 运行时提供工具事件、工具启用/禁用规则和显式审批请求。 |
+| **限制执行开销** | 有限工具循环、参数校验、命令输出上限、超时，以及通过运行时信号取消命令。 |
+| **扩展工作方式** | 内置 Web 检索、Skill、MCP 资源/提示词、任务和工作空间操作，并提供 TypeScript SDK 与 HTTP 入口。 |
+
+工具注册表目前包含 **120 个内置工具**。存在注册和本地测试不代表完整集成已经验收；模型账号、外部服务和具体工具行为仍需在目标环境验证。
 
 ## 快速开始
 
+准备 **Git**、**[Bun 1.4.4](https://bun.sh/)** 和受支持模型服务的凭据。建议从 macOS 或 Linux 开始；Windows 命令执行尚未启用。本地使用不要求 Docker。
+
+### 1. 获取代码
+
 ```bash
-git clone https://github.com/Pixeldooooog/Agents.git
-cd Agents
-bun install
-
+git clone https://github.com/Pixeldooooog/Agents.git kevin
+cd kevin
+bun install --frozen-lockfile
 cp .env.example .env
+```
 
-bun run tui
+产品名称为 **Kevin**。命名迁移期间，仓库地址、包名、环境变量前缀和部分界面文案仍保留 `Agents`。
+
+### 2. 配置模型
+
+编辑 `.env`，填入你的 API key 和账号可用的模型 ID：
+
+```dotenv
+OPENAI_API_KEY=your-api-key
+OPENAI_MODEL=your-model-id
+```
+
+使用 OpenAI-compatible 服务时，再设置 `OPENAI_BASE_URL`。其他服务和命名模型配置见[配置说明](docs/configuration.md)。本地运行不等于离线推理：模型请求会发送到你配置的服务地址。
+
+### 3. 打开 Kevin
+
+```bash
 bun run web
 ```
 
-默认 HTTP 服务地址是 `http://localhost:8020`，Web UI 挂载在 `/ui/`。
+浏览器访问 **[http://127.0.0.1:8020/ui/](http://127.0.0.1:8020/ui/)**。
 
-## 项目结构
+如果希望使用终端界面，改为运行：
+
+```bash
+bun run tui
+```
+
+终端提供 `/status`、`/model`、`/sessions` 和 `/resume` 等命令。各客户端与共享运行时的行为仍在统一中，详见[基线计划](docs/agent-system-baseline.md)。
+
+### 试一个具体任务
+
+先从容易核对结果的请求开始：
+
+> 梳理这个仓库的入口，解释一条消息如何到达模型，并列出相关文件路径。
+
+然后尝试有明确范围的修改：
+
+> 找一个小问题，解释原因，做最小修复并运行相关测试。最后展示 diff 和测试结果。
+
+## 执行与数据
+
+- **默认本地访问。** HTTP Host 监听 `127.0.0.1`；非回环地址必须配置 `ACCESS_TOKEN`，跨源浏览器访问需要显式允许。
+- **当前是宿主执行。** 本地命令可以访问宿主文件、网络和继承的环境变量。要求隔离的请求会被拒绝；平台沙箱适配器留待后续独立交付。
+- **命令有界。** 默认超时 30 秒，上限 120 秒。stdout、stderr 各保留最多 128 KiB，超限结果明确标记截断。
+- **当前存储。** Run、Task 使用 JSON store。SQLite 已完成可行性试验，正式适配器、崩溃恢复与持久调度尚未接入。
+
+修改部署或执行设置前，请阅读[执行器决策记录](docs/baseline/adr-001-local-execution.md)和[配置说明](docs/configuration.md)。
+
+## 架构
+
+```mermaid
+flowchart LR
+    Web[Web · Solid] --> Host[HTTP / Terminal Host]
+    Terminal[Terminal · Ink] --> Host
+    Host --> Core[Agent Core · TypeScript]
+    SDK[TypeScript SDK] --> Core
+    Core --> Models[模型适配器]
+    Core --> Tools[工具注册表]
+    Core --> Store[存储接口]
+    Tools --> Executor[命令执行器接口]
+    Executor --> Local[LocalExecutor]
+    Store --> JSON[JSON 适配器]
+```
+
+Core 负责模型回合、工具调度、执行契约和存储接口；客户端负责交互，Host 组装服务。原生沙箱和持久存储将在完成实现后接入专门的接口。
+
+<details>
+<summary><strong>目录结构</strong></summary>
 
 ```text
 apps/
-  terminal/    Ink 终端界面
-  web/         Solid 浏览器界面
+  web/         浏览器界面
+  terminal/    终端界面
 packages/
-  host/        Bun HTTP 宿主、静态 Web 挂载、终端 host 进程
-  core/        共享 runtime、模型配置、状态、任务和工具契约
-config/        非 secret 默认配置
-deploy/        容器和 compose 入口
+  core/        运行时、SDK、模型、工具、契约和存储接口
+  host/        HTTP API 与终端 Host
+config/        默认配置
+docs/          架构、产品计划和验收证据
+scripts/       基线清单与可行性验证
+deploy/        可选容器部署
 ```
 
-`apps/*` 放产品入口，`packages/*` 放共享 runtime/domain 代码。入口文件保持薄，具体行为拆到语义明确的小模块里。
+</details>
 
-## 常用命令
+## 路线图
 
-```bash
-bun run server        # 启动 TS HTTP 后端
-bun run terminal-host # 启动终端 host 进程
-bun run tui           # 启动终端界面
-bun run web           # 构建 Web 并由后端托管
-bun run dev-web       # 后端 + Vite 开发服务
-bun run typecheck     # core/host/terminal 类型检查和 Web 构建
-bun run test          # 运行 TS 测试
-bun run check         # 完整本地验证
-```
+| 阶段 | 重点 | 状态 |
+| --- | --- | --- |
+| **B0 — 基础契约** | 能力映射、版本化契约、存储接口、安全默认值 | 进行中，已有首批实现和证据 |
+| **B1 — 可靠执行** | 模型/工具行为、授权、执行上限与取消 | 进行中 |
+| **B2 — 持久工作** | SQLite、任务所有权、动作账本、恢复、预算和调度 | 规划中 |
+| **B3 — 完整基线** | Markdown 记忆、产物、多端一致性与集成验收 | 规划中 |
+| **P1–P3 — 个人产品** | 身份、目标、例行工作、交互和分发 | 规划中 |
+| **C1 — 云端执行** | 独立的远程 Worker 与控制平面架构 | 规划中 |
 
-`makefile` 也映射到同一套 TS 命令：
+原生沙箱后端**独立暂缓**，不阻塞其余基线工作。当前本地执行不宣称具备沙箱隔离。
 
-```bash
-make setup
-make check
-make build
-make up
-```
-
-## Runtime 边界
-
-- `packages/core/src/config/settings.ts` 读取 TOML/env 配置。
-- `packages/core/src/models/modelProfiles.ts` 构建命名模型 profile。
-- `packages/core/src/runtime/agentRuntime.ts` 执行模型回合并产出统一事件。
-- `packages/core/src/store/jsonStateStore.ts` 持久化 run 和 task JSON 状态。
-- `packages/host/src/api/agentRoutes.ts` 暴露 HTTP API。
-- `packages/host/src/terminal/main.ts` 暴露终端 host 进程。
-
-## 模型配置
-
-在 `.env` 或 shell 环境里配置 provider：
-
-```bash
-OPENAI_API_KEY=...
-OPENAI_MODEL=gpt-4o
-
-AGENT_CLAUDE_API_KEY=...
-AGENT_CLAUDE_MODEL=claude-opus-4-7
-
-GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-2.5-pro
-```
-
-OpenAI-compatible 自定义 profile：
-
-```bash
-AGENT_MODEL_PROFILES=kimi
-AGENT_MODEL_PROFILE_KIMI_PROTOCOL=openai-chat
-AGENT_MODEL_PROFILE_KIMI_BASE_URL=https://api.moonshot.cn/v1
-AGENT_MODEL_PROFILE_KIMI_MODEL=kimi-k2
-AGENT_MODEL_PROFILE_KIMI_API_KEY=...
-```
-
-终端内用 `/model` 切换 profile。
+各阶段依赖和验收条件见[实施路线](docs/kevin-implementation-roadmap.md)，Kevin 的完整产品方向见[产品架构](docs/kevin-product-architecture-plan.md)。
 
 ## 文档
 
-- [Quickstart](docs/quickstart.md)
-- [Architecture](docs/architecture.md)
-- [Configuration](docs/configuration.md)
-- [Module Map](docs/module-map.md)
-- [Features](docs/features.md)
+| 从这里开始 | 深入了解 |
+| --- | --- |
+| [快速上手](docs/quickstart.md) | [系统基线](docs/agent-system-baseline.md) |
+| [配置说明](docs/configuration.md) | [架构说明](docs/architecture.md) |
+| [支持矩阵](docs/baseline/support-matrix.md) | [模块地图](docs/module-map.md) |
+| [实施证据](docs/baseline/b1-execution-evidence.md) | [Python → TypeScript 迁移](docs/typescript-migration-plan.md) |
+
+## 参与贡献
+
+Kevin 正在积极开发中。欢迎提交可复现的问题、范围明确的修复、模型服务兼容性验证，以及缺失的基线测试。
+
+1. 先阅读[基线计划](docs/agent-system-baseline.md)，选择范围清晰的改动。
+2. 保持客户端和 Host 的组装代码简洁，将行为放入对应领域模块。
+3. 执行 `bun run check`，说明实际验证了什么，区分 fixture 测试、真实模型和平台验证。
+4. 提交 [Pull Request](https://github.com/Pixeldooooog/Agents/pulls)，描述问题、改动与证据。Bug 和方案建议请使用 [Issues](https://github.com/Pixeldooooog/Agents/issues)。
+
+<details>
+<summary><strong>开发命令</strong></summary>
+
+```bash
+bun run host          # 启动 HTTP Host，不重新构建 Web
+bun run tui           # 启动终端界面
+bun run web           # 构建并托管 Web 界面
+bun run test          # Core 与 Host 测试
+bun run test-terminal # 终端检查与冒烟测试
+bun run check         # 类型检查、Web 构建、测试和终端检查
+```
+
+开发前端时，先为 Host 配置 `CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173`，再运行 `bun run dev-web`。
+
+</details>
+
+## 许可证
+
+[MIT](LICENSE)。
