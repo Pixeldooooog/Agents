@@ -1,5 +1,8 @@
 import { render } from "solid-js/web";
+import { WorkCanvasPreview } from "./components/kevin/WorkCanvas";
+import { DesignStudio } from "./components/kevin/DesignStudio";
 import { App } from "./app/App";
 import "./styles/index.css";
 
-render(() => <App />, document.getElementById("root") as HTMLElement);
+const design = new URLSearchParams(location.search).get("design");
+render(() => design === "workspace" ? <WorkCanvasPreview /> : design !== null ? <DesignStudio /> : <App />, document.getElementById("root") as HTMLElement);

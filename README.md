@@ -28,15 +28,15 @@
 <table>
   <tr>
     <td width="33%" valign="top">
-      <h4>🖥️&nbsp; Run locally</h4>
+      <h4>Run locally</h4>
       Kevin runs on your machine and the host binds to <code>127.0.0.1</code>. Model requests go only to the endpoint you configure.
     </td>
     <td width="33%" valign="top">
-      <h4>🔌&nbsp; Bring your model</h4>
+      <h4>Bring your model</h4>
       OpenAI, Claude, Gemini, or any OpenAI-compatible endpoint — switch with a named profile.
     </td>
     <td width="33%" valign="top">
-      <h4>🔍&nbsp; Inspect the work</h4>
+      <h4>Inspect the work</h4>
       Tool calls surface as reviewable events, governed by allow/deny rules and explicit approval requests.
     </td>
   </tr>
@@ -49,36 +49,46 @@ Today, the repository provides a TypeScript agent runtime, a browser interface, 
 > [!NOTE]
 > **Development preview.** Durable task recovery, Markdown-based personal memory, and background routines are still on the roadmap. Native sandbox backends are deferred; current local commands run with the host process's permissions. See the [support matrix](docs/baseline/support-matrix.md) for the tested scope.
 
+## Visual identity & interface
+
+Kevin’s antenna dog communicates through its ears, expression, and amber signal. Warm paper, ink-colored text, and clear controls keep the workspace calm; body copy and code stay crisp and readable.
+
+- **Component preview:** open `/ui/?design` after starting the Web UI to explore states, light/dark palettes, and an artifact-centered workspace. Use `/ui/?design=workspace` for a full-page prototype with source notes, inline draft editing, requirements, and review decisions. It uses sample data and never calls models or tools.
+- **Live interface:** the chat uses the warm-paper theme and dog avatar, with working, thinking, and approval states derived from the current session. Listening and completion animations are available in the component preview.
+- **Design specification:** [Character, components, motion, and integration boundaries](docs/design/kevin-ui.md).
+
+<p align="center"><img src="assets/kevin-ui-preview.png" alt="Kevin component and workspace design preview with sample data" width="100%"></p>
+
 ## What you can build on
 
 <table>
   <tr>
     <td width="50%" valign="top">
-      <h4>📁&nbsp; Work with a repository</h4>
+      <h4>Work with a repository</h4>
       Read and edit files, search code, apply patches, inspect Git changes, and run commands or tests.
     </td>
     <td width="50%" valign="top">
-      <h4>🧠&nbsp; Choose your model</h4>
+      <h4>Choose your model</h4>
       Protocol adapters for OpenAI Chat Completions, OpenAI Responses, Claude Messages, and Gemini, plus named OpenAI-compatible profiles.
     </td>
   </tr>
   <tr>
     <td valign="top">
-      <h4>✅&nbsp; Review execution</h4>
+      <h4>Review execution</h4>
       Tool events, enabled/denied tool rules, and explicit approval requests in the runtime.
     </td>
     <td valign="top">
-      <h4>⏱️&nbsp; Keep execution bounded</h4>
+      <h4>Keep execution bounded</h4>
       Finite tool loops, validated tool parameters, capped command output, timeouts, and command cancellation through runtime signals.
     </td>
   </tr>
   <tr>
     <td valign="top">
-      <h4>🧩&nbsp; Extend the workflow</h4>
+      <h4>Extend the workflow</h4>
       Built-in tools for web retrieval, skills, MCP resources/prompts, tasks, and workspace operations; TypeScript SDK and HTTP entrypoints.
     </td>
     <td valign="top">
-      <h4>🧰&nbsp; 120 built-in tools</h4>
+      <h4>120 built-in tools</h4>
       Registration and local tests do not establish full integration support: provider credentials, external services, and individual tool behavior still need validation in the target environment.
     </td>
   </tr>

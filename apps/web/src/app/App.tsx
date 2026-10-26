@@ -1,4 +1,4 @@
-import { Match, Switch, createSignal, onMount } from "solid-js";
+import { Match, Switch, createSignal, createMemo, onMount } from "solid-js";
 import { ChatThread } from "../components/ChatThread";
 import { OperationStage } from "../components/OperationStage";
 import { RunsView } from "../components/RunsView";
@@ -7,9 +7,18 @@ import { TasksView } from "../components/TasksView";
 import { TopBar } from "../components/TopBar";
 import { createAgentSession } from "../runtime/agentSession";
 
+import type { KevinState } from "../components/kevin/KevinAvatar";
+
 export function App() {
   const session = createAgentSession();
   const [view, setView] = createSignal("chat");
+
+  const agentState = createMemo<KevinState>(() => {
+    if (session.pendingApprovals().length) return "approval";
+    if (!session.busy()) return "ready";
+    const latest = session.operations()[session.operations().length - 1];
+    return latest && ["opening", "running"].includes(latest.phase) ? "working" : "thinking";
+  });
 
   onMount(() => {
     void session.bootstrap();
@@ -30,6 +39,7 @@ export function App() {
           <Match when={view() === "chat"}>
             <div class="operation-layout">
               <ChatThread
+                agentState={agentState}
                 messages={session.messages}
                 busy={session.busy}
                 protocol={session.protocol}

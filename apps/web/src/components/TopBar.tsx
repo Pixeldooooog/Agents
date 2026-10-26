@@ -1,6 +1,8 @@
-import { Circle, Radio, Sparkles } from "lucide-solid";
+import { Circle, Radio } from "lucide-solid";
 import type { Accessor, Setter } from "solid-js";
 import { For } from "solid-js";
+
+import { KevinAvatar } from "./kevin/KevinAvatar";
 
 type Props = {
   view: Accessor<string>;
@@ -22,10 +24,10 @@ export function TopBar(props: Props) {
   return (
     <header class="studio-topbar">
       <div class="brand-block">
-        <div class="mark"><Sparkles size={19} /></div>
+        <div class="mark"><KevinAvatar size={48} decorative /></div>
         <div>
           <h1>Kevin</h1>
-          <p>Web Console</p>
+          <p>Your personal agent</p>
         </div>
       </div>
       <div class="top-actions">
@@ -37,6 +39,7 @@ export function TopBar(props: Props) {
           <Radio size={15} />
           <span>{props.streaming() ? "Streaming" : "Single response"}</span>
         </button>
+        <a class="plain-button" href="?design" style={{"text-decoration":"none"}}>Design</a>
         <div class="view-tabs">
           <For each={tabs}>{(item) => (
             <button class="plain-button" classList={{ active: props.view() === item.id }} onClick={() => props.setView(item.id)}>

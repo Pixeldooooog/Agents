@@ -28,15 +28,15 @@
 <table>
   <tr>
     <td width="33%" valign="top">
-      <h4>🖥️&nbsp; 本地运行</h4>
+      <h4>本地运行</h4>
       Kevin 运行在你的机器上，Host 默认监听 <code>127.0.0.1</code>。模型请求只发送到你配置的服务地址。
     </td>
     <td width="33%" valign="top">
-      <h4>🔌&nbsp; 自选模型</h4>
+      <h4>自选模型</h4>
       OpenAI、Claude、Gemini 或任意 OpenAI-compatible 服务，通过命名配置切换。
     </td>
     <td width="33%" valign="top">
-      <h4>🔍&nbsp; 过程可查</h4>
+      <h4>过程可查</h4>
       工具调用以事件形式呈现，受启用/禁用规则与显式审批请求约束。
     </td>
   </tr>
@@ -49,36 +49,46 @@ Kevin 正在成为一个围绕你的文件、工具和项目工作的个人智�
 > [!NOTE]
 > **开发预览阶段。** 持久任务恢复、基于 Markdown 的个人记忆、后台例行工作仍在规划与开发中。原生沙箱后端暂缓上线；当前本地命令以宿主进程权限执行。已验证范围见[支持矩阵](docs/baseline/support-matrix.md)。
 
+## 视觉与界面
+
+Kevin 的天线狗用耳朵、表情和琥珀色天线反馈状态。工作区使用暖纸色、墨黑文字与清晰的操作层级；正文和代码保持规整、易读。
+
+- **组件预览：**启动 Web 后打开 `/ui/?design`，体验状态切换、浅深配色与成果工作台；`/ui/?design=workspace` 可全屏体验材料展开、原地改稿、补充要求与确认流程。预览使用示例数据，不调用模型或工具。
+- **实际界面：**对话页已使用暖纸主题和狗狗头像；执行、思考、待确认状态来自当前会话。倾听与完成动效可在组件页预览。
+- **设计规范：**[角色、组件、动效与接入边界](docs/design/kevin-ui.md)。
+
+<p align="center"><img src="assets/kevin-ui-preview.png" alt="Kevin 组件与工作区设计预览，使用示例数据" width="100%"></p>
+
 ## 现有能力
 
 <table>
   <tr>
     <td width="50%" valign="top">
-      <h4>📁&nbsp; 围绕代码仓库工作</h4>
+      <h4>围绕代码仓库工作</h4>
       读取和编辑文件、搜索代码、应用补丁、查看 Git 变更，以及运行命令和测试。
     </td>
     <td width="50%" valign="top">
-      <h4>🧠&nbsp; 选择适合的模型</h4>
+      <h4>选择适合的模型</h4>
       支持 OpenAI Chat Completions、OpenAI Responses、Claude Messages、Gemini 协议适配，以及命名的 OpenAI-compatible 配置。
     </td>
   </tr>
   <tr>
     <td valign="top">
-      <h4>✅&nbsp; 查看和审批执行</h4>
+      <h4>查看和审批执行</h4>
       运行时提供工具事件、工具启用/禁用规则和显式审批请求。
     </td>
     <td valign="top">
-      <h4>⏱️&nbsp; 限制执行开销</h4>
+      <h4>限制执行开销</h4>
       有限工具循环、参数校验、命令输出上限、超时，以及通过运行时信号取消命令。
     </td>
   </tr>
   <tr>
     <td valign="top">
-      <h4>🧩&nbsp; 扩展工作方式</h4>
+      <h4>扩展工作方式</h4>
       内置 Web 检索、Skill、MCP 资源/提示词、任务和工作空间操作，并提供 TypeScript SDK 与 HTTP 入口。
     </td>
     <td valign="top">
-      <h4>🧰&nbsp; 120 个内置工具</h4>
+      <h4>120 个内置工具</h4>
       存在注册和本地测试不代表完整集成已经验收；模型账号、外部服务和具体工具行为仍需在目标环境验证。
     </td>
   </tr>

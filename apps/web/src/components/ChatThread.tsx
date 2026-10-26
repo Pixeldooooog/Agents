@@ -1,10 +1,14 @@
-import { Bot, Eraser, MessageSquareText, Send, Sparkles } from "lucide-solid";
+import { Eraser, MessageSquareText, Send } from "lucide-solid";
 import type { Accessor, Setter } from "solid-js";
 import { For, Show } from "solid-js";
 import type { ApprovalDecision, ChatMessage, PermissionMode, ToolApprovalRequest } from "../types/runtimeTypes";
 import { ToolApprovalPanel } from "./ToolApprovalPanel";
 
+import { KevinAvatar, type KevinState } from "./kevin/KevinAvatar";
+import { AgentPresence } from "./kevin/Primitives";
+
 type Props = {
+  agentState: Accessor<KevinState>;
   messages: Accessor<ChatMessage[]>;
   busy: Accessor<boolean>;
   protocol: Accessor<string>;
@@ -27,8 +31,9 @@ export function ChatThread(props: Props) {
       <div class="thread-header">
         <div>
           <p class="eyebrow">Conversation</p>
-          <h2>Agent thread</h2>
+          <h2>Work with Kevin</h2>
         </div>
+        <AgentPresence state={props.agentState()} />
         <button class="icon-button" onClick={props.clear} title="Clear conversation">
           <Eraser size={16} />
         </button>
@@ -59,9 +64,10 @@ export function ChatThread(props: Props) {
             onKeyDown={(event) => {
               if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) props.send();
             }}
-            placeholder="Message the agent..."
+            aria-label="Message Kevin"
+            placeholder="What shall we work on?"
           />
-          <button class="send-button" disabled={!props.canSend()} onClick={props.send}>
+          <button class="send-button" aria-label="Send message" disabled={!props.canSend()} onClick={props.send}>
             <Send size={18} />
           </button>
         </div>
@@ -73,7 +79,7 @@ export function ChatThread(props: Props) {
 function MessageBubble(props: { message: ChatMessage }) {
   return (
     <article class={`message message-${props.message.role}`}>
-      <div class="avatar">{props.message.role === "user" ? <MessageSquareText size={16} /> : <Bot size={16} />}</div>
+      <div class="avatar">{props.message.role === "user" ? <MessageSquareText size={16} /> : <KevinAvatar size={28} decorative />}</div>
       <div class="bubble">
         <span>{props.message.role}</span>
         <p>{props.message.content || "..."}</p>
@@ -85,7 +91,7 @@ function MessageBubble(props: { message: ChatMessage }) {
 function EmptyState() {
   return (
     <div class="empty-state">
-      <Sparkles size={36} />
+      <KevinAvatar size={110} />
       <h3>Ready</h3>
       <p>Send a task to start a run.</p>
     </div>
