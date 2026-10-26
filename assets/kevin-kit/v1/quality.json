@@ -1,0 +1,141 @@
+{
+  "count": 8,
+  "assets": [
+    {
+      "file": "composer-listen.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alpha_range": [
+        0,
+        255
+      ],
+      "fully_transparent_fraction": 0.5564,
+      "content_bounds": [
+        0,
+        9,
+        1232,
+        1254
+      ]
+    },
+    {
+      "file": "composer-rest.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alpha_range": [
+        0,
+        255
+      ],
+      "fully_transparent_fraction": 0.5198,
+      "content_bounds": [
+        0,
+        39,
+        1253,
+        1254
+      ]
+    },
+    {
+      "file": "empty-folder.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alpha_range": [
+        0,
+        255
+      ],
+      "fully_transparent_fraction": 0.6276,
+      "content_bounds": [
+        0,
+        23,
+        1230,
+        1254
+      ]
+    },
+    {
+      "file": "result-delivery.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alpha_range": [
+        0,
+        255
+      ],
+      "fully_transparent_fraction": 0.619,
+      "content_bounds": [
+        0,
+        21,
+        1235,
+        1254
+      ]
+    },
+    {
+      "file": "state-approval.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alpha_range": [
+        0,
+        255
+      ],
+      "fully_transparent_fraction": 0.6325,
+      "content_bounds": [
+        0,
+        22,
+        1232,
+        1235
+      ]
+    },
+    {
+      "file": "state-paused.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alpha_range": [
+        0,
+        255
+      ],
+      "fully_transparent_fraction": 0.5912,
+      "content_bounds": [
+        0,
+        32,
+        1190,
+        1254
+      ]
+    },
+    {
+      "file": "state-thinking.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alpha_range": [
+        0,
+        255
+      ],
+      "fully_transparent_fraction": 0.5883,
+      "content_bounds": [
+        0,
+        31,
+        1218,
+        1232
+      ]
+    },
+    {
+      "file": "state-working.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGBA",
+      "alpha_range": [
+        0,
+        255
+      ],
+      "fully_transparent_fraction": 0.5352,
+      "content_bounds": [
+        39,
+        87,
+        1234,
+        1238
+      ]
+    }
+  ]
+}

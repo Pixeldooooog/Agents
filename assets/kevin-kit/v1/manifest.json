@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "status": "static concept assets, not animation frames",
+  "generator": "built-in imagegen",
+  "reference": "../../design-drafts/kevin-doodle-antenna-v1.png",
+  "assets": [
+    {
+      "id": "composer-rest",
+      "title": "趴着等候",
+      "category": "输入框",
+      "description": "安静陪伴，适合输入区的默认姿态。",
+      "file": "composer-rest.png",
+      "prompt": "composer-rest-prompt.md"
+    },
+    {
+      "id": "composer-listen",
+      "title": "抬耳倾听",
+      "category": "输入框",
+      "description": "输入或补充要求时抬起短折耳。",
+      "file": "composer-listen.png",
+      "prompt": "composer-listen-prompt.md"
+    },
+    {
+      "id": "state-thinking",
+      "title": "思考",
+      "category": "状态",
+      "description": "用嘴形与天线姿态传达思考。",
+      "file": "state-thinking.png",
+      "prompt": "state-thinking-prompt.md"
+    },
+    {
+      "id": "state-working",
+      "title": "正在执行",
+      "category": "状态",
+      "description": "双眼保持自然，动作与道具表达工作。",
+      "file": "state-working.png",
+      "prompt": "state-working-prompt.md"
+    },
+    {
+      "id": "state-approval",
+      "title": "等待确认",
+      "category": "状态",
+      "description": "给用户留出决定的时间。",
+      "file": "state-approval.png",
+      "prompt": "state-approval-prompt.md"
+    },
+    {
+      "id": "result-delivery",
+      "title": "成果交付",
+      "category": "结果",
+      "description": "用于文件结果卡和完成提示。",
+      "file": "result-delivery.png",
+      "prompt": "result-delivery-prompt.md"
+    },
+    {
+      "id": "empty-folder",
+      "title": "等待材料",
+      "category": "空状态",
+      "description": "用于尚无文件或尚未添加资料。",
+      "file": "empty-folder.png",
+      "prompt": "empty-folder-prompt.md"
+    },
+    {
+      "id": "state-paused",
+      "title": "暂停休息",
+      "category": "状态",
+      "description": "用于用户主动暂停，区别于执行失败。",
+      "file": "state-paused.png",
+      "prompt": "state-paused-prompt.md"
+    }
+  ]
+}
