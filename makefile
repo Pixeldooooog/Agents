@@ -1,9 +1,22 @@
 BUN ?= $(shell command -v bun 2>/dev/null)
+BUN_VERSION := $(shell cat .bun-version 2>/dev/null)
+
+# package.json scripts invoke `bun` again; put the selected Bun first on PATH so nested runs use the same version.
+ifneq ($(findstring /,$(BUN)),)
+export PATH := $(abspath $(dir $(BUN))):$(PATH)
+endif
 
 .PHONY: setup server host terminal-host tui web gui typecheck test test-terminal check build check-bun
 
 check-bun:
-	@test -n "$(BUN)" || (echo "bun is required; install Bun before running the TypeScript runtime." && exit 1)
+	@test -n "$(BUN)" || (echo "bun is required; install Bun $(BUN_VERSION) before running the TypeScript runtime." >&2 && exit 1)
+	@test -n "$(BUN_VERSION)" || (echo ".bun-version is missing or empty." >&2 && exit 1)
+	@actual="$$("$(BUN)" --version)"; \
+	if [ "$$actual" != "$(BUN_VERSION)" ]; then \
+		echo "Bun $(BUN_VERSION) is required (.bun-version), but $(BUN) is $$actual." >&2; \
+		echo "Install Bun $(BUN_VERSION), or run with BUN=/path/to/bun-$(BUN_VERSION)." >&2; \
+		exit 1; \
+	fi
 
 setup: check-bun
 	@$(BUN) install
