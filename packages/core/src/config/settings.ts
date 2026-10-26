@@ -82,17 +82,17 @@ export async function loadSettings(repoRoot = process.cwd()): Promise<Settings> 
       debug: boolSetting(env.DEBUG, valueOrFallback(host.debug, false)),
       projectName: stringSetting(env.PROJECT_NAME, valueOrFallback(host.project_name, "Agents")),
       apiPrefix: stringSetting(env.API_PREFIX, valueOrFallback(host.api_prefix, "/api")),
-      bindHost: stringSetting(env.HOST, valueOrFallback(host.host, "0.0.0.0")),
+      bindHost: stringSetting(env.HOST, valueOrFallback(host.host, "127.0.0.1")),
       port: numberSetting(env.PORT, valueOrFallback(host.port, 8020)),
       domain: stringSetting(env.DOMAIN, valueOrFallback(host.domain, "http://localhost:8020")),
       accessToken: stringSetting(env.ACCESS_TOKEN, ""),
-      corsOrigins: listSetting(env.CORS_ORIGINS, valueOrFallback(host.cors_origins, ["*"]))
+      corsOrigins: listSetting(env.CORS_ORIGINS, valueOrFallback(host.cors_origins, []))
     },
     agent: {
       protocol: stringSetting(env.AGENT_PROTOCOL, valueOrFallback(agent.protocol, "openai-chat")),
       timeout: numberSetting(env.AGENT_TIMEOUT, valueOrFallback(agent.timeout, 60)),
       maxTokens: numberSetting(env.AGENT_MAX_TOKENS, valueOrFallback(agent.max_tokens, 16384)),
-      maxToolIterations: numberSetting(env.AGENT_MAX_TOOL_ITERATIONS, valueOrFallback(agent.max_tool_iterations, 0)),
+      maxToolIterations: numberSetting(env.AGENT_MAX_TOOL_ITERATIONS, valueOrFallback(agent.max_tool_iterations, 40)),
       systemPrompt: stringSetting(env.AGENT_SYSTEM_PROMPT, valueOrFallback(agent.system_prompt, "")),
       enabledTools: listSetting(env.AGENT_ENABLED_TOOLS, valueOrFallback(agent.enabled_tools, "")),
       builtinTools: listSetting(env.AGENT_BUILTIN_TOOLS, valueOrFallback(agent.builtin_tools, "")),

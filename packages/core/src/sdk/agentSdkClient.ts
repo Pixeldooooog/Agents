@@ -1,3 +1,4 @@
+import type { StateStore } from "../ports/stateStore.js";
 import { loadSettings, type Settings } from "../config/settings.js";
 import { AgentRunService, type AgentRunServiceOptions } from "../runtime/agentRunService.js";
 import { JsonStateStore, statePath } from "../store/jsonStateStore.js";
@@ -76,7 +77,7 @@ import {
 
 export type AgentSdkClientOptions = Partial<Omit<AgentRunServiceOptions, "settings" | "store">> & {
   settings: Settings;
-  store: JsonStateStore;
+  store: StateStore;
   runs?: AgentRunService;
 };
 

@@ -1,10 +1,10 @@
-import type { JsonStateStore } from "../store/jsonStateStore.js";
+import type { StateStore } from "../ports/stateStore.js";
 import { matchesScope } from "../store/storeHelpers.js";
 import type { StoreScopeFilter } from "../store/storeFilters.js";
 import type { TaskRecord } from "../types/taskTypes.js";
 
 export async function resolveTaskInScope(
-  store: Pick<JsonStateStore, "listTasks" | "loadTask">,
+  store: Pick<StateStore, "listTasks" | "loadTask">,
   taskId: string,
   scope: StoreScopeFilter = {}
 ): Promise<TaskRecord> {

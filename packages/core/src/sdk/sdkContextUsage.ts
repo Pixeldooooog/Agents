@@ -1,6 +1,6 @@
 import type { Settings } from "../config/settings.js";
 import { combineModelUsage, modelUsageFromPayload, modelUsagePayload } from "../models/modelUsage.js";
-import type { JsonStateStore } from "../store/jsonStateStore.js";
+import type { StateStore } from "../ports/stateStore.js";
 import type { ModelUsage } from "../types/modelTypes.js";
 import type { RunRecord, RuntimeEvent } from "../types/runtimeTypes.js";
 import { listSdkSessionRuns } from "./sdkSessionRecords.js";
@@ -12,7 +12,7 @@ export type SdkContextUsageOptions = {
 
 export type SdkContextUsageInput = {
   settings: Settings;
-  store: JsonStateStore;
+  store: StateStore;
   options: SdkContextUsageOptions;
 };
 
@@ -70,7 +70,7 @@ export async function sdkContextUsagePayload(input: SdkContextUsageInput): Promi
   };
 }
 
-async function contextRuns(store: JsonStateStore, sessionId = ""): Promise<RunRecord[]> {
+async function contextRuns(store: StateStore, sessionId = ""): Promise<RunRecord[]> {
   if (!sessionId.trim()) return [];
   return (await listSdkSessionRuns(store, sessionId)).sort((left, right) => left.created_at - right.created_at);
 }

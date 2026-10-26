@@ -1,7 +1,7 @@
 import type { Settings } from "../config/settings.js";
 import { profileDefaults } from "../models/modelProfiles.js";
 import { AgentRunService } from "../runtime/agentRunService.js";
-import type { JsonStateStore } from "../store/jsonStateStore.js";
+import type { StateStore } from "../ports/stateStore.js";
 import type { AgentChatPayload } from "../types/agentTypes.js";
 import type { AgentResult } from "../types/runtimeTypes.js";
 import type { TaskRecord, TaskStepRecord } from "../types/taskTypes.js";
@@ -9,7 +9,7 @@ import { specFromPayload } from "../types/agentTypes.js";
 import { defaultTaskTitle } from "./taskTitles.js";
 
 export class TaskService {
-  constructor(private readonly settings: Settings, private readonly store: JsonStateStore) {}
+  constructor(private readonly settings: Settings, private readonly store: StateStore) {}
 
   async create(payload: AgentChatPayload): Promise<TaskRecord> {
     const spec = specFromPayload(payload, profileDefaults(this.settings));

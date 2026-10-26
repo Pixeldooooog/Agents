@@ -20,12 +20,12 @@ import {
 } from "./mcpToolSchemas.js";
 
 export const mcpToolDefinitions: ToolDefinition[] = [
-  { name: "mcp.servers", description: "Read configured and loaded MCP server status.", risk: "low", handler: readMcpServers },
+  { name: "mcp.servers", parameters: { type: "object", properties: {}, additionalProperties: false }, description: "Read configured and loaded MCP server status.", risk: "low", handler: readMcpServers },
   { name: "mcp.configure", description: "Configure an MCP server for this session scope.", risk: "medium", parameters: mcpConfigureSchema, handler: configureMcpServer },
   { name: "mcp.enable", description: "Enable a previously configured MCP server.", risk: "medium", parameters: mcpServerNameSchema, handler: enableMcpServer },
   { name: "mcp.disable", description: "Disable a configured MCP server without deleting it.", risk: "medium", parameters: mcpServerNameSchema, handler: disableMcpServer },
   { name: "mcp.remove", description: "Remove a saved MCP server configuration.", risk: "medium", parameters: mcpServerNameSchema, handler: removeMcpServer },
-  { name: "mcp.clear", description: "Clear MCP server configuration and loaded providers.", risk: "medium", handler: clearMcpServers },
+  { name: "mcp.clear", parameters: { type: "object", properties: {}, additionalProperties: false }, description: "Clear MCP server configuration and loaded providers.", risk: "medium", handler: clearMcpServers },
   { name: "mcp.prompts", description: "List prompt templates exposed by configured MCP servers.", risk: "low", parameters: mcpPromptsSchema, handler: mcpPrompts },
   { name: "mcp.get_prompt", description: "Render a prompt template exposed by a configured MCP server.", risk: "medium", parameters: mcpGetPromptSchema, handler: mcpGetPrompt },
   { name: "mcp.resources", description: "List resources exposed by configured MCP servers.", risk: "low", parameters: mcpResourcesSchema, handler: mcpResources },

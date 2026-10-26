@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, spyOn } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -544,6 +544,8 @@ describe("TS SDK client", () => {
         return Response.json({ choices: [{ message: { content: `answer: ${user?.content || ""}` } }] });
       }
     });
+    let clock = Date.now();
+    const clockSpy = spyOn(Date, "now").mockImplementation(() => ++clock);
     try {
       const settings = await loadSettings(root);
       const store = new JsonStateStore(path.join(root, "state.json"));
@@ -603,6 +605,7 @@ describe("TS SDK client", () => {
         status: "finished"
       });
     } finally {
+      clockSpy.mockRestore();
       server.stop(true);
       await rm(root, { recursive: true, force: true });
     }
@@ -610,6 +613,8 @@ describe("TS SDK client", () => {
 
   test("manages SDK session metadata, filters, message slices, and forks", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "agents-sdk-session-management-"));
+    let clock = Date.now();
+    const clockSpy = spyOn(Date, "now").mockImplementation(() => ++clock);
     try {
       const settings = await loadSettings(root);
       const store = new JsonStateStore(path.join(root, "state.json"));
@@ -732,6 +737,7 @@ describe("TS SDK client", () => {
       expect(Object.keys(clientFork)).not.toContain("session_id");
       expect(Object.keys(clientFork)).not.toContain("run_ids");
     } finally {
+      clockSpy.mockRestore();
       await rm(root, { recursive: true, force: true });
     }
   });

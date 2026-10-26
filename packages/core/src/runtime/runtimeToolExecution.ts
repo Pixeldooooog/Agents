@@ -1,3 +1,4 @@
+import { deniesTool, isToolEnabled } from "./runtimeToolPermissions.js";
 import type { AgentSpec } from "../types/agentTypes.js";
 import type { Message, PendingApproval, RuntimeEvent, ToolCall, ToolResult } from "../types/runtimeTypes.js";
 import { runtimeEvent } from "../types/runtimeTypes.js";
@@ -23,6 +24,8 @@ export type PendingApprovalResolution = {
 };
 
 export async function executeRuntimeToolCall(input: RuntimeToolCallInput): Promise<ToolExecution> {
+  const name = canonicalToolName(input.toolCall.name);
+  if (!isToolEnabled(input.options.settings, input.spec, name) || deniesTool(input.spec, name)) return deniedToolExecution(input.toolCall);
   return executeBuiltinTool(
     input.options.settings.repoRoot,
     input.toolCall.name,

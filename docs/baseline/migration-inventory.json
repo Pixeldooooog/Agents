@@ -1,0 +1,1736 @@
+{
+  "schemaVersion": 1,
+  "legacyRevision": "b0d90f08cf3b1d1e3634c604942c7e019d1e7d91",
+  "scope": "All tracked src/agents Python modules; literal names in _register_builtin_tool calls in builtin *registration.py only. Dynamic aliases, SDK wire behavior and semantic equality are NOT inferred.",
+  "legacyPythonFiles": 450,
+  "packageMarkers": [
+    "src/agents/__init__.py",
+    "src/agents/interfaces/__init__.py",
+    "src/agents/kernel/__init__.py"
+  ],
+  "domains": [
+    {
+      "legacyPrefix": "entrypoints",
+      "targets": [
+        "packages/host/src/main.ts",
+        "apps/terminal/src/main.tsx"
+      ],
+      "gap": "CLI/doctor behavior parity pending",
+      "legacyFiles": [
+        "src/agents/entrypoints/__init__.py",
+        "src/agents/entrypoints/agents.py",
+        "src/agents/entrypoints/doctor.py"
+      ]
+    },
+    {
+      "legacyPrefix": "interfaces/bridge",
+      "targets": [
+        "packages/host/src/terminal",
+        "apps/terminal/src"
+      ],
+      "gap": "TS bridge replaces Python fallback; slash/interactive parity pending",
+      "legacyFiles": [
+        "src/agents/interfaces/bridge/__init__.py",
+        "src/agents/interfaces/bridge/active.py",
+        "src/agents/interfaces/bridge/fallback/__init__.py",
+        "src/agents/interfaces/bridge/fallback/commands.py",
+        "src/agents/interfaces/bridge/fallback/main.py",
+        "src/agents/interfaces/bridge/fallback/turns.py",
+        "src/agents/interfaces/bridge/fallback/ui/__init__.py",
+        "src/agents/interfaces/bridge/fallback/ui/activity.py",
+        "src/agents/interfaces/bridge/fallback/ui/adapter.py",
+        "src/agents/interfaces/bridge/fallback/ui/events.py",
+        "src/agents/interfaces/bridge/fallback/ui/format.py",
+        "src/agents/interfaces/bridge/fallback/ui/input.py",
+        "src/agents/interfaces/bridge/fallback/ui/panels.py",
+        "src/agents/interfaces/bridge/fallback/ui/terminal.py",
+        "src/agents/interfaces/bridge/ndjson.py",
+        "src/agents/interfaces/bridge/payload_format.py",
+        "src/agents/interfaces/bridge/payload_tools.py",
+        "src/agents/interfaces/bridge/payloads.py",
+        "src/agents/interfaces/bridge/sessions.py",
+        "src/agents/interfaces/bridge/slash.py",
+        "src/agents/interfaces/bridge/slash_commands/__init__.py",
+        "src/agents/interfaces/bridge/slash_commands/commands.py",
+        "src/agents/interfaces/bridge/slash_commands/common.py",
+        "src/agents/interfaces/bridge/slash_commands/extensions.py",
+        "src/agents/interfaces/bridge/slash_commands/mcp.py",
+        "src/agents/interfaces/bridge/slash_commands/permissions.py",
+        "src/agents/interfaces/bridge/slash_commands/prompts.py",
+        "src/agents/interfaces/bridge/slash_commands/schedules.py",
+        "src/agents/interfaces/bridge/slash_commands/sessions.py",
+        "src/agents/interfaces/bridge/slash_commands/tasks.py",
+        "src/agents/interfaces/bridge/slash_commands/tool_execution.py",
+        "src/agents/interfaces/bridge/slash_commands/workflows.py",
+        "src/agents/interfaces/bridge/turns.py",
+        "src/agents/interfaces/bridge/workspace_diff.py"
+      ]
+    },
+    {
+      "legacyPrefix": "interfaces/server",
+      "targets": [
+        "packages/host/src/api",
+        "packages/host/src/http"
+      ],
+      "gap": "HTTP route surface exists; payload, errors, concurrency and SSE parity pending",
+      "legacyFiles": [
+        "src/agents/interfaces/server/__init__.py",
+        "src/agents/interfaces/server/__main__.py",
+        "src/agents/interfaces/server/api/__init__.py",
+        "src/agents/interfaces/server/api/agent/__init__.py",
+        "src/agents/interfaces/server/api/agent/approval.py",
+        "src/agents/interfaces/server/api/agent/operation_frames.py",
+        "src/agents/interfaces/server/api/agent/routes.py",
+        "src/agents/interfaces/server/api/agent/schemas.py",
+        "src/agents/interfaces/server/api/agent/task_handlers.py",
+        "src/agents/interfaces/server/api/api.py",
+        "src/agents/interfaces/server/api/handler.py",
+        "src/agents/interfaces/server/api/router.py",
+        "src/agents/interfaces/server/app.py",
+        "src/agents/interfaces/server/auth/__init__.py",
+        "src/agents/interfaces/server/bootstrap/__init__.py",
+        "src/agents/interfaces/server/bootstrap/exceptions.py",
+        "src/agents/interfaces/server/bootstrap/hooks.py",
+        "src/agents/interfaces/server/bootstrap/middleware.py",
+        "src/agents/interfaces/server/core/__init__.py",
+        "src/agents/interfaces/server/core/config/__init__.py",
+        "src/agents/interfaces/server/core/config/_constants.py",
+        "src/agents/interfaces/server/core/config/agent.py",
+        "src/agents/interfaces/server/core/config/diagnostics.py",
+        "src/agents/interfaces/server/core/config/loader.py",
+        "src/agents/interfaces/server/core/config/log.py",
+        "src/agents/interfaces/server/core/config/mcp.py",
+        "src/agents/interfaces/server/core/config/models.py",
+        "src/agents/interfaces/server/core/config/server.py",
+        "src/agents/interfaces/server/core/config/web_search.py",
+        "src/agents/interfaces/server/core/exceptions.py",
+        "src/agents/interfaces/server/core/logging.py",
+        "src/agents/interfaces/server/core/middleware.py",
+        "src/agents/interfaces/server/http/__init__.py",
+        "src/agents/interfaces/server/http/request_id.py",
+        "src/agents/interfaces/server/http/responses.py",
+        "src/agents/interfaces/server/http/schemas.py",
+        "src/agents/interfaces/server/launcher.py",
+        "src/agents/interfaces/server/static.py",
+        "src/agents/interfaces/server/streaming/__init__.py",
+        "src/agents/interfaces/server/utils/__init__.py",
+        "src/agents/interfaces/server/utils/logger.py",
+        "src/agents/interfaces/server/utils/registry.py",
+        "src/agents/interfaces/server/utils/snowflake.py",
+        "src/agents/interfaces/server/utils/terminal.py",
+        "src/agents/interfaces/server/utils/utils.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/assembly",
+      "targets": [
+        "packages/core/src/runtime",
+        "packages/core/src/config"
+      ],
+      "gap": "Composition exists; sandbox/checkpoint injection not equivalent",
+      "legacyFiles": [
+        "src/agents/kernel/assembly/__init__.py",
+        "src/agents/kernel/assembly/active_tools.py",
+        "src/agents/kernel/assembly/common.py",
+        "src/agents/kernel/assembly/plugins.py",
+        "src/agents/kernel/assembly/runtime_limits.py",
+        "src/agents/kernel/assembly/session.py",
+        "src/agents/kernel/assembly/session_state.py",
+        "src/agents/kernel/assembly/spec_overrides.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/capabilities/sandbox",
+      "targets": [
+        "packages/core/src/execution"
+      ],
+      "gap": "GAP: bounded host execution only; legacy Docker/recording sandbox not migrated",
+      "legacyFiles": [
+        "src/agents/kernel/capabilities/sandbox/__init__.py",
+        "src/agents/kernel/capabilities/sandbox/docker.py",
+        "src/agents/kernel/capabilities/sandbox/docker_search_scripts.py",
+        "src/agents/kernel/capabilities/sandbox/factory.py",
+        "src/agents/kernel/capabilities/sandbox/local.py",
+        "src/agents/kernel/capabilities/sandbox/local_files.py",
+        "src/agents/kernel/capabilities/sandbox/local_process.py",
+        "src/agents/kernel/capabilities/sandbox/local_search.py",
+        "src/agents/kernel/capabilities/sandbox/recording.py",
+        "src/agents/kernel/capabilities/sandbox/records.py",
+        "src/agents/kernel/capabilities/sandbox/store.py",
+        "src/agents/kernel/capabilities/sandbox/text.py",
+        "src/agents/kernel/capabilities/sandbox/types.py",
+        "src/agents/kernel/capabilities/sandbox/workspace.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/capabilities/tools",
+      "targets": [
+        "packages/core/src/tools",
+        "packages/core/src/workspace"
+      ],
+      "gap": "Registered-name comparison below; schemas, aliases and side effects require separate verification",
+      "legacyFiles": [
+        "src/agents/kernel/capabilities/tools/__init__.py",
+        "src/agents/kernel/capabilities/tools/builtin/__init__.py",
+        "src/agents/kernel/capabilities/tools/builtin/agent_child_specs.py",
+        "src/agents/kernel/capabilities/tools/builtin/agent_isolation.py",
+        "src/agents/kernel/capabilities/tools/builtin/agent_profiles.py",
+        "src/agents/kernel/capabilities/tools/builtin/agent_worktree.py",
+        "src/agents/kernel/capabilities/tools/builtin/agents.py",
+        "src/agents/kernel/capabilities/tools/builtin/automation_registration.py",
+        "src/agents/kernel/capabilities/tools/builtin/browser.py",
+        "src/agents/kernel/capabilities/tools/builtin/collaboration_registration.py",
+        "src/agents/kernel/capabilities/tools/builtin/commands.py",
+        "src/agents/kernel/capabilities/tools/builtin/config.py",
+        "src/agents/kernel/capabilities/tools/builtin/development_registration.py",
+        "src/agents/kernel/capabilities/tools/builtin/execution_registration.py",
+        "src/agents/kernel/capabilities/tools/builtin/extension_registration.py",
+        "src/agents/kernel/capabilities/tools/builtin/extensions.py",
+        "src/agents/kernel/capabilities/tools/builtin/file_diff.py",
+        "src/agents/kernel/capabilities/tools/builtin/file_safety.py",
+        "src/agents/kernel/capabilities/tools/builtin/filesystem.py",
+        "src/agents/kernel/capabilities/tools/builtin/filesystem_limits.py",
+        "src/agents/kernel/capabilities/tools/builtin/filesystem_media.py",
+        "src/agents/kernel/capabilities/tools/builtin/filesystem_memory.py",
+        "src/agents/kernel/capabilities/tools/builtin/filesystem_read.py",
+        "src/agents/kernel/capabilities/tools/builtin/filesystem_results.py",
+        "src/agents/kernel/capabilities/tools/builtin/git.py",
+        "src/agents/kernel/capabilities/tools/builtin/hooks.py",
+        "src/agents/kernel/capabilities/tools/builtin/image_metadata.py",
+        "src/agents/kernel/capabilities/tools/builtin/interaction_registration.py",
+        "src/agents/kernel/capabilities/tools/builtin/lsp.py",
+        "src/agents/kernel/capabilities/tools/builtin/mcp/__init__.py",
+        "src/agents/kernel/capabilities/tools/builtin/mcp/ide.py",
+        "src/agents/kernel/capabilities/tools/builtin/mcp/management.py",
+        "src/agents/kernel/capabilities/tools/builtin/mcp/prompts.py",
+        "src/agents/kernel/capabilities/tools/builtin/mcp/registration.py",
+        "src/agents/kernel/capabilities/tools/builtin/mcp/resources.py",
+        "src/agents/kernel/capabilities/tools/builtin/mcp/runtime.py",
+        "src/agents/kernel/capabilities/tools/builtin/mcp/settings.py",
+        "src/agents/kernel/capabilities/tools/builtin/mcp/store.py",
+        "src/agents/kernel/capabilities/tools/builtin/memory.py",
+        "src/agents/kernel/capabilities/tools/builtin/meta.py",
+        "src/agents/kernel/capabilities/tools/builtin/notebook.py",
+        "src/agents/kernel/capabilities/tools/builtin/patch.py",
+        "src/agents/kernel/capabilities/tools/builtin/patch_payload.py",
+        "src/agents/kernel/capabilities/tools/builtin/patch_planner.py",
+        "src/agents/kernel/capabilities/tools/builtin/patch_text.py",
+        "src/agents/kernel/capabilities/tools/builtin/patch_types.py",
+        "src/agents/kernel/capabilities/tools/builtin/permissions.py",
+        "src/agents/kernel/capabilities/tools/builtin/planning.py",
+        "src/agents/kernel/capabilities/tools/builtin/plugins.py",
+        "src/agents/kernel/capabilities/tools/builtin/prompts.py",
+        "src/agents/kernel/capabilities/tools/builtin/read_errors.py",
+        "src/agents/kernel/capabilities/tools/builtin/read_paths.py",
+        "src/agents/kernel/capabilities/tools/builtin/registration.py",
+        "src/agents/kernel/capabilities/tools/builtin/registration_helpers.py",
+        "src/agents/kernel/capabilities/tools/builtin/runtime_registration.py",
+        "src/agents/kernel/capabilities/tools/builtin/schedules.py",
+        "src/agents/kernel/capabilities/tools/builtin/search.py",
+        "src/agents/kernel/capabilities/tools/builtin/session_context.py",
+        "src/agents/kernel/capabilities/tools/builtin/shell.py",
+        "src/agents/kernel/capabilities/tools/builtin/shell_lifecycle.py",
+        "src/agents/kernel/capabilities/tools/builtin/shell_notifications.py",
+        "src/agents/kernel/capabilities/tools/builtin/shell_prompt_stall.py",
+        "src/agents/kernel/capabilities/tools/builtin/skill_discovery.py",
+        "src/agents/kernel/capabilities/tools/builtin/skill_invocation.py",
+        "src/agents/kernel/capabilities/tools/builtin/sleep.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/__init__.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/agent_aliases.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/agent_builtin_profiles.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/agent_builtin_prompts.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/agent_context_options.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/agent_definition_options.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/agent_initial_prompt.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/agent_mcp_requirements.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/agent_memory.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/agent_metadata.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/agent_permission_mode.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/agent_profile_lookup.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/agent_profile_spec.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/agent_resolution.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/agent_skills.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/agent_system_reminder.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/agent_tool_rules.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/aliases.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/core_aliases.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/discovery_aliases.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/plan_aliases.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/schedule_aliases.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/session_aliases.py",
+        "src/agents/kernel/capabilities/tools/builtin/src_origin/task_aliases.py",
+        "src/agents/kernel/capabilities/tools/builtin/state_registration.py",
+        "src/agents/kernel/capabilities/tools/builtin/structured.py",
+        "src/agents/kernel/capabilities/tools/builtin/task_agent_sessions.py",
+        "src/agents/kernel/capabilities/tools/builtin/task_schemas.py",
+        "src/agents/kernel/capabilities/tools/builtin/task_src_origin.py",
+        "src/agents/kernel/capabilities/tools/builtin/tasks.py",
+        "src/agents/kernel/capabilities/tools/builtin/team_memory_safety.py",
+        "src/agents/kernel/capabilities/tools/builtin/teams.py",
+        "src/agents/kernel/capabilities/tools/builtin/tests.py",
+        "src/agents/kernel/capabilities/tools/builtin/tool_names.py",
+        "src/agents/kernel/capabilities/tools/builtin/user_interaction.py",
+        "src/agents/kernel/capabilities/tools/builtin/web.py",
+        "src/agents/kernel/capabilities/tools/builtin/web_registration.py",
+        "src/agents/kernel/capabilities/tools/builtin/workflows.py",
+        "src/agents/kernel/capabilities/tools/builtin/workspace_registration.py",
+        "src/agents/kernel/capabilities/tools/builtin/worktree.py",
+        "src/agents/kernel/capabilities/tools/builtin/worktree_git.py",
+        "src/agents/kernel/capabilities/tools/builtin/worktree_hook_commands.py",
+        "src/agents/kernel/capabilities/tools/builtin/worktree_hook_lifecycle.py",
+        "src/agents/kernel/capabilities/tools/builtin/worktree_hooks.py",
+        "src/agents/kernel/capabilities/tools/builtin/worktree_naming.py",
+        "src/agents/kernel/capabilities/tools/builtin/worktree_setup.py",
+        "src/agents/kernel/capabilities/tools/builtin/worktree_state.py",
+        "src/agents/kernel/capabilities/tools/builtin/worktree_tmux.py",
+        "src/agents/kernel/capabilities/tools/context.py",
+        "src/agents/kernel/capabilities/tools/contracts.py",
+        "src/agents/kernel/capabilities/tools/recording.py",
+        "src/agents/kernel/capabilities/tools/registry.py",
+        "src/agents/kernel/capabilities/tools/results.py",
+        "src/agents/kernel/capabilities/tools/validation.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/capabilities/memory",
+      "targets": [
+        "packages/core/src/memory"
+      ],
+      "gap": "JSON memory is not target Markdown/index architecture",
+      "legacyFiles": [
+        "src/agents/kernel/capabilities/memory/__init__.py",
+        "src/agents/kernel/capabilities/memory/store.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/capabilities/web",
+      "targets": [
+        "packages/core/src/web"
+      ],
+      "gap": "Provider/policy implementations exist; real-service coverage pending",
+      "legacyFiles": [
+        "src/agents/kernel/capabilities/web/__init__.py",
+        "src/agents/kernel/capabilities/web/factory.py",
+        "src/agents/kernel/capabilities/web/policy.py",
+        "src/agents/kernel/capabilities/web/providers/__init__.py",
+        "src/agents/kernel/capabilities/web/providers/tavily.py",
+        "src/agents/kernel/capabilities/web/types.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/capabilities/skills",
+      "targets": [
+        "packages/core/src/extensions"
+      ],
+      "gap": "Discovery exists; execution/security semantics pending",
+      "legacyFiles": [
+        "src/agents/kernel/capabilities/skills/__init__.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/capabilities",
+      "targets": [
+        "packages/core/src/extensions",
+        "packages/core/src/workspace"
+      ],
+      "gap": "IDE/skill environment compatibility requires focused audit",
+      "legacyFiles": [
+        "src/agents/kernel/capabilities/__init__.py",
+        "src/agents/kernel/capabilities/ide.py",
+        "src/agents/kernel/capabilities/ide_environment.py",
+        "src/agents/kernel/capabilities/ide_extension.py",
+        "src/agents/kernel/capabilities/skill_loading.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/config",
+      "targets": [
+        "packages/core/src/config"
+      ],
+      "gap": "Settings replaced; legacy environment names not all supported",
+      "legacyFiles": [
+        "src/agents/kernel/config/__init__.py",
+        "src/agents/kernel/config/loader.py",
+        "src/agents/kernel/config/models.py",
+        "src/agents/kernel/config/paths.py",
+        "src/agents/kernel/config/profiles.py",
+        "src/agents/kernel/config/settings.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/context",
+      "targets": [
+        "packages/core/src/session",
+        "packages/core/src/sdk/sdkSessionCompaction.ts"
+      ],
+      "gap": "Context compiler/source budget parity pending",
+      "legacyFiles": [
+        "src/agents/kernel/context/__init__.py",
+        "src/agents/kernel/context/builder.py",
+        "src/agents/kernel/context/compaction.py",
+        "src/agents/kernel/context/compaction_metadata.py",
+        "src/agents/kernel/context/compaction_model.py",
+        "src/agents/kernel/context/compaction_prompts.py",
+        "src/agents/kernel/context/compiler.py",
+        "src/agents/kernel/context/memory.py",
+        "src/agents/kernel/context/pack.py",
+        "src/agents/kernel/context/sources.py",
+        "src/agents/kernel/context/window.py",
+        "src/agents/kernel/context/workspace.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/governance",
+      "targets": [
+        "packages/core/src/permissions",
+        "packages/core/src/contracts/authority.ts"
+      ],
+      "gap": "GAP: legacy audit, credential/sandbox governance and target grants not integrated",
+      "legacyFiles": [
+        "src/agents/kernel/governance/__init__.py",
+        "src/agents/kernel/governance/approval_grants.py",
+        "src/agents/kernel/governance/audit/__init__.py",
+        "src/agents/kernel/governance/audit/approvals.py",
+        "src/agents/kernel/governance/credentials.py",
+        "src/agents/kernel/governance/factory.py",
+        "src/agents/kernel/governance/permissions.py",
+        "src/agents/kernel/governance/sandbox.py",
+        "src/agents/kernel/governance/security.py",
+        "src/agents/kernel/governance/shell_rule_normalization.py",
+        "src/agents/kernel/governance/tool_impact.py",
+        "src/agents/kernel/governance/tool_impact_arguments.py",
+        "src/agents/kernel/governance/tool_impact_common.py",
+        "src/agents/kernel/governance/tool_impact_domains.py",
+        "src/agents/kernel/governance/tool_rule_names.py",
+        "src/agents/kernel/governance/tool_rule_parser.py",
+        "src/agents/kernel/governance/tool_rule_patterns.py",
+        "src/agents/kernel/governance/tool_rule_shell.py",
+        "src/agents/kernel/governance/tool_rule_targets.py",
+        "src/agents/kernel/governance/tool_rule_types.py",
+        "src/agents/kernel/governance/tool_rules.py",
+        "src/agents/kernel/governance/tracing/__init__.py",
+        "src/agents/kernel/governance/tracing/recorder.py",
+        "src/agents/kernel/governance/tracing/store.py",
+        "src/agents/kernel/governance/tracing/types.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/hooks",
+      "targets": [
+        "packages/core/src/hooks"
+      ],
+      "gap": "Records/tools exist; actual hook lifecycle parity pending",
+      "legacyFiles": [
+        "src/agents/kernel/hooks/__init__.py",
+        "src/agents/kernel/hooks/approval.py",
+        "src/agents/kernel/hooks/base.py",
+        "src/agents/kernel/hooks/composite.py",
+        "src/agents/kernel/hooks/factory.py",
+        "src/agents/kernel/hooks/file_history_events.py",
+        "src/agents/kernel/hooks/guidance.py",
+        "src/agents/kernel/hooks/memory_access.py",
+        "src/agents/kernel/hooks/registry.py",
+        "src/agents/kernel/hooks/store.py",
+        "src/agents/kernel/hooks/thinking.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/mcp",
+      "targets": [
+        "packages/core/src/mcp",
+        "packages/core/src/sdk/sdkMcpControlHandlers.ts"
+      ],
+      "gap": "Injected provider/local protocol tests; real MCP auth/lifecycle pending",
+      "legacyFiles": [
+        "src/agents/kernel/mcp/__init__.py",
+        "src/agents/kernel/mcp/auth.py",
+        "src/agents/kernel/mcp/clients.py",
+        "src/agents/kernel/mcp/config.py",
+        "src/agents/kernel/mcp/elicitation_runtime.py",
+        "src/agents/kernel/mcp/list_changed_runtime.py",
+        "src/agents/kernel/mcp/loading.py",
+        "src/agents/kernel/mcp/naming.py",
+        "src/agents/kernel/mcp/oauth.py",
+        "src/agents/kernel/mcp/oauth_flow.py",
+        "src/agents/kernel/mcp/oauth_runtime.py",
+        "src/agents/kernel/mcp/oauth_tokens.py",
+        "src/agents/kernel/mcp/provider.py",
+        "src/agents/kernel/mcp/results.py",
+        "src/agents/kernel/mcp/transports/__init__.py",
+        "src/agents/kernel/mcp/transports/sdk_control.py",
+        "src/agents/kernel/mcp/transports/websocket.py",
+        "src/agents/kernel/mcp/types.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/models",
+      "targets": [
+        "packages/core/src/models"
+      ],
+      "gap": "Protocol implementations exist; real providers pending",
+      "legacyFiles": [
+        "src/agents/kernel/models/__init__.py",
+        "src/agents/kernel/models/adapters/__init__.py",
+        "src/agents/kernel/models/adapters/base.py",
+        "src/agents/kernel/models/adapters/claude.py",
+        "src/agents/kernel/models/adapters/gemini.py",
+        "src/agents/kernel/models/adapters/openai_chat.py",
+        "src/agents/kernel/models/adapters/openai_responses.py",
+        "src/agents/kernel/models/client.py",
+        "src/agents/kernel/models/constants.py",
+        "src/agents/kernel/models/errors.py",
+        "src/agents/kernel/models/protocol/__init__.py",
+        "src/agents/kernel/models/protocol/events.py",
+        "src/agents/kernel/models/protocol/stream.py",
+        "src/agents/kernel/models/retry.py",
+        "src/agents/kernel/models/transports/__init__.py",
+        "src/agents/kernel/models/transports/http.py",
+        "src/agents/kernel/models/transports/sse.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/orchestration",
+      "targets": [
+        "packages/core/src/collaboration"
+      ],
+      "gap": "Compatibility retained; multi-agent product is outside baseline scope",
+      "legacyFiles": [
+        "src/agents/kernel/orchestration/__init__.py",
+        "src/agents/kernel/orchestration/types.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/persistence",
+      "targets": [
+        "packages/core/src/store",
+        "packages/core/src/ports"
+      ],
+      "gap": "GAP: JSON has no transactional SQLite/ledger/outbox guarantee",
+      "legacyFiles": [
+        "src/agents/kernel/persistence/__init__.py",
+        "src/agents/kernel/persistence/codec.py",
+        "src/agents/kernel/persistence/schema.py",
+        "src/agents/kernel/persistence/sqlite.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/runtime",
+      "targets": [
+        "packages/core/src/runtime"
+      ],
+      "gap": "Single-turn runtime exists; target durable state machine not integrated",
+      "legacyFiles": [
+        "src/agents/kernel/runtime/__init__.py",
+        "src/agents/kernel/runtime/approvals.py",
+        "src/agents/kernel/runtime/checkpoints.py",
+        "src/agents/kernel/runtime/config.py",
+        "src/agents/kernel/runtime/errors.py",
+        "src/agents/kernel/runtime/events.py",
+        "src/agents/kernel/runtime/loop.py",
+        "src/agents/kernel/runtime/operations.py",
+        "src/agents/kernel/runtime/recovery.py",
+        "src/agents/kernel/runtime/session.py",
+        "src/agents/kernel/runtime/session_compaction.py",
+        "src/agents/kernel/runtime/session_lifecycle.py",
+        "src/agents/kernel/runtime/session_messages.py",
+        "src/agents/kernel/runtime/state.py",
+        "src/agents/kernel/runtime/testing.py",
+        "src/agents/kernel/runtime/tool_stream.py",
+        "src/agents/kernel/runtime/turns/__init__.py",
+        "src/agents/kernel/runtime/turns/model.py",
+        "src/agents/kernel/runtime/turns/tool_summary.py",
+        "src/agents/kernel/runtime/turns/tools.py",
+        "src/agents/kernel/runtime/types.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/specs",
+      "targets": [
+        "packages/core/src/types/agentTypes.ts"
+      ],
+      "gap": "Spec conversion exists; field-by-field equivalence pending",
+      "legacyFiles": [
+        "src/agents/kernel/specs/__init__.py",
+        "src/agents/kernel/specs/permissions.py",
+        "src/agents/kernel/specs/spec.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/state",
+      "targets": [
+        "packages/core/src/store"
+      ],
+      "gap": "GAP: artifact/checkpoint/audit/trace domains not fully represented",
+      "legacyFiles": [
+        "src/agents/kernel/state/__init__.py",
+        "src/agents/kernel/state/agents.py",
+        "src/agents/kernel/state/artifacts.py",
+        "src/agents/kernel/state/identity/__init__.py",
+        "src/agents/kernel/state/identity/principal.py",
+        "src/agents/kernel/state/identity/store.py",
+        "src/agents/kernel/state/runs/__init__.py",
+        "src/agents/kernel/state/runs/local_file.py",
+        "src/agents/kernel/state/runs/memory.py",
+        "src/agents/kernel/state/runs/sqlite.py",
+        "src/agents/kernel/state/runs/store.py",
+        "src/agents/kernel/state/runs/types.py",
+        "src/agents/kernel/state/workspaces/__init__.py",
+        "src/agents/kernel/state/workspaces/factory.py",
+        "src/agents/kernel/state/workspaces/layout.py",
+        "src/agents/kernel/state/workspaces/metadata.py",
+        "src/agents/kernel/state/workspaces/workspaces.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/tasks",
+      "targets": [
+        "packages/core/src/tasks"
+      ],
+      "gap": "Single-process task service; durable ownership/cancel/recovery pending",
+      "legacyFiles": [
+        "src/agents/kernel/tasks/__init__.py",
+        "src/agents/kernel/tasks/engine.py",
+        "src/agents/kernel/tasks/memory.py",
+        "src/agents/kernel/tasks/runner.py",
+        "src/agents/kernel/tasks/sqlite.py",
+        "src/agents/kernel/tasks/types.py",
+        "src/agents/kernel/tasks/worker.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/workflows",
+      "targets": [
+        "packages/core/src/workflow"
+      ],
+      "gap": "Workflow compatibility retained; durable steps not proven",
+      "legacyFiles": [
+        "src/agents/kernel/workflows/__init__.py",
+        "src/agents/kernel/workflows/types.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/memory_paths.py",
+      "targets": [
+        "packages/core/src/memory"
+      ],
+      "gap": "Target Markdown file layout pending",
+      "legacyFiles": [
+        "src/agents/kernel/memory_paths.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/schedules.py",
+      "targets": [
+        "packages/core/src/schedules"
+      ],
+      "gap": "Records/manual entry exist; supervised scheduler pending",
+      "legacyFiles": [
+        "src/agents/kernel/schedules.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/schema.py",
+      "targets": [
+        "packages/core/src/types",
+        "packages/core/src/contracts"
+      ],
+      "gap": "Legacy and v1 target contracts coexist; wire migration pending",
+      "legacyFiles": [
+        "src/agents/kernel/schema.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/session_state.py",
+      "targets": [
+        "packages/core/src/session"
+      ],
+      "gap": "Scope and restoration semantics pending",
+      "legacyFiles": [
+        "src/agents/kernel/session_state.py"
+      ]
+    },
+    {
+      "legacyPrefix": "kernel/teams.py",
+      "targets": [
+        "packages/core/src/collaboration"
+      ],
+      "gap": "Compatibility retained; not personal-agent baseline acceptance",
+      "legacyFiles": [
+        "src/agents/kernel/teams.py"
+      ]
+    },
+    {
+      "legacyPrefix": "platform/sessions",
+      "targets": [
+        "packages/core/src/runtime/agentRunService.ts",
+        "packages/core/src/sdk/sdkSession.ts"
+      ],
+      "gap": "GAP: persistent trace/sandbox/session lifecycle not equivalent",
+      "legacyFiles": [
+        "src/agents/platform/sessions/__init__.py",
+        "src/agents/platform/sessions/factory.py",
+        "src/agents/platform/sessions/file_history.py",
+        "src/agents/platform/sessions/file_history_carry.py",
+        "src/agents/platform/sessions/file_history_payloads.py",
+        "src/agents/platform/sessions/file_history_types.py",
+        "src/agents/platform/sessions/service.py"
+      ]
+    },
+    {
+      "legacyPrefix": "platform",
+      "targets": [
+        "packages/core/src/config",
+        "packages/core/src/store",
+        "packages/host/src/services"
+      ],
+      "gap": "GAP: durable persistence factory not migrated",
+      "legacyFiles": [
+        "src/agents/platform/__init__.py",
+        "src/agents/platform/commands.py",
+        "src/agents/platform/persistence.py",
+        "src/agents/platform/profiles.py"
+      ]
+    },
+    {
+      "legacyPrefix": "sdk",
+      "targets": [
+        "packages/core/src/sdk"
+      ],
+      "gap": "SDK tests cover selected behavior; complete alias/wire/error matrix pending",
+      "legacyFiles": [
+        "src/agents/sdk/__init__.py",
+        "src/agents/sdk/async_messages.py",
+        "src/agents/sdk/ccr.py",
+        "src/agents/sdk/ccr_auth.py",
+        "src/agents/sdk/ccr_stream.py",
+        "src/agents/sdk/ccr_types.py",
+        "src/agents/sdk/ccr_worker_state.py",
+        "src/agents/sdk/client.py",
+        "src/agents/sdk/control.py",
+        "src/agents/sdk/control_async_state.py",
+        "src/agents/sdk/control_files.py",
+        "src/agents/sdk/control_handlers.py",
+        "src/agents/sdk/control_interactions.py",
+        "src/agents/sdk/control_payloads.py",
+        "src/agents/sdk/control_system.py",
+        "src/agents/sdk/control_tasks.py",
+        "src/agents/sdk/event_artifacts.py",
+        "src/agents/sdk/event_auth.py",
+        "src/agents/sdk/event_fields.py",
+        "src/agents/sdk/event_messages.py",
+        "src/agents/sdk/event_payloads.py",
+        "src/agents/sdk/event_projection.py",
+        "src/agents/sdk/event_tasks.py",
+        "src/agents/sdk/file_history.py",
+        "src/agents/sdk/file_history_migration.py",
+        "src/agents/sdk/file_history_paths.py",
+        "src/agents/sdk/file_history_recorder.py",
+        "src/agents/sdk/file_history_rewind.py",
+        "src/agents/sdk/file_history_snapshots.py",
+        "src/agents/sdk/file_history_types.py",
+        "src/agents/sdk/file_rewind.py",
+        "src/agents/sdk/mcp/__init__.py",
+        "src/agents/sdk/mcp/control.py",
+        "src/agents/sdk/mcp/control_responses.py",
+        "src/agents/sdk/options.py",
+        "src/agents/sdk/runtime_io.py",
+        "src/agents/sdk/session_compaction.py",
+        "src/agents/sdk/session_records.py",
+        "src/agents/sdk/session_stream.py",
+        "src/agents/sdk/sessions.py",
+        "src/agents/sdk/stdin_runner.py",
+        "src/agents/sdk/structured_io.py",
+        "src/agents/sdk/transport_hybrid.py",
+        "src/agents/sdk/transport_queue.py",
+        "src/agents/sdk/transport_sse.py",
+        "src/agents/sdk/transport_types.py",
+        "src/agents/sdk/transport_websocket.py",
+        "src/agents/sdk/transports.py",
+        "src/agents/sdk/types.py"
+      ]
+    }
+  ],
+  "legacyRegisteredNames": [
+    {
+      "name": "browser.download",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/runtime_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "browser.open",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/runtime_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "config.manage",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/interaction_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "filesystem.delete",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/workspace_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "filesystem.list",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/workspace_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "filesystem.move",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/workspace_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "filesystem.read",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/workspace_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "filesystem.write",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/workspace_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "git.add",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/development_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "git.commit",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/development_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "git.diff",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/development_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "git.log",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/development_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "git.show",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/development_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "git.status",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/development_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "lsp.query",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/workspace_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "notebook.edit",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/workspace_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "patch.apply",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/workspace_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "search.glob",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/workspace_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "search.grep",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/workspace_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "shell.backgrounds",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/runtime_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "shell.kill",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/runtime_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "shell.output",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/runtime_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "shell.run",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/runtime_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "skill.invoke",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/interaction_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "sleep.wait",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/runtime_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "structured.output",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/interaction_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "test.discover",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/development_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "test.run",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/development_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "todo.read",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/development_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "todo.write",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/development_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "user.ask",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/interaction_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "user.message",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/interaction_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "web.extract",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/web_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "web.map",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/web_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "web.search",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/web_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "worktree.enter",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/workspace_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    },
+    {
+      "name": "worktree.exit",
+      "sources": [
+        "src/agents/kernel/capabilities/tools/builtin/workspace_registration.py"
+      ],
+      "disposition": "same_name_present_semantics_pending"
+    }
+  ],
+  "currentTools": [
+    {
+      "name": "agent.profiles",
+      "description": "List saved agent profiles.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "agent.run",
+      "description": "Delegate work to a child agent.",
+      "risk": "high",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "agent.save_profile",
+      "description": "Save the current or provided agent profile.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "browser.download",
+      "description": "Download an HTTP resource into the workspace.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "browser.open",
+      "description": "Fetch an HTTP page into the workspace and return a text preview.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "command.delete",
+      "description": "Delete a prompt-backed slash command.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "command.discover",
+      "description": "Discover prompt-backed slash commands in the workspace.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "command.read",
+      "description": "Read a prompt-backed slash command file.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "command.render",
+      "description": "Render a prompt-backed slash command.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "command.save",
+      "description": "Save a prompt-backed slash command.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "config.manage",
+      "description": "Get or set configuration settings.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "context.compact",
+      "description": "Compact older session messages into a summary placeholder.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "context.messages",
+      "description": "Read recent session message summaries.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "context.rewind",
+      "description": "Remove recent non-system messages from the current session context.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "context.trace",
+      "description": "Read runtime events captured during the current run.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "filesystem.delete",
+      "description": "Delete a workspace file or directory.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "filesystem.list",
+      "description": "List workspace directory entries.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "filesystem.move",
+      "description": "Move or rename a workspace file or directory.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "filesystem.read",
+      "description": "Read a UTF-8 workspace file.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "filesystem.write",
+      "description": "Create or replace a UTF-8 workspace file.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "git.add",
+      "description": "Stage Git paths.",
+      "risk": "high",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "git.commit",
+      "description": "Create a Git commit.",
+      "risk": "high",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "git.diff",
+      "description": "Show Git diff.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "git.log",
+      "description": "Show recent Git history.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "git.show",
+      "description": "Show a Git revision.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "git.status",
+      "description": "Show Git working tree status.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "hook.add",
+      "description": "Add a session hook that can append request guidance, record events, or gate tool use.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "hook.delete",
+      "description": "Delete a session hook by id or short id.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "hook.events",
+      "description": "List supported session hook events and actions.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "hook.list",
+      "description": "List session hooks configured for the current agent session.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "lsp.query",
+      "description": "Run a read-only language-server query for a source file.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "mcp.clear",
+      "description": "Clear MCP server configuration and loaded providers.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "mcp.configure",
+      "description": "Configure an MCP server for this session scope.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "mcp.disable",
+      "description": "Disable a configured MCP server without deleting it.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "mcp.enable",
+      "description": "Enable a previously configured MCP server.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "mcp.get_prompt",
+      "description": "Render a prompt template exposed by a configured MCP server.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "mcp.prompts",
+      "description": "List prompt templates exposed by configured MCP servers.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "mcp.read_resource",
+      "description": "Read a resource exposed by a configured MCP server.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "mcp.remove",
+      "description": "Remove a saved MCP server configuration.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "mcp.resources",
+      "description": "List resources exposed by configured MCP servers.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "mcp.servers",
+      "description": "Read configured and loaded MCP server status.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "memory.add",
+      "description": "Save a memory for future context retrieval.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "memory.edit",
+      "description": "Update a visible memory by id or short id.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "memory.forget",
+      "description": "Delete a visible memory by id or short id.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "memory.list",
+      "description": "List memories visible to the current user, agent, and workspace scope.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "notebook.edit",
+      "description": "Edit a specific cell in a Jupyter notebook.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "patch.apply",
+      "description": "Apply exact text edits to a workspace file.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "permission.add_rule",
+      "description": "Add a session-scoped allow, deny, or ask rule for a tool.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "permission.explain",
+      "description": "Explain the permission decision and impact for a hypothetical tool call.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "permission.remove_rule",
+      "description": "Remove session-scoped permission rules for a tool.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "permission.sources",
+      "description": "Read tool permission rules grouped by source and behavior.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "permission.status",
+      "description": "Read current tool permission profile and configured approval/deny lists.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "plan.enter",
+      "description": "Enter read-only planning mode for the current session.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "plan.exit",
+      "description": "Exit planning mode with a concrete plan.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "plan.status",
+      "description": "Read current plan mode state and todos.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "plugin.disable",
+      "description": "Disable a previously enabled local plugin.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "plugin.discover",
+      "description": "Discover local plugins and their tool/prompt contributions.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "plugin.enable",
+      "description": "Enable a local plugin for the current session.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "plugin.install",
+      "description": "Install a local plugin directory into .agents/plugins.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "plugin.uninstall",
+      "description": "Uninstall an installed plugin by name.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "prompt.delete",
+      "description": "Delete a saved prompt template.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "prompt.read",
+      "description": "Read a saved prompt template.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "prompt.render",
+      "description": "Render a saved prompt template with named arguments.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "prompt.save",
+      "description": "Save a prompt template.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "prompt.templates",
+      "description": "List saved prompt templates.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "schedule.create",
+      "description": "Create a persisted schedule for a prompt.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "schedule.delete",
+      "description": "Delete a persisted schedule by id or short id.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "schedule.list",
+      "description": "List schedules visible to the current agent scope.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "schedule.run",
+      "description": "Create a task from a persisted schedule and record its last run metadata.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "search.glob",
+      "description": "Find workspace files matching a glob pattern.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "search.grep",
+      "description": "Search workspace text files with a regular expression.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "session.export",
+      "description": "Export current session messages to a workspace JSON or Markdown file.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "session.status",
+      "description": "Read current session, workspace, model, enabled tool, and context-window status.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "session.summary",
+      "description": "Summarize recent current-session messages for handoff or status review.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "shell.backgrounds",
+      "description": "List background shell commands.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "shell.kill",
+      "description": "Stop a background shell command.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "shell.output",
+      "description": "Read output from a background shell command.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "shell.run",
+      "description": "Run a shell command in the workspace.",
+      "risk": "high",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "skill.disable",
+      "description": "Disable a previously enabled local skill.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "skill.discover",
+      "description": "Discover available local skills and their tool/prompt contributions.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "skill.install",
+      "description": "Install a local SKILL.md file or skill package directory.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "skill.invoke",
+      "description": "Invoke a local skill and return the rendered instructions.",
+      "risk": "high",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "skill.uninstall",
+      "description": "Uninstall a local skill by name.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "skill.use",
+      "description": "Enable a local skill for the current session.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "sleep.wait",
+      "description": "Wait for a bounded duration.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "structured.output",
+      "description": "Return structured output in the requested format.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "task.background",
+      "description": "Create a task record for background execution.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "task.backgrounds",
+      "description": "List background task handles known to this TypeScript runtime.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "task.create",
+      "description": "Create a persisted task for later execution.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "task.get",
+      "description": "Read a task and its steps by id or short id.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "task.list",
+      "description": "List tasks visible to the current agent scope.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "task.output",
+      "description": "Read accumulated step output for a task.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "task.run",
+      "description": "Run an existing task or create and run a new task when a task runner is available.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "task.stop",
+      "description": "Cancel a task by id or short id.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "task.update",
+      "description": "Update a task title, input, status, or metadata.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "team.create",
+      "description": "Create or update a multi-agent team.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "team.delete",
+      "description": "Delete a team.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "team.inbox",
+      "description": "Read a team member inbox.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "team.members",
+      "description": "List team members.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "team.run_member",
+      "description": "Run a team member agent and deliver the result.",
+      "risk": "high",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "team.send",
+      "description": "Send a message to a team member.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "test.discover",
+      "description": "Suggest likely project test commands.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "test.run",
+      "description": "Run a test command in the workspace.",
+      "risk": "high",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "todo.read",
+      "description": "Read the current session todo list.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "todo.write",
+      "description": "Replace the current session todo list.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "tool.search",
+      "description": "Search registered tools by name, description, or exact select:<tool> lookup.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "user.ask",
+      "description": "Ask the user multiple-choice questions.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "user.message",
+      "description": "Send a message to the user.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "web.extract",
+      "description": "Extract clean content from specific URLs.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "web.map",
+      "description": "Discover URLs under a site.",
+      "risk": "high",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "web.search",
+      "description": "Search the web through the configured search provider and return cited sources.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "workflow.delete",
+      "description": "Delete a saved workflow template.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "workflow.read",
+      "description": "Read a saved workflow template.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "workflow.run",
+      "description": "Run an inline workflow plan.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "workflow.run_saved",
+      "description": "Run a saved workflow template.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "workflow.save",
+      "description": "Save a workflow template.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "workflow.templates",
+      "description": "List saved workflow templates.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "workflow.validate",
+      "description": "Validate workflow nodes and edges.",
+      "risk": "low",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "worktree.enter",
+      "description": "Create or resume an isolated git worktree and switch the session workspace to it.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    },
+    {
+      "name": "worktree.exit",
+      "description": "Exit the active git worktree, preserving or removing it after safety checks.",
+      "risk": "medium",
+      "disposition": "retained_compatibility_pending_B1_contract_audit"
+    }
+  ]
+}

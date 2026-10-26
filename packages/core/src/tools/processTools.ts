@@ -1,4 +1,6 @@
-import { spawn } from "node:child_process";
+import { shellRunSchema, shellOutputSchema, shellKillSchema } from "./processSchemas.js";
+import { commandTimeoutMs } from "../execution/localCommand.js";
+import { localExecutor } from "../execution/localExecutor.js";
 import type { JsonObject } from "../types/jsonTypes.js";
 import type { ToolDefinition, ToolExecutionContext } from "./toolContracts.js";
 import { numberArg, stringArg } from "./toolInputs.js";
@@ -12,36 +14,42 @@ import {
 export const processToolDefinitions: ToolDefinition[] = [
   {
     name: "shell.run",
+    parameters: shellRunSchema,
     description: "Run a shell command in the workspace.",
     risk: "high",
     handler: runShell
   },
   {
     name: "shell.output",
+    parameters: shellOutputSchema,
     description: "Read output from a background shell command.",
     risk: "low",
     handler: shellOutput
   },
   {
     name: "shell.backgrounds",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
     description: "List background shell commands.",
     risk: "low",
     handler: shellBackgrounds
   },
   {
     name: "shell.kill",
+    parameters: shellKillSchema,
     description: "Stop a background shell command.",
     risk: "medium",
     handler: shellKill
   },
   {
     name: "test.discover",
+    parameters: { type: "object", properties: {}, additionalProperties: false },
     description: "Suggest likely project test commands.",
     risk: "low",
     handler: discoverTests
   },
   {
     name: "test.run",
+    parameters: shellRunSchema,
     description: "Run a test command in the workspace.",
     risk: "high",
     handler: runShell
@@ -66,11 +74,16 @@ async function runShell(context: ToolExecutionContext, args: JsonObject) {
   const command = stringArg(args.command);
   if (!command) throw new Error("command is required");
   if (args.dangerouslyDisableSandbox) throw new Error("dangerouslyDisableSandbox is not supported by this runtime");
-  const timeoutMs = shellTimeoutMs(args);
+  const timeoutMs = commandTimeoutMs(args.timeout_ms);
   if (args.run_in_background) {
-    return startBackgroundCommand(command, context.repoRoot, timeoutMs, stringArg(args.description, command));
+    return startBackgroundCommand(command, context.repoRoot, timeoutMs, stringArg(args.description, command), context.signal, context.commandExecutor, context.executionPolicy);
   }
-  const result = await executeCommand(command, context.repoRoot, timeoutMs);
+  const execution = (context.commandExecutor ?? localExecutor).start({ command, cwd: context.repoRoot, timeoutMs, signal: context.signal, policy: context.executionPolicy ?? { mode: "local" } });
+  await execution.done;
+  if (["timed_out", "killed", "error"].includes(execution.status)) throw new Error(`command ${execution.status}: ${execution.stderr.text()}`);
+  const result = { exit_code: execution.exitCode, stdout: execution.stdout.text(), stderr: execution.stderr.text(),
+    stdout_bytes: execution.stdout.bytes, stderr_bytes: execution.stderr.bytes,
+    truncated: execution.stdout.truncated || execution.stderr.truncated };
   return { command, timeout_ms: timeoutMs, background: false, ...result };
 }
 
@@ -103,38 +116,4 @@ async function waitForSleepOrWake(context: ToolExecutionContext, milliseconds: n
   if (context.sleepWake) return context.sleepWake.wait(milliseconds);
   await new Promise((resolve) => setTimeout(resolve, milliseconds));
   return false;
-}
-
-function executeCommand(
-  command: string,
-  cwd: string,
-  timeoutMs: number
-): Promise<{ exit_code: number | null; stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, { cwd, shell: true });
-    const timer = setTimeout(() => {
-      child.kill("SIGTERM");
-      reject(new Error(`command timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    child.stdout.on("data", (chunk) => stdout.push(Buffer.from(chunk)));
-    child.stderr.on("data", (chunk) => stderr.push(Buffer.from(chunk)));
-    child.on("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({
-        exit_code: code,
-        stdout: Buffer.concat(stdout).toString("utf8"),
-        stderr: Buffer.concat(stderr).toString("utf8")
-      });
-    });
-  });
-}
-
-function shellTimeoutMs(args: JsonObject): number {
-  return Math.max(1, numberArg(args.timeout_ms, 30000));
 }

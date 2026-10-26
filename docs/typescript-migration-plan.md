@@ -49,3 +49,8 @@ apps/web       ─┼─> packages/host ─> packages/core
 - 新能力只进入 `packages/core` 或 `packages/host`，禁止重新引入 Python runtime。
 - 兼容 `src-origin` 的字段可以保留在 TS SDK contract 中，但实现必须落在 TS canonical domain module。
 - 真实 provider、Docker clean-host、签名发布和生产部署属于独立发布门禁，应在对应环境执行。
+
+
+## 基线补审（2026-10-26）
+
+上述“已完成”指启动链和源码迁移，不代表所有旧能力的行为等价。新增 [迁移清单与支持矩阵](baseline/support-matrix.md)：对旧 revision 的 450 个 `src/agents` Python 文件逐一归类，明确 sandbox、持久化、审计/产物等缺口；37 个静态注册工具名存在不等于 120 个当前工具全部完成语义验收。沙箱后端按用户决定独立暂缓，其他基线继续。

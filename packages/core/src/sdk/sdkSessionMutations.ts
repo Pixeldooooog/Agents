@@ -1,4 +1,4 @@
-import type { JsonStateStore } from "../store/jsonStateStore.js";
+import type { StateStore } from "../ports/stateStore.js";
 import { specFromPayload } from "../types/agentTypes.js";
 import type { RunRecord, RuntimeEvent } from "../types/runtimeTypes.js";
 import { eventMatchesMessageId } from "./sdkEventIdentity.js";
@@ -18,18 +18,18 @@ export type SdkForkSessionResult = {
   run_ids: string[];
 };
 
-export async function renameSdkSession(store: JsonStateStore, sessionId: string, title: string): Promise<void> {
+export async function renameSdkSession(store: StateStore, sessionId: string, title: string): Promise<void> {
   const customTitle = title.trim();
   if (!customTitle) throw new Error("session title cannot be empty");
   await updateSdkSessionMetadata(store, sessionId, { sdk_title: customTitle });
 }
 
-export async function tagSdkSession(store: JsonStateStore, sessionId: string, tag: string | undefined): Promise<void> {
+export async function tagSdkSession(store: StateStore, sessionId: string, tag: string | undefined): Promise<void> {
   await updateSdkSessionMetadata(store, sessionId, { sdk_tag: String(tag || "").trim() });
 }
 
 export async function forkSdkSession(
-  store: JsonStateStore,
+  store: StateStore,
   sessionId: string,
   options: SdkForkSessionOptions = {}
 ): Promise<SdkForkSessionResult> {
@@ -64,7 +64,7 @@ function withForkSessionResultAliases(info: Omit<SdkForkSessionResult, "session_
 }
 
 async function updateSdkSessionMetadata(
-  store: JsonStateStore,
+  store: StateStore,
   sessionId: string,
   metadata: Record<string, string>
 ): Promise<void> {

@@ -1,13 +1,17 @@
+import type { CommandExecutor, ExecutionPolicy } from "../ports/commandExecutor.js";
 import type { AgentSpec } from "../types/agentTypes.js";
 import type { JsonObject } from "../types/jsonTypes.js";
 import type { Message, RuntimeEvent, ToolResult } from "../types/runtimeTypes.js";
-import type { JsonStateStore } from "../store/jsonStateStore.js";
+import type { StateStore } from "../ports/stateStore.js";
 import type { Settings } from "../config/settings.js";
 
 export type ToolExecutionContext = {
   repoRoot: string;
+  signal?: AbortSignal;
+  commandExecutor?: CommandExecutor;
+  executionPolicy?: ExecutionPolicy;
   settings?: Settings;
-  store?: JsonStateStore;
+  store?: StateStore;
   spec?: AgentSpec;
   runId?: string;
   messages?: Message[];
@@ -94,7 +98,7 @@ export type ToolDefinition = {
   name: string;
   description: string;
   risk: "low" | "medium" | "high";
-  parameters?: Record<string, unknown>;
+  parameters: Record<string, unknown>;
   handler: ToolHandler;
 };
 

@@ -1,3 +1,4 @@
+import { patchSchema } from "./patchSchema.js";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { JsonObject } from "../types/jsonTypes.js";
@@ -8,6 +9,7 @@ import { booleanArg, relativeWorkspacePath, resolveWorkspacePath, stringArg } fr
 export const patchToolDefinitions: ToolDefinition[] = [
   {
     name: "patch.apply",
+    parameters: patchSchema,
     description: "Apply exact text edits to a workspace file.",
     risk: "medium",
     handler: applyPatch

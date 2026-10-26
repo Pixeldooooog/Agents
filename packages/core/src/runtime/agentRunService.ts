@@ -1,6 +1,6 @@
 import type { Settings } from "../config/settings.js";
 import { profileDefaults } from "../models/modelProfiles.js";
-import type { JsonStateStore } from "../store/jsonStateStore.js";
+import type { StateStore } from "../ports/stateStore.js";
 import type { AgentChatPayload, AgentSpec } from "../types/agentTypes.js";
 import { specFromPayload } from "../types/agentTypes.js";
 import type { AgentResult, RunRecord, RunStatus, RuntimeEvent } from "../types/runtimeTypes.js";
@@ -9,11 +9,13 @@ import type { RuntimeOptions } from "./runtimeOptions.js";
 
 export type AgentRunServiceOptions = {
   settings: Settings;
-  store: JsonStateStore;
+  store: StateStore;
   taskRunner?: RuntimeOptions["taskRunner"];
   mcpProviders?: RuntimeOptions["mcpProviders"];
   lspProvider?: RuntimeOptions["lspProvider"];
   agentRunner?: RuntimeOptions["agentRunner"];
+  commandExecutor?: RuntimeOptions["commandExecutor"];
+  executionPolicy?: RuntimeOptions["executionPolicy"];
 };
 
 export type AgentRunExecutionOptions = {
@@ -95,6 +97,8 @@ export class AgentRunService {
       mcpProviders: this.options.mcpProviders,
       lspProvider: this.options.lspProvider,
       agentRunner: this.options.agentRunner,
+      commandExecutor: this.options.commandExecutor,
+      executionPolicy: this.options.executionPolicy,
       signal: options.signal,
       fileReadState: options.fileReadState,
       sleepWake: options.sleepWake,
@@ -124,7 +128,7 @@ export class AgentRunService {
   }
 }
 
-export async function persistAgentRunOutcome(store: JsonStateStore, runId: string, result: AgentResult): Promise<void> {
+export async function persistAgentRunOutcome(store: StateStore, runId: string, result: AgentResult): Promise<void> {
   await store.setPendingApproval(runId, result.pending_approval);
   await store.finishRun(runId, runStatusForAgentResult(result));
 }

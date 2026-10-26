@@ -1,3 +1,5 @@
+import { assertToolArguments, prepareToolValidator } from "./toolValidation.js";
+import { boundedToolContent } from "./toolOutput.js";
 import type { JsonObject } from "../types/jsonTypes.js";
 import type { ModelToolDefinition } from "../types/modelTypes.js";
 import type { ToolResult } from "../types/runtimeTypes.js";
@@ -63,6 +65,7 @@ const toolDefinitions: ToolDefinition[] = [
 
 const toolByName = new Map<string, ToolDefinition>();
 for (const definition of toolDefinitions) {
+  prepareToolValidator(definition);
   toolByName.set(definition.name, definition);
   toolByName.set(modelToolName(definition.name), definition);
 }
@@ -93,14 +96,18 @@ export function modelToolDefinitions(enabledToolNames: string[]): ModelToolDefin
 }
 
 export async function executeBuiltinTool(repoRoot: string, name: string, args: JsonObject, context: Partial<ToolExecutionContext> = {}): Promise<ToolExecution> {
-  const id = String(args.id || args.tool_call_id || `${name}:${Date.now()}`);
+  const id = String(args?.id || args?.tool_call_id || `${name}:${Date.now()}`);
   const definition = toolByName.get(name);
   const canonicalName = definition?.name || name;
-  const start = runtimeEvent("tool_start", { id, tool_call_id: id, name: canonicalName, requested_name: name, arguments: args }, canonicalName);
+  const start = runtimeEvent("tool_start", { id, tool_call_id: id, name: canonicalName, requested_name: name }, canonicalName);
   if (!definition) return toolError(id, canonicalName, `unknown tool: ${name}`, [start]);
   try {
+    if (context.executionPolicy?.mode === "isolated") throw new Error("isolated_tool_execution_unavailable: sandbox backend deferred");
+    if (context.signal?.aborted) throw new Error("tool_execution_cancelled");
+    assertToolArguments(definition, args);
+    start.payload!.arguments = args;
     const payload = await definition.handler({ ...context, repoRoot }, args);
-    const content = typeof payload === "string" ? payload : JSON.stringify(payload);
+    const content = boundedToolContent(payload);
     const result: ToolResult = { tool_call_id: id, name: canonicalName, content, is_error: false };
     return {
       events: [start, runtimeEvent("tool_result", { tool_call_id: id, name: canonicalName, content, is_error: false }, canonicalName)],
@@ -116,6 +123,7 @@ function modelToolName(name: string): string {
 }
 
 function toolError(id: string, name: string, content: string, events: ReturnType<typeof runtimeEvent>[]): ToolExecution {
+  content = boundedToolContent(content);
   const result: ToolResult = { tool_call_id: id, name, content, is_error: true };
   return {
     events: [...events, runtimeEvent("tool_result", { tool_call_id: id, name, content, is_error: true }, name)],

@@ -1,3 +1,4 @@
+import type { RunStore } from "../ports/runStore.js";
 import type { AgentSpec } from "../types/agentTypes.js";
 import type { PendingApproval, RunRecord, RunStatus, RuntimeEvent } from "../types/runtimeTypes.js";
 import {
@@ -17,17 +18,9 @@ export type JsonStateAccess = {
   mutate: MutateState;
 };
 
-export type JsonRunStoreMethods = {
-  startRun(spec: AgentSpec): Promise<RunRecord>;
-  recordEvent(runId: string, event: RuntimeEvent): Promise<void>;
-  finishRun(runId: string, status: RunStatus): Promise<void>;
-  setPendingApproval(runId: string, pendingApproval: PendingApproval | undefined): Promise<void>;
-  updateRunMetadata(runId: string, metadata: Record<string, string>): Promise<void>;
-  loadRun(runId: string): Promise<RunRecord | undefined>;
-  listRuns(filters?: RunListFilters): Promise<RunRecord[]>;
-};
 
-export function jsonRunStoreMethods(access: JsonStateAccess): JsonRunStoreMethods {
+
+export function jsonRunStoreMethods(access: JsonStateAccess): RunStore {
   return {
     startRun: (spec) => startRunRecord(access.mutate, spec),
     recordEvent: (runId, event) => recordRunEvent(access.mutate, runId, event),

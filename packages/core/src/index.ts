@@ -51,3 +51,8 @@ export {
   type HookScopeFilter
 } from "./hooks/hookScopes.js";
 export * from "./runtime/operationFrames.js";
+
+export type { StateStore } from "./ports/stateStore.js";
+
+export type { CommandExecutor, CommandExecution, ExecutionPolicy } from "./ports/commandExecutor.js";
+export { localExecutor } from "./execution/localExecutor.js";

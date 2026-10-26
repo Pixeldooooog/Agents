@@ -4,11 +4,11 @@ import type { Settings } from "../config/settings.js";
 import { discoverSkills } from "../extensions/extensionManifests.js";
 import { memoryContextBlock, memoryScopeFromSpec } from "../memory/memoryRecords.js";
 import { defaultEnabledTools } from "../models/modelProfiles.js";
-import type { JsonStateStore } from "../store/jsonStateStore.js";
+import type { StateStore } from "../ports/stateStore.js";
 import type { AgentSpec } from "../types/agentTypes.js";
 import type { Message } from "../types/runtimeTypes.js";
 
-export async function runtimeStartMessages(settings: Settings, store: JsonStateStore | undefined, spec: AgentSpec, message: string): Promise<Message[]> {
+export async function runtimeStartMessages(settings: Settings, store: StateStore | undefined, spec: AgentSpec, message: string): Promise<Message[]> {
   const system = [spec.system_prompt || settings.agent.systemPrompt || "You are a precise, helpful agent."];
   const memoryContext = await memoryContextFor(settings, store, spec);
   if (memoryContext) system.push(memoryContext);
@@ -45,7 +45,7 @@ export async function skillMetadataInstructions(repoRoot: string, spec: AgentSpe
   ].join("\n");
 }
 
-async function memoryContextFor(settings: Settings, store: JsonStateStore | undefined, spec: AgentSpec): Promise<string> {
+async function memoryContextFor(settings: Settings, store: StateStore | undefined, spec: AgentSpec): Promise<string> {
   if (!store || settings.agent.memoryContextLimit <= 0) return "";
   if (!spec.tenant_id || !spec.user_id) return "";
   const memories = await store.listMemories({

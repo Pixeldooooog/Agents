@@ -9,9 +9,10 @@ services:
       - TZ=Asia/Shanghai
       - DEBUG=False
       - HOST=0.0.0.0
+      - ACCESS_TOKEN=${ACCESS_TOKEN:?Set ACCESS_TOKEN for the container host}
       - PORT=8020
     ports:
-      - "${PORT:-8020}:8020"
+      - "127.0.0.1:${PORT:-8020}:8020"
     volumes:
       - ../logs:/opt/app/logs
       - ../cache:/opt/app/cache

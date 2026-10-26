@@ -1,22 +1,16 @@
+import type { StateStore } from "../ports/stateStore.js";
 import { JsonStatePersistence } from "./jsonStatePersistence.js";
-import { jsonCollaborationStoreMethods, type JsonCollaborationStoreMethods } from "./jsonCollaborationStore.js";
-import { jsonMcpStoreMethods, type JsonMcpStoreMethods } from "./jsonMcpStore.js";
-import { jsonMemoryStoreMethods, type JsonMemoryStoreMethods } from "./jsonMemoryStore.js";
-import { jsonPlanningHookStoreMethods, type JsonPlanningHookStoreMethods } from "./jsonPlanningHookStore.js";
-import { jsonRunStoreMethods, type JsonRunStoreMethods, type JsonStateAccess } from "./jsonRunStore.js";
-import { jsonScheduleStoreMethods, type JsonScheduleStoreMethods } from "./jsonScheduleStore.js";
-import { jsonTaskStoreMethods, type JsonTaskStoreMethods } from "./jsonTaskStore.js";
+import { jsonCollaborationStoreMethods } from "./jsonCollaborationStore.js";
+import { jsonMcpStoreMethods } from "./jsonMcpStore.js";
+import { jsonMemoryStoreMethods } from "./jsonMemoryStore.js";
+import { jsonPlanningHookStoreMethods } from "./jsonPlanningHookStore.js";
+import { jsonRunStoreMethods, type JsonStateAccess } from "./jsonRunStore.js";
+import { jsonScheduleStoreMethods } from "./jsonScheduleStore.js";
+import { jsonTaskStoreMethods } from "./jsonTaskStore.js";
 
 export { statePath } from "./storeHelpers.js";
 
-export interface JsonStateStore extends
-  JsonRunStoreMethods,
-  JsonTaskStoreMethods,
-  JsonScheduleStoreMethods,
-  JsonMemoryStoreMethods,
-  JsonPlanningHookStoreMethods,
-  JsonMcpStoreMethods,
-  JsonCollaborationStoreMethods {}
+export interface JsonStateStore extends StateStore {}
 
 export class JsonStateStore {
   private readonly persistence: JsonStatePersistence;

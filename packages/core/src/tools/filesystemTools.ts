@@ -1,3 +1,4 @@
+import { filesystemReadSchema, filesystemListSchema, filesystemWriteSchema, filesystemDeleteSchema, filesystemMoveSchema } from "./filesystemSchemas.js";
 import { mkdir, readdir, readFile, rm, stat, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
 import type { JsonObject } from "../types/jsonTypes.js";
@@ -8,30 +9,35 @@ import { assertDirectory, assertFile, booleanArg, numberArg, relativeWorkspacePa
 export const filesystemToolDefinitions: ToolDefinition[] = [
   {
     name: "filesystem.read",
+    parameters: filesystemReadSchema,
     description: "Read a UTF-8 workspace file.",
     risk: "low",
     handler: readWorkspaceFile
   },
   {
     name: "filesystem.list",
+    parameters: filesystemListSchema,
     description: "List workspace directory entries.",
     risk: "low",
     handler: listWorkspaceDirectory
   },
   {
     name: "filesystem.write",
+    parameters: filesystemWriteSchema,
     description: "Create or replace a UTF-8 workspace file.",
     risk: "medium",
     handler: writeWorkspaceFile
   },
   {
     name: "filesystem.delete",
+    parameters: filesystemDeleteSchema,
     description: "Delete a workspace file or directory.",
     risk: "medium",
     handler: deleteWorkspacePath
   },
   {
     name: "filesystem.move",
+    parameters: filesystemMoveSchema,
     description: "Move or rename a workspace file or directory.",
     risk: "medium",
     handler: moveWorkspacePath

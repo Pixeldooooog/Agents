@@ -1,6 +1,6 @@
 import { chmod, mkdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { JsonStateStore } from "../store/jsonStateStore.js";
+import type { StateStore } from "../ports/stateStore.js";
 import type { RunRecord, RuntimeEvent } from "../types/runtimeTypes.js";
 import { resolveWorkspacePath } from "../tools/toolInputs.js";
 import { eventMatchesMessageId, runMatchesSdkUserMessage } from "./sdkEventIdentity.js";
@@ -9,7 +9,7 @@ import { rewindEntriesFromFileHistorySnapshots } from "./sdkFileHistoryRewind.js
 import { listSdkSessionRuns } from "./sdkSessionRecords.js";
 
 export type SdkFileRewindOptions = {
-  store: JsonStateStore;
+  store: StateStore;
   repoRoot: string;
   sessionId: string;
   userMessageId: string;

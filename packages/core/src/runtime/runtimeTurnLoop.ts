@@ -7,7 +7,7 @@ import { completeModelTurn, ModelConfigError, resolveModelClientConfig } from ".
 import { defaultEnabledTools } from "../models/modelProfiles.js";
 import { canonicalToolName, modelToolDefinitions } from "../tools/toolRegistry.js";
 import { canContinueToolLoop, runtimeToolLoopBudget } from "./runtimeLimits.js";
-import { deniesTool, requiresApproval } from "./runtimeToolPermissions.js";
+import { deniesTool, requiresApproval, isToolEnabled } from "./runtimeToolPermissions.js";
 import type { RuntimeOptions } from "./runtimeOptions.js";
 import {
   appendToolResultMessage,
@@ -84,7 +84,7 @@ export async function runRuntimeTurnLoop(input: RuntimeTurnLoopInput): Promise<A
       for (const toolCall of modelTurn.tool_calls) {
         throwIfCanceled(input.options.signal);
         const canonicalName = canonicalToolName(toolCall.name);
-        if (deniesTool(input.spec, canonicalName)) {
+        if (!isToolEnabled(input.options.settings, input.spec, canonicalName) || deniesTool(input.spec, canonicalName)) {
           const deniedExecution = deniedToolExecution(toolCall);
           for (const event of deniedExecution.events) await emit(event);
           toolResults.push(deniedExecution.result);

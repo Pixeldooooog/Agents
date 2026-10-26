@@ -1,3 +1,4 @@
+import type { MemoryStore } from "../ports/memoryStore.js";
 import type { MemoryRecord } from "../types/memoryTypes.js";
 import type { MemoryScopeFilter } from "../memory/memoryRecords.js";
 import {
@@ -8,14 +9,9 @@ import {
 } from "./memoryStateStore.js";
 import type { JsonStateAccess } from "./jsonRunStore.js";
 
-export type JsonMemoryStoreMethods = {
-  saveMemory(memory: MemoryRecord): Promise<MemoryRecord>;
-  loadMemory(memoryId: string): Promise<MemoryRecord | undefined>;
-  listMemories(filters?: MemoryScopeFilter): Promise<MemoryRecord[]>;
-  deleteMemory(memoryId: string): Promise<boolean>;
-};
 
-export function jsonMemoryStoreMethods(access: JsonStateAccess): JsonMemoryStoreMethods {
+
+export function jsonMemoryStoreMethods(access: JsonStateAccess): MemoryStore {
   return {
     saveMemory: (memory) => saveMemoryRecord(access.mutate, memory),
     loadMemory: (memoryId) => loadMemoryRecord(access.read, memoryId),

@@ -1,3 +1,4 @@
+import { gitSchemas } from "./gitSchemas.js";
 import type { JsonObject } from "../types/jsonTypes.js";
 import type { ToolDefinition, ToolExecutionContext } from "./toolContracts.js";
 import { stringArg } from "./toolInputs.js";
@@ -15,6 +16,7 @@ export const gitToolDefinitions: ToolDefinition[] = [
 function gitTool(name: string, command: string, description: string, risk: "low" | "medium" | "high" = name === "git.add" || name === "git.commit" ? "high" : "low"): ToolDefinition {
   return {
     name,
+    parameters: gitSchemas[name],
     description,
     risk,
     handler: async (context, args) => runGit(context, args, name, command)
@@ -29,7 +31,7 @@ async function runGit(context: ToolExecutionContext, args: JsonObject, name: str
 }
 
 function gitCommand(name: string, args: JsonObject, fallback: string): string {
-  if (name === "git.show") return `git show --stat --patch ${shellQuote(stringArg(args.revision ?? args.ref, "HEAD"))}`;
+  if (name === "git.show") return `git show --stat --patch --end-of-options ${shellQuote(stringArg(args.revision ?? args.ref, "HEAD"))}`;
   if (name === "git.add") {
     const paths = Array.isArray(args.paths) ? args.paths.map(String) : [stringArg(args.path, ".")];
     return `git add -- ${paths.map(shellQuote).join(" ")}`;

@@ -1,3 +1,4 @@
+import type { ScheduleStore } from "../ports/scheduleStore.js";
 import type { ScheduleRecord } from "../types/scheduleTypes.js";
 import type { ScheduleScopeFilter } from "../schedules/scheduleScopes.js";
 import {
@@ -9,15 +10,9 @@ import {
 } from "./scheduleStateStore.js";
 import type { JsonStateAccess } from "./jsonRunStore.js";
 
-export type JsonScheduleStoreMethods = {
-  saveSchedule(schedule: ScheduleRecord): Promise<ScheduleRecord>;
-  loadSchedule(scheduleId: string): Promise<ScheduleRecord | undefined>;
-  listSchedules(filters?: ScheduleScopeFilter): Promise<ScheduleRecord[]>;
-  deleteSchedule(scheduleId: string): Promise<boolean>;
-  markScheduleRun(scheduleId: string, taskId: string): Promise<ScheduleRecord | undefined>;
-};
 
-export function jsonScheduleStoreMethods(access: JsonStateAccess): JsonScheduleStoreMethods {
+
+export function jsonScheduleStoreMethods(access: JsonStateAccess): ScheduleStore {
   return {
     saveSchedule: (schedule) => saveScheduleRecord(access.mutate, schedule),
     loadSchedule: (scheduleId) => loadScheduleRecord(access.read, scheduleId),

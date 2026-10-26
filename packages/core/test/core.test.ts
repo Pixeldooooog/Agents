@@ -73,8 +73,8 @@ describe("TS core", () => {
       const settings = await loadSettings(root);
       expect(settings.agent.maxToolIterations).toBe(3);
 
-      const unlimitedSpec = specFromPayload({ message: "hello", runtime: { maxToolIterations: 0 } }, profileDefaults(settings));
-      expect(runtimeToolLoopBudget(settings, unlimitedSpec)).toEqual({ mode: "unlimited" });
+      const zeroLimitSpec = specFromPayload({ message: "hello", runtime: { maxToolIterations: 0 } }, profileDefaults(settings));
+      expect(runtimeToolLoopBudget(settings, zeroLimitSpec)).toEqual({ mode: "limited", maxIterations: 3 });
 
       const metadataLimitSpec = specFromPayload({ message: "hello", metadata: { maxTurns: "2" } }, profileDefaults(settings));
       expect(runtimeToolLoopBudget(settings, metadataLimitSpec)).toEqual({ mode: "limited", maxIterations: 2 });

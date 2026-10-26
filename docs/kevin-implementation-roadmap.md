@@ -1,9 +1,10 @@
 # Kevin 实施规划与交付计划
 
-> 版本：v1.1（经实施可行性复核修订）
-> 日期：2026-10-23
+> 版本：v1.2（基线先行，产品分层）
+> 日期：2026-10-26
 > 目标：将当前 `Agents` TypeScript runtime 演进为一个本地优先、可云化的个人长期运行 Agent，产品名为 Kevin。
-> 关联方案：[Kevin 产品与架构规划](kevin-product-architecture-plan.md)
+> 关联方案：[Agent 系统基线设计与验收矩阵](agent-system-baseline.md)、[Kevin 产品与架构规划](kevin-product-architecture-plan.md)
+> 优先级：系统契约和基线完成定义以基线文档为准；本文件中的 SQL/API 示例在 B0 转为正式契约前属于设计输入。
 
 ## 0. 复核结论、假设和边界
 
@@ -14,8 +15,8 @@
 - v1 是单用户、本地优先产品；`agent_id` 保留在数据模型中是兼容性设计，不等于 v1 已支持多租户。
 - v1 的“后台任务”是本机进程可恢复任务；在没有 Cloud Worker 之前，不宣称关闭电脑后仍会运行。
 - 云端路线是后续架构兼容目标，不能用本地测试替代云端隔离、密钥、网络和可靠性验收。
-- Phase 中的周数是依赖关系下的相对估算，不是交付承诺；如果只有一名开发者，应按串行工作并预留至少 30% 的验证和返工时间。
-- SQLite 驱动、CLI 打包方式和云基础设施供应商尚未定案，必须在对应阶段先做小型 spike，再锁定 ADR；Memory 已决定以 Markdown 为事实源，不引入向量数据库。
+- 实施顺序调整为 B0–B3 系统基线、P1–P3 个人产品、C1 云端执行。旧 Phase 周数撤下；B0 技术验证和验收矩阵冻结后重新估算，包含验证与返工。
+- SQLite 首选 bun:sqlite，CLI 采用 Bun compile + GitHub Release + 自有 Homebrew tap；具体版本、平台兼容性和隔离后端经 spike 后锁定 ADR。云供应商后续确定；Memory 以 Markdown 为事实源，不引入向量数据库。
 
 本次复核识别出的强制修正是：
 
@@ -41,15 +42,16 @@
   -> 服务重启后任务仍可恢复
 ```
 
-产品路线采用三层架构：
+产品路线采用分层架构：
 
 ```text
 Kevin Client       Web / Terminal / Desktop later
-Kevin Control      API / Auth / Task / Memory / Approval / Activity
-Kevin Execution    Local Worker now / Cloud Sandbox later
+Personal Services  Identity / Project / Goal / Plan / Routine / Attention
+Agent Baseline     Kernel / Execution / Context / Policy / Storage contracts
+Adapters           Model / Connector / SQLite / Files / Local or Cloud Worker
 ```
 
-第一阶段不实现完整的云服务，但所有核心接口必须能在未来替换本地执行器和 SQLite，而不重写 Agent domain。`core` 不应知道“云端”或“本地”的差别；执行位置由 Worker adapter 和 capability policy 决定。
+B/P 阶段不实现完整的云服务，但所有核心接口必须能在未来替换本地执行器和 SQLite，而不重写 Agent domain。`core` 不应知道“云端”或“本地”的差别；执行位置由 Worker adapter 和 capability policy 决定。
 
 ### 1.1 三个信任域
 
@@ -111,61 +113,21 @@ Local Bridge <------ signed, scoped, short-lived capability token
 ## 3. 目标仓库结构
 
 ```text
-kevin-agent/
-  apps/
-    web/                         Solid Web client
-    terminal/                    Ink CLI client
-  packages/
-    core/                        Agent domain and run loop
-    host/                        HTTP/SSE/WebSocket application host
-    db/                          Store interfaces, SQLite, migrations
-    config/                      Typed config and secret redaction
-    policy/                      Capability and approval engine
-    workspace/                   Workspace, file index, artifact store
-    providers/                   Model provider adapters
-    connectors/                  MCP and external app connectors
-    scheduler/                   Queue, worker, retry, checkpoint
-    observability/               Event schema, trace, metrics, diagnostics
-  migrations/                    SQL migration files
-  config/
-    defaults.toml
-    examples/
-  deploy/
-    Dockerfile
-    docker-compose.yml
-    compose.dev.yml
-  docs/
-    product.md
-    architecture.md
-    configuration.md
-    security.md
-    self-hosting.md
-    connectors.md
-    contributing.md
-    adr/
-  examples/
-    minimal/
-    developer/
-  scripts/
-  .github/
-    workflows/
-    ISSUE_TEMPLATE/
-  README.md
-  README.zh-CN.md
-  CHANGELOG.md
-  SECURITY.md
-  CONTRIBUTING.md
-  LICENSE
+apps/
+  web/                 产品客户端
+  terminal/            开发与诊断客户端
+packages/
+  core/                运行语义、消息/动作契约、上下文、ports
+  execution/           协调、调度、lease、恢复、输入队列、预算
+  personal/            身份、Project、Goal、Plan、Routine、通知
+  storage/             SQLite、migrations、Markdown、产物与备份
+  providers/           模型适配
+  connectors/          外部能力适配
+  executors/           受限进程、设备和远程 Worker
+  host/                常驻服务、API、事件传输、认证和组装
 ```
 
-目录边界要求：
-
-- `core` 不导入具体数据库、HTTP、React/Solid、Bun API。
-- `db` 只实现数据存取和 migration，不实现 Agent 决策。
-- `host` 只负责请求解析、认证、服务编排和响应投影。
-- `policy` 是所有工具、Connector、Workspace 写入的统一授权入口。
-- `scheduler` 只负责任务调度和恢复，具体 Agent 行为仍由 `core` 执行。
-- UI 只消费 API 和事件，不复制 runtime 状态机。
+依赖方向和所有权以 [基线第 3 节](agent-system-baseline.md#3-系统分层与所有权) 为准。core 不导入具体 SQL、HTTP、UI 或宿主执行实现；personal 不绕过 execution 执行工具。CLI/Web/Terminal 连接同一个本地状态与调度所有者。先解耦接口，按职责逐批迁移，不以目录搬迁代替行为验收。
 
 ## 4. 核心领域模型
 
@@ -206,13 +168,17 @@ interface AgentTask {
   updatedAt: string;
 }
 
+type RunStatus = "queued" | "preparing" | "running" | "waiting_input" |
+  "waiting_approval" | "paused" | "reconciling" | "completed" | "failed" |
+  "cancelled" | "expired";
+
 interface AgentRun {
   id: string;
   taskId?: string;
   conversationId?: string;
   requestId: string;
   status: RunStatus;
-  attempt: number;
+  workerAttempts: number; // 同一 Run 的执行接管次数；不是用户重试轮次
   checkpointVersion: number;
   modelProfile: string;
   startedAt?: string;
@@ -223,7 +189,9 @@ interface AgentRun {
 
 规则：
 
-- Task 表示用户目标，Run 表示一次执行尝试。
+- Goal 表示可选的长期目标；Task 是有边界的工作单元；Run 是一次可恢复逻辑执行。
+- 进程恢复保持 Run ID，递增 lease epoch；新执行轮次创建新 Run，不自动重放此前 Action。
+- Conversation、Project、Goal、版本化 Plan 和 Routine 的关系以基线第 4 节为准；长期 Plan 不绑定单个 Run。
 - Run 必须有幂等 `request_id`。
 - 每次工具调用都必须关联 Run 和 Event。
 - 任务可以有多个 Run，但同一时刻只能有一个 active Run。
@@ -235,21 +203,23 @@ interface AgentRun {
 
 ```ts
 interface KevinEvent {
-  id: string;
+  event_id: string;
+  schema_version: number;
   runId?: string;
   taskId?: string;
-  sequence: number;
+  sequence?: number; // 有 runId 时必填；无 Run 的事件不借用 Run 序号
   type:
     | "run.created" | "run.started" | "run.paused" | "run.resumed"
-    | "run.completed" | "run.failed" | "run.cancelled" | "run.expired"
-    | "run.waiting_input" | "run.waiting_approval"
+    | "run.completed" | "run.failed" | "run.cancel_requested" | "run.cancelled" | "run.expired"
+    | "run.waiting_input" | "run.waiting_approval" | "run.reconciling"
     | "model.message" | "tool.started" | "tool.completed"
     | "approval.requested" | "approval.decided" | "artifact.created"
     | "user.input_required" | "checkpoint.saved" | "task.updated"
-    | "connector.changed" | "memory.changed";
+    | "connector.changed" | "memory.changed"
+    | "retention.started" | "retention.completed";
   actor: "user" | "kevin" | "tool" | "system";
   payload: Record<string, unknown>;
-  createdAt: string;
+  occurred_at: string;
 }
 ```
 
@@ -261,14 +231,14 @@ Event schema 必须带 `schema_version`、`event_id` 和 `occurred_at`；`sequen
 
 ### 5.1 技术选择
 
-第一阶段使用 SQLite：
+本地基线使用 SQLite：
 
 - 本地安装零依赖。
 - 支持事务、索引、FTS5 和 WAL。
 - 适合单用户、自托管和桌面应用。
 - 通过 Store 接口保留 Postgres 适配器的可能性。
 
-推荐实现：第一选择是 Bun 内置的 `bun:sqlite`，因为 Kevin 已经以 Bun 为运行时，可以减少原生依赖和安装问题。它提供 prepared statements、事务、WAL 和 foreign-key PRAGMA；事务回调必须保持同步，不能在事务内部 `await`。所有数据库操作封装在 `packages/db`，业务层只依赖 Store 接口。
+推荐实现：第一选择是 Bun 内置的 `bun:sqlite`，因为 Kevin 已经以 Bun 为运行时，可以减少原生依赖和安装问题。它提供 prepared statements、事务、WAL 和 foreign-key PRAGMA；事务回调必须保持同步，不能在事务内部 `await`。所有数据库操作封装在 `packages/storage`，业务层只依赖 Store 接口。
 
 “SQLite 驱动是什么问题”不是 SQLite 不能用，而是驱动会影响：
 
@@ -277,7 +247,7 @@ Event schema 必须带 `schema_version`、`event_id` 和 `occurred_at`；`sequen
 - WAL、foreign keys、busy timeout、文件锁和备份 API 的可控程度。
 - 测试环境与用户环境的行为是否一致。
 
-因此 Phase 1 先用当前锁定的 Bun 版本做一个 `packages/db` spike：打开数据库、启用 WAL/foreign keys、执行 migration、并发读写、事务回滚、备份恢复和进程重启，然后把 Bun 版本与 `bun:sqlite` API 写进 ADR。若 spike 失败，再评估外部 SQLite driver；在 spike 之前不提前引入 ORM。
+因此 B0 先选定候选 Bun 版本做一个 `packages/storage` spike：打开数据库、启用 WAL/foreign keys、执行 migration、并发读写、事务回滚、备份恢复和进程重启，然后把 Bun 版本与 `bun:sqlite` API 写进 ADR。若 spike 失败，再评估外部 SQLite driver；在 spike 之前不提前引入 ORM。
 
 ### 5.2 表与约束
 
@@ -305,13 +275,14 @@ tasks(id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES agents(id),
   status TEXT NOT NULL, next_run_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
 
 runs(id TEXT PRIMARY KEY, task_id TEXT REFERENCES tasks(id), conversation_id TEXT,
-  request_id TEXT UNIQUE NOT NULL, status TEXT NOT NULL, attempt INTEGER NOT NULL,
+  request_id TEXT UNIQUE NOT NULL, status TEXT NOT NULL, worker_attempts INTEGER NOT NULL,
   checkpoint_version INTEGER NOT NULL, model_profile TEXT NOT NULL,
   checkpoint_json TEXT, started_at TEXT, finished_at TEXT, error_code TEXT);
 
-events(id TEXT PRIMARY KEY, run_id TEXT REFERENCES runs(id), task_id TEXT REFERENCES tasks(id),
-  sequence INTEGER NOT NULL, type TEXT NOT NULL, actor TEXT NOT NULL,
-  payload_json TEXT NOT NULL, created_at TEXT NOT NULL,
+events(event_id TEXT PRIMARY KEY, schema_version INTEGER NOT NULL,
+  run_id TEXT REFERENCES runs(id), task_id TEXT REFERENCES tasks(id),
+  sequence INTEGER, type TEXT NOT NULL, actor TEXT NOT NULL,
+  payload_json TEXT NOT NULL, occurred_at TEXT NOT NULL,
   UNIQUE(run_id, sequence));
 
 approvals(id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
@@ -347,14 +318,15 @@ usage_records(id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id),
   output_tokens INTEGER, cost_usd REAL, created_at TEXT NOT NULL);
 
 run_leases(id TEXT PRIMARY KEY, run_id TEXT NOT NULL UNIQUE REFERENCES runs(id),
-  worker_id TEXT NOT NULL, lease_until TEXT NOT NULL, heartbeat_at TEXT NOT NULL,
+  worker_id TEXT NOT NULL, epoch INTEGER NOT NULL, lease_until TEXT NOT NULL, heartbeat_at TEXT NOT NULL,
   created_at TEXT NOT NULL);
 
 schedules(id TEXT PRIMARY KEY, task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id),
   expression TEXT NOT NULL, timezone TEXT NOT NULL, enabled INTEGER NOT NULL,
   next_run_at TEXT, last_run_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
 
-idempotency_keys(scope TEXT NOT NULL, key TEXT NOT NULL, response_json TEXT NOT NULL,
+idempotency_keys(scope TEXT NOT NULL, key TEXT NOT NULL, request_hash TEXT NOT NULL,
+  status TEXT NOT NULL, response_json TEXT,
   created_at TEXT NOT NULL, expires_at TEXT NOT NULL, PRIMARY KEY(scope, key));
 
 notifications(id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES agents(id),
@@ -364,7 +336,10 @@ notifications(id TEXT PRIMARY KEY, agent_id TEXT NOT NULL REFERENCES agents(id),
 schema_migrations(version TEXT PRIMARY KEY, applied_at TEXT NOT NULL);
 ```
 
-生产 schema 还必须明确：
+这些表是草案，尚未覆盖完整 Grant、Action Ledger、输入队列和 outbox；B0 必须补齐契约与事务边界，不能直接视为可执行 migration。生产 schema 还必须明确：
+
+- 同一 Task 的 active Run 唯一约束、Run 状态版本检查与 lease epoch 校验。
+- Action intent、结果、unknown 核对，以及同幂等键不同请求内容的冲突处理。
 
 - 启用 SQLite foreign keys；删除 Agent/Workspace/Task 时使用显式归档或受控级联，不能依赖驱动默认值。
 - `runs(request_id)`、`events(run_id, sequence)`、`tasks(status, next_run_at)`、`approvals(status, requested_at)`、`notifications(status, created_at)` 建立索引。
@@ -563,7 +538,7 @@ interface Capability {
 
 ### 7.3 Sandbox
 
-Local worker 至少实现：
+2026-10-26 用户调整：原生沙箱后端暂缓上线，不阻塞其余内核建设。当前 LocalExecutor 明确为宿主执行；预留平台 executor 和策略接口，要求隔离时失败关闭。未来受限执行仍须满足 K06 的文件、网络、环境变量和进程边界。以下约束属于后续隔离后端验收，目录和命令 allowlist 本身不构成完整 Sandbox：
 
 - 工作目录 allowlist。
 - 子进程超时和取消。
@@ -573,7 +548,7 @@ Local worker 至少实现：
 - 进程树清理。
 - 每次执行生成 sandbox metadata。
 
-Cloud worker 后续改为隔离 VM 或容器，但不能把本地 worker 的安全检查删除。
+C1 的 Cloud Worker 独立验证容器或 VM 隔离，继续保留这些约束；本地原生隔离独立排期，不以云端容器验收代替。
 
 ### 7.4 不可信内容和网络安全
 
@@ -601,20 +576,20 @@ TaskRepository
   -> EventProjector
 ```
 
-第一阶段单进程运行，但仍以队列和 worker 接口组织；第二阶段可将 Queue 替换为 Redis、Postgres 或托管队列。
+B2 本地服务使用单一调度所有者，以队列和 Worker 接口组织；C1 再选择远程队列并验证分布式协调。
 
 ### 8.2 状态和锁
 
 - `queued` 任务由 scheduler 取出，写入 lease。
-- lease 包含 `worker_id`、`lease_until`、`heartbeat_at`。
+- lease 包含 `worker_id`、`epoch`、`lease_until`、`heartbeat_at`；结果提交和新动作 dispatch 都校验当前 epoch。
 - worker 每隔固定时间更新 heartbeat。
-- lease 过期后任务可重新排队，但必须检查幂等 key。
+- lease 过期后恢复同一 Run 并递增 epoch；先核对已 dispatched/unknown Action，确定后才能继续执行，无法确定则进入 reconciling，不能只检查请求幂等 key。
 - active Run 只能由一个有效 lease 执行。
-- 外部不可逆动作必须使用 approval token，避免重试重复发送。
+- approval token 证明授权；防重复依靠稳定 operation ID、提供方幂等或回执核对，审批本身不能保证只执行一次。
 
-执行语义必须写清楚：本地 v1 对普通工具提供 at-least-once 调度语义，对外部副作用只能在 Connector 声明幂等且持有有效 approval token 时重试；不能宣传 exactly-once。对于无法幂等的发送、发布、删除或付款动作，超时后的状态必须显示为 `unknown` 并要求人工核实，而不是自动重放。
+调度允许重复投递，动作是否重试由 replay safety 契约决定：只读、幂等、可查询回执、不可重复分别处理；每次 dispatch 仍需有效授权和必要的审批。不可确定的发送、发布、删除等 Action 标记 unknown，Run 进入 reconciling；先查询回执或人工核实，不能自动重放，不能宣传外部副作用 exactly-once。
 
-`cancel` 也不是数据库状态更新：它必须向 worker 发出取消信号、等待工具/子进程收敛、写入 `run.cancelled`，并在无法中断的外部调用上显示“取消请求已发出，结果待确认”。
+`cancel` 先持久化 `run.cancel_requested` 控制事件并阻止新动作，再向 Worker 及工具/子进程树传播取消。存在结果不确定的外部 Action 时保持 reconciling，并显示“取消请求已发出，结果待确认”；核对完毕、执行已收敛后才根据实际结果进入终态并记录相应事件，不能提前写入 run.cancelled。
 
 ### 8.3 Checkpoint
 
@@ -628,7 +603,7 @@ Checkpoint 至少包含：
 - 已生成 artifact IDs。
 - retry counters。
 
-每完成一个工具或审批决策就保存 checkpoint。模型调用过程中不保存半成品，避免恢复出错。
+动作 dispatch 前保存 intent；确定结果后按事务边界保存结果、状态、checkpoint 和 outbox。工具已执行但结果未落盘时按基线规则核对，无法确定则进入 reconciling/unknown。长等待释放执行 lease，恢复时重新验证授权和预算。模型中间流式片段不能冒充可恢复的已完成动作。
 
 ## 9. Web 产品实施
 
@@ -685,7 +660,7 @@ kevin import <file>
 
 ### Desktop
 
-桌面应用放到第二阶段，不先引入复杂 Electron/Tauri 运行时。第一阶段用 Web + local host 验证产品行为。桌面应用只负责：
+桌面应用作为 P2 的可选产品载体。B 阶段用现有 Web/Terminal 验证基线；常驻服务、自启动策略和恢复由 B2 的 host 完成，不等待桌面壳。桌面应用只负责：
 
 - 启动和管理 local host。
 - 展示 Web UI。
@@ -708,160 +683,88 @@ brew tap pixeldooooog/kevin
 brew install kevin
 ```
 
-第一阶段使用自有 tap，Formula 指向 GitHub Release 的固定版本和 SHA256；不要一开始依赖 Homebrew core 的审核周期。等 CLI 稳定、版本和升级流程成熟后，再评估提交到 Homebrew core。Docker Compose 作为服务器/自托管渠道，GitHub Release 作为所有平台的事实源。
+P3 首次发行使用自有 tap，Formula 指向 GitHub Release 的固定版本和 SHA256；不要一开始依赖 Homebrew core 的审核周期。等 CLI 稳定、版本和升级流程成熟后，再评估提交到 Homebrew core。Docker Compose 作为服务器/自托管渠道，GitHub Release 作为所有平台的事实源。
 
-CLI 的安装方式不改变 Agent runtime；`kevin` 只是调用同一套 `packages/core`、`packages/host` 和 `packages/db`。每次发布必须验证 `kevin init`、`kevin doctor`、数据库迁移和升级回滚。
+CLI 的安装方式不改变 Agent runtime；`kevin` 只是调用同一套 `packages/core`、`packages/host` 和 `packages/storage`。每次发布必须验证 `kevin init`、`kevin doctor`、数据库迁移和升级回滚。
 
 ## 11. 分阶段实施
 
-### Phase 0：命名和产品基线（1 周）
+先完成完整系统基线，再收敛个人产品形态。基线完成定义和 K01–K18 以 [基线文档](agent-system-baseline.md) 为准；旧 Phase 编号及周数不再作为开发顺序。
 
-交付：
+### B0：契约、基线映射与技术验证
 
-- `Agents` → `Kevin` 的品牌和目录命名方案。
-- `docs/product.md`、`docs/security.md`、`docs/self-hosting.md`。
-- 工具和能力矩阵。
-- 单 Agent ADR。
-- 清理公开仓库中的运行时数据库、日志、虚拟环境、dist 和 IDE 文件。
-- 记录当前实现审计：`JsonStateStore`、`TaskService.cancel`、host auth/CORS、`max_tool_iterations=0` 的实际行为。
-- 先修安全默认值：本地默认绑定 `127.0.0.1`、同源 CORS、有限工具循环；远程绑定要求显式 token。
+- 逐项映射现有 TS 和旧 Python 能力：复用、补齐、替代、淘汰或外部待验收。
+- 固化 Task/Run/Action/Event、Grant、工具、输入队列和 Goal/Plan/Routine 接口。
+- 冻结支持矩阵；验证 SQLite 与服务所有权，保留平台执行隔离接口，形成 ADR。
+- 先修默认监听、认证/CORS 和有限循环；明确工具能力与风险。
 
-验收：
+验收：每项缺口有模块归属和测试入口，关键技术有证据；不要求此时实现恢复 Worker。
 
-- README 首屏能解释 Kevin 是什么。
-- 默认界面不暴露 team/multi-agent。
-- CI 不依赖旧 Python 文件或旧命令。
-- 安全默认值的回归测试通过；在没有 token 时远程请求不能因为绑定地址变化而无意暴露。
+### B1：可靠的单次执行
 
-### Phase 1：Store 抽象和 SQLite（2 周）
+- 解耦 core 与具体 Store/宿主实现，建立使用方 ports。
+- 统一模型、上下文、工具参数与结果、审批、预算、等待及停止语义。
+- 所有动作通过统一授权入口，验证输出限制和取消能力；真实执行隔离按用户决定独立暂缓。
+- 使用现有客户端和 fake provider 验证，同时保留真实环境验收清单。
 
-任务：
+验收：K02–K06 的单次执行路径通过；错误与权限失败不静默放行。
 
-- 新建 `packages/db`。
-- 定义 `AgentStore`、`RunStore`、`TaskStore`、`EventStore`、`ArtifactStore` 接口。
-- 新增 migration runner、schema version、foreign-key enforcement 和 WAL。
-- 实现 `run_leases`、`schedules`、`idempotency_keys`、`notifications`、`schema_migrations`。
-- 实现 JSON importer 和备份。
-- 将 core/host 从 `JsonStateStore` 依赖改为接口依赖。
-- 增加本地 credential reference、session/token 设计；凭据本身不得进入普通状态表。
-- 建立 `~/.kevin/memory/` Markdown 目录、哈希扫描和受限上下文注入；不引入 embedding 或向量服务。
-- 增加并发写、事务回滚和导入测试。
+### B2：持久工作与常驻服务
 
-验收：
+- SQLite、迁移、JSON importer、短事务与状态版本控制。
+- durable Inbox/Queue、Run lease/epoch、Action Ledger、checkpoint、outbox。
+- 输入介入、等待释放租约、实际暂停/取消、重试与 unknown 核对。
+- 持久预算、统一服务所有权、崩溃重启、时区/DST、漏跑与重叠策略。
 
-- 当前基线的 185 个 Core/Host 测试继续通过；测试数量变动时以 CI 报告为准，不能把 185 当作永久门槛。
-- 新进程能读取 SQLite 中的 Run/Task/Event。
-- JSON 导入后任务、事件和 session 可查询。
-- 数据库升级失败时有备份和明确错误。
-- 同一个 `Idempotency-Key` 在过期前不会创建重复写请求。
-- 数据库恢复后 lease 过期任务只会被重新排队一次，不会产生两个 active Run。
+验收：K07–K12；包括执行成功未落盘、旧 Worker 恢复、并发重复请求和子进程取消。必须验证真实执行收敛，不能只检查状态字段。
 
-### Phase 2：Durable Run 和 Scheduler（3 周）
+### B3：完整基线与组合验收
 
-任务：
+- Markdown Memory、内容版本确认、索引修复、产物内容/哈希与来源。
+- 多客户端一致性、事件重放/去重/过期游标、诊断脱敏。
+- 一致快照与新目录完整恢复；旧备份恢复先冻结调度并核对外部动作。
+- 用薄的 personal 应用贯通代码任务、研究报告、周期监测；真实 Provider/MCP 和平台证据单独记录。
 
-- 引入 queue、lease、heartbeat 和 worker。
-- 将 Task Service 改为可恢复状态机。
-- 保存 checkpoint。
-- 支持 pause、resume、cancel、retry。
-- 增加 scheduler 和 schedule lock。
-- 记录 usage 和预算。
+验收：冻结范围内 K01–K18 通过；没有证据的能力不得标记完成。
 
-验收：
+### P1：个人工作策略与产品定义
 
-- 运行中杀掉进程，重启后任务能继续。
-- 重复提交同一 request 不会产生重复 Run。
-- 工具失败按策略重试，业务错误不会无限重试。
-- 任务超时、成本超限和工具次数超限都会进入可解释状态。
+进入条件：B3 基线通过；B 阶段已验证的 Goal/Plan/Routine 契约继续复用。
 
-### Phase 3：Policy、Approval 和 Workspace（3 周）
+- 完善身份、Project、长期目标、版本化计划与完成证据。
+- 定义自主延续的授权/预算/停止条件、通知合并和安静时间。
+- 决定单 Agent 默认能力，处理 team/collaboration 的产品入口与兼容性。
+- 确认 Kevin 命名、配置迁移和最终交互对象。
 
-任务：
+验收：一个身份可处理多个隔离任务；跨会话继续工作且不会串用审批、账户或项目数据。
 
-- 将权限拆为 capability、scope、risk、approval。
-- 将所有写工具接入 Policy Engine。
-- 增加 Workspace allowlist 和 shell sandbox。
-- 完善审批 API、审批事件和审批历史。
-- 增加 artifact manager、hash 和下载接口。
+### P2：个人产品交互与连接
 
-验收：
+- 完善交办入口、进行中工作、待处理事项、产物，以及记忆/连接/设置管理。
+- Today/Chat/Tasks/Activity 是候选信息架构，依据 P1 场景确定，不反向要求重写内核。
+- 完成连接器配置、独立 scope/revoke、设备 Bridge pairing 与短期能力授权。
+- Web/Terminal 共用 API 与事件；Desktop 为可选客户端，不复制 runtime。
 
-- 没有 Policy 的工具不能执行。
-- 拒绝审批后工具不执行且 Run 可恢复。
-- 删除、发送、push 等高风险动作每次都能拦截。
-- 产物可以预览、下载和与 Run 关联。
+验收：仅通过产品界面完成交办、介入、审批、查看成果、修复连接和恢复；Bridge 断开和撤销真实生效，远程执行另在 C1 验证。
 
-### Phase 4：Kevin Web（3 周）
+### P3：完整分发与自托管
 
-任务：
+- kevin CLI、Bun compile、GitHub Release、自有 Homebrew tap、Docker/Compose。
+- 固定运行时版本，逐平台验证安装、初始化、诊断、升级、回滚和数据恢复。
+- 迁移品牌/配置前缀，完成文档、截图、CHANGELOG、SECURITY 与发布检查。
+- 保留原有完整发布目标，不以基线验收代替新机器和发行包验收。
 
-- 重做 Today、Chat、Tasks、Activity。
-- 增加 Approval Center、Artifacts 和 Memory 页面。
-- SSE/WebSocket 统一事件投影。
-- 处理断线重连、事件去重和分页。
-- 增加可访问性、键盘操作和响应式布局。
+验收：用户可按文档安装并完成产品闭环；每个发行平台有独立证据。
 
-验收：
+### C1：Cloud Worker
 
-- 只用 Web 完成创建任务、批准动作、查看结果、暂停和恢复。
-- 刷新页面不会丢失活动或重复渲染事件。
-- Web 的状态和 Terminal 的状态一致。
-- 失败 Run 能从 Activity 页面定位原因并重试。
+进入条件：本地基线和产品完成定义通过，明确威胁模型、服务身份、成本、数据区域与事故响应。
 
-### Phase 5：连接器和 Local Bridge（3 周）
+- Control Plane、Postgres、Queue、隔离 Worker、对象存储、Secret Manager 和观测。
+- 共用 Run/Event 契约，独立验证服务隔离、租约、凭据及远程网络。
+- 云端使用本地设备能力必须经过获授权且在线的 Bridge。
 
-任务：
-
-- 定义 Connector interface。
-- 将 MCP、Git、Web、Filesystem 接入 Connector。
-- 增加 connector permissions 和 revoke。
-- 新建 `packages/bridge`，只负责本地受控执行。
-- Bridge 与 Host 之间使用短期 token、设备 ID 和显式 pairing。
-
-验收：
-
-- 每个连接器都有独立 scope。
-- revoke 后已有 Run 不能继续调用该能力。
-- Bridge 断线后云端任务进入 waiting/retry，而不是假装成功。
-- 本地文件路径不会超出授权根目录。
-
-### Phase 6：分发与自托管（2 周）
-
-任务：
-
-- `kevin init/start/doctor/export/import`。
-- Bun compile 独立产物、`@kevin/cli` fallback package 和自有 Homebrew tap 发布方式固定。
-- Docker clean-host 构建和 compose。
-- 数据目录、备份、升级和回滚脚本。
-- GitHub Release、CHANGELOG、SECURITY、CONTRIBUTING。
-- 截图、演示数据和安装文档。
-- Homebrew Formula 的版本、SHA256、升级和回滚流程可重复执行。
-
-验收：
-
-- 新机器按 README 在 15 分钟内完成启动。
-- 升级不丢数据库、记忆、任务和产物。
-- `kevin doctor` 能指出模型、数据库、端口、权限和 workspace 问题。
-- Docker 在无本地缓存环境构建成功。
-
-### Phase 7：Cloud Worker（后续）
-
-进入条件：Phase 1~6 的本地完成定义全部通过，并完成 threat model、成本预算、数据区域/保留策略、服务身份和事故响应设计。没有这些前置条件时，不把 Cloud Worker 做成“把本地 host 放进一台公网机器”。
-
-任务：
-
-- 将 Worker 接入隔离容器或 VM。
-- 抽象对象存储和 Hosted Store。
-- 增加 worker pool、配额、租约和远程日志。
-- Web、Local Worker、Cloud Worker 共用同一 Agent event contract。
-- 对本地文件访问全部改为 Local Bridge 能力。
-
-验收：
-
-- 云端任务在关闭客户端后继续运行。
-- 每个用户/Agent 的执行环境隔离。
-- 云端不能默认读取本地电脑。
-- 云端任务可以暂停、查看、审批和恢复。
+验收：关闭客户端后云端工作继续；离线设备能力明确等待；用户隔离、暂停、审批和恢复分别通过。
 
 ## 12. 测试策略
 
@@ -914,10 +817,10 @@ CLI 的安装方式不改变 Agent runtime；`kevin` 只是调用同一套 `pack
 这些数字是验收门槛，不是当前能力声明；如果产品目标改变，要在 ADR 中改动并重新评审：
 
 - 本地 API 健康检查在 1 秒内返回；事件从 worker 写入到 Web 投影的 p95 延迟不超过 2 秒。
-- 正常退出或被杀进程后，未完成的本地任务在 60 秒内恢复为可执行或明确的 `unknown` 状态。
+- 正常退出或被杀进程后，未完成的本地任务在 60 秒内恢复为可执行或明确的 `reconciling` 状态；结果不确定的 Action 标为 `unknown`。
 - 同一写请求的重复 `Idempotency-Key` 不创建第二个 Task/Run；测试至少覆盖并发重复提交。
 - 100 个连续 Event 的重放结果与实时投影一致；重复事件不会重复显示或重复写入副作用。
-- `kevin export` → 删除 → `kevin import` 后，Task、Run、Event、Memory 和 Artifact metadata 可恢复，凭据不会被导出。
+- `kevin export` → 删除 → `kevin import` 后，Task、Run、Event、Markdown 正文与所选 Artifact 内容/哈希可恢复，凭据不会被导出；用于完整恢复的备份不得遗漏受恢复任务引用的文件；旧快照恢复先冻结调度并核对外部动作。
 - 关闭网络、无 API key、模型超时、工具超时、磁盘只读和数据库锁定都能得到可解释错误，不出现静默成功。
 - Prompt injection、路径穿越、私网 SSRF、未授权 Connector、过期 approval token 各至少有一条失败测试。
 
@@ -977,26 +880,15 @@ CLI 的安装方式不改变 Agent runtime；`kevin` 只是调用同一套 `pack
 
 ## 16. 第一批开发任务
 
-按依赖顺序，第一批不要同时重做 UI 和云端：
+第一批按 [基线文档第 10 节](agent-system-baseline.md#10-交付关口与首批任务) 执行：能力映射与证据登记 → 版本化契约 → 安全默认值 → SQLite/常驻服务 spike 与隔离接口预留 → core ports 解耦 → 三类场景的薄验证入口。
 
-1. 创建 `kevin` 命名迁移 ADR。
-2. 清理仓库状态文件、日志和旧构建产物。
-3. 新建 `packages/db` 和 Store interfaces。
-4. 实现 SQLite schema v1：agents、workspaces、conversations、messages、tasks、runs、events、approvals、artifacts。
-5. 给现有 JSON store 增加导入器。
-6. 把 `AgentRunService`、`TaskService` 改为依赖 Store interfaces。
-7. 增加 Run checkpoint 和事件重放测试。
-8. 重写 `docs/features.md`，以实际 tool registry 为准。
-9. 将现有 team/collaboration 从默认工具集和 UI 隐藏。
-10. 建立 Today/Tasks/Activity 的 UI 骨架。
-
-第一批完成后再进入 Scheduler。若 Store 抽象没有稳定，后续所有任务都可能重复返工。
+命名迁移、最终页面设计和云端实现分别进入 P/C 阶段。不能只先建业务表而遗漏 Action Ledger、授权、输入队列和恢复契约，也不能在 Worker 尚未实现时宣称已经通过租约恢复验收。
 
 ## 17. 实施治理与变更控制
 
 ### 17.1 每个阶段的交付证据
 
-每个 Phase 必须产出四类证据：
+每个 B/P/C 阶段必须产出四类证据：
 
 1. 代码：实现、migration、配置和测试。
 2. 文档：架构决策、运行说明、用户可见行为和已知限制。
@@ -1006,7 +898,7 @@ CLI 的安装方式不改变 Agent runtime；`kevin` 只是调用同一套 `pack
 ### 17.2 ADR 必须记录的未决选择
 
 - SQLite 驱动和 Bun 版本兼容性。
-- CLI 是独立 binary、npm package 还是两者并行。
+- CLI 主渠道已选独立 binary + GitHub Release/Homebrew；fallback package 的运行时依赖和平台兼容性需验证。
 - 本地凭据进入 SQLite，但只保存加密密文；数据库加密密钥的保护方式（系统 keychain 或受控环境变量）需要在 ADR 中确定。
 - Cloud Worker 的容器/VM、队列、对象存储和 Postgres 供应商。
 - 事件 schema 的兼容策略和保留时间。

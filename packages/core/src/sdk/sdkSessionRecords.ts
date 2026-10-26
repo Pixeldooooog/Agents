@@ -1,5 +1,5 @@
 import type { RunRecord, RuntimeEvent } from "../types/runtimeTypes.js";
-import type { JsonStateStore } from "../store/jsonStateStore.js";
+import type { StateStore } from "../ports/stateStore.js";
 import type { SdkMessage } from "./sdkMessages.js";
 import { sdkMessagesFromRuntimeEvent } from "./sdkEventProjection.js";
 import { sdkResultMessageFromRunRecord } from "./sdkResultMessages.js";
@@ -60,7 +60,7 @@ export type SdkGetSessionMessagesOptions = {
 const sessionListRunLimit = 200;
 
 export async function listSdkSessions(
-  store: JsonStateStore,
+  store: StateStore,
   options: SdkListSessionsOptions = {}
 ): Promise<SdkSessionInfo[]> {
   const runs = await store.listRuns({
@@ -76,12 +76,12 @@ export async function listSdkSessions(
   return limit === 0 ? infos : infos.slice(0, limit);
 }
 
-export async function getSdkSessionInfo(store: JsonStateStore, sessionId: string): Promise<SdkSessionInfo | undefined> {
+export async function getSdkSessionInfo(store: StateStore, sessionId: string): Promise<SdkSessionInfo | undefined> {
   return sessionInfoFromRuns(await sessionRuns(store, sessionId));
 }
 
 export async function getSdkSessionMessages(
-  store: JsonStateStore,
+  store: StateStore,
   sessionId: string,
   options: SdkGetSessionMessagesOptions = {}
 ): Promise<SdkMessage[]> {
@@ -98,7 +98,7 @@ export async function getSdkSessionMessages(
   return limit === 0 ? offsetMessages : offsetMessages.slice(0, limit);
 }
 
-export async function listSdkSessionRuns(store: JsonStateStore, sessionId: string): Promise<RunRecord[]> {
+export async function listSdkSessionRuns(store: StateStore, sessionId: string): Promise<RunRecord[]> {
   const resolvedSessionId = String(sessionId || "").trim();
   if (!resolvedSessionId) return [];
   const runsById = new Map<string, RunRecord>();
@@ -165,7 +165,7 @@ function withSessionInfoAliases(info: Omit<SdkSessionInfo, SdkSessionInfoAliasKe
   return info as SdkSessionInfo;
 }
 
-async function sessionRuns(store: JsonStateStore, sessionId: string): Promise<RunRecord[]> {
+async function sessionRuns(store: StateStore, sessionId: string): Promise<RunRecord[]> {
   return listSdkSessionRuns(store, sessionId);
 }
 

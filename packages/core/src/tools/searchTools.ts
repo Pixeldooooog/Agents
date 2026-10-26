@@ -1,3 +1,4 @@
+import { grepSchema, globSchema } from "./searchSchemas.js";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { JsonObject } from "../types/jsonTypes.js";
@@ -7,12 +8,14 @@ import { numberArg, relativeWorkspacePath, resolveWorkspacePath, stringArg } fro
 export const searchToolDefinitions: ToolDefinition[] = [
   {
     name: "search.grep",
+    parameters: grepSchema,
     description: "Search workspace text files with a regular expression.",
     risk: "low",
     handler: grepWorkspace
   },
   {
     name: "search.glob",
+    parameters: globSchema,
     description: "Find workspace files matching a glob pattern.",
     risk: "low",
     handler: globWorkspace
@@ -22,7 +25,7 @@ export const searchToolDefinitions: ToolDefinition[] = [
 async function grepWorkspace(context: ToolExecutionContext, args: JsonObject) {
   const pattern = stringArg(args.pattern);
   if (!pattern) throw new Error("pattern is required");
-  const regex = new RegExp(pattern, stringArg(args.flags, stringArg(args.case_sensitive) === "false" ? "i" : ""));
+  const regex = new RegExp(pattern, stringArg(args.flags, (args.case_sensitive === false || args.case_sensitive === "false") ? "i" : ""));
   const root = resolveWorkspacePath(context.repoRoot, stringArg(args.path, "."));
   const headLimit = Math.max(1, numberArg(args.limit, 100));
   const files = await collectFiles(context.repoRoot, root);

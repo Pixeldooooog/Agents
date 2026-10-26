@@ -1,3 +1,4 @@
+import type { CommandExecutor, ExecutionPolicy } from "../ports/commandExecutor.js";
 import type { JsonObject } from "../types/jsonTypes.js";
 import type { ToolExecutionContext } from "./toolContracts.js";
 import { numberArg } from "./toolInputs.js";
@@ -14,9 +15,12 @@ export function startBackgroundCommand(
   command: string,
   cwd: string,
   timeoutMs: number,
-  description: string
+  description: string,
+  signal?: AbortSignal,
+  executor?: CommandExecutor,
+  policy?: ExecutionPolicy
 ): Record<string, unknown> {
-  const backgroundCommand = createBackgroundCommand(command, cwd, timeoutMs, description);
+  const backgroundCommand = createBackgroundCommand(command, cwd, timeoutMs, description, signal, executor, policy);
   return {
     ...backgroundPayload(backgroundCommand),
     backgroundTaskId: backgroundCommand.task_id,
@@ -30,13 +34,13 @@ export function startBackgroundCommand(
 
 export async function shellOutput(_context: ToolExecutionContext, args: JsonObject) {
   const command = resolveBackgroundCommand(args.task_id);
-  if (args.block !== false && command.status === "running") {
-    await waitWithTimeout(command.done, Math.max(0, numberArg(args.timeout_seconds, 30)) * 1000);
+  if (args.block !== false && command.ended_at === 0) {
+    await waitWithTimeout(command.done, Math.max(0, Math.min(120, numberArg(args.timeout_seconds, 30))) * 1000);
   }
   const maxBytes = Math.max(1, Math.min(200000, numberArg(args.max_bytes, 20000)));
   const output = backgroundOutput(command, maxBytes);
   return {
-    retrieval_status: command.status === "running" ? "not_ready" : "success",
+    retrieval_status: command.ended_at === 0 ? "not_ready" : "success",
     task: backgroundPayload(command),
     output: output.content,
     bytes: output.bytes,
@@ -52,9 +56,8 @@ export async function shellBackgrounds() {
 export async function shellKill(_context: ToolExecutionContext, args: JsonObject) {
   const command = resolveBackgroundCommand(args.task_id);
   if (command.status === "running") {
-    command.status = "killed";
-    command.child.kill("SIGTERM");
-    await waitWithTimeout(command.done, 2000);
+    command.execution.stop();
   }
+  await command.done;
   return { task: backgroundPayload(command), killed: command.status === "killed" };
 }

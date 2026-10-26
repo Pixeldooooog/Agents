@@ -8,17 +8,17 @@ import {
   teamRunMember,
   teamSend
 } from "./collaborationTeamActions.js";
-import { agentRunSchema, sendSchema, teamCreateSchema } from "./collaborationToolSchemas.js";
+import { agentRunSchema, sendSchema, teamCreateSchema, agentProfilesSchema, agentSaveProfileSchema, teamIdentitySchema, teamInboxSchema, teamRunMemberSchema } from "./collaborationToolSchemas.js";
 
 export const collaborationToolDefinitions: ToolDefinition[] = [
   {
-    name: "agent.profiles",
+    name: "agent.profiles", parameters: agentProfilesSchema,
     description: "List saved agent profiles.",
     risk: "low",
     handler: agentProfiles
   },
   {
-    name: "agent.save_profile",
+    name: "agent.save_profile", parameters: agentSaveProfileSchema,
     description: "Save the current or provided agent profile.",
     risk: "medium",
     handler: agentSaveProfile
@@ -37,8 +37,8 @@ export const collaborationToolDefinitions: ToolDefinition[] = [
     parameters: teamCreateSchema,
     handler: teamCreate
   },
-  { name: "team.delete", description: "Delete a team.", risk: "medium", handler: teamDelete },
-  { name: "team.members", description: "List team members.", risk: "low", handler: teamMembers },
+  { name: "team.delete", parameters: teamIdentitySchema, description: "Delete a team.", risk: "medium", handler: teamDelete },
+  { name: "team.members", parameters: teamIdentitySchema, description: "List team members.", risk: "low", handler: teamMembers },
   {
     name: "team.send",
     description: "Send a message to a team member.",
@@ -46,9 +46,9 @@ export const collaborationToolDefinitions: ToolDefinition[] = [
     parameters: sendSchema,
     handler: teamSend
   },
-  { name: "team.inbox", description: "Read a team member inbox.", risk: "low", handler: teamInbox },
+  { name: "team.inbox", parameters: teamInboxSchema, description: "Read a team member inbox.", risk: "low", handler: teamInbox },
   {
-    name: "team.run_member",
+    name: "team.run_member", parameters: teamRunMemberSchema,
     description: "Run a team member agent and deliver the result.",
     risk: "high",
     handler: teamRunMember

@@ -1,18 +1,19 @@
 # Kevin：个人长期运行 Agent 产品规划
 
-> 状态：方案基线
+> 状态：个人产品目标；系统基线先行
+> 修订日期：2026-10-26
 > 目标：把当前 `Agents` 仓库收敛为一个可长期运行、可审查、可配置、可分发的单 Agent 产品，产品名为 **Kevin**。
 > 范围：本方案覆盖产品定位、能力边界、系统架构、配置、数据库、界面、仓库治理、分发方式、迁移路线和验收标准。
 
-> 复核说明：本文件描述产品方向；可执行任务、数据库约束、API 契约、恢复语义和发布门禁以 [Kevin 实施规划与交付计划](kevin-implementation-roadmap.md) 为准。当前仓库尚未完成这些目标能力，文中“应具备”不等于“已经支持”。
+> 复核说明：[Agent 系统基线设计与验收矩阵](agent-system-baseline.md) 规定系统分层、执行契约和基线完成定义；[实施路线](kevin-implementation-roadmap.md) 规定 B0–B3、P1–P3、C1 顺序。本文件保留完整个人产品目标，页面/配置/SQL 示例为产品设计输入。当前仓库尚未完成这些目标能力。
 
 ## 1. 结论先行
 
-Kevin 不应该继续做一个“拥有很多工具的通用 Agent SDK”。它应该成为一个有名字、有记忆、有工作空间、有后台任务、有权限边界和有活动记录的个人 Agent。
+先构建完整、可复用的 Agent 系统基线，再在基线上形成 Kevin 个人产品。Kevin 应具有持续身份、记忆、工作空间、后台工作、权限边界和活动记录；品牌与页面策略属于个人服务和客户端，不进入运行内核。
 
 用户面对的核心对象只有一个：**Kevin**。用户可以和 Kevin 对话，给 Kevin 一个长期目标，连接必要的应用和本地电脑，查看它正在做什么，在关键动作前批准它，并随时暂停、修改或恢复工作。
 
-当前仓库已经拥有可复用的基础：TypeScript runtime、多模型 profile、工具注册、权限与审批、Run/Task/Session 状态、MCP、Terminal、Web UI 和 SDK 协议。需要做的是产品收敛和基础设施升级，而不是继续横向增加更多抽象。当前 Task 仍由单进程 service 驱动，状态仍以 JSON store 为主，不能把它们描述成已经具备 Durable Execution 或云端常驻能力。
+当前仓库已经拥有可复用的基础：TypeScript runtime、多模型 profile、工具注册、权限与审批、Run/Task/Session 状态、MCP、Terminal、Web UI 和 SDK 协议。下一步先完成基线契约、行为对齐与可靠性验收，再收敛产品交互。当前 Task 仍由单进程 service 驱动，状态仍以 JSON store 为主，不能把它们描述成已经具备 Durable Execution 或云端常驻能力。
 
 建议的产品形态：
 
@@ -21,7 +22,7 @@ Kevin 不应该继续做一个“拥有很多工具的通用 Agent SDK”。它�
 - 支持前台即时任务和后台持续任务，但后台任务必须可见、可暂停、可恢复。
 - 高风险动作默认需要批准；低风险动作可以自动执行。
 - 本地优先运行，数据库和远程执行能力采用可替换适配器，避免一开始被云基础设施绑死。
-- 第一阶段聚焦个人效率和开发工作，不承诺企业多租户、多 Agent 编排和全自动无人值守。
+- 本地个人产品聚焦个人效率和开发工作，不承诺企业多租户、多 Agent 编排和全自动无人值守。
 
 ## 2. 对 Dot 的研究与可借鉴之处
 
@@ -46,7 +47,7 @@ Kevin 应借鉴这些产品原则，而不是复制其云基础设施：
 | 多端查看同一个工作 | Web 是主界面，Terminal 是开发和故障排查入口 |
 | 工作结果可审查 | Event、Artifact、Decision、Approval、Cost 形成可查询活动记录 |
 
-Kevin 不应直接承诺“永远在线”或“完全自主”。第一阶段应把它定义为：**可持续运行、可观察、可暂停、可恢复的个人 Agent**。
+Kevin 不应直接承诺“永远在线”或“完全自主”。本地版本应把它定义为：**可持续运行、可观察、可暂停、可恢复的个人 Agent**。
 
 ## 3. 产品定位与非目标
 
@@ -62,7 +63,7 @@ Kevin 不应直接承诺“永远在线”或“完全自主”。第一阶段�
 
 ### 3.2 非目标
 
-第一阶段明确不做：
+本地个人版本明确不做：
 
 - 多 Agent 群聊、复杂团队编排和 Agent 市场。
 - 企业级多租户计费、组织层级和复杂 RBAC。
@@ -79,7 +80,9 @@ flowchart LR
   User[用户] --> Kevin[Kevin Agent]
   Kevin --> Workspace[工作空间]
   Kevin --> Conversation[对话]
-  Kevin --> Task[后台任务]
+  Kevin --> Goal[长期目标与版本化计划]
+  Goal --> Task[工作任务]
+  Kevin --> Task
   Kevin --> Memory[记忆]
   Kevin --> Connector[连接器]
   Kevin --> Activity[活动记录]
@@ -92,8 +95,10 @@ flowchart LR
 - **Agent**：唯一的 Kevin 身份、行为和全局配置。
 - **Workspace**：Kevin 可以读取和修改的文件、仓库、运行目录和索引。
 - **Conversation**：用户与 Kevin 的交流上下文。
-- **Task**：一个可持续推进的目标，可以被启动、暂停、恢复和取消。
-- **Run**：Task 的一次具体执行尝试。
+- **Goal / Plan**：可选的长期结果与版本化工作安排，跨会话和 Run 存续。
+- **Task**：有边界的工作单元，包含交付标准、资源与预算，可以被启动、暂停、恢复和取消。
+- **Routine**：已授权的周期或事件触发工作，通过同一执行系统调度。
+- **Run**：Task 的一次可恢复逻辑执行；进程恢复保留 ID，新执行轮次创建新 ID。
 - **Event**：模型、工具、审批、状态和错误事件。
 - **Artifact**：报告、补丁、文件、截图、链接等结果。
 - **Memory**：用户明确保存或系统确认过的长期信息。
@@ -102,110 +107,25 @@ flowchart LR
 
 ## 5. 建议的整体架构
 
-```mermaid
-flowchart TB
-  subgraph Clients
-    Web[Kevin Web App]
-    Terminal[Kevin Terminal]
-    LocalBridge[Kevin Local Bridge]
-  end
+采用“客户端 → 个人 Agent 服务 → Agent 系统基线 → 基础设施适配器”的分层。完整结构、模块所有权和目录以 [基线第 3 节](agent-system-baseline.md#3-系统分层与所有权) 为准。
 
-  subgraph Host
-    API[HTTP API / SSE / WebSocket]
-    Auth[Local Auth & Session]
-    Scheduler[Task Scheduler]
-    Worker[Run Worker]
-  end
+- 内核负责运行语义、上下文和动作决策，不直接操作数据库或启动宿主进程。
+- execution 负责持久工作、调度、权限强制执行、恢复和预算。
+- personal 负责身份、Project、Goal、Plan、Routine、工作延续和通知策略。
+- providers、connectors、executors、storage 实现具体环境能力。
+- host 组装服务并提供 API/事件；Web、Terminal 和未来 Desktop 连接同一状态与调度所有者。
 
-  subgraph Core
-    Orchestrator[Agent Orchestrator]
-    Context[Context & Memory Manager]
-    Policy[Permission Policy Engine]
-    Registry[Tool / Connector Registry]
-    Events[Event Bus]
-    Artifacts[Artifact Manager]
-  end
+单 Agent 不限制只能运行一个任务；并行 Task 的数据范围、账户、审批和预算独立，写同一资源时协调冲突。
 
-  subgraph Storage
-    DB[(SQLite / Postgres Adapter)]
-    Files[Workspace & Artifact Files]
-    Index[(FTS / Vector Index)]
-  end
-
-  subgraph Providers
-    Models[Model Provider Adapters]
-    MCP[MCP Connectors]
-    Computer[Browser / Computer Tools]
-  end
-
-  Web --> API
-  Terminal --> API
-  LocalBridge --> API
-  API --> Auth
-  API --> Scheduler
-  API --> Worker
-  Worker --> Orchestrator
-  Orchestrator --> Context
-  Orchestrator --> Policy
-  Orchestrator --> Registry
-  Orchestrator --> Events
-  Orchestrator --> Artifacts
-  Orchestrator --> Models
-  Registry --> MCP
-  Registry --> Computer
-  Events --> DB
-  Context --> DB
-  Scheduler --> DB
-  Artifacts --> Files
-  Context --> Index
-  DB --> Files
-```
-
-### 5.1 代码分层
-
-```text
-apps/
-  web/                    Kevin 主界面
-  terminal/               开发者和故障排查界面
-  desktop/                可选：Tauri/Electron 外壳，第二阶段再做
-
-packages/
-  core/                   Agent domain、run loop、tool contracts
-  host/                   HTTP、SSE、WebSocket、scheduler、auth
-  db/                     Store interface、SQLite adapter、migrations
-  providers/              OpenAI/Anthropic/Gemini/compatible adapters
-  connectors/             MCP、GitHub、Slack、Notion 等连接器
-  policy/                 permissions、approval、sandbox policy
-  workspace/              workspace、file index、artifact storage
-  observability/          event schema、trace、metrics、diagnostics
-  config/                 typed config、validation、redaction
-
-packages/core/src/ 应保持与 UI、数据库和具体 provider 解耦。入口文件只做 wiring；业务行为放入可测试的 focused modules。
-```
-
-### 5.2 单 Agent 收敛原则
-
-现有 `team.*`、`agent.run` 等多 Agent 相关能力不应继续作为 Kevin 的主产品入口。建议分三步处理：
-
-1. 第一阶段从默认工具列表和主界面隐藏，保留兼容代码并标记 deprecated。
-2. 第二阶段把多 Agent 能力移到 `packages/experimental` 或独立扩展包。
-3. 当 Kevin 的单 Agent 任务、记忆、审批和恢复稳定后，再决定是否重新引入协作能力。
+现有 team/agent.run 能力先在 B0 能力矩阵中登记用途和兼容影响。P1 决定默认隐藏、保留为实验能力或迁出扩展，不能在基线阶段仅为单 Agent 品牌删掉未审计的能力。
 
 ## 6. Runtime 设计
 
 ### 6.1 Run 生命周期
 
-```text
-queued
-  -> preparing
-  -> running
-  -> waiting_for_input
-  -> waiting_for_approval
-  -> paused
-  -> completed | failed | cancelled | expired
-```
+标准状态为 `queued / preparing / running / waiting_input / waiting_approval / paused / reconciling / completed / failed / cancelled / expired`；它们是状态集合，不是必须依次经过的流水线。合法转换、Action 状态及恢复规则见 [基线第 4–5 节](agent-system-baseline.md#4-领域对象和生命周期)。
 
-每次状态转换都写入不可变 Event，并带有 `run_id`、`task_id`、`request_id`、时间、来源和版本。恢复时从最后一个可恢复 checkpoint 继续，而不是只依赖内存中的对话对象。
+自动恢复保持 Run ID、更新 lease epoch；明确的新执行轮次创建新 Run。结果不确定的 Action 为 unknown，Run 进入 reconciling，不自动重放副作用。状态转换、输入、审批和预算持久化；长时间等待释放执行租约。
 
 ### 6.2 工作模式
 
@@ -219,8 +139,8 @@ queued
 1. 读取用户消息、Task 目标和 workspace 状态。
 2. 生成执行计划或直接进入单步处理。
 3. 根据 Policy Engine 判断工具是否可用、是否需要批准。
-4. 执行工具并写入 ToolStart/ToolResult 事件。
-5. 保存中间 checkpoint 和产物引用。
+4. 在实际执行前复核授权并持久化 Action intent，再执行工具。
+5. 按事务边界保存结果、状态、checkpoint、事件及产物引用；不确定结果先核对。
 6. 判断继续、等待输入、等待审批或结束。
 7. 向 Web、Terminal 和 SDK 投影同一套事件。
 
@@ -351,11 +271,11 @@ tasks
   schedule_json, priority, next_run_at, created_at, updated_at
 
 runs
-  id, task_id, conversation_id, status, attempt, request_id,
+  id, task_id, conversation_id, status, worker_attempts, request_id,
   model_profile, started_at, finished_at, error_code, checkpoint_json
 
 events
-  id, run_id, task_id, sequence, type, actor, payload_json, created_at
+  event_id, schema_version, run_id, task_id, sequence, type, actor, payload_json, occurred_at
 
 approvals
   id, run_id, tool_call_id, action_summary, risk, status,
@@ -404,7 +324,7 @@ settings_audit
 
 1. 定义 `Store` 接口，先写 SQLite adapter。
 2. 为 JSON store 增加只读导入器。
-3. 首次启动执行 JSON → SQLite 导入并生成备份。
+3. 首次迁移先备份旧数据，显示导入清单，再执行 JSON → SQLite；失败保留原始数据与诊断。
 4. 通过 migration table 管理 schema 版本。
 5. 默认停止新功能继续依赖 JSON store。
 6. 增加 `kevin doctor storage` 检查数据库、迁移和文件权限。
@@ -550,7 +470,7 @@ Terminal 适合开发和故障恢复；普通用户的主体验应放在 Web。
 ```text
 @kevin/core
 @kevin/host
-@kevin/db
+@kevin/storage
 @kevin/providers
 @kevin/connectors
 @kevin/web
@@ -569,53 +489,7 @@ kevin doctor
 
 ### 12.2 推荐仓库结构
 
-```text
-kevin-agent/
-  apps/
-    web/
-    terminal/
-  packages/
-    core/
-    host/
-    db/
-    providers/
-    connectors/
-    policy/
-    workspace/
-    observability/
-    config/
-  migrations/
-  config/
-    defaults.toml
-    examples/
-  deploy/
-    Dockerfile
-    docker-compose.yml
-    healthcheck.sh
-  docs/
-    product.md
-    architecture.md
-    configuration.md
-    security.md
-    connectors.md
-    self-hosting.md
-    contributing.md
-    adr/
-  examples/
-    minimal-config/
-    developer-agent/
-  scripts/
-  .github/
-    workflows/ci.yml
-    ISSUE_TEMPLATE/
-    pull_request_template.md
-  LICENSE
-  README.md
-  README.zh-CN.md
-  CHANGELOG.md
-  SECURITY.md
-  CONTRIBUTING.md
-```
+包职责沿用 [系统基线](agent-system-baseline.md#3-系统分层与所有权)：core、execution、personal、storage、providers、connectors、executors、host 与 apps。产品发行另包含 migrations、config/examples、deploy、docs/adr、安装脚本和发布工作流。命名与配置兼容迁移属于 P1/P3，不作为 B0 的前置大规模改名任务。
 
 ### 12.3 对外可分发的仓库要求
 
@@ -632,57 +506,20 @@ kevin-agent/
 
 ## 13. 迁移实施路线
 
-### Phase 0：产品收敛与命名
+与 [实施路线第 11 节](kevin-implementation-roadmap.md#11-分阶段实施) 使用同一组编号：
 
-- 统一 Kevin 品牌、命令、包名和配置前缀。
-- 更新 README、功能矩阵和架构图。
-- 把多 Agent/team 能力从默认产品面隐藏。
-- 建立 ADR，记录单 Agent 决策。
+| 阶段 | 目标 |
+|---|---|
+| B0 | 能力映射、执行/授权契约、环境矩阵和技术 spike |
+| B1 | 有界运行、模型/工具、审批与执行生命周期；沙箱后端独立暂缓 |
+| B2 | 持久任务、恢复、介入、预算、常驻服务与调度 |
+| B3 | Markdown 记忆、产物、多端一致性、完整恢复和组合验收 |
+| P1 | 个人身份、目标/计划、例行工作、通知策略与产品定义 |
+| P2 | 交办、进行中工作、待处理事项、结果及连接管理的产品交互 |
+| P3 | Kevin 命名迁移、CLI、Homebrew、Docker、自托管与逐平台发行验收 |
+| C1 | 独立验收 Cloud Worker、Control Plane 和设备 Bridge 信任边界 |
 
-验收：新用户只看 README 就能理解 Kevin 是什么，并能启动一个本地 Agent。
-
-### Phase 1：数据库与状态基础
-
-- 新增 `packages/db`。
-- 定义 Store interface 和 SQLite migration runner。
-- 实现 JSON 导入、备份和回滚。
-- 把 Run、Task、Event、Approval、Artifact、Memory 迁移到 SQLite。
-
-验收：重启进程后任务状态、审批和活动可以恢复，现有 JSON 数据可以导入。
-
-### Phase 2：长期任务与调度
-
-- 实现任务队列、worker、checkpoint、取消、重试和过期。
-- 增加 schedule worker 和单实例锁。
-- 增加运行上限、成本上限和工具次数上限。
-
-验收：模拟进程中断后任务可恢复；重复请求不会重复执行不可幂等动作。
-
-### Phase 3：权限、连接器和本地桥
-
-- 把现有权限逻辑升级为 Policy Engine。
-- 实现文件、Git、Web、MCP 的 connector contract。
-- 增加本地电脑连接的显式授权和撤销。
-- 建立 Tier 0~3 风险分级。
-
-验收：高风险操作必定进入审批；撤销连接后工具立即不可用；审计记录完整。
-
-### Phase 4：Kevin Web 产品化
-
-- 重做 Today、Chat、Tasks、Activity、Memory、Connections、Settings。
-- 同一事件流同时驱动 Web 和 Terminal。
-- 增加产物预览、Diff、审批中心和错误恢复。
-
-验收：一个用户可以仅通过 Web 完成创建任务、审批、查看结果和恢复失败任务。
-
-### Phase 5：分发与生产门禁
-
-- 完成 CLI 打包、Docker clean-host 构建和版本发布。
-- 增加 SQLite 备份恢复、日志脱敏、配置诊断和升级迁移。
-- 用真实 Provider、MCP、Web 访问和本地 workspace 做验收。
-- 增加压力、故障恢复和安全测试。
-
-验收：新机器可按文档安装；升级不会丢失任务、记忆和产物；失败时有可恢复路径。
+B 阶段以薄应用验证代码任务、研究报告和周期监测，Goal/Plan/Routine 接口从 B0 开始确定；最终页面后置。完整产品能力仍保留，基线验收不代表 Kevin 已交付。
 
 ## 14. 验收标准
 
@@ -717,24 +554,21 @@ kevin-agent/
 
 ## 15. 当前仓库的具体调整清单
 
-### 立即调整
+### 当前优先：系统基线
 
-- 将项目显示名称从 `Agents` 改为 `Kevin`。
-- 将 `package.json` 和 workspace 包名改为 `@kevin/*`。
-- 将 `AGENTS_*` 配置前缀逐步迁移为 `KEVIN_*`，保留一个版本周期的兼容读取。
-- 更新 `config/defaults.toml` 中的产品名、状态路径和默认工具策略。
-- 修正 `docs/features.md`：源码已有远多于 read/list 的工具，文档必须以 registry 为准。
-- 增加 `docs/product.md`、`docs/security.md`、`docs/self-hosting.md`。
-- 清理公开仓库中的 `.agents` 运行状态、日志、`.venv`、`dist` 和 IDE 文件。
-- 检查已被 Git 跟踪的构建产物（当前 `apps/web/dist/` 仍在跟踪范围内），决定是发布静态资源还是改为 CI 产物；不能只依赖 `.gitignore`。
+- 以实际 registry 和实现建立能力映射，修正文档漂移。
+- 固化 Task/Run/Action/Event、工具、授权与输入队列契约。
+- 修正 Host 安全默认值和有限循环，预留平台执行隔离接口；沙箱后端按用户决定暂缓。
+- 将具体 JsonStateStore 依赖改为 ports，验证 SQLite 与迁移。
+- 建立恢复、实际取消、服务所有权和三场景验证入口。
+- 检查已跟踪的状态、日志和构建产物，先记录用途与处置方案，避免未经检查删除。
 
-### 后续调整
+### 基线之后：个人产品与发行
 
-- 把 `JsonStateStore` 替换为 `Store` interface + SQLite adapter。
-- 将 scheduler、worker、artifact、approval 从混合 host service 中拆出明确模块。
-- 把 team/collaboration 能力移出 Kevin 默认产品面。
-- 统一事件 schema，Web、Terminal、SDK 只消费同一份 protocol-neutral event。
-- 增加数据库迁移和 clean-host 发布流水线。
+- 按 P1 结论迁移 Kevin 品牌、包名和配置前缀，保留必要兼容说明。
+- 完善个人工作与通知策略、产品交互、连接器管理和设备授权。
+- 按能力映射决定 team/collaboration 的默认入口和扩展归属。
+- 完成 CLI、Homebrew、Docker、文档、截图和逐平台发行证据。
 
 ## 16. 最终产品判断
 
