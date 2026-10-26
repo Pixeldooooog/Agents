@@ -1,24 +1,24 @@
 import './interactive-test-environment.js'
 import assert from 'node:assert/strict'
-import {mkdir, writeFile} from 'node:fs/promises'
-import {tmpdir} from 'node:os'
+import {mkdir, rm, writeFile} from 'node:fs/promises'
 import path from 'node:path'
 import {Readable, Writable} from 'node:stream'
 import React from 'react'
 import {render, type Instance, type RenderOptions} from 'ink'
+import {createAppSmokeWorkspace} from './fixtures/appSmokeWorkspace.js'
 import {App} from '../src/app/App.js'
 import {isFullscreenLayoutEnabled} from '../src/app/terminalLayout.js'
 
-const repoRoot = path.resolve(process.cwd(), '../..')
+const repoRoot = await createAppSmokeWorkspace(path.resolve(import.meta.dir, '../../..'))
 const terminalRows = Number(process.env.AGENTS_TERMINAL_ROWS ?? 30)
 const terminalColumns = Number(process.env.AGENTS_TERMINAL_COLUMNS ?? 100)
 const compactTerminal = terminalRows < 29 || terminalColumns < 80
 const tinyTerminal = terminalColumns < 40
 const fullscreenLayout = isFullscreenLayoutEnabled()
 const promptReadyText = terminalColumns < 36 ? 'for commands' : 'ask or type / for commands'
-process.env.AGENTS_TERMINAL_HISTORY_PATH = path.join(tmpdir(), `agents-terminal-history-${process.pid}.json`)
-process.env.AGENTS_TERMINAL_SESSION_STORE = path.join(tmpdir(), `agents-terminal-sessions-${process.pid}`)
-process.env.AGENTS_TERMINAL_DB_PATH = path.join(tmpdir(), `agents-terminal-${process.pid}.db`)
+process.env.AGENTS_TERMINAL_HISTORY_PATH = path.join(repoRoot, '.test-state', 'history.json')
+process.env.AGENTS_TERMINAL_SESSION_STORE = path.join(repoRoot, '.test-state', 'sessions')
+process.env.AGENTS_TERMINAL_DB_PATH = path.join(repoRoot, '.test-state', 'terminal.db')
 
 async function waitForOutput(output: TestOutput, expected: string, timeoutMs = 5000): Promise<void> {
   const startedAt = Date.now()
@@ -245,6 +245,7 @@ try {
   console.error = originalError
   instance?.unmount()
   instance?.cleanup()
+  await rm(repoRoot, {recursive: true, force: true})
 }
 
 async function seedSessionStore(root: string): Promise<void> {
@@ -255,7 +256,7 @@ async function seedSessionStore(root: string): Promise<void> {
       session_id: 'session-smoke',
       updated_at: Date.now() / 1000,
       profile: 'coding',
-      model: 'openai-chat · gpt-5.4-5',
+      model: 'openai-chat · fixture-model',
       workspace_path: repoRoot,
       messages: [
         {role: 'system', content: [{type: 'text', text: 'saved system prompt'}]},
