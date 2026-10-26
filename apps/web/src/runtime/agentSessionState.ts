@@ -29,6 +29,7 @@ export function createAgentSessionState() {
   const [agentId, setAgentId] = createSignal("");
   const [workspaceId, setWorkspaceId] = createSignal("");
   const [streaming, setStreaming] = createSignal(true);
+  const [showDetails, setShowDetails] = createSignal(false);
   const [input, setInput] = createSignal("");
   const [messages, setMessages] = createSignal<ChatMessage[]>([welcome]);
   const [activity, setActivity] = createSignal<ActivityEvent[]>(seedActivity());
@@ -63,6 +64,7 @@ export function createAgentSessionState() {
     agentId, setAgentId,
     workspaceId, setWorkspaceId,
     streaming, setStreaming,
+    showDetails, setShowDetails,
     input, setInput,
     messages, setMessages,
     activity, setActivity,
@@ -116,6 +118,8 @@ export function publicAgentSessionState(state: AgentSessionState) {
     setWorkspaceId: state.setWorkspaceId,
     streaming: state.streaming,
     setStreaming: state.setStreaming,
+    showDetails: state.showDetails,
+    setShowDetails: state.setShowDetails,
     input: state.input,
     setInput: state.setInput,
     messages: state.messages,

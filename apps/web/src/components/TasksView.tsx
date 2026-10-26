@@ -2,6 +2,7 @@ import { createSignal, For, Show } from "solid-js";
 import type { Accessor } from "solid-js";
 import { Play, RefreshCw, Square, Plus } from "lucide-solid";
 import type { TaskRecord, TaskStepRecord } from "../types/runtimeTypes";
+import { copy, statusLabel } from "../copy";
 
 type Props = {
   tasks: Accessor<TaskRecord[]>;
@@ -29,26 +30,26 @@ export function TasksView(props: Props) {
     <section class="split-view">
       <article class="panel-card">
         <div class="panel-header">
-          <div><p class="eyebrow">Queue</p><h2>Tasks</h2></div>
-          <button class="icon-button" title="Refresh tasks" onClick={() => void props.refreshTasks()}><RefreshCw size={15} /></button>
+          <div><p class="eyebrow">{copy.tasks.eyebrow}</p><h2>{copy.tasks.title}</h2></div>
+          <button class="icon-button" title={copy.tasks.refresh} aria-label={copy.tasks.refresh} onClick={() => void props.refreshTasks()}><RefreshCw size={15} /></button>
         </div>
         <div class="task-create">
-          <input value={title()} onInput={(event) => setTitle(event.currentTarget.value)} placeholder="Task title" />
-          <textarea value={message()} onInput={(event) => setMessage(event.currentTarget.value)} placeholder="Task input" />
-          <button class="plain-button task-create-button" onClick={() => void submit()}><Plus size={14} /><span>Create task</span></button>
+          <input value={title()} onInput={(event) => setTitle(event.currentTarget.value)} placeholder={copy.tasks.titlePlaceholder} />
+          <textarea value={message()} onInput={(event) => setMessage(event.currentTarget.value)} placeholder={copy.tasks.inputPlaceholder} />
+          <button class="plain-button task-create-button" onClick={() => void submit()}><Plus size={14} /><span>{copy.tasks.create}</span></button>
         </div>
         <div class="table-head">
-          <span>title</span><span>status</span><span>actions</span>
+          <span>{copy.tasks.columnTitle}</span><span>{copy.tasks.columnStatus}</span><span>{copy.tasks.columnActions}</span>
         </div>
         <div class="table-body">
-          <Show when={props.tasks().length > 0} fallback={<p class="trace-empty">No tasks</p>}>
+          <Show when={props.tasks().length > 0} fallback={<p class="trace-empty">{copy.tasks.empty}</p>}>
             <For each={props.tasks()}>{(task) => (
               <div class="table-row task-row" classList={{ active: props.selectedTaskId() === task.task_id }}>
                 <button class="task-link" onClick={() => void props.openTask(task.task_id)}>{task.title || task.task_id}</button>
-                <span class={`status-${task.status}`}>{task.status}</span>
+                <span class={`status-${task.status}`}>{statusLabel(task.status)}</span>
                 <div class="task-actions">
-                  <button class="icon-button" title="Run task" onClick={() => void props.runTask(task.task_id)}><Play size={14} /></button>
-                  <button class="icon-button" title="Cancel task" onClick={() => void props.cancelTask(task.task_id)}><Square size={13} /></button>
+                  <button class="icon-button" title={copy.tasks.run} aria-label={copy.tasks.run} onClick={() => void props.runTask(task.task_id)}><Play size={14} /></button>
+                  <button class="icon-button" title={copy.tasks.cancel} aria-label={copy.tasks.cancel} onClick={() => void props.cancelTask(task.task_id)}><Square size={13} /></button>
                 </div>
               </div>
             )}</For>
@@ -57,13 +58,13 @@ export function TasksView(props: Props) {
       </article>
 
       <article class="panel-card">
-        <div class="panel-header"><div><p class="eyebrow">Execution</p><h2>Steps</h2></div></div>
+        <div class="panel-header"><div><p class="eyebrow">{copy.tasks.stepsEyebrow}</p><h2>{copy.tasks.stepsTitle}</h2></div></div>
         <div class="table-body">
-          <Show when={props.taskSteps().length > 0} fallback={<p class="trace-empty">Select a task to inspect steps</p>}>
+          <Show when={props.taskSteps().length > 0} fallback={<p class="trace-empty">{copy.tasks.stepsEmpty}</p>}>
             <For each={props.taskSteps()}>{(step) => (
               <div class="step-card">
                 <strong>{step.step_id}</strong>
-                <span class={`status-${step.status}`}>{step.status}</span>
+                <span class={`status-${step.status}`}>{statusLabel(step.status)}</span>
                 <Show when={step.output}><pre>{step.output}</pre></Show>
                 <Show when={step.error}><pre class="step-error">{step.error}</pre></Show>
               </div>

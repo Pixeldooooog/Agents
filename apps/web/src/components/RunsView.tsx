@@ -4,6 +4,7 @@ import { For, Show } from "solid-js";
 import type { ActivityEvent, RuntimeRun } from "../types/runtimeTypes";
 import { ActionTimeline } from "./ActionTimeline";
 import { RunInspector } from "./RunInspector";
+import { copy, statusLabel } from "../copy";
 
 type Props = {
   runs: Accessor<RuntimeRun[]>;
@@ -20,18 +21,18 @@ export function RunsView(props: Props) {
     <section class="split-view">
       <article class="panel-card">
         <div class="panel-header">
-          <div><p class="eyebrow">History</p><h2>Runs</h2></div>
-          <button class="icon-button" title="Refresh runs" onClick={() => void props.refreshRuns()}><RefreshCw size={15} /></button>
+          <div><p class="eyebrow">{copy.runs.eyebrow}</p><h2>{copy.runs.title}</h2></div>
+          <button class="icon-button" title={copy.runs.refresh} aria-label={copy.runs.refresh} onClick={() => void props.refreshRuns()}><RefreshCw size={15} /></button>
         </div>
         <div class="table-head">
-          <span>run_id</span><span>status</span><span>updated</span>
+          <span>{copy.runs.columnId}</span><span>{copy.runs.columnStatus}</span><span>{copy.runs.columnUpdated}</span>
         </div>
         <div class="table-body">
-          <Show when={props.runs().length > 0} fallback={<p class="trace-empty">No runs</p>}>
+          <Show when={props.runs().length > 0} fallback={<p class="trace-empty">{copy.runs.empty}</p>}>
             <For each={props.runs()}>{(run) => (
               <button class="table-row" classList={{ active: props.runId() === run.run_id }} onClick={() => props.setRunId(run.run_id)}>
                 <span>{run.run_id}</span>
-                <span class={`status-${run.status}`}>{run.status}</span>
+                <span class={`status-${run.status}`}>{statusLabel(run.status)}</span>
                 <span>{timeText(run.updated_at)}</span>
               </button>
             )}</For>

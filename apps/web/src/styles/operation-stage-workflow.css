@@ -50,7 +50,7 @@
   background: rgba(237, 240, 232, 0.18);
 }
 
-.automation-step.done .step-led { background: #86cab9; }
+.automation-step.done .step-led { background: #dea74e; }
 .automation-step.active .step-led { background: #d8bd74; box-shadow: 0 0 0 5px rgba(216, 189, 116, 0.12); }
 .automation-step.error .step-led { background: #e28b90; }
 .automation-step.active { border-color: rgba(216, 189, 116, 0.42); color: #fffdf4; }
@@ -74,7 +74,7 @@
   backdrop-filter: blur(12px);
 }
 
-.evidence-chip.ok { border-color: rgba(134, 202, 185, 0.32); }
+.evidence-chip.ok { border-color: rgba(222, 167, 78, 0.32); }
 .evidence-chip.warn { border-color: rgba(216, 189, 116, 0.36); }
 .evidence-chip.error { border-color: rgba(226, 139, 144, 0.42); }
 
@@ -99,7 +99,7 @@
   border: 1px solid rgba(216, 222, 227, 0.8);
   border-radius: 8px;
   padding: 8px 10px;
-  color: #254d46;
+  color: #4a3a22;
   background: #fbfcf8;
   font: 12px/1.4 "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   text-overflow: ellipsis;
@@ -115,7 +115,7 @@
   height: 44px;
   pointer-events: none;
   opacity: 0;
-  background: linear-gradient(180deg, rgba(134, 202, 185, 0.16), transparent);
+  background: linear-gradient(180deg, rgba(222, 167, 78, 0.16), transparent);
   transform: translateY(-44px);
 }
 
@@ -126,7 +126,7 @@
 }
 
 .scene-canvas[data-phase="done"] .stage-window {
-  box-shadow: 0 26px 78px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(134, 202, 185, 0.16);
+  box-shadow: 0 26px 78px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(222, 167, 78, 0.16);
 }
 
 .scene-canvas[data-phase="error"] .stage-window {

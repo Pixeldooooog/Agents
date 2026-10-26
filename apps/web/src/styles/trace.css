@@ -10,9 +10,9 @@
 
 .action-rail,
 .run-inspector {
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--surface);
+  background: var(--paper-raised);
   box-shadow: var(--shadow-tight);
   overflow: hidden;
 }
@@ -33,15 +33,15 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface-raised);
+  border-bottom: 1px solid var(--line);
+  background: var(--paper-soft);
 }
 
 .action-rail-header h2,
 .run-inspector-header h2 {
   margin: 2px 0 0;
   font-size: 17px;
-  color: var(--text);
+  color: var(--ink);
   word-break: break-word;
 }
 
@@ -60,8 +60,8 @@
   align-items: start;
   padding: 10px;
   border-radius: 8px;
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
+  background: var(--paper-soft);
+  border: 1px solid var(--line);
 }
 
 .action-node {
@@ -70,8 +70,8 @@
   display: grid;
   place-items: center;
   border-radius: 8px;
-  color: var(--accent-strong);
-  background: #edf6f2;
+  color: var(--signal-deep);
+  background: var(--signal-soft);
 }
 
 .action-meta {
@@ -79,7 +79,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  color: var(--text);
+  color: var(--ink);
   font-size: 12px;
 }
 
@@ -87,7 +87,7 @@
 .trace-row,
 .trace-empty {
   margin: 4px 0 0;
-  color: var(--muted);
+  color: var(--ink-muted);
   font-size: 12px;
   line-height: 1.45;
   word-break: break-word;
@@ -98,9 +98,9 @@
   flex-wrap: wrap;
   gap: 8px;
   padding: 10px 12px 12px;
-  color: var(--muted);
+  color: var(--ink-muted);
   font-size: 11px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line);
 }
 
 .action-legend span,
@@ -118,7 +118,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--faint);
+  background: var(--ink-faint);
   align-self: center;
 }
 
@@ -136,18 +136,18 @@
 .trace-metric {
   min-height: 54px;
   padding: 9px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--surface-raised);
-  color: var(--accent-strong);
+  background: var(--paper-soft);
+  color: var(--signal-deep);
 }
 
 .trace-metric strong {
-  color: var(--text);
+  color: var(--ink);
 }
 
 .trace-metric span {
-  color: var(--muted);
+  color: var(--ink-muted);
   font-size: 11px;
 }
 
@@ -158,7 +158,7 @@
 .trace-section h3 {
   margin: 0 0 8px;
   font-size: 12px;
-  color: var(--text);
+  color: var(--ink);
   text-transform: uppercase;
   letter-spacing: 0;
 }
@@ -166,7 +166,7 @@
 .trace-row {
   padding: 8px;
   border-radius: 8px;
-  background: var(--surface-raised);
+  background: var(--paper-soft);
 }
 
 @media (min-width: 1200px) {

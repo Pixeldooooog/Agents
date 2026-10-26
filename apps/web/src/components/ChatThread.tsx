@@ -3,6 +3,7 @@ import type { Accessor, Setter } from "solid-js";
 import { For, Show } from "solid-js";
 import type { ApprovalDecision, ChatMessage, PermissionMode, ToolApprovalRequest } from "../types/runtimeTypes";
 import { ToolApprovalPanel } from "./ToolApprovalPanel";
+import { copy } from "../copy";
 
 import { KevinAvatar, type KevinState } from "./kevin/KevinAvatar";
 import { AgentPresence } from "./kevin/Primitives";
@@ -16,6 +17,7 @@ type Props = {
   permissionMode: Accessor<PermissionMode>;
   latency: Accessor<number | null>;
   toolCount: Accessor<number>;
+  showDetails: Accessor<boolean>;
   pendingApprovals: Accessor<ToolApprovalRequest[]>;
   input: Accessor<string>;
   setInput: Setter<string>;
@@ -30,11 +32,11 @@ export function ChatThread(props: Props) {
     <section class="thread-card chat-mainline">
       <div class="thread-header">
         <div>
-          <p class="eyebrow">Conversation</p>
-          <h2>Work with Kevin</h2>
+          <p class="eyebrow">{copy.chat.eyebrow}</p>
+          <h2>{copy.chat.title}</h2>
         </div>
         <AgentPresence state={props.agentState()} />
-        <button class="icon-button" onClick={props.clear} title="Clear conversation">
+        <button class="icon-button" onClick={props.clear} title={copy.chat.clear} aria-label={copy.chat.clear}>
           <Eraser size={16} />
         </button>
       </div>
@@ -50,13 +52,15 @@ export function ChatThread(props: Props) {
       </div>
 
       <footer class="composer">
-        <div class="telemetry">
-          <span>{props.protocol()}</span>
-          <span>{props.model() || "model not set"}</span>
-          <span>{props.latency() === null ? "no latency yet" : `${props.latency()} ms`}</span>
-          <span>{props.toolCount() ? `${props.toolCount()} enabled tools` : "default tool set"}</span>
-          <span>{props.permissionMode()} permissions</span>
-        </div>
+        <Show when={props.showDetails()}>
+          <div class="telemetry">
+            <span>{props.protocol()}</span>
+            <span>{props.model() || copy.details.modelUnset}</span>
+            <span>{props.latency() === null ? copy.details.latencyNone : copy.details.latency(props.latency()!)}</span>
+            <span>{props.toolCount() ? copy.details.toolsEnabled(props.toolCount()) : copy.details.toolsDefault}</span>
+            <span>{copy.details.permission(copy.settings.permissionModes[props.permissionMode()] || props.permissionMode())}</span>
+          </div>
+        </Show>
         <div class="composer-row">
           <textarea
             value={props.input()}
@@ -64,10 +68,10 @@ export function ChatThread(props: Props) {
             onKeyDown={(event) => {
               if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) props.send();
             }}
-            aria-label="Message Kevin"
-            placeholder="What shall we work on?"
+            aria-label={copy.chat.inputLabel}
+            placeholder={copy.chat.inputPlaceholder}
           />
-          <button class="send-button" aria-label="Send message" disabled={!props.canSend()} onClick={props.send}>
+          <button class="send-button" aria-label={copy.chat.send} title={copy.chat.inputHint} disabled={!props.canSend()} onClick={props.send}>
             <Send size={18} />
           </button>
         </div>
@@ -81,8 +85,8 @@ function MessageBubble(props: { message: ChatMessage }) {
     <article class={`message message-${props.message.role}`}>
       <div class="avatar">{props.message.role === "user" ? <MessageSquareText size={16} /> : <KevinAvatar size={28} decorative />}</div>
       <div class="bubble">
-        <span>{props.message.role}</span>
-        <p>{props.message.content || "..."}</p>
+        <span>{roleLabel(props.message.role)}</span>
+        <p>{props.message.content || copy.chat.pending}</p>
       </div>
     </article>
   );
@@ -92,8 +96,14 @@ function EmptyState() {
   return (
     <div class="empty-state">
       <KevinAvatar size={110} />
-      <h3>Ready</h3>
-      <p>Send a task to start a run.</p>
+      <h3>{copy.chat.emptyTitle}</h3>
+      <p>{copy.chat.emptyHint}</p>
     </div>
   );
+}
+
+function roleLabel(role: ChatMessage["role"]) {
+  if (role === "user") return copy.chat.roleUser;
+  if (role === "error") return copy.chat.roleError;
+  return copy.chat.roleAssistant;
 }

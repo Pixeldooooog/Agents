@@ -2,6 +2,7 @@ import { RefreshCw } from "lucide-solid";
 import { For, Show } from "solid-js";
 import type { Accessor, Setter } from "solid-js";
 import type { ModelProfile, PermissionMode } from "../types/runtimeTypes";
+import { copy } from "../copy";
 
 type Props = {
   baseUrl: Accessor<string>;
@@ -34,6 +35,10 @@ type Props = {
   activeProfile: Accessor<string>;
   refreshModelProfiles: () => Promise<void>;
   applyModelProfile: (name: string) => void;
+  streaming: Accessor<boolean>;
+  setStreaming: Setter<boolean>;
+  showDetails: Accessor<boolean>;
+  setShowDetails: Setter<boolean>;
 };
 
 export function SettingsView(props: Props) {
@@ -41,29 +46,29 @@ export function SettingsView(props: Props) {
     <section class="settings-grid">
       <div class="settings-column">
         <article class="panel-card">
-          <div class="panel-header"><div><p class="eyebrow">Connection</p><h2>Host</h2></div></div>
-          <label><span>Host URL</span><input value={props.baseUrl()} onInput={(event) => props.setBaseUrl(event.currentTarget.value)} /></label>
-          <label><span>Access Token</span><input type="password" value={props.token()} onInput={(event) => props.setToken(event.currentTarget.value)} /></label>
+          <div class="panel-header"><div><p class="eyebrow">{copy.settings.connectionEyebrow}</p><h2>{copy.settings.connectionTitle}</h2></div></div>
+          <label><span>{copy.settings.hostUrl}</span><input value={props.baseUrl()} onInput={(event) => props.setBaseUrl(event.currentTarget.value)} /></label>
+          <label><span>{copy.settings.accessToken}</span><input type="password" value={props.token()} onInput={(event) => props.setToken(event.currentTarget.value)} /></label>
         </article>
 
         <article class="panel-card">
-          <div class="panel-header"><div><p class="eyebrow">Scope</p><h2>Workspace</h2></div></div>
-          <label><span>tenant_id</span><input value={props.tenantId()} onInput={(event) => props.setTenantId(event.currentTarget.value)} /></label>
-          <label><span>user_id</span><input value={props.userId()} onInput={(event) => props.setUserId(event.currentTarget.value)} /></label>
-          <label><span>agent_id</span><input value={props.agentId()} onInput={(event) => props.setAgentId(event.currentTarget.value)} /></label>
-          <label><span>workspace_id</span><input value={props.workspaceId()} onInput={(event) => props.setWorkspaceId(event.currentTarget.value)} /></label>
+          <div class="panel-header"><div><p class="eyebrow">{copy.settings.scopeEyebrow}</p><h2>{copy.settings.scopeTitle}</h2></div></div>
+          <label><span>{copy.settings.tenantId}</span><input value={props.tenantId()} onInput={(event) => props.setTenantId(event.currentTarget.value)} /></label>
+          <label><span>{copy.settings.userId}</span><input value={props.userId()} onInput={(event) => props.setUserId(event.currentTarget.value)} /></label>
+          <label><span>{copy.settings.agentId}</span><input value={props.agentId()} onInput={(event) => props.setAgentId(event.currentTarget.value)} /></label>
+          <label><span>{copy.settings.workspaceId}</span><input value={props.workspaceId()} onInput={(event) => props.setWorkspaceId(event.currentTarget.value)} /></label>
         </article>
       </div>
 
       <div class="settings-column settings-column-wide">
         <article class="panel-card">
           <div class="panel-header">
-            <div><p class="eyebrow">Model</p><h2>Profiles</h2></div>
-            <button class="icon-button" title="Refresh profiles" onClick={() => void props.refreshModelProfiles()}><RefreshCw size={15} /></button>
+            <div><p class="eyebrow">{copy.settings.modelEyebrow}</p><h2>{copy.settings.modelTitle}</h2></div>
+            <button class="icon-button" title={copy.settings.refreshProfiles} aria-label={copy.settings.refreshProfiles} onClick={() => void props.refreshModelProfiles()}><RefreshCw size={15} /></button>
           </div>
-          <label><span>Active profile</span>
+          <label><span>{copy.settings.activeProfile}</span>
             <select value={props.activeProfile()} onInput={(event) => props.applyModelProfile(event.currentTarget.value)}>
-              <option value="">manual</option>
+              <option value="">{copy.settings.manualProfile}</option>
               <For each={props.modelProfiles()}>{(profile) => <option value={profile.name}>{profile.name}</option>}</For>
             </select>
           </label>
@@ -78,21 +83,34 @@ export function SettingsView(props: Props) {
               )}</For>
             </div>
           </Show>
-          <label><span>Protocol</span><input value={props.protocol()} onInput={(event) => props.setProtocol(event.currentTarget.value)} /></label>
-          <label><span>Model</span><input value={props.model()} onInput={(event) => props.setModel(event.currentTarget.value)} /></label>
-          <label><span>Base URL</span><input value={props.modelBaseUrl()} onInput={(event) => props.setModelBaseUrl(event.currentTarget.value)} /></label>
-          <label><span>API Key</span><input type="password" value={props.apiKey()} onInput={(event) => props.setApiKey(event.currentTarget.value)} /></label>
+          <label><span>{copy.settings.protocol}</span><input value={props.protocol()} onInput={(event) => props.setProtocol(event.currentTarget.value)} /></label>
+          <label><span>{copy.settings.model}</span><input value={props.model()} onInput={(event) => props.setModel(event.currentTarget.value)} /></label>
+          <label><span>{copy.settings.baseUrl}</span><input value={props.modelBaseUrl()} onInput={(event) => props.setModelBaseUrl(event.currentTarget.value)} /></label>
+          <label><span>{copy.settings.apiKey}</span><input type="password" value={props.apiKey()} onInput={(event) => props.setApiKey(event.currentTarget.value)} /></label>
         </article>
 
         <article class="panel-card">
-          <div class="panel-header"><div><p class="eyebrow">Behavior</p><h2>Agent</h2></div></div>
-          <label><span>Enabled Tools</span><input placeholder="empty uses runtime defaults" value={props.enabledTools()} onInput={(event) => props.setEnabledTools(event.currentTarget.value)} /></label>
-          <label><span>Permission Mode</span>
+          <div class="panel-header"><div><p class="eyebrow">{copy.settings.behaviorEyebrow}</p><h2>{copy.settings.behaviorTitle}</h2></div></div>
+          <label><span>{copy.settings.enabledTools}</span><input placeholder={copy.settings.enabledToolsPlaceholder} value={props.enabledTools()} onInput={(event) => props.setEnabledTools(event.currentTarget.value)} /></label>
+          <label><span>{copy.settings.permissionMode}</span>
             <select value={props.permissionMode()} onInput={(event) => props.setPermissionMode(event.currentTarget.value as PermissionMode)}>
-              <option value="ask">ask</option><option value="auto">auto</option><option value="deny">deny</option>
+              <option value="ask">{copy.settings.permissionModes.ask}</option><option value="auto">{copy.settings.permissionModes.auto}</option><option value="deny">{copy.settings.permissionModes.deny}</option>
             </select>
           </label>
-          <label><span>System Prompt</span><textarea value={props.systemPrompt()} onInput={(event) => props.setSystemPrompt(event.currentTarget.value)} /></label>
+          <label><span>{copy.settings.systemPrompt}</span><textarea value={props.systemPrompt()} onInput={(event) => props.setSystemPrompt(event.currentTarget.value)} /></label>
+        </article>
+
+        <article class="panel-card">
+          <div class="panel-header"><div><p class="eyebrow">{copy.settings.developerEyebrow}</p><h2>{copy.settings.developerTitle}</h2></div></div>
+          <label class="toggle-row">
+            <input type="checkbox" checked={props.streaming()} onChange={(event) => props.setStreaming(event.currentTarget.checked)} />
+            <span><strong>{copy.settings.streaming}</strong><small>{copy.settings.streamingHint}</small></span>
+          </label>
+          <label class="toggle-row">
+            <input type="checkbox" checked={props.showDetails()} onChange={(event) => props.setShowDetails(event.currentTarget.checked)} />
+            <span><strong>{copy.settings.showDetails}</strong><small>{copy.settings.showDetailsHint}</small></span>
+          </label>
+          <a class="plain-button settings-link" href="?design">{copy.settings.designStudio}</a>
         </article>
       </div>
     </section>

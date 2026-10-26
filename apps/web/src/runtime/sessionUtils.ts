@@ -1,16 +1,17 @@
 import type { ActivityEvent, ChatMessage, ToolApprovalRequest } from "../types/runtimeTypes";
+import { copy } from "../copy";
 
 export const welcome: ChatMessage = {
   id: 1,
   role: "assistant",
-  content: "目标给我。我会组织上下文、工具和步骤，把它推进到结果。"
+  content: copy.chat.welcome
 };
 
 export function seedActivity(): ActivityEvent[] {
   return [
-    { id: 101, kind: "search", title: "Web search", detail: "Standby for external research", status: "queued", time: "--:--:--" },
-    { id: 102, kind: "tool", title: "Tool call", detail: "Waiting for tool selection", status: "queued", time: "--:--:--" },
-    { id: 103, kind: "approval", title: "Tool approval", detail: "No pending approvals", status: "queued", time: "--:--:--" }
+    { id: 101, kind: "search", title: copy.activity.webSearch, detail: copy.activity.seedSearch, status: "queued", time: "--:--:--" },
+    { id: 102, kind: "tool", title: copy.activity.toolStarted, detail: copy.activity.seedTool, status: "queued", time: "--:--:--" },
+    { id: 103, kind: "approval", title: copy.activity.approvalRequired, detail: copy.activity.seedApproval, status: "queued", time: "--:--:--" }
   ];
 }
 
@@ -21,7 +22,7 @@ export function approvalFromEvent(event: any, fallbackRunId: string): ToolApprov
     runId: event.payload?.run_id || fallbackRunId,
     toolName: call.name || event.name || "tool",
     arguments: call.arguments || {},
-    reason: event.payload?.permission?.reason || "Tool approval required",
+    reason: event.payload?.permission?.reason || copy.approval.reasonFallback,
     impact: event.payload?.impact || {}
   };
 }

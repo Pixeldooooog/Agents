@@ -2,6 +2,7 @@ import { Check, ShieldCheck, ShieldX, Wrench } from "lucide-solid";
 import type { Accessor } from "solid-js";
 import { For, Show } from "solid-js";
 import type { ApprovalDecision, ToolApprovalRequest } from "../types/runtimeTypes";
+import { copy } from "../copy";
 
 type Props = {
   requests: Accessor<ToolApprovalRequest[]>;
@@ -20,10 +21,10 @@ export function ToolApprovalPanel(props: Props) {
               <div class="approval-title">
                 <strong>{request.toolName}</strong>
                 <Show when={request.impact?.risk}>
-                  <span class={`risk-pill risk-${request.impact.risk}`}>{request.impact.risk}</span>
+                  <span class={`risk-pill risk-${request.impact.risk}`}>{copy.approval.risk[request.impact.risk!] || request.impact.risk}</span>
                 </Show>
               </div>
-              <span>{request.reason || "Tool approval required"}</span>
+              <span>{request.reason || copy.approval.reasonFallback}</span>
               <code>{compactArgs(request.arguments)}</code>
               <Show when={impactItems(request).length > 0}>
                 <div class="approval-meta">
@@ -35,17 +36,17 @@ export function ToolApprovalPanel(props: Props) {
               </Show>
             </div>
             <div class="approval-actions">
-              <button class="approval-choice deny-button" disabled={props.busy()} onClick={() => props.decide(request, "deny")} title="Deny tool">
+              <button class="approval-choice deny-button" disabled={props.busy()} onClick={() => props.decide(request, "deny")} title={copy.approval.deny}>
                 <ShieldX size={15} />
-                <span>Deny</span>
+                <span>{copy.approval.deny}</span>
               </button>
-              <button class="approval-choice approve-once-button" disabled={props.busy()} onClick={() => props.decide(request, "allow_once")} title="Allow once">
+              <button class="approval-choice approve-once-button" disabled={props.busy()} onClick={() => props.decide(request, "allow_once")} title={copy.approval.allowOnce}>
                 <Check size={15} />
-                <span>Allow once</span>
+                <span>{copy.approval.allowOnce}</span>
               </button>
-              <button class="approval-choice approve-run-button" disabled={props.busy()} onClick={() => props.decide(request, "allow_for_run")} title="Allow for this run">
+              <button class="approval-choice approve-run-button" disabled={props.busy()} onClick={() => props.decide(request, "allow_for_run")} title={copy.approval.allowForRun}>
                 <ShieldCheck size={15} />
-                <span>Allow for run</span>
+                <span>{copy.approval.allowForRun}</span>
               </button>
             </div>
           </article>
@@ -64,12 +65,12 @@ function impactItems(request: ToolApprovalRequest) {
   const impact = request.impact || {};
   const items: string[] = [];
   for (const [label, value] of [
-    ["path", impact.paths],
-    ["cmd", impact.commands],
-    ["domain", impact.domains]
+    [copy.approval.impactPath, impact.paths],
+    [copy.approval.impactCommand, impact.commands],
+    [copy.approval.impactDomain, impact.domains]
   ] as const) {
-    if (Array.isArray(value)) items.push(...value.slice(0, 2).map((item) => `${label}: ${item}`));
+    if (Array.isArray(value)) items.push(...value.slice(0, 2).map((item) => `${label}：${item}`));
   }
-  if (impact.cost_estimate) items.push(`cost: ${JSON.stringify(impact.cost_estimate)}`);
+  if (impact.cost_estimate) items.push(`${copy.approval.impactCost}：${JSON.stringify(impact.cost_estimate)}`);
   return items;
 }

@@ -10,6 +10,7 @@ import type {
 import type { createApiClient } from "./apiClient";
 import { consumeRuntimeEvents, handleStreamFrame } from "./eventHandlers";
 import { errorText } from "./sessionUtils";
+import { copy } from "../copy";
 
 type ApiClient = ReturnType<typeof createApiClient>;
 type RuntimeEventDeps = Parameters<typeof consumeRuntimeEvents>[1];
@@ -63,7 +64,7 @@ export function createAgentConversationActions(options: AgentConversationActions
       options.updateActivity(id, { status: "done", detail: "200 OK" });
       options.setPendingApprovals((current) => current.filter((item) => item.approvalId !== request.approvalId));
       consumeRuntimeEvents(data.events || [], options.eventDeps());
-      if (data.status !== "awaiting_approval") options.push("assistant", data.content || "(empty response)");
+      if (data.status !== "awaiting_approval") options.push("assistant", data.content || copy.chat.emptyResponse);
       await options.syncOperationTrace(request.runId);
       await options.refreshRuns();
     } catch (error) {
@@ -79,14 +80,14 @@ export function createAgentConversationActions(options: AgentConversationActions
   async function sendChat(text: string) {
     const started = performance.now();
     options.setBusy(true);
-    const requestId = options.record("system", "Model request", "POST /api/v1/agent/chat", "running");
+    const requestId = options.record("system", copy.activity.modelRequest, "POST /api/v1/agent/chat", "running");
     try {
       const data = await options.api().chat(options.payload(text));
       options.setLatency(Math.round(performance.now() - started));
       options.updateActivity(requestId, { status: "done", detail: "200 OK" });
       options.setRunId(data.run_id || "");
       consumeRuntimeEvents(data.events || [], options.eventDeps());
-      if (data.status !== "awaiting_approval") options.push("assistant", data.content || "(empty response)");
+      if (data.status !== "awaiting_approval") options.push("assistant", data.content || copy.chat.emptyResponse);
     } catch (error) {
       options.updateActivity(requestId, { status: "error", detail: errorText(error) });
       options.push("error", errorText(error));
@@ -99,11 +100,11 @@ export function createAgentConversationActions(options: AgentConversationActions
     const started = performance.now();
     options.setBusy(true);
     const assistantId = options.push("assistant", "");
-    const streamId = options.record("stream", "Streaming response", "Opening event stream", "running");
+    const streamId = options.record("stream", copy.activity.streamOpen, "POST /api/v1/agent/chat/stream", "running");
     try {
       await options.api().chatStream(options.payload(text), (frame) => handleStreamFrame(frame, assistantId, streamId, options.streamDeps()));
       options.setLatency(Math.round(performance.now() - started));
-      options.updateActivity(streamId, { status: "done", detail: "Response stream closed" });
+      options.updateActivity(streamId, { status: "done", detail: copy.activity.streamClosed });
     } catch (error) {
       options.removeMessage(assistantId);
       options.updateActivity(streamId, { status: "error", detail: errorText(error) });
@@ -115,5 +116,5 @@ export function createAgentConversationActions(options: AgentConversationActions
 }
 
 function approvalDecisionTitle(decision: ApprovalDecision) {
-  return decision === "allow_for_run" ? "Tool allowed for run" : decision === "allow_once" ? "Tool allowed once" : "Tool denied";
+  return copy.approval.decided[decision] || copy.activity.approvalSent;
 }

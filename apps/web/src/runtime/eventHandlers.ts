@@ -1,6 +1,7 @@
 import { approvalFromEvent, mergeApproval } from "./sessionUtils";
 import { projectRuntimeEvent } from "./operationProjector";
 import type { ActivityEventKind, ActivityEventStatus, OperationEvent, SseEventFrame, ToolApprovalRequest } from "../types/runtimeTypes";
+import { copy } from "../copy";
 
 type EventDeps = {
   setRunId: (value: string) => void;
@@ -24,13 +25,13 @@ export function consumeRuntimeEvents(events: any[], deps: EventDeps) {
     else if (event.type === "tool_approval_required") {
       const request = approvalFromEvent(event, deps.runId());
       deps.setPendingApprovals((current) => mergeApproval(current, request));
-      deps.record("approval", "Approval required", request.toolName, "waiting");
-    } else if (event.type === "tool_start") deps.record("tool", "Tool call", event.name || "tool", "running");
-    else if (event.type === "tool_result") deps.record("tool", "Tool result", event.name || "tool", "done");
-    else if (event.type === "code_start") deps.record("code", "Code execution", event.payload?.language || "runtime code", "running");
-    else if (event.type === "web_search") deps.record("search", "Web search", event.payload?.query || "search", "running");
-    else if (event.type === "browser_action") deps.record("browser", "Browser action", event.payload?.action || "browser step", "running");
-    else if (event.type === "error") deps.record("error", "Stream error", event.payload?.message || "stream error", "error");
+      deps.record("approval", copy.activity.approvalRequired, request.toolName, "waiting");
+    } else if (event.type === "tool_start") deps.record("tool", copy.activity.toolStarted, event.name || "tool", "running");
+    else if (event.type === "tool_result") deps.record("tool", copy.activity.toolFinished, event.name || "tool", "done");
+    else if (event.type === "code_start") deps.record("code", copy.activity.codeStarted, event.payload?.language || "runtime code", "running");
+    else if (event.type === "web_search") deps.record("search", copy.activity.webSearch, event.payload?.query || "search", "running");
+    else if (event.type === "browser_action") deps.record("browser", copy.activity.browserAction, event.payload?.action || "browser step", "running");
+    else if (event.type === "error") deps.record("error", copy.activity.streamError, event.payload?.message || copy.activity.streamError, "error");
     else if (event.type !== "done") deps.record("stream", event.type || "event", JSON.stringify(event.payload || event), "done");
   }
 }
@@ -39,13 +40,13 @@ export function handleStreamFrame(frame: SseEventFrame, assistantId: number, str
   if (frame.event === "text_delta") {
     const delta = frame.payload?.payload?.delta || frame.payload?.delta || "";
     deps.updateMessage(assistantId, delta, true);
-    deps.updateActivity(streamId, { detail: `Streaming text delta: ${delta.length} chars` });
+    deps.updateActivity(streamId, { detail: copy.activity.streamDelta(delta.length) });
     return;
   }
   if (frame.event === "done") deps.updateMessage(assistantId, frame.payload?.payload?.content || frame.payload?.content || "");
   if (frame.event === "error") {
     deps.removeMessage(assistantId);
-    deps.push("error", frame.payload?.payload?.message || frame.payload?.message || "stream error");
+    deps.push("error", frame.payload?.payload?.message || frame.payload?.message || copy.activity.streamError);
   }
   consumeRuntimeEvents([{ type: frame.event, name: frame.payload?.name, payload: frame.payload?.payload || frame.payload }], deps);
 }

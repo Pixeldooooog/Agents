@@ -1,8 +1,8 @@
 .event-panel {
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--surface);
-  color: var(--text);
+  background: var(--paper-raised);
+  color: var(--ink);
   padding: 16px;
   box-shadow: var(--shadow-tight);
 }
@@ -14,16 +14,16 @@
 }
 
 .event-panel .card-title {
-  color: var(--text);
+  color: var(--ink);
 }
 
 .event-panel pre {
   margin: 12px 0 0;
   padding: 12px;
   border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--surface-raised);
-  color: #30343a;
+  border: 1px solid var(--line);
+  background: var(--paper-soft);
+  color: var(--ink);
   font: 12px/1.55 "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   white-space: pre-wrap;
   word-break: break-word;
@@ -36,7 +36,7 @@
 .drawer-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(26, 28, 31, 0.28);
+  background: var(--scrim);
   backdrop-filter: blur(4px);
   z-index: 30;
 }
@@ -49,8 +49,8 @@
   height: 100vh;
   width: min(438px, 100vw);
   overflow-y: auto;
-  background: var(--surface);
-  border-left: 1px solid var(--border);
+  background: var(--paper-raised);
+  border-left: 1px solid var(--line);
   box-shadow: -18px 0 60px rgba(31, 36, 43, 0.14);
   padding: 20px;
   display: flex;
@@ -67,16 +67,16 @@
 
 .drawer-header h2 {
   font-size: 24px;
-  color: var(--text);
+  color: var(--ink);
 }
 
 .config-section {
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 14px;
   display: grid;
   gap: 12px;
-  background: var(--surface-raised);
+  background: var(--paper-soft);
 }
 
 label {
@@ -97,7 +97,7 @@ label {
   right: 11px;
   top: 50%;
   transform: translateY(-50%);
-  color: var(--muted);
+  color: var(--ink-muted);
   pointer-events: none;
 }
 

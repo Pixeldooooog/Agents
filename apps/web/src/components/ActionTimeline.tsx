@@ -2,6 +2,7 @@ import { Activity, AlertTriangle, CheckCircle2, Code2, Globe2, Loader2, Search, 
 import type { Accessor } from "solid-js";
 import { For } from "solid-js";
 import type { ActivityEvent, ActivityEventKind } from "../types/runtimeTypes";
+import { copy } from "../copy";
 
 type Props = {
   events: Accessor<ActivityEvent[]>;
@@ -13,8 +14,8 @@ export function ActionTimeline(props: Props) {
     <aside class="action-rail" classList={{ "action-rail-open": props.open() }}>
       <div class="action-rail-header">
         <div>
-          <p class="eyebrow">Run events</p>
-          <h2>Agent activity</h2>
+          <p class="eyebrow">{copy.activity.eyebrow}</p>
+          <h2>{copy.activity.title}</h2>
         </div>
         <Activity size={18} />
       </div>
@@ -22,9 +23,9 @@ export function ActionTimeline(props: Props) {
         <For each={props.events()}>{(event) => <ActionRow event={event} />}</For>
       </div>
       <div class="action-legend">
-        <span><Search size={13} />Web search</span>
-        <span><Wrench size={13} />Tool call</span>
-        <span><Code2 size={13} />Code execution</span>
+        <span><Search size={13} />{copy.activity.legendSearch}</span>
+        <span><Wrench size={13} />{copy.activity.legendTool}</span>
+        <span><Code2 size={13} />{copy.activity.legendCode}</span>
       </div>
     </aside>
   );

@@ -1,0 +1,98 @@
+/* Kevin design tokens — the only place color, type, and spacing values are defined.
+   Values follow docs/design/kevin-ui.md. Components use these variables, never raw colors. */
+:root,
+[data-theme="light"] {
+  /* Paper */
+  --paper: #f6f2e9;
+  --paper-soft: #fcf9f2;
+  --paper-raised: #fffdf8;
+  --paper-sunken: #eee9df;
+
+  /* Ink */
+  --ink: #292621;
+  --ink-muted: #716a60;
+  --ink-faint: #756d62;
+  --ink-inverse: #fffdf8;
+
+  /* Lines */
+  --line: #ded7ca;
+  --line-strong: #aaa092;
+
+  /* Signal (the one accent). Never use --signal for small text; use --signal-strong. */
+  --signal: #dea74e;
+  --signal-hover: #cf9a41;
+  --signal-soft: #f6e7c8;
+  --signal-line: #ddc18c;
+  --signal-strong: #805619;
+  --signal-deep: #64400d;
+
+  /* Task states — always paired with text */
+  --state-ok: #2f6b45;
+  --state-ok-soft: #e7f0e6;
+  --state-wait: #8a5a16;
+  --state-wait-soft: #fbefd6;
+  --state-error: #ac3f34;
+  --state-error-soft: #fbebe7;
+  --state-error-line: #e2b3ab;
+  --state-paused: #5f6672;
+
+  /* Character */
+  --dog-paper: #fffaf0;
+  --dog-ink: #272522;
+
+  /* Focus */
+  --focus: #a66d19;
+  --focus-ring: 0 0 0 3px #dea74e40;
+
+  /* Depth */
+  --shadow: 0 1px 2px #2926210a, 0 18px 54px #29262112;
+  --shadow-tight: 0 2px 0 #29262108;
+  --scrim: #2926214d;
+
+  /* Type */
+  --font-body: "Avenir Next", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-title: "Songti SC", "Noto Serif CJK SC", Georgia, serif;
+  --font-brand: "Chalkboard SE", "Comic Sans MS", cursive;
+  --font-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+
+  /* Space and shape */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --radius-control: 11px;
+  --radius-card: 16px;
+  --control-height: 40px;
+}
+
+/* Dark is previewed in the design studio only until every surface uses tokens. */
+[data-theme="dark"] {
+  --paper: #25241f;
+  --paper-soft: #302e28;
+  --paper-raised: #302e28;
+  --paper-sunken: #38352d;
+  --ink: #f5eddf;
+  --ink-muted: #c0b5a3;
+  --ink-faint: #a89d8b;
+  --ink-inverse: #25241f;
+  --line: #514a3e;
+  --line-strong: #8e806a;
+  --signal-soft: #453b28;
+  --signal-line: #75603e;
+  --signal-strong: #e3b66a;
+  --signal-deep: #f3dfb9;
+  --state-ok: #8fc79f;
+  --state-ok-soft: #26362b;
+  --state-wait: #e3b66a;
+  --state-wait-soft: #453b28;
+  --state-error: #f0a093;
+  --state-error-soft: #45292a;
+  --state-error-line: #7a4038;
+  --state-paused: #b4bac4;
+  --dog-paper: #e8ddc8;
+  --shadow: 0 1px 2px #0000001f, 0 18px 54px #00000033;
+  --shadow-tight: 0 2px 0 #0000001f;
+}

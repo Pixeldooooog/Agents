@@ -30,8 +30,6 @@ export function App() {
         view={view}
         setView={setView}
         health={session.health}
-        streaming={session.streaming}
-        setStreaming={session.setStreaming}
         checkHealth={session.checkHealth}
       />
       <main class="conversation-stage">
@@ -47,6 +45,7 @@ export function App() {
                 permissionMode={session.permissionMode}
                 latency={session.latency}
                 toolCount={() => session.toolList().length}
+                showDetails={session.showDetails}
                 pendingApprovals={session.pendingApprovals}
                 input={session.input}
                 setInput={session.setInput}
@@ -113,6 +112,10 @@ export function App() {
               activeProfile={session.activeProfile}
               refreshModelProfiles={session.refreshModelProfiles}
               applyModelProfile={session.applyModelProfile}
+              streaming={session.streaming}
+              setStreaming={session.setStreaming}
+              showDetails={session.showDetails}
+              setShowDetails={session.setShowDetails}
             />
           </Match>
         </Switch>

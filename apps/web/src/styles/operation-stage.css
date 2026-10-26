@@ -1,5 +1,5 @@
 .operation-layout {
-  min-height: calc(100vh - 112px);
+  min-height: 0;
   display: grid;
   grid-template-columns: minmax(410px, 0.76fr) minmax(620px, 1.24fr);
   gap: 14px;
@@ -73,9 +73,9 @@
 }
 
 .stage-run-pill.live {
-  color: #cceee2;
-  border-color: rgba(118, 205, 178, 0.28);
-  background: rgba(29, 116, 98, 0.18);
+  color: #f6e7c8;
+  border-color: rgba(222, 167, 78, 0.28);
+  background: rgba(128, 86, 25, 0.18);
 }
 
 .operation-stage-screen {

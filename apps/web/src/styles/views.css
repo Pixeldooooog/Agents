@@ -2,9 +2,9 @@
   display: inline-flex;
   gap: 2px;
   padding: 3px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--surface-muted);
+  background: var(--paper-sunken);
 }
 
 .view-tabs .plain-button {
@@ -15,13 +15,13 @@
 }
 
 .view-tabs .plain-button:hover {
-  background: rgba(255, 255, 255, 0.68);
+  background: var(--paper-raised);
 }
 
 .view-tabs .plain-button.active,
 .view-tabs .plain-button.active:hover {
   background: var(--ink);
-  color: #fcfbf7;
+  color: var(--ink-inverse);
 }
 
 .split-view {
@@ -32,9 +32,9 @@
 }
 
 .panel-card {
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--surface);
+  background: var(--paper-raised);
   box-shadow: var(--shadow-tight);
   padding: 14px;
   display: grid;
@@ -65,7 +65,7 @@
 
 .table-head {
   padding: 0 8px;
-  color: var(--muted);
+  color: var(--ink-muted);
   font-size: 11px;
 }
 
@@ -78,11 +78,11 @@
 }
 
 .table-row {
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--surface-raised);
+  background: var(--paper-soft);
   padding: 9px 10px;
-  color: var(--text);
+  color: var(--ink);
   text-align: left;
 }
 
@@ -91,8 +91,8 @@ button.table-row {
 }
 
 .table-row.active {
-  border-color: var(--accent);
-  background: #edf6f2;
+  border-color: var(--signal-strong);
+  background: var(--signal-soft);
 }
 
 .task-row {
@@ -102,7 +102,7 @@ button.table-row {
 .task-link {
   border: 0;
   background: transparent;
-  color: var(--text);
+  color: var(--ink);
   text-align: left;
   cursor: pointer;
 }
@@ -116,18 +116,18 @@ button.table-row {
 .status-finished,
 .status-succeeded,
 .status-done {
-  color: var(--green);
+  color: var(--state-ok);
 }
 
 .status-awaiting_approval,
 .status-awaiting {
-  color: var(--amber);
+  color: var(--state-wait);
 }
 
 .status-error,
 .status-failed,
 .status-canceled {
-  color: var(--red);
+  color: var(--state-error);
 }
 
 .task-create {
@@ -144,9 +144,9 @@ button.table-row {
 }
 
 .step-card {
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--surface-raised);
+  background: var(--paper-soft);
   padding: 10px;
   display: grid;
   gap: 6px;
@@ -159,7 +159,7 @@ button.table-row {
 }
 
 .step-error {
-  color: var(--red);
+  color: var(--state-error);
 }
 
 .settings-grid {
@@ -181,9 +181,9 @@ button.table-row {
 }
 
 .profile-item {
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--surface-raised);
+  background: var(--paper-soft);
   padding: 8px;
   text-align: left;
   display: grid;
@@ -192,16 +192,16 @@ button.table-row {
 }
 
 .profile-item.active {
-  border-color: var(--accent);
-  background: #edf6f2;
+  border-color: var(--signal-strong);
+  background: var(--signal-soft);
 }
 
 .profile-item strong {
-  color: var(--text);
+  color: var(--ink);
 }
 
 .profile-item span {
-  color: var(--muted);
+  color: var(--ink-muted);
   font-size: 12px;
 }
 
@@ -213,4 +213,42 @@ button.table-row {
   .settings-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+.panel-card .toggle-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: var(--space-3);
+  cursor: pointer;
+}
+
+.panel-card .toggle-row input {
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  accent-color: var(--ink);
+  flex-shrink: 0;
+}
+
+.toggle-row span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.toggle-row strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.toggle-row small {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.settings-link {
+  align-self: flex-start;
+  text-decoration: none;
 }

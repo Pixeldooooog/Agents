@@ -2,6 +2,7 @@ import type { Setter } from "solid-js";
 import type { ActivityEvent } from "../types/runtimeTypes";
 import type { createApiClient } from "./apiClient";
 import { errorText } from "./sessionUtils";
+import { copy } from "../copy";
 
 type ApiClient = ReturnType<typeof createApiClient>;
 
@@ -14,7 +15,7 @@ type AgentHealthActionsOptions = {
 
 export function createAgentHealthActions(options: AgentHealthActionsOptions) {
   const checkHealth = async () => {
-    const id = options.record("system", "Health probe", "GET /health", "running");
+    const id = options.record("system", copy.activity.healthProbe, "GET /health", "running");
     try {
       await options.api().health();
       options.setHealth("online");

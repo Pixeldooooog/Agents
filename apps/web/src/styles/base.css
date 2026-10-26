@@ -1,25 +1,7 @@
 :root {
-  --bg: #f4f5f2;
-  --surface: #ffffff;
-  --surface-muted: #f1f2ee;
-  --surface-raised: #fafaf7;
-  --text: #20221f;
-  --muted: #6d716b;
-  --faint: #9b9f98;
-  --border: #dddeda;
-  --border-strong: #c6c9c1;
-  --accent: #0f6b5f;
-  --accent-strong: #0b4d44;
-  --ink: #20221f;
-  --blue: #2563eb;
-  --green: #16734f;
-  --amber: #a96f16;
-  --red: #c2414b;
-  --shadow: 0 1px 2px rgba(32, 34, 31, 0.04), 0 18px 54px rgba(32, 34, 31, 0.07);
-  --shadow-tight: 0 1px 2px rgba(32, 34, 31, 0.05), 0 8px 28px rgba(32, 34, 31, 0.06);
-  font-family: Inter, "Aptos", "IBM Plex Sans", "Segoe UI", sans-serif;
-  color: var(--text);
-  background: var(--bg);
+  font-family: var(--font-body);
+  color: var(--ink);
+  background: var(--paper);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -47,9 +29,42 @@ button {
 
 .studio-shell {
   min-height: 100vh;
-  display: grid;
-  grid-template-rows: auto 1fr;
-  background: linear-gradient(180deg, #fbfbf8 0%, var(--bg) 44%, #eeefea 100%);
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+}
+
+.studio-shell > .conversation-stage {
+  flex: 1;
+}
+
+/* Desktop: the app fills the window and panels scroll inside; the top bar and notice keep their natural height. */
+@media (min-width: 821px) {
+  .studio-shell {
+    height: 100vh;
+  }
+
+  .studio-shell > .conversation-stage {
+    min-height: 0;
+    overflow-y: auto;
+    grid-template-rows: minmax(0, 1fr);
+  }
+}
+
+.connection-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--state-error-line);
+  background: var(--state-error-soft);
+  color: var(--state-error);
+  font-size: 13px;
+}
+
+.connection-notice .plain-button {
+  height: 30px;
 }
 
 .studio-topbar {
@@ -59,8 +74,8 @@ button {
   justify-content: space-between;
   gap: 20px;
   padding: 10px 28px;
-  border-bottom: 1px solid var(--border);
-  background: rgba(250, 250, 247, 0.9);
+  border-bottom: 1px solid var(--line);
+  background: var(--paper-soft);
   backdrop-filter: blur(18px);
   position: sticky;
   top: 0;
@@ -81,8 +96,8 @@ button {
   place-items: center;
   border-radius: 8px;
   background: var(--ink);
-  color: #fcfbf7;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  color: var(--ink-inverse);
+  box-shadow: inset 0 0 0 1px transparent;
 }
 
 .brand-block h1,
@@ -96,7 +111,7 @@ button {
 .brand-block h1 {
   font-size: 17px;
   line-height: 1.05;
-  color: var(--text);
+  color: var(--ink);
 }
 
 .brand-block p,
@@ -107,24 +122,15 @@ label > span,
 .bubble span,
 .event-empty {
   margin: 0;
-  color: var(--muted);
+  color: var(--ink-muted);
   font-size: 12px;
 }
 
 .brand-block p {
-  color: var(--muted);
+  color: var(--ink-muted);
   font-size: 11px;
 }
 
-.top-actions {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  flex-wrap: wrap;
-}
-
-.status-pill,
-.mode-toggle,
 .plain-button,
 .icon-button,
 .send-button {
@@ -132,15 +138,13 @@ label > span,
   cursor: pointer;
 }
 
-.status-pill,
-.mode-toggle,
 .plain-button,
 .icon-button {
   height: 34px;
   border-radius: 8px;
-  background: var(--surface);
-  color: var(--text);
-  border: 1px solid var(--border);
+  background: var(--paper-raised);
+  color: var(--ink);
+  border: 1px solid var(--line);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -150,22 +154,14 @@ label > span,
 
 .plain-button.active {
   background: var(--ink);
-  color: #fcfbf7;
+  color: var(--ink-inverse);
   border-color: var(--ink);
 }
 
-.mode-toggle.active {
-  background: #edf6f2;
-  color: var(--accent-strong);
-  border-color: rgba(15, 107, 95, 0.22);
-}
-
 .plain-button:hover,
-.status-pill:hover,
-.icon-button:hover,
-.mode-toggle:hover {
-  border-color: var(--border-strong);
-  background: #f8f8f5;
+.icon-button:hover {
+  border-color: var(--line-strong);
+  background: var(--paper-soft);
 }
 
 .icon-button {
@@ -173,10 +169,6 @@ label > span,
   padding: 0;
 }
 
-.health-online { color: var(--green); fill: currentColor; }
-.health-offline { color: var(--red); fill: currentColor; }
-.health-degraded { color: var(--amber); fill: currentColor; }
-.health-unknown { color: var(--faint); fill: currentColor; }
 
 .conversation-stage {
   min-height: 0;
@@ -197,7 +189,7 @@ label > span,
     flex-direction: column;
   }
 
-  .top-actions {
+  .studio-topbar .view-tabs {
     width: 100%;
   }
 
