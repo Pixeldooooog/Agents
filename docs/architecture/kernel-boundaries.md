@@ -191,5 +191,7 @@ SDK：`session.resumeApproval(runId, approved, approvalId)`；client 使用 `cli
 - 必需能力由类型检查保证：handler 的上下文类型来自声明列表，读取未声明的必需能力无法编译。可选能力无法静态证明，按 handler 实际读取逐个声明。
 - `listBuiltinTools()` 输出每个工具的 `requires` / `uses`，供后续 Grant 与 `ToolCapabilityContract` 对接。
 - `TaskService` 不再自建 `AgentRunService`，由 Host 注入共享实例，任务与对话运行获得相同的工具、MCP 与执行器装配。
-- 已知缺口：`spec` 仍以可变对象进入工具；`config.manage` 可改写 `spec.permission_profile`，`worktree.*` 与 `mcp.*` 会改写共享 `settings`。这些是带副作用的隐式状态，需在 Grant/授权阶段收口，不能视为已隔离。
+- 运行内授权只能收紧：turn loop 开始（含审批恢复）时对 `permission_profile`、`enabled_tools`、`denied_tools`、`approval_required_tools` 取冻结快照（`toolAuthorizationSnapshot`）。启用、拒绝、审批三道检查都同时看快照和当前 spec：任一方拒绝或要求审批即生效，启用需两方都允许。工具改写 spec 只能让权限更严。
+- 工具层显式拒绝放宽：`config.manage` 的 `permissions.defaultMode` 只能 auto → ask → deny 方向变化，否则报 `permission_tightening_only`；`permission.add_rule` 只接受 deny/ask，对已拒绝工具加 ask 不会降级；`permission.remove_rule` 已删除。
+- 已知缺口：`spec` 仍以可变对象进入工具，`worktree.*` 与 `mcp.*` 会改写共享 `settings`；`agent.run` 允许子 Agent 自定 `enabled_tools`（Host 当前未装配 agentRunner，暂不可执行），接入前需限制为父级子集。这些需在 Grant/授权阶段收口。
 

@@ -1,5 +1,5 @@
 import { dispatchRuntimeHooks } from "../hooks/runtimeHooks.js";
-import { deniesTool, isToolEnabled } from "./runtimeToolPermissions.js";
+import { deniesTool, isToolEnabled, type ToolAuthorization } from "./runtimeToolPermissions.js";
 import type { AgentSpec } from "../types/agentTypes.js";
 import type { Message, PendingApproval, RuntimeEvent, ToolCall, ToolResult, ToolTurnContinuation } from "../types/runtimeTypes.js";
 import { runtimeEvent } from "../types/runtimeTypes.js";
@@ -11,6 +11,8 @@ import { runtimeToolExecutionContext } from "./runtimeOptions.js";
 export type RuntimeToolCallInput = {
   options: RuntimeOptions;
   spec: AgentSpec;
+  /** Snapshot taken when the run started; gates combine it with the live spec. */
+  authorization: ToolAuthorization;
   runId: string;
   toolCall: ToolCall;
   messages: Message[];
@@ -27,7 +29,8 @@ export type PendingApprovalResolution = {
 
 export async function executeRuntimeToolCall(input: RuntimeToolCallInput): Promise<ToolExecution> {
   const name = canonicalToolName(input.toolCall.name);
-  if (!isToolEnabled(input.options.settings, input.spec, name) || deniesTool(input.spec, name)) return deniedToolExecution(input.toolCall);
+  const { authorization, options: { settings }, spec } = input;
+  if (!isToolEnabled(authorization, settings, spec, name) || deniesTool(authorization, settings, spec, name)) return deniedToolExecution(input.toolCall);
   const before = await dispatchRuntimeHooks(input.options, input.spec, "pre_tool_use", name);
   if (before.denied) {
     const denied = deniedToolExecution(input.toolCall);
@@ -66,6 +69,7 @@ export async function executeRuntimeToolCall(input: RuntimeToolCallInput): Promi
 export async function resolvePendingApproval(
   options: RuntimeOptions,
   spec: AgentSpec,
+  authorization: ToolAuthorization,
   pendingApproval: PendingApproval,
   approved: boolean,
   runId: string,
@@ -78,6 +82,7 @@ export async function resolvePendingApproval(
     ? await executeRuntimeToolCall({
         options,
         spec,
+        authorization,
         runId,
         toolCall: pendingApproval.tool_call,
         messages,

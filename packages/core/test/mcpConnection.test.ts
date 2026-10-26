@@ -5,7 +5,8 @@ import { mcpExternalTools } from "../src/mcp/mcpExternalTools.js";
 import { collectMcpPages } from "../src/mcp/mcpPagination.js";
 import { McpConnectionManager } from "../src/mcp/mcpConnectionManager.js";
 import { executeBuiltinTool, modelToolDefinitions } from "../src/tools/toolRegistry.js";
-import { requiresApproval } from "../src/runtime/runtimeToolPermissions.js";
+import { requiresApproval, toolAuthorizationSnapshot } from "../src/runtime/runtimeToolPermissions.js";
+import type { Settings } from "../src/config/settings.js";
 import { specFromPayload } from "../src/types/agentTypes.js";
 import path from "node:path";
 
@@ -17,7 +18,9 @@ test("stdio initializes, discovers capabilities and calls validated external too
     const [tool] = mcpExternalTools([provider]);
     expect(modelToolDefinitions([tool.name], [provider])[0].name).toBe(tool.name);
     expect(modelToolDefinitions([], [provider]).some(item => item.name === tool.name)).toBe(false);
-    expect(requiresApproval(specFromPayload({ permission_profile: "auto" }), tool.name)).toBe(true);
+    const spec = specFromPayload({ permission_profile: "auto", enabled_tools: [tool.name] });
+    const settings = { agent: {} } as Settings;
+    expect(requiresApproval(toolAuthorizationSnapshot(settings, spec), settings, spec, tool.name)).toBe(true);
     const context = { mcpProviders: [provider] };
     expect((await executeBuiltinTool(process.cwd(), tool.name, { text: "hello" }, context)).result.content).toContain("hello");
     expect((await executeBuiltinTool(process.cwd(), tool.name, { text: 42 }, context)).result.is_error).toBe(true);

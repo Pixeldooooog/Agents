@@ -7,6 +7,7 @@ import { discoverSkills, installSkill, loadSkill } from "../src/extensions/exten
 import { skillMetadataInstructions } from "../src/runtime/runtimeMessages.js";
 import { parseSkillMarkdownManifest } from "../src/extensions/extensionSkillMarkdown.js";
 import { executeRuntimeToolCall } from "../src/runtime/runtimeToolExecution.js";
+import { toolAuthorizationSnapshot } from "../src/runtime/runtimeToolPermissions.js";
 import { loadSettings } from "../src/config/settings.js";
 
 const skill = (name: string, flags = "", body = "Use $ARGUMENTS literally.") => `---\nname: ${name}\ndescription: helper\n${flags}\n---\n${body}`;
@@ -58,7 +59,7 @@ test("skill declarations cannot authorize a subsequent runtime file write", () =
   const settings = await loadSettings(root);
   const spec = specFromPayload({ message: "test", enabled_tools: ["skill.use"], permission_profile: "auto" });
   await executeBuiltinTool(root, "skill.use", { name: "writer" }, { spec, settings });
-  const execution = await executeRuntimeToolCall({ options: { settings }, spec, runId: "run", toolCall: { id: "write", name: "filesystem.write", arguments: { path: "blocked", content: "x" } }, messages: [], toolResults: [], runtimeEvents: [] });
+  const execution = await executeRuntimeToolCall({ options: { settings }, spec, authorization: toolAuthorizationSnapshot(settings, spec), runId: "run", toolCall: { id: "write", name: "filesystem.write", arguments: { path: "blocked", content: "x" } }, messages: [], toolResults: [], runtimeEvents: [] });
   expect(execution.result.is_error).toBe(true);
   await expect(readFile(path.join(root, "blocked"))).rejects.toThrow();
 }));

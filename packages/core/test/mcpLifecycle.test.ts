@@ -9,6 +9,7 @@ import { callMcpProvider, closeMcpProviders, isMcpProviderActive } from "../src/
 import { readMcpResource, listMcpResources } from "../src/mcp/mcpProviderResourceCalls.js";
 import { getMcpPrompt, listMcpPrompts } from "../src/mcp/mcpProviderPromptCalls.js";
 import { executeRuntimeToolCall } from "../src/runtime/runtimeToolExecution.js";
+import { toolAuthorizationSnapshot } from "../src/runtime/runtimeToolPermissions.js";
 import { AgentRuntime } from "../src/runtime/agentRuntime.js";
 
 async function fixture(run: (context: McpToolContext) => Promise<void>) {
@@ -104,7 +105,7 @@ test("runtime deny rules stop MCP resource calls before provider execution", () 
   const provider: McpProvider = { server: { name: "docs" }, readResource: async () => { calls++; return "secret"; } };
   const spec = specFromPayload({ message: "read", enabled_tools: ["mcp.read_resource"], denied_tools: ["mcp.read_resource"], permission_profile: "auto" });
   const execution = await executeRuntimeToolCall({
-    options: { settings: context.settings!, mcpProviders: [provider] }, spec, runId: "run",
+    options: { settings: context.settings!, mcpProviders: [provider] }, spec, authorization: toolAuthorizationSnapshot(context.settings!, spec), runId: "run",
     toolCall: { id: "read", name: "mcp__read_resource", arguments: { server: "docs", uri: "docs://intro" } },
     messages: [], toolResults: [], runtimeEvents: []
   });

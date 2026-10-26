@@ -1,5 +1,5 @@
 import type { AgentSpec } from "../types/agentTypes.js";
-import type { PermissionBehavior } from "./permissionBehaviors.js";
+import type { PermissionRuleBehavior } from "./permissionBehaviors.js";
 
 export type PermissionRule = {
   source: "agent_spec";
@@ -7,32 +7,16 @@ export type PermissionRule = {
   tool: string;
 };
 
-export function addPermissionRule(spec: AgentSpec, behavior: PermissionBehavior, tool: string): Record<string, string> {
-  if (behavior === "allow") {
-    spec.denied_tools = removeValue(spec.denied_tools, tool);
-    spec.approval_required_tools = removeValue(spec.approval_required_tools, tool);
-    if (spec.permission_profile === "deny") spec.permission_profile = "auto";
-  } else if (behavior === "deny") {
+/** Adds a stricter rule. Deny supersedes ask; asking for an already denied tool leaves it denied. */
+export function addPermissionRule(spec: AgentSpec, behavior: PermissionRuleBehavior, tool: string): Record<string, string> {
+  if (behavior === "deny") {
     spec.denied_tools = addUnique(spec.denied_tools, tool);
     spec.approval_required_tools = removeValue(spec.approval_required_tools, tool);
-  } else {
-    spec.approval_required_tools = addUnique(spec.approval_required_tools, tool);
-    spec.denied_tools = removeValue(spec.denied_tools, tool);
+    return { behavior, tool };
   }
+  if (spec.denied_tools.includes(tool)) return { behavior: "deny", tool };
+  spec.approval_required_tools = addUnique(spec.approval_required_tools, tool);
   return { behavior, tool };
-}
-
-export function removePermissionRules(spec: AgentSpec, behavior: PermissionBehavior | "", tool: string): Record<string, string>[] {
-  const removed: Record<string, string>[] = [];
-  if ((!behavior || behavior === "deny") && spec.denied_tools.includes(tool)) {
-    spec.denied_tools = removeValue(spec.denied_tools, tool);
-    removed.push({ behavior: "deny", tool });
-  }
-  if ((!behavior || behavior === "ask") && spec.approval_required_tools.includes(tool)) {
-    spec.approval_required_tools = removeValue(spec.approval_required_tools, tool);
-    removed.push({ behavior: "ask", tool });
-  }
-  return removed;
 }
 
 export function permissionRules(spec: AgentSpec): PermissionRule[] {

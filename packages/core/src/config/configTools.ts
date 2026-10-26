@@ -1,4 +1,5 @@
 import type { JsonObject } from "../types/jsonTypes.js";
+import { assertPermissionProfileTightening } from "../permissions/permissionTightening.js";
 import { defineTool, type RegisteredTool, type ToolContext } from "../tools/toolContracts.js";
 
 type ConfigSetting = {
@@ -80,7 +81,9 @@ function applyConfigValue(context: ToolContext, setting: string, value: string |
     return;
   }
   if (setting === "permissions.defaultMode") {
-    context.spec.permission_profile = permissionProfileForConfig(String(value));
+    const nextProfile = permissionProfileForConfig(String(value));
+    assertPermissionProfileTightening(context.spec.permission_profile, nextProfile);
+    context.spec.permission_profile = nextProfile;
     context.spec.metadata[`config.${setting}`] = JSON.stringify(value);
     return;
   }

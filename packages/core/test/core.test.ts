@@ -397,8 +397,8 @@ describe("TS core", () => {
       const explain = await executeBuiltinTool(root, "permission.explain", { tool: "shell.run", arguments: { command: "pwd" } }, context);
       expect(JSON.parse(explain.result.content).decision.behavior).toBe("deny");
 
-      const removeRule = await executeBuiltinTool(root, "permission.remove_rule", { tool: "shell.run" }, context);
-      expect(JSON.parse(removeRule.result.content).removed[0].behavior).toBe("deny");
+      const askOnDenied = await executeBuiltinTool(root, "permission.add_rule", { behavior: "ask", tool: "shell.run" }, context);
+      expect(JSON.parse(askOnDenied.result.content).status.denied_tools).toContain("shell.run");
 
       const hookEvents = await executeBuiltinTool(root, "hook.events", {}, context);
       expect(JSON.parse(hookEvents.result.content).events).toContain("pre_tool_use");

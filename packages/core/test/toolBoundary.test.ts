@@ -11,6 +11,7 @@ import { loadSettings } from "../src/config/settings.js";
 import { specFromPayload } from "../src/types/agentTypes.js";
 import { profileDefaults } from "../src/models/modelProfiles.js";
 import { executeRuntimeToolCall, resolvePendingApproval } from "../src/runtime/runtimeToolExecution.js";
+import { toolAuthorizationSnapshot } from "../src/runtime/runtimeToolPermissions.js";
 import { AgentRuntime } from "../src/runtime/agentRuntime.js";
 
 const isolated: ExecutionPolicy = { mode: "isolated", filesystem: { readPaths: [], writePaths: [] }, network: { mode: "deny", hosts: [] }, environment: { allowedNames: [] } };
@@ -55,9 +56,10 @@ test("enabled-tool and revoked permission checks also apply when resuming approv
     const settings = await loadSettings(root);
     const spec = specFromPayload({ message: "", enabled_tools: ["filesystem.read"], permission_profile: "auto" }, profileDefaults(settings));
     const call = { id: "write", name: "filesystem__write", arguments: { path: "blocked.txt", content: "x" } };
-    const denied = await executeRuntimeToolCall({ options: { settings }, spec, runId: "run", toolCall: call, messages: [], toolResults: [], runtimeEvents: [] });
+    const denied = await executeRuntimeToolCall({ options: { settings }, spec, authorization: toolAuthorizationSnapshot(settings, spec), runId: "run", toolCall: call, messages: [], toolResults: [], runtimeEvents: [] });
     expect(denied.result.is_error).toBe(true);
-    const resolution = await resolvePendingApproval({ settings }, { ...spec, enabled_tools: ["filesystem.write"], denied_tools: ["filesystem__write"] }, { approval_id: "write", tool_call: call, messages: [], tool_results: [] }, true, "run");
+    const revoked = { ...spec, enabled_tools: ["filesystem.write"], denied_tools: ["filesystem__write"] };
+    const resolution = await resolvePendingApproval({ settings }, revoked, toolAuthorizationSnapshot(settings, revoked), { approval_id: "write", tool_call: call, messages: [], tool_results: [] }, true, "run");
     expect(resolution.toolResults[0].is_error).toBe(true);
     await expect(readFile(path.join(root, "blocked.txt"))).rejects.toThrow();
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -83,7 +85,7 @@ test("runtime forwards cancellation to an executing shell command", async () => 
   try {
     const settings = await loadSettings(root);
     const spec = specFromPayload({ message: "", enabled_tools: ["shell.run"], permission_profile: "auto" }, profileDefaults(settings));
-    execution = executeRuntimeToolCall({ options: { settings, signal: controller.signal }, spec, runId: "run",
+    execution = executeRuntimeToolCall({ options: { settings, signal: controller.signal }, spec, authorization: toolAuthorizationSnapshot(settings, spec), runId: "run",
       toolCall: { id: "shell", name: "shell.run", arguments: { command: "printf ready > ready.txt; sleep 10; printf wrong > should-not-exist" } }, messages: [], toolResults: [], runtimeEvents: [] });
     let ready = false;
     for (let i = 0; i < 100; i++) {

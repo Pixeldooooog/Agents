@@ -1296,7 +1296,7 @@
     },
     {
       "name": "permission.add_rule",
-      "description": "Add a session-scoped allow, deny, or ask rule for a tool.",
+      "description": "Add a deny or ask rule for a tool. Rules can only tighten permissions during a run.",
       "risk": "medium",
       "disposition": "retained_compatibility_pending_B1_contract_audit"
     },
@@ -1304,12 +1304,6 @@
       "name": "permission.explain",
       "description": "Explain the permission decision and impact for a hypothetical tool call.",
       "risk": "low",
-      "disposition": "retained_compatibility_pending_B1_contract_audit"
-    },
-    {
-      "name": "permission.remove_rule",
-      "description": "Remove session-scoped permission rules for a tool.",
-      "risk": "medium",
       "disposition": "retained_compatibility_pending_B1_contract_audit"
     },
     {

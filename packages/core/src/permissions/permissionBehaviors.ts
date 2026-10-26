@@ -1,20 +1,11 @@
-export const permissionBehaviorValues = ["allow", "deny", "ask"] as const;
+/** Rule behaviors a tool may add during a run; both only make authorization stricter. */
+export const permissionRuleBehaviorValues = ["deny", "ask"] as const;
 
-export type PermissionBehavior = typeof permissionBehaviorValues[number];
+export type PermissionRuleBehavior = typeof permissionRuleBehaviorValues[number];
 
-export function permissionBehaviorFromValue(value: unknown): PermissionBehavior {
+export function permissionRuleBehaviorFromValue(value: unknown): PermissionRuleBehavior {
   const behavior = String(value || "").trim().toLowerCase();
-  if (isPermissionBehavior(behavior)) return behavior;
+  if (behavior === "allow") throw new Error("permission_tightening_only: allow rules cannot be added during a run");
+  if ((permissionRuleBehaviorValues as readonly string[]).includes(behavior)) return behavior as PermissionRuleBehavior;
   throw new Error(`unknown permission behavior: ${value}`);
-}
-
-export function optionalPermissionBehavior(value: unknown): PermissionBehavior | "" {
-  const behavior = String(value || "").trim().toLowerCase();
-  if (!behavior) return "";
-  if (isPermissionBehavior(behavior)) return behavior;
-  throw new Error(`unknown permission behavior: ${behavior}`);
-}
-
-function isPermissionBehavior(value: string): value is PermissionBehavior {
-  return permissionBehaviorValues.includes(value as PermissionBehavior);
 }

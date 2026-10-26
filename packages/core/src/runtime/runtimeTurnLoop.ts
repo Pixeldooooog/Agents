@@ -8,7 +8,7 @@ import { completeModelTurn, streamModelTurn, ModelConfigError, resolveModelClien
 import { defaultEnabledTools } from "../models/modelProfiles.js";
 import { canonicalToolName, modelToolDefinitions } from "../tools/toolRegistry.js";
 import { canContinueToolLoop, runtimeToolLoopBudget } from "./runtimeLimits.js";
-import { deniesTool, requiresApproval, isToolEnabled } from "./runtimeToolPermissions.js";
+import { deniesTool, requiresApproval, isToolEnabled, toolAuthorizationSnapshot } from "./runtimeToolPermissions.js";
 import { validateApprovalContinuation } from "./runtimeApprovalContinuation.js";
 import type { RuntimeOptions } from "./runtimeOptions.js";
 import {
@@ -58,14 +58,16 @@ export async function runRuntimeTurnLoop(input: RuntimeTurnLoopInput): Promise<A
       maxThinkingTokens: input.spec.runtime.maxThinkingTokens,
       signal: input.options.signal
     };
-    const enabledTools = input.spec.enabled_tools.length
+    // Fixed for this run: tools may tighten the live spec, but nothing they write can widen these.
+    const authorization = toolAuthorizationSnapshot(input.options.settings, input.spec);
+    const enabledTools = [...(input.spec.enabled_tools.length
       ? input.spec.enabled_tools
-      : defaultEnabledTools(input.options.settings);
+      : defaultEnabledTools(input.options.settings))];
 
     let remainingCalls: ToolCall[] | undefined;
     if (input.resume && continuation) {
       if (!canContinueToolLoop(completedToolIterations, toolLoopBudget)) throw new Error("tool-call loop exceeded max iterations");
-      const resolution = await resolvePendingApproval(input.options, input.spec, input.resume.pendingApproval, input.resume.approved, input.runId, emit);
+      const resolution = await resolvePendingApproval(input.options, input.spec, authorization, input.resume.pendingApproval, input.resume.approved, input.runId, emit);
       messages = resolution.messages;
       toolResults = resolution.toolResults;
       for (const event of resolution.events) await emit(event);
@@ -119,14 +121,14 @@ export async function runRuntimeTurnLoop(input: RuntimeTurnLoopInput): Promise<A
       for (const [callIndex, toolCall] of remainingCalls.entries()) {
         throwIfCanceled(input.options.signal);
         const canonicalName = canonicalToolName(toolCall.name);
-        if (!isToolEnabled(input.options.settings, input.spec, canonicalName) || deniesTool(input.spec, canonicalName)) {
+        if (!isToolEnabled(authorization, input.options.settings, input.spec, canonicalName) || deniesTool(authorization, input.options.settings, input.spec, canonicalName)) {
           const deniedExecution = deniedToolExecution(toolCall);
           for (const event of deniedExecution.events) await emit(event);
           toolResults.push(deniedExecution.result);
           appendToolResultMessage(messages, toolCall, deniedExecution.result);
           continue;
         }
-        if (requiresApproval(input.spec, canonicalName)) {
+        if (requiresApproval(authorization, input.options.settings, input.spec, canonicalName)) {
           const pendingApproval = pendingApprovalForToolCall(toolCall, messages, toolResults, {
             remaining_tool_calls: remainingCalls.slice(callIndex + 1),
             completed_tool_iterations: completedToolIterations,
@@ -164,6 +166,7 @@ export async function runRuntimeTurnLoop(input: RuntimeTurnLoopInput): Promise<A
         const execution = await executeRuntimeToolCall({
           options: input.options,
           spec: input.spec,
+          authorization,
           runId: input.runId,
           toolCall,
           messages,

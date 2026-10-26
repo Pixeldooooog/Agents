@@ -1,14 +1,13 @@
 import type { JsonObject } from "../types/jsonTypes.js";
 import type { AgentSpec } from "../types/agentTypes.js";
-import { optionalPermissionBehavior, permissionBehaviorFromValue } from "../permissions/permissionBehaviors.js";
+import { permissionRuleBehaviorFromValue } from "../permissions/permissionBehaviors.js";
 import { permissionExplanation } from "../permissions/permissionDecisions.js";
 import { permissionSourcesPayload, permissionStatusPayload } from "../permissions/permissionPayloads.js";
-import { addPermissionRule, removePermissionRules } from "../permissions/permissionRuleSets.js";
+import { addPermissionRule } from "../permissions/permissionRuleSets.js";
 import { defineTool, type RegisteredTool, type ToolContext } from "./toolContracts.js";
 import {
   permissionAddRuleSchema,
   permissionExplainSchema,
-  permissionRemoveRuleSchema,
   permissionStatusSchema
 } from "./permissionToolSchemas.js";
 
@@ -39,19 +38,11 @@ export const permissionToolDefinitions: RegisteredTool[] = [
   }),
   defineTool({
     name: "permission.add_rule",
-    description: "Add a session-scoped allow, deny, or ask rule for a tool.",
+    description: "Add a deny or ask rule for a tool. Rules can only tighten permissions during a run.",
     risk: "medium",
     parameters: permissionAddRuleSchema,
     requires: [],
     handler: permissionAddRule
-  }),
-  defineTool({
-    name: "permission.remove_rule",
-    description: "Remove session-scoped permission rules for a tool.",
-    risk: "medium",
-    parameters: permissionRemoveRuleSchema,
-    requires: [],
-    handler: permissionRemoveRule
   })
 ];
 
@@ -70,17 +61,10 @@ async function permissionExplain(context: ToolContext, args: JsonObject): Promis
 
 async function permissionAddRule(context: ToolContext, args: JsonObject): Promise<Record<string, unknown>> {
   const spec = requiredSpec(context);
-  const behavior = permissionBehaviorFromValue(args.behavior);
+  const behavior = permissionRuleBehaviorFromValue(args.behavior);
   const tool = requiredText(args.tool, "tool");
   const added = addPermissionRule(spec, behavior, tool);
   return { added, status: permissionStatusPayload(spec) };
-}
-
-async function permissionRemoveRule(context: ToolContext, args: JsonObject): Promise<Record<string, unknown>> {
-  const spec = requiredSpec(context);
-  const tool = requiredText(args.tool, "tool");
-  const removed = removePermissionRules(spec, optionalPermissionBehavior(args.behavior), tool);
-  return { removed, status: permissionStatusPayload(spec) };
 }
 
 function requiredSpec(context: ToolContext): AgentSpec {
