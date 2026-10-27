@@ -58,7 +58,7 @@ export class AgentRunService {
   constructor(private readonly options: AgentRunServiceOptions) {}
 
   specFromPayload(payload: Partial<AgentChatPayload>): AgentSpec {
-    return specFromPayload(payload, profileDefaults(this.options.settings));
+    return specFromPayload(payload, profileDefaults(this.options.settings, payload.protocol));
   }
 
   async runPayload(payload: AgentChatPayload, options: AgentRunExecutionOptions = {}): Promise<PersistedAgentRun> {

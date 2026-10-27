@@ -108,3 +108,11 @@ The current LocalExecutor is host execution, with no Docker requirement and no f
 - Background records: at most 128 transient entries; finished entries may be evicted. No output file path is advertised because outputs are held in memory.
 - All 120 built-in tools declare input schemas. Invalid types are rejected without coercion before invoking handlers. Input and serialized tool result limits are 256 KiB each; oversized successful results remain successful and carry a JSON truncation preview.
 - Enabled/denied tool rules apply at runtime dispatch and approval resume. Explicit approval requirements also apply in auto mode. Persistent scope-bound grants and action reconciliation remain B2 work.
+
+## Web conversation
+
+Run `bun run web` from the repository root, then open `http://127.0.0.1:8020/ui/` (or the configured Host port). This uses the real Host and local provider configuration; browser acceptance fixtures under `packages/host/test/fixtures` are separate test services.
+
+Leaving the protocol blank uses `AGENT_PROTOCOL`. Selecting a protocol resolves its matching server-side model, endpoint and API key; explicit request fields override those defaults. Model-profile responses expose configuration presence, never API keys. A configured profile is not proof that its credential is valid.
+
+Web settings currently last for the page session. Configure persistent provider credentials in the ignored `.env` file. A pending tool approval must be allowed or denied before sending the next message or starting a new conversation; the draft is retained during approval.

@@ -17,7 +17,7 @@ import { splitCsv, welcome } from "./sessionUtils";
 export function createAgentSessionState() {
   const [baseUrl, setBaseUrl] = createSignal(defaultApiBaseUrl());
   const [token, setToken] = createSignal("");
-  const [protocol, setProtocol] = createSignal("openai-chat");
+  const [protocol, setProtocol] = createSignal("");
   const [model, setModel] = createSignal("");
   const [modelBaseUrl, setModelBaseUrl] = createSignal("");
   const [apiKey, setApiKey] = createSignal("");
@@ -45,7 +45,7 @@ export function createAgentSessionState() {
   const [busy, setBusy] = createSignal(false);
   const [health, setHealth] = createSignal("unknown");
   const [latency, setLatency] = createSignal<number | null>(null);
-  const canSend = createMemo(() => input().trim().length > 0 && !busy());
+  const canSend = createMemo(() => input().trim().length > 0 && !busy() && pendingApprovals().length === 0);
   const toolList = createMemo(() => splitCsv(enabledTools()));
   const api = createMemo(() => createApiClient({ baseUrl, token }));
 

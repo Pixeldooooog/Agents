@@ -43,7 +43,7 @@ export function normalizeBaseUrl(protocol: string, baseUrl: string): string {
 export function buildModelProfiles(settings: Settings): ModelProfile[] {
   const profiles: ModelProfile[] = [
     profile("openai", "openai-chat", settings.models.openai, "env"),
-    profile("responses", "openai-responses", settings.models.openai_responses, "env"),
+    profile("responses", "openai-responses", groupForProtocol(settings, "openai-responses"), "env"),
     profile("claude", "claude-messages", prefer(settings.agent.claude, settings.models.anthropic), "env"),
     profile("gemini", "gemini", settings.models.gemini, "env")
   ];
@@ -60,8 +60,8 @@ export function activeProfileName(profiles: ModelProfile[], spec: AgentSpec): st
   return found?.name || "";
 }
 
-export function profileDefaults(settings: Settings): Partial<AgentSpec> {
-  const protocol = normalizeProtocol(settings.agent.protocol);
+export function profileDefaults(settings: Settings, requestedProtocol?: string): Partial<AgentSpec> {
+  const protocol = normalizeProtocol(requestedProtocol || settings.agent.protocol);
   const modelGroup = groupForProtocol(settings, protocol);
   return {
     protocol,

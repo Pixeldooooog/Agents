@@ -48,7 +48,7 @@ export function App() {
       <AppSidebar
         view={view}
         setView={setView}
-        busy={session.busy}
+        busy={() => session.busy() || session.pendingApprovals().length > 0}
         newConversation={() => {
           session.clear();
           setView("chat");

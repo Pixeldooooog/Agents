@@ -155,6 +155,7 @@ export function SettingsView(props: Props) {
                   props.setProtocol(event.currentTarget.value);
                 }}
               >
+                <option value="">服务默认协议</option>
                 <option value="openai-chat">Chat Completions</option>
                 <option value="claude-messages">Messages</option>
                 <option value="openai-responses">Responses</option>

@@ -21,6 +21,7 @@ config/local.toml
 .kevin/terminal-sessions/
 .kevin/runtime/
 .kevin/server/
+.kevin/host/
 .kevin/*.db*
 .kevin/workspaces/
 .idea/

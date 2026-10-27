@@ -60,6 +60,7 @@ export function createAgentSession() {
     api,
     input: state.input,
     busy: state.busy,
+    pendingApprovals: state.pendingApprovals,
     streaming: state.streaming,
     payload,
     setInput: state.setInput,
@@ -84,8 +85,9 @@ export function createAgentSession() {
   };
 
   const clear = () => {
-    if (state.busy()) return;
+    if (state.busy() || state.pendingApprovals().length) return;
     resetConversation();
+    state.setRunId("");
     state.setMessages([welcome]);
     state.setActivity([]);
     state.setOperations([]);

@@ -252,7 +252,7 @@ packages/core  -> no app imports
 - `src/runtime/`: Browser-side runtime/session projection.
 - `src/runtime/agentSession.ts`: Browser agent session action composition, payload construction, and runtime event helpers.
 - `src/runtime/agentSessionState.ts`: Browser agent session signals, derived state, and API client initialization.
-- `src/runtime/agentConversationActions.ts`: Chat send, stream, and tool-approval actions for an agent session.
+- `src/runtime/agentConversationActions.ts`: Chat send, stream, cancellation and tool-approval actions; pending approvals guard new turns and duplicate decisions, and failed results remain errors.
 - `src/runtime/agentHealthActions.ts`: Health probe action and health activity updates.
 - `src/runtime/agentModelProfileActions.ts`: Model profile refresh and profile application actions.
 - `src/runtime/agentRequestPayloads.ts`: Agent chat payload and scoped-list filter construction.

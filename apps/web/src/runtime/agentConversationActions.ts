@@ -11,6 +11,7 @@ import type { createApiClient } from "./apiClient";
 import { consumeRuntimeEvents, handleStreamFrame } from "./eventHandlers";
 import { errorText } from "./sessionUtils";
 import { copy } from "../copy";
+import type { ChatResponse } from "./apiValidation";
 
 type ApiClient = ReturnType<typeof createApiClient>;
 type RuntimeEventDeps = Parameters<typeof consumeRuntimeEvents>[1];
@@ -20,6 +21,7 @@ type AgentConversationActionsOptions = {
   api: () => ApiClient;
   input: Accessor<string>;
   busy: Accessor<boolean>;
+  pendingApprovals: Accessor<ToolApprovalRequest[]>;
   streaming: Accessor<boolean>;
   payload: (message: string) => AgentChatPayload;
   setInput: Setter<string>;
@@ -59,7 +61,7 @@ export function createAgentConversationActions(
   const cancel = () => activeRequest?.abort();
   const send = async () => {
     const text = options.input().trim();
-    if (!text || options.busy()) return;
+    if (!text || options.busy() || options.pendingApprovals().length) return;
     options.push("user", text);
     options.setInput("");
     options.setRunId("");
@@ -80,6 +82,17 @@ export function createAgentConversationActions(
     request: ToolApprovalRequest,
     decision: ApprovalDecision,
   ) => {
+    if (
+      options.busy() ||
+      !options
+        .pendingApprovals()
+        .some(
+          (item) =>
+            item.approvalId === request.approvalId &&
+            item.runId === request.runId,
+        )
+    )
+      return;
     activeRequest = new AbortController();
     options.setBusy(true);
     const approved = decision !== "deny";
@@ -103,8 +116,7 @@ export function createAgentConversationActions(
       );
       if (data.status === "completed") previousRunId = data.run_id;
       consumeRuntimeEvents(data.events || [], options.eventDeps());
-      if (data.status !== "waiting_approval")
-        options.push("assistant", data.content || copy.chat.emptyResponse);
+      showResult(data);
       await options.syncOperationTrace(request.runId);
       await options.refreshRuns();
     } catch (error) {
@@ -119,6 +131,28 @@ export function createAgentConversationActions(
   };
 
   return { send, decideApproval, cancel, resetConversation };
+
+  function showResult(data: ChatResponse) {
+    if (data.status === "waiting_approval") return;
+    if (data.status === "cancelled") {
+      options.push("event", "已停止这次请求。你可以调整想法后继续。");
+      return;
+    }
+    if (data.status === "failed") {
+      let failure: unknown;
+      for (const event of data.events) {
+        if (event.type === "error") failure = event.payload?.message;
+      }
+      options.push(
+        "error",
+        typeof failure === "string"
+          ? failure
+          : "这次请求未完成，请查看运行记录。",
+      );
+      return;
+    }
+    options.push("assistant", data.content || copy.chat.emptyResponse);
+  }
 
   async function sendChat(text: string) {
     const started = performance.now();
@@ -139,8 +173,7 @@ export function createAgentConversationActions(
       options.setRunId(data.run_id || "");
       if (data.status === "completed") previousRunId = data.run_id;
       consumeRuntimeEvents(data.events || [], options.eventDeps());
-      if (data.status !== "waiting_approval")
-        options.push("assistant", data.content || copy.chat.emptyResponse);
+      showResult(data);
     } catch (error) {
       options.updateActivity(requestId, {
         status: "error",
