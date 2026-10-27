@@ -9,7 +9,9 @@
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
+    "dompurify": "^3.4.17",
     "lucide-solid": "^0.468.0",
+    "marked": "^18.1.2",
     "solid-js": "^1.9.0"
   },
   "devDependencies": {

@@ -2,6 +2,7 @@
 import { mkdtemp, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { designReviewContent, unsafeMarkdownContent } from "./designReviewContent.js";
 import { createHostServices } from "../../src/services/hostServices.js";
 import { createAgentHttpServer } from "../../src/http/agentHttpServer.js";
 
@@ -15,10 +16,11 @@ const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request
   if (text.includes("slow")) return new Response(new ReadableStream({ start(controller) {
     controller.enqueue(new TextEncoder().encode('data: {"choices":[{"index":0,"delta":{"content":"等待取消"},"finish_reason":null}]}\n\n'));
   } }), { headers: { "content-type": "text/event-stream" } });
+  const answer = text.includes("design-review") ? designReviewContent : text.includes("unsafe-markdown") ? unsafeMarkdownContent : "验收完成";
   const write = text.includes("approval") && !messages.some(message => message.role === "tool");
   const call = { id: "fixture-write", type: "function", function: { name: "filesystem__write", arguments: JSON.stringify({ path: "browser-result.txt", content: "browser-approved" }) } };
-  if (!body.stream) return Response.json({ choices: [{ message: write ? { content: "准备写入文件", tool_calls: [call] } : { content: "验收完成" } }] });
-  const delta = write ? { content: "准备写入文件", tool_calls: [{ index: 0, ...call }] } : { content: "验收完成" };
+  if (!body.stream) return Response.json({ choices: [{ message: write ? { content: "准备写入文件", tool_calls: [call] } : { content: answer } }] });
+  const delta = write ? { content: "准备写入文件", tool_calls: [{ index: 0, ...call }] } : { content: answer };
   return new Response(`data: ${JSON.stringify({ choices: [{ index: 0, delta, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: write ? "tool_calls" : "stop" }] })}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
 } });
 const services = await createHostServices(root);

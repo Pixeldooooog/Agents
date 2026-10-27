@@ -1,0 +1,436 @@
+/* Reading, composing and consent share the quiet notebook treatment. */
+.kevin-app .thread-card {
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+}
+.kevin-app .conversation-scroll {
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+}
+.kevin-app .thread-body {
+  height: 100%;
+  display: block;
+}
+.message-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  gap: 30px;
+}
+.conversation-message {
+  min-width: 0;
+  font-size: 15px;
+  line-height: 1.85;
+  overflow-wrap: anywhere;
+}
+.message-byline {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+.message-byline img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+.message-byline strong {
+  font-weight: 600;
+}
+.message-byline > span {
+  color: var(--ink-faint);
+  font-size: 10px;
+}
+.message-plain {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.conversation-message-user {
+  margin-left: 40px;
+  border-left: 2px solid var(--signal-line);
+  padding: 12px 20px;
+  background: var(--paper);
+  border-radius: 0 10px 10px 0;
+}
+.conversation-message-user .message-byline {
+  color: var(--ink-muted);
+  margin-bottom: 5px;
+}
+.conversation-message-error {
+  border: 1px solid var(--state-error-line);
+  background: var(--state-error-soft);
+  padding: 18px;
+  border-radius: 12px;
+  color: var(--state-error);
+}
+.message-prose > :first-child {
+  margin-top: 0;
+}
+.message-prose > :last-child {
+  margin-bottom: 0;
+}
+.message-prose p {
+  margin: 12px 0;
+}
+.message-prose :is(h1, h2, h3, h4, h5, h6) {
+  font-family: var(--font-title);
+  line-height: 1.5;
+  margin: 24px 0 12px;
+}
+.message-prose h1 {
+  font-size: 26px;
+}
+.message-prose h2 {
+  font-size: 22px;
+}
+.message-prose h3 {
+  font-size: 18px;
+}
+.message-prose :is(ul, ol) {
+  padding-left: 24px;
+}
+.message-prose li {
+  padding-left: 4px;
+  margin: 5px 0;
+}
+.message-prose li::marker {
+  color: var(--signal-strong);
+}
+.message-prose blockquote {
+  border-left: 2px solid var(--signal);
+  margin: 20px 0;
+  padding: 2px 20px;
+  color: var(--ink-muted);
+  font-family: var(--font-title);
+}
+.message-prose code {
+  font: 0.87em/1.7 var(--font-mono);
+  background: var(--paper-sunken);
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+.message-prose pre {
+  max-width: 100%;
+  overflow: auto;
+  padding: 18px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.message-prose pre code {
+  padding: 0;
+  background: none;
+  white-space: pre;
+}
+.message-prose a {
+  color: var(--signal-deep);
+  text-decoration-color: var(--signal);
+  text-underline-offset: 4px;
+}
+.message-prose hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 24px 0;
+}
+.message-prose table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.message-prose :is(th, td) {
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  text-align: left;
+}
+.message-prose th {
+  background: var(--paper);
+}
+.message-actions {
+  display: flex;
+  margin-top: 12px;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink-muted);
+  font-size: 10px;
+}
+.message-actions button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 11px;
+}
+.message-actions button:hover {
+  background: var(--paper-sunken);
+}
+.thinking-line {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--ink-muted);
+}
+.thinking-line .typing {
+  padding: 0;
+}
+.latest-message {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 14px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  box-shadow: var(--shadow-tight);
+  color: var(--ink);
+  background: var(--paper-raised);
+  cursor: pointer;
+  font-size: 12px;
+}
+.kevin-app .approval-panel {
+  border: 1px solid var(--signal-line);
+  border-radius: 14px;
+  background: var(--paper-raised);
+  overflow: hidden;
+}
+.approval-intro {
+  padding: 20px 22px;
+  border-bottom: 1px solid var(--signal-line);
+  background: var(--state-wait-soft);
+}
+.approval-intro > span {
+  font-size: 10px;
+  color: var(--signal-strong);
+  letter-spacing: 1px;
+}
+.approval-intro h3 {
+  font: 23px var(--font-title);
+  margin: 8px 0;
+}
+.approval-intro p {
+  font-size: 12px;
+  margin: 0;
+  color: var(--ink-muted);
+}
+.kevin-app .approval-row {
+  border: 0;
+  border-radius: 0;
+  padding: 18px;
+  background: transparent;
+  grid-template-columns: 28px minmax(0, 1fr);
+}
+.kevin-app .approval-actions {
+  grid-column: 2;
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+.kevin-app .approval-choice {
+  min-height: 38px;
+  padding: 0 14px;
+}
+.kevin-app .deny-button {
+  background: transparent;
+  color: var(--ink-muted);
+  border-color: var(--line);
+}
+.kevin-app .approval-copy span {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.kevin-app .approval-title {
+  flex-wrap: wrap;
+}
+.kevin-app .approval-meta span {
+  max-width: 100%;
+  border-radius: 5px;
+}
+.approval-arguments summary,
+.work-step details summary {
+  font-size: 11px;
+  color: var(--ink-muted);
+  cursor: pointer;
+  padding: 8px 0;
+}
+.approval-arguments pre {
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 11px/1.7 var(--font-mono);
+  background: var(--paper);
+  padding: 12px;
+  border-radius: 8px;
+}
+.work-notebook {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.work-notebook > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+}
+.work-notebook h2 {
+  font: 24px var(--font-title);
+  margin: 8px 0 0;
+}
+.work-notebook h2 span {
+  font: 11px var(--font-mono);
+  color: var(--ink-faint);
+}
+.work-summary {
+  font-size: 11px;
+  color: var(--ink-muted);
+  margin: 20px 0 28px;
+}
+.work-empty {
+  margin: auto 0;
+  padding: 36px 10px;
+  text-align: center;
+}
+.work-empty > span {
+  display: block;
+  font: 60px var(--font-title);
+  color: var(--signal-strong);
+}
+.work-empty h3 {
+  font-size: 14px;
+  font-weight: 500;
+}
+.work-empty p {
+  font-size: 12px;
+  color: var(--ink-muted);
+  line-height: 1.8;
+}
+.work-empty small {
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+.work-notebook > footer {
+  margin-top: auto;
+  padding: 25px 0 0;
+  font: 12px var(--font-title);
+  color: var(--ink-muted);
+}
+.work-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.work-step {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 12px;
+  position: relative;
+  padding-bottom: 28px;
+}
+.work-step:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  top: 28px;
+  bottom: 3px;
+  width: 1px;
+  background: var(--line);
+}
+.work-step-mark {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--ink-muted);
+}
+.phase-done .work-step-mark {
+  color: var(--state-ok);
+  background: var(--state-ok-soft);
+  border-color: transparent;
+}
+.phase-error .work-step-mark {
+  color: var(--state-error);
+}
+.work-step-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--ink-muted);
+  margin-top: 5px;
+}
+.work-step-content {
+  min-width: 0;
+}
+.work-step h3 {
+  font-size: 13px;
+  font-weight: 500;
+  margin: 10px 0;
+  overflow-wrap: anywhere;
+}
+.work-step p {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ink-muted);
+  overflow-wrap: anywhere;
+}
+.work-target {
+  font-family: var(--font-mono);
+}
+.work-step dl {
+  font-size: 11px;
+}
+.work-step dd {
+  margin: 5px 0 12px;
+  overflow-wrap: anywhere;
+}
+.work-step pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 260px;
+  overflow: auto;
+}
+@media (max-width: 720px) {
+  .conversation-message {
+    font-size: 14px;
+  }
+  .conversation-message-user {
+    margin-left: 14px;
+    padding: 12px;
+  }
+  .kevin-app .approval-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .kevin-app .approval-icon {
+    display: none;
+  }
+  .kevin-app .approval-actions {
+    grid-column: 1;
+    flex-wrap: wrap;
+  }
+  .kevin-app .approval-actions button {
+    flex: 1;
+  }
+}
+
+.approval-target {
+  margin: 5px 0;
+  font: 12px/1.6 var(--font-mono);
+  overflow-wrap: anywhere;
+}

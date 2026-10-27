@@ -233,6 +233,11 @@ packages/core  -> no app imports
 
 ## apps/web
 
+- `src/components/AppSidebar.tsx`, `ChatWelcome.tsx`: Product navigation and original hand-drawn brand welcome.
+- `src/components/ConversationMessage.tsx`, `MessageContent.tsx`: Message actions and sanitized Markdown rendering.
+- `src/components/WorkProgress.tsx`, `src/runtime/workSteps.ts`: Actual tool-call notebook; groups lifecycle events without counting presentation summaries.
+- `src/styles/app-shell.css`, `conversation-detail.css`: Product shell, readable conversation and approval styling, scoped separately from design previews.
+
 - `src/main.tsx`: Web entrypoint.
 - `src/app/App.tsx`: Top-level Solid app.
 - `src/components/`: View components.
