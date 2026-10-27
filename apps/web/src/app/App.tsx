@@ -114,6 +114,7 @@ export function App() {
               >
                 <ChatThread
                   agentState={agentState}
+                  activity={session.activity}
                   messages={session.messages}
                   busy={session.busy}
                   protocol={session.protocol}
@@ -143,15 +144,7 @@ export function App() {
               </div>
             </Match>
             <Match when={view() === "runs"}>
-              <RunsView
-                runs={session.runs}
-                runId={session.runId}
-                setRunId={session.setRunId}
-                activity={session.activity}
-                baseUrl={session.baseUrl}
-                token={session.token}
-                refreshRuns={session.refreshRuns}
-              />
+              <RunsView runs={session.runs} refreshRuns={session.refreshRuns} />
             </Match>
             <Match when={view() === "tasks"}>
               <TasksView

@@ -4,7 +4,7 @@ import type {
   ChatMessage,
   OperationEvent
 } from "../types/runtimeTypes";
-import { createId, seedActivity, welcome } from "./sessionUtils";
+import { createId, welcome } from "./sessionUtils";
 import { loadOperationTrace } from "./operationTrace";
 import { buildAgentChatPayload, buildAgentScopeFilter } from "./agentRequestPayloads";
 import {
@@ -87,7 +87,7 @@ export function createAgentSession() {
     if (state.busy()) return;
     resetConversation();
     state.setMessages([welcome]);
-    state.setActivity(seedActivity());
+    state.setActivity([]);
     state.setOperations([]);
     state.setLatency(null);
     state.setPendingApprovals([]);

@@ -12,7 +12,7 @@ import type {
   ToolApprovalRequest
 } from "../types/runtimeTypes";
 import { defaultApiBaseUrl } from "./config";
-import { seedActivity, splitCsv, welcome } from "./sessionUtils";
+import { splitCsv, welcome } from "./sessionUtils";
 
 export function createAgentSessionState() {
   const [baseUrl, setBaseUrl] = createSignal(defaultApiBaseUrl());
@@ -32,7 +32,7 @@ export function createAgentSessionState() {
   const [showDetails, setShowDetails] = createSignal(false);
   const [input, setInput] = createSignal("");
   const [messages, setMessages] = createSignal<ChatMessage[]>([welcome]);
-  const [activity, setActivity] = createSignal<ActivityEvent[]>(seedActivity());
+  const [activity, setActivity] = createSignal<ActivityEvent[]>([]);
   const [operations, setOperations] = createSignal<OperationEvent[]>([]);
   const [pendingApprovals, setPendingApprovals] = createSignal<ToolApprovalRequest[]>([]);
   const [runId, setRunId] = createSignal("");

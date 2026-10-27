@@ -434,3 +434,38 @@
   font: 12px/1.6 var(--font-mono);
   overflow-wrap: anywhere;
 }
+.session-diagnostics {
+  color: var(--ink-muted);
+  font-size: 11px;
+  margin-bottom: 10px;
+}
+.session-diagnostics summary {
+  cursor: pointer;
+  padding: 7px 0;
+}
+.session-diagnostics ol {
+  max-height: 150px;
+  overflow: auto;
+  list-style: none;
+  padding: 10px;
+  margin: 0;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.session-diagnostics li {
+  border-bottom: 1px solid var(--line);
+  padding: 8px 0;
+}
+.session-diagnostics time {
+  margin-right: 10px;
+  font-family: var(--font-mono);
+}
+.session-diagnostics strong {
+  font-weight: 500;
+}
+.session-diagnostics pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 10px/1.6 var(--font-mono);
+}

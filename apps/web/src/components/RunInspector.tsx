@@ -1,98 +1,118 @@
-import { Box, FileText, GitBranch, RefreshCw, ShieldCheck } from "lucide-solid";
-import type { Accessor } from "solid-js";
-import { createEffect, createSignal, For, Show } from "solid-js";
-import { copy } from "../copy";
+import { For, Show, createMemo } from "solid-js";
+import type { RuntimeRun } from "../types/runtimeTypes";
+import { presentRun, runDate } from "../runtime/runPresentation";
+import { statusLabel } from "../copy";
+import { MessageContent } from "./MessageContent";
+import { FailureNotice } from "./FailureNotice";
 
-type TraceData = {
-  spans?: Array<Record<string, any>>;
-  approvals?: Array<Record<string, any>>;
-  artifacts?: Array<Record<string, any>>;
-  sandbox_events?: Array<Record<string, any>>;
-};
-
-type Props = {
-  runId: Accessor<string>;
-  baseUrl: Accessor<string>;
-  token: Accessor<string>;
-  open: Accessor<boolean>;
-};
-
-export function RunInspector(props: Props) {
-  const [trace, setTrace] = createSignal<TraceData | null>(null);
-  const [status, setStatus] = createSignal("idle");
-
-  createEffect(() => {
-    if (props.runId()) void loadTrace();
-    else setTrace(null);
-  });
-
-  const loadTrace = async () => {
-    const runId = props.runId();
-    if (!runId) return;
-    setStatus("loading");
-    try {
-      const response = await fetch(`${props.baseUrl().replace(/\/$/, "")}/api/v1/agent/runs/${runId}/trace`, {
-        headers: props.token().trim() ? { Authorization: `Bearer ${props.token().trim()}` } : {}
-      });
-      const payload = await response.json();
-      if (!response.ok || payload.success === false) throw new Error(payload?.data?.detail || copy.trace.failed);
-      setTrace(payload.data || {});
-      setStatus("ready");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : String(error));
-    }
-  };
-
-  const spans = () => trace()?.spans || [];
-  const approvals = () => trace()?.approvals || [];
-  const artifacts = () => trace()?.artifacts || [];
-  const sandboxEvents = () => trace()?.sandbox_events || [];
-
+export function RunInspector(props: {
+  run?: RuntimeRun;
+  ref?: (element: HTMLElement) => void;
+}) {
+  const presentation = createMemo(() =>
+    props.run ? presentRun(props.run) : undefined,
+  );
   return (
-    <aside class="run-inspector" classList={{ "run-inspector-open": props.open() }}>
-      <div class="run-inspector-header">
-        <div>
-          <p class="eyebrow">{copy.trace.eyebrow}</p>
-          <h2>{props.runId() || copy.trace.noRun}</h2>
-        </div>
-        <button class="icon-button" onClick={loadTrace} disabled={!props.runId()} title={copy.trace.refresh} aria-label={copy.trace.refresh}>
-          <RefreshCw size={15} />
-        </button>
-      </div>
-
-      <div class="trace-counters">
-        <Metric icon={<GitBranch size={14} />} label={copy.trace.spans} value={spans().length} />
-        <Metric icon={<ShieldCheck size={14} />} label={copy.trace.approvals} value={approvals().length} />
-        <Metric icon={<FileText size={14} />} label={copy.trace.artifacts} value={artifacts().length} />
-        <Metric icon={<Box size={14} />} label={copy.trace.sandbox} value={sandboxEvents().length} />
-      </div>
-
-      <Show when={trace()} fallback={<p class="trace-empty">{status() === "idle" ? copy.trace.idle : status() === "loading" ? copy.trace.loading : status()}</p>}>
-        <TraceSection title={copy.trace.sectionArtifacts} items={artifacts()} formatter={(item) => item.workspace_path || item.uri || item.artifact_id} />
-        <TraceSection title={copy.trace.sectionApprovals} items={approvals()} formatter={(item) => `${item.decision || "decision"} · ${item.tool_name || item.approval_id || "tool"}`} />
-        <TraceSection title={copy.trace.sectionTimeline} items={spans().slice(0, 8)} formatter={(item) => `${item.kind || "span"} · ${item.name || item.span_id}`} />
+    <aside
+      class="run-journal"
+      aria-label="运行回顾"
+      ref={props.ref}
+      tabindex="-1"
+    >
+      <Show
+        when={props.run}
+        fallback={
+          <div class="journal-empty">
+            <span aria-hidden="true">↖</span>
+            <h2>做过的事，值得留下。</h2>
+            <p>选一条记录，看看当时的结果和过程。</p>
+          </div>
+        }
+      >
+        <header class="journal-heading">
+          <p class="eyebrow">这一次，我们做了什么</p>
+          <h2>运行回顾</h2>
+          <div>
+            <time>{runDate(props.run!.created_at)}</time>
+            <span class={`task-status status-${props.run!.status}`}>
+              {statusLabel(props.run!.status)}
+            </span>
+          </div>
+        </header>
+        <Show when={props.run!.status !== "cancelled" && presentation()?.error}>
+          <FailureNotice detail={presentation()!.error} />
+        </Show>
+        <section class="journal-result">
+          <h3>留下的结果</h3>
+          <Show
+            when={
+              presentation()?.output &&
+              !(
+                props.run!.status === "cancelled" &&
+                presentation()?.output === "run canceled"
+              )
+            }
+            fallback={
+              <p class="journal-muted">
+                {props.run!.status === "waiting_approval"
+                  ? "本轮暂停在确认环节。"
+                  : props.run!.status === "cancelled"
+                    ? "本轮已停止，没有完整结果。"
+                    : "这条记录没有文字结果。"}
+              </p>
+            }
+          >
+            <MessageContent content={presentation()!.output} />
+          </Show>
+        </section>
+        <section class="journal-events">
+          <h3>
+            过程回看 <span>{presentation()?.entries.length}</span>
+          </h3>
+          <Show
+            when={presentation()?.entries.length}
+            fallback={<p class="journal-muted">没有可展示的过程事件。</p>}
+          >
+            <ol>
+              <For each={presentation()?.entries}>
+                {(entry) => (
+                  <li>
+                    <span class="journal-event-dot" aria-hidden="true" />
+                    <div>
+                      <div class="journal-event-heading">
+                        <strong>{entry.label}</strong>
+                        <Show when={entry.time}>
+                          <time>
+                            {new Date(entry.time).toLocaleTimeString("zh-CN", {
+                              hour12: false,
+                            })}
+                          </time>
+                        </Show>
+                      </div>
+                      <Show when={entry.detail}>
+                        <p>{entry.detail}</p>
+                      </Show>
+                      <details>
+                        <summary>事件详情</summary>
+                        <pre>{JSON.stringify(entry.payload, null, 2)}</pre>
+                      </details>
+                    </div>
+                  </li>
+                )}
+              </For>
+            </ol>
+          </Show>
+        </section>
+        <footer class="journal-metadata">
+          <span>运行编号</span>
+          <code>{props.run!.run_id}</code>
+          <Show when={presentation()?.durationMs !== undefined}>
+            <span>服务记录用时</span>
+            <code>{(presentation()!.durationMs! / 1000).toFixed(2)} 秒</code>
+          </Show>
+          <p>这是历史记录。查看它不会改变当前对话。</p>
+        </footer>
       </Show>
     </aside>
-  );
-}
-
-function Metric(props: { icon: any; label: string; value: number }) {
-  return (
-    <div class="trace-metric">
-      {props.icon}
-      <strong>{props.value}</strong>
-      <span>{props.label}</span>
-    </div>
-  );
-}
-
-function TraceSection(props: { title: string; items: Array<Record<string, any>>; formatter: (item: Record<string, any>) => string }) {
-  return (
-    <section class="trace-section">
-      <h3>{props.title}</h3>
-      <Show when={props.items.length > 0} fallback={<p class="trace-empty">{copy.trace.empty}</p>}>
-        <For each={props.items}>{(item) => <p class="trace-row">{props.formatter(item)}</p>}</For>
-      </Show>
-    </section>
   );
 }

@@ -233,6 +233,8 @@ packages/core  -> no app imports
 
 ## apps/web
 
+- `src/components/RunsView.tsx`, `RunInspector.tsx`, `src/runtime/runPresentation.ts`: Searchable loaded-run archive and isolated historical result/event presentation; viewing history does not change the active conversation.
+- `src/components/SessionDiagnostics.tsx`: Optional current-page request log, separate from persisted run history.
 - `src/components/TasksView.tsx`, `TaskDetail.tsx`: Task creation, execution controls, filtering and result notebook; only actual host records are displayed.
 - `src/components/SettingsView.tsx`: Session-scoped model, permission and reading preferences with advanced connection fields.
 - `src/components/FailureNotice.tsx`, `src/runtime/failurePresentation.ts`: Actionable failure summaries with original diagnostic details preserved.

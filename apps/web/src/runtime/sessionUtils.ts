@@ -1,4 +1,4 @@
-import type { ActivityEvent, ChatMessage, ToolApprovalRequest } from "../types/runtimeTypes";
+import type { ChatMessage, ToolApprovalRequest } from "../types/runtimeTypes";
 import { copy } from "../copy";
 
 export const welcome: ChatMessage = {
@@ -6,14 +6,6 @@ export const welcome: ChatMessage = {
   role: "assistant",
   content: copy.chat.welcome
 };
-
-export function seedActivity(): ActivityEvent[] {
-  return [
-    { id: 101, kind: "search", title: copy.activity.webSearch, detail: copy.activity.seedSearch, status: "queued", time: "--:--:--" },
-    { id: 102, kind: "tool", title: copy.activity.toolStarted, detail: copy.activity.seedTool, status: "queued", time: "--:--:--" },
-    { id: 103, kind: "approval", title: copy.activity.approvalRequired, detail: copy.activity.seedApproval, status: "queued", time: "--:--:--" }
-  ];
-}
 
 export function approvalFromEvent(event: any, fallbackRunId: string): ToolApprovalRequest {
   const call = event.payload?.tool_call || {};

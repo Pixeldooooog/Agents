@@ -11,10 +11,12 @@ import {
 } from "solid-js";
 import type {
   ApprovalDecision,
+  ActivityEvent,
   ChatMessage,
   PermissionMode,
   ToolApprovalRequest,
 } from "../types/runtimeTypes";
+import { SessionDiagnostics } from "./SessionDiagnostics";
 import { ToolApprovalPanel } from "./ToolApprovalPanel";
 import { copy } from "../copy";
 
@@ -25,6 +27,7 @@ import { AgentPresence } from "./kevin/Primitives";
 
 type Props = {
   agentState: Accessor<KevinState>;
+  activity: Accessor<ActivityEvent[]>;
   messages: Accessor<ChatMessage[]>;
   busy: Accessor<boolean>;
   protocol: Accessor<string>;
@@ -149,6 +152,7 @@ export function ChatThread(props: Props) {
       </div>
       <footer class="composer">
         <Show when={props.showDetails()}>
+          <SessionDiagnostics events={props.activity()} />
           <div class="telemetry">
             <span>{props.protocol()}</span>
             <span>{props.model() || copy.details.modelUnset}</span>
