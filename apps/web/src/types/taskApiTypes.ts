@@ -12,7 +12,6 @@ export type TaskRecord = {
   metadata: Record<string, string>;
   created_at: number;
   updated_at: number;
-  last_run_id: string;
 };
 
 export type TaskStepRecord = {

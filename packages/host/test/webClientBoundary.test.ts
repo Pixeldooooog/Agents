@@ -71,5 +71,14 @@ test("real Host and Web client agree on envelopes, stream events and continued h
     await done;
     await terminal.close();
     expect(received[2]!.messages.some(item => item.content === "remember blue")).toBe(true);
+    const task = await api.createTask({ ...payload, message: "prepare a short note" });
+    expect(task.status).toBe("queued");
+    expect((await api.tasks()).tasks.map(item => item.task_id)).toContain(task.task_id);
+    expect((await api.task(task.task_id)).steps).toHaveLength(0);
+    const taskRun = await api.runTask(task.task_id);
+    expect(taskRun.task.status).toBe("completed");
+    expect((await api.task(task.task_id)).steps[0]?.output).toBe("blue");
+    const queued = await api.createTask({ ...payload, message: "cancel this task" });
+    expect((await api.cancelTask(queued.task_id)).status).toBe("cancelled");
   } finally { await new Promise<void>(resolve => host.close(() => resolve())); await services.close(); await model.stop(true); await rm(root, { recursive: true, force: true }); }
 });

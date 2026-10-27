@@ -14,7 +14,7 @@ const fields = (shape: Record<string, Check>): Check => value => isRecord(value)
 const strings: Check = value => isRecord(value) && Object.values(value).every(string);
 const runtimeEvent = fields({ type: string, name: optional(string), payload: optional(isRecord) });
 const run = fields({ run_id: string, status: string, tenant_id: string, user_id: string, agent_id: string, workspace_id: string, created_at: number, updated_at: number, events: array(runtimeEvent) });
-const task = fields({ task_id: string, title: string, input: string, status: string, tenant_id: string, user_id: string, agent_id: string, workspace_id: string, metadata: strings, created_at: number, updated_at: number, last_run_id: string });
+const task = fields({ task_id: string, title: string, input: string, status: string, tenant_id: string, user_id: string, agent_id: string, workspace_id: string, metadata: strings, created_at: number, updated_at: number });
 const step = fields({ step_id: string, task_id: string, run_id: string, status: string, output: string, error: string, created_at: number, updated_at: number });
 const result = fields({ status: string, content: string, events: array(runtimeEvent) });
 

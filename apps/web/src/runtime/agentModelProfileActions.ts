@@ -14,15 +14,22 @@ type AgentModelProfileActionsOptions = {
   setModelBaseUrl: Setter<string>;
 };
 
-export function createAgentModelProfileActions(options: AgentModelProfileActionsOptions) {
+export function createAgentModelProfileActions(
+  options: AgentModelProfileActionsOptions,
+) {
   const refreshModelProfiles = async () => {
     const data = await options.api().modelProfiles();
     options.setModelProfiles(data.profiles || []);
-    options.setActiveProfile(data.active_profile || "");
   };
 
   const applyModelProfile = (name: string) => {
-    const targetProfile = options.modelProfiles().find((profile) => profile.name === name);
+    if (!name) {
+      options.setActiveProfile("");
+      return;
+    }
+    const targetProfile = options
+      .modelProfiles()
+      .find((profile) => profile.name === name);
     if (!targetProfile) return;
     options.setActiveProfile(targetProfile.name);
     options.setProtocol(targetProfile.protocol);

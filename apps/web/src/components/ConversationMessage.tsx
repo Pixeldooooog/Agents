@@ -1,6 +1,7 @@
 import { Check, Copy } from "lucide-solid";
 import { Show, createSignal, onCleanup } from "solid-js";
 import type { ChatMessage } from "../types/runtimeTypes";
+import { FailureNotice } from "./FailureNotice";
 import { MessageContent } from "./MessageContent";
 import head from "../../../../assets/kevin-head-handdrawn-v1.png";
 
@@ -32,7 +33,7 @@ export function ConversationMessage(props: { message: ChatMessage }) {
           {props.message.role === "user"
             ? "你"
             : props.message.role === "error"
-              ? "遇到一点问题"
+              ? "需要处理"
               : "Kevin"}
         </strong>
         <Show when={props.message.role === "assistant"}>
@@ -41,7 +42,14 @@ export function ConversationMessage(props: { message: ChatMessage }) {
       </div>
       <Show
         when={props.message.role === "assistant"}
-        fallback={<p class="message-plain">{props.message.content}</p>}
+        fallback={
+          <Show
+            when={props.message.role === "error"}
+            fallback={<p class="message-plain">{props.message.content}</p>}
+          >
+            <FailureNotice detail={props.message.content} />
+          </Show>
+        }
       >
         <MessageContent content={props.message.content || "正在整理…"} />
         <Show when={props.message.content}>

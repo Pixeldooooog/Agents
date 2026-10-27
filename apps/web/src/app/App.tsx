@@ -4,6 +4,7 @@ import {
   Switch,
   createSignal,
   createMemo,
+  createEffect,
   onMount,
 } from "solid-js";
 import { ChatThread } from "../components/ChatThread";
@@ -19,6 +20,7 @@ import type { KevinState } from "../components/kevin/KevinAvatar";
 
 export function App() {
   const session = createAgentSession();
+  let contentPanel: HTMLDivElement | undefined;
   const [view, setView] = createSignal("chat");
   const [compactSidebar, setCompactSidebar] = createSignal(false);
   const [showWork, setShowWork] = createSignal(false);
@@ -30,6 +32,11 @@ export function App() {
     return latest && ["opening", "running"].includes(latest.phase)
       ? "working"
       : "thinking";
+  });
+
+  createEffect(() => {
+    view();
+    contentPanel?.scrollTo(0, 0);
   });
 
   onMount(() => {
@@ -98,7 +105,7 @@ export function App() {
             </button>
           </div>
         </Show>
-        <div class="app-content">
+        <div class="app-content" ref={contentPanel}>
           <Switch>
             <Match when={view() === "chat"}>
               <div
@@ -156,6 +163,12 @@ export function App() {
                 createTask={session.createTask}
                 runTask={session.runTask}
                 cancelTask={session.cancelTask}
+                hasApproval={(runId) =>
+                  session
+                    .pendingApprovals()
+                    .some((request) => request.runId === runId)
+                }
+                openChat={() => setView("chat")}
               />
             </Match>
             <Match when={view() === "settings"}>

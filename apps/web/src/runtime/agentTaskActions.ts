@@ -1,5 +1,9 @@
 import type { Setter } from "solid-js";
-import type { AgentChatPayload, TaskRecord, TaskStepRecord } from "../types/runtimeTypes";
+import type {
+  AgentChatPayload,
+  TaskRecord,
+  TaskStepRecord,
+} from "../types/runtimeTypes";
 import type { createApiClient } from "./apiClient";
 import { consumeRuntimeEvents } from "./eventHandlers";
 
@@ -26,15 +30,22 @@ export function createAgentTaskActions(options: AgentTaskActionsOptions) {
     options.setTasks(data.tasks || []);
   };
 
+  let detailRequest = 0;
   const openTask = async (taskId: string) => {
+    const requestId = ++detailRequest;
     const data = await options.api().task(taskId);
+    if (requestId !== detailRequest) return;
     options.setSelectedTaskId(taskId);
     options.setTaskSteps(data.steps || []);
   };
 
   const createTask = async (message: string, title = "") => {
     if (!message.trim()) return;
-    await options.api().createTask({ ...options.payload(message), title: title || undefined });
+    const task = await options
+      .api()
+      .createTask({ ...options.payload(message), title: title || undefined });
+    options.setSelectedTaskId(task.task_id);
+    options.setTaskSteps([]);
     await refreshTasks();
   };
 
@@ -42,7 +53,10 @@ export function createAgentTaskActions(options: AgentTaskActionsOptions) {
     const data = await options.api().runTask(taskId);
     const taskRunId = data.run?.run_id || "";
     options.setRunId(taskRunId);
-    consumeRuntimeEvents(data.result?.events || data.run?.events || [], options.eventDeps());
+    consumeRuntimeEvents(
+      data.result?.events || data.run?.events || [],
+      options.eventDeps(),
+    );
     await options.syncOperationTrace(taskRunId);
     await refreshTasks();
     await options.refreshRuns();
