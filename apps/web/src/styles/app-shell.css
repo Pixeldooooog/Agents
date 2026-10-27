@@ -1,0 +1,81 @@
+/* Product shell. Design studio and canvas previews keep their own layouts. */
+.kevin-app { display: grid; grid-template-columns: 208px minmax(0, 1fr); height: 100dvh; background: var(--paper-soft); }
+.kevin-app button:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; }
+.app-sidebar { display: flex; flex-direction: column; padding: 30px 18px 22px; border-right: 1px solid var(--line); background: var(--paper); }
+.app-brand { display: flex; align-items: center; gap: 8px; margin-bottom: 38px; }
+.app-brand img { width: 60px; height: 60px; object-fit: contain; }
+.app-brand strong { display: block; font: bold 29px var(--font-brand); letter-spacing: -1px; }
+.app-brand strong span { color: var(--signal-strong); }
+.app-brand small { font-size: 11px; color: var(--ink-muted); }
+.new-conversation { display: flex; align-items: center; justify-content: center; gap: 9px; background: var(--ink); color: var(--ink-inverse); border: 1px solid var(--ink); border-radius: 12px; padding: 12px; cursor: pointer; }
+.new-conversation:disabled { opacity: .5; cursor: not-allowed; }
+.app-sidebar nav { display: grid; gap: 7px; margin-top: 32px; }
+.app-sidebar nav button { display: flex; align-items: center; gap: 13px; text-align: left; padding: 13px 15px; border: 0; border-radius: 10px; background: transparent; color: var(--ink-muted); cursor: pointer; font-size: 13px; }
+.app-sidebar nav button:hover { background: var(--paper-sunken); }
+.app-sidebar nav button[aria-current] { background: var(--signal-soft); color: var(--signal-deep); }
+.sidebar-note { margin-top: auto; padding: 24px 12px 0; display: grid; gap: 14px; color: var(--ink-muted); }
+.note-stroke { font: 15px var(--font-title); }
+.sidebar-note small { font-size: 8px; letter-spacing: 1.5px; }
+.app-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.app-toolbar { height: 65px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 30px; border-bottom: 1px solid var(--line); color: var(--ink-muted); font-size: 12px; }
+.app-toolbar .plain-button { background: transparent; font-size: 12px; }
+.app-content { flex: 1; min-height: 0; overflow: auto; padding: 24px; }
+.app-content:has(.app-conversation) { padding: 0; overflow: hidden; }
+.app-conversation { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr); }
+.app-conversation.with-work { grid-template-columns: minmax(0, 1fr) minmax(320px, 38%); }
+.app-work-panel { min-height: 0; overflow: auto; border-left: 1px solid var(--line); padding: 14px; background: var(--paper); }
+.app-work-panel .operation-stage-shell { min-height: 100%; }
+.kevin-app .thread-card { border: 0; border-radius: 0; box-shadow: none; background: transparent; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 0; }
+.kevin-app .thread-header { background: transparent; border: 0; padding: 24px 32px 12px; }
+.kevin-app .thread-header h2 { font-size: 14px; font-weight: 500; margin-top: 6px; }
+.kevin-app .thread-header .eyebrow { font-size: 9px; letter-spacing: 1.7px; }
+.kevin-app .thread-body { background: transparent; padding: 18px max(28px, calc((100% - 770px) / 2)); }
+.kevin-app .message-user .bubble { background: var(--paper-sunken); color: var(--ink); border-radius: 16px 16px 4px 16px; }
+.kevin-app .message-user .bubble span { color: var(--ink-muted); }
+.kevin-app .composer { width: min(800px, calc(100% - 64px)); margin: 0 auto 22px; padding: 0; border: 0; background: transparent; }
+.composer-companion { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--ink-muted); }
+.composer-companion img { width: 42px; height: 42px; object-fit: contain; }
+.kevin-app .composer-row { padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 18px; background: var(--paper-raised); box-shadow: var(--shadow); }
+.kevin-app .composer-row:focus-within { border-color: var(--signal-strong); }
+.kevin-app .composer-row textarea { border: 0; background: transparent; box-shadow: none; min-height: 70px; resize: none; font-size: 14px; }
+.kevin-app .send-button { width: 38px; height: 38px; border-radius: 12px; }
+.composer-caption { display: flex; justify-content: space-between; gap: 10px; padding: 12px 4px 0; color: var(--ink-faint); font-size: 10px; }
+.app-welcome { margin: auto; width: 100%; max-width: 700px; text-align: center; padding: 8px 0 24px; }
+.welcome-dog { position: relative; width: 180px; margin: 0 auto 15px; }
+.welcome-dog img { display: block; width: 180px; height: 170px; object-fit: contain; }
+.welcome-dog > span { position: absolute; top: 30px; right: -55px; border: 1px solid var(--line-strong); border-radius: 50% 50% 50% 2px; padding: 10px 16px; transform: rotate(7deg); font: 14px var(--font-title); }
+.app-welcome .welcome-overline { font-size: 9px; letter-spacing: 2px; color: var(--signal-strong); }
+.app-welcome h3 { font: 30px/1.4 var(--font-title); margin: 12px 0; }
+.app-welcome > p { font-size: 13px; color: var(--ink-muted); }
+.welcome-suggestions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 36px; text-align: left; }
+.welcome-suggestions button { padding: 17px 15px; background: transparent; border: 1px solid var(--line); border-radius: 12px; color: var(--ink); text-align: left; cursor: pointer; }
+.welcome-suggestions button:hover { background: var(--signal-soft); border-color: var(--signal-line); transform: translateY(-2px); }
+.welcome-suggestions strong { display: flex; justify-content: space-between; font-size: 13px; font-weight: 500; }
+.welcome-suggestions strong span { color: var(--signal-strong); }
+.welcome-suggestions small { display: block; margin-top: 9px; color: var(--ink-muted); font-size: 10px; }
+@media (max-width: 1100px) { .app-conversation.with-work { grid-template-columns: minmax(0, 1fr); } .app-conversation.with-work .thread-card { display: none; } }
+@media (max-width: 720px) {
+  .kevin-app { grid-template-columns: 64px minmax(0, 1fr); }
+  .app-sidebar { padding: 18px 8px; }
+  .app-brand { margin-bottom: 22px; }
+  .app-brand img { width: 48px; height: 48px; }
+  .app-brand > div, .new-conversation span, .app-sidebar nav span, .sidebar-note { display: none; }
+  .app-sidebar nav button { justify-content: center; padding: 13px 0; }
+  .app-toolbar { padding: 0 14px; height: 56px; }
+  .kevin-app .thread-header { padding: 18px 15px 10px; gap: 8px; }
+  .kevin-app .thread-header .eyebrow { display: none; }
+  .kevin-app .thread-body { padding: 12px 16px; }
+  .kevin-app .composer { width: calc(100% - 26px); margin-bottom: 12px; }
+  .app-welcome h3 { font-size: 23px; }
+  .welcome-dog, .welcome-dog img { width: 130px; height: 125px; }
+  .welcome-dog > span { right: -28px; top: 10px; font-size: 11px; padding: 7px; }
+  .welcome-suggestions { grid-template-columns: 1fr; gap: 8px; margin-top: 22px; }
+  .welcome-suggestions button { padding: 11px; }
+  .welcome-suggestions small { display: none; }
+  .app-welcome .welcome-overline { font-size: 7px; letter-spacing: 1px; }
+  .composer-caption { font-size: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kevin-app button { transition: none; }
+  .welcome-suggestions button:hover { transform: none; }
+}

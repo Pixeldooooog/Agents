@@ -1,10 +1,11 @@
-import { Match, Switch, createSignal, createMemo, onMount } from "solid-js";
+import { Match, Show, Switch, createSignal, createMemo, onMount } from "solid-js";
 import { ChatThread } from "../components/ChatThread";
 import { OperationStage } from "../components/OperationStage";
 import { RunsView } from "../components/RunsView";
 import { SettingsView } from "../components/SettingsView";
 import { TasksView } from "../components/TasksView";
-import { TopBar } from "../components/TopBar";
+import { AppSidebar } from "../components/AppSidebar";
+import { PanelRight, WifiOff } from "lucide-solid";
 import { createAgentSession } from "../runtime/agentSession";
 
 import type { KevinState } from "../components/kevin/KevinAvatar";
@@ -12,6 +13,7 @@ import type { KevinState } from "../components/kevin/KevinAvatar";
 export function App() {
   const session = createAgentSession();
   const [view, setView] = createSignal("chat");
+  const [showWork, setShowWork] = createSignal(false);
 
   const agentState = createMemo<KevinState>(() => {
     if (session.pendingApprovals().length) return "approval";
@@ -25,17 +27,20 @@ export function App() {
   });
 
   return (
-    <div class="studio-shell">
-      <TopBar
-        view={view}
-        setView={setView}
-        health={session.health}
-        checkHealth={session.checkHealth}
-      />
-      <main class="conversation-stage">
+    <div class="kevin-app">
+      <AppSidebar view={view} setView={setView} busy={session.busy} newConversation={() => { session.clear(); setView("chat"); }} />
+      <main class="app-main">
+        <header class="app-toolbar">
+          <span>{({ chat: "我的工作空间", tasks: "任务", runs: "运行记录", settings: "设置" })[view()]}</span>
+          <Show when={view() === "chat"}><button class="plain-button" aria-expanded={showWork()} aria-controls="work-panel" onClick={() => setShowWork(!showWork())}><PanelRight size={16} />工作过程 <span>{session.operations().length || ""}</span></button></Show>
+        </header>
+        <Show when={session.health() === "offline" || session.health() === "degraded"}>
+          <div class="connection-notice" role="status"><WifiOff size={15} /><span>连接暂时不可用，请检查服务和设置。</span><button class="plain-button" onClick={session.checkHealth}>重试</button></div>
+        </Show>
+        <div class="app-content">
         <Switch>
           <Match when={view() === "chat"}>
-            <div class="operation-layout">
+            <div class="app-conversation" classList={{ "with-work": showWork() }}>
               <ChatThread
                 agentState={agentState}
                 messages={session.messages}
@@ -55,7 +60,7 @@ export function App() {
                 decideApproval={session.decideApproval}
                 clear={session.clear}
               />
-              <OperationStage operations={session.operations} busy={session.busy} runId={session.runId} />
+              <Show when={showWork()}><div id="work-panel" class="app-work-panel"><OperationStage operations={session.operations} busy={session.busy} runId={session.runId} /></div></Show>
             </div>
           </Match>
           <Match when={view() === "runs"}>
@@ -120,6 +125,7 @@ export function App() {
             />
           </Match>
         </Switch>
+        </div>
       </main>
     </div>
   );
