@@ -5,6 +5,7 @@ COPY package.json bun.lock tsconfig.base.json ./
 COPY .otto ./.otto
 COPY packages ./packages
 COPY apps ./apps
+COPY assets ./assets
 COPY config ./config
 RUN bun install --frozen-lockfile
 RUN bun --bun run build-web
