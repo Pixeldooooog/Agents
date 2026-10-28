@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { readFile, writeFile, access } from "node:fs/promises";
-import { listBuiltinTools } from "../../packages/core/src/tools/toolRegistry.js";
+import { listBuiltinTools } from "@pixeldooooog/otto-core";
 
 const git = (...args: string[]) => execFileSync("git", args, { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 }).trim();
 const baseline = git("rev-parse", "f3bc0bb^");
@@ -48,7 +48,15 @@ for (const file of paths) {
   if (!group) throw Error(`Unmapped legacy file: ${file}`);
   group.legacyFiles.push(file);
 }
-for (const group of groups) for (const target of group.targets) await access(target);
+for (const group of groups) for (const target of group.targets) {
+  if (target.startsWith("packages/core/")) {
+    const ottoSourceRoot = process.env.OTTO_SOURCE_ROOT;
+    if (!ottoSourceRoot) throw new Error("Historical core inventory requires OTTO_SOURCE_ROOT pointing to the Otto checkout; application builds only need the release package.");
+    await access(`${ottoSourceRoot}/${target}`);
+    continue;
+  }
+  await access(target);
+}
 const legacyNames = new Map<string, string[]>();
 for (const file of paths.filter(p => p.includes("/tools/builtin/") && p.endsWith("registration.py"))) {
   const source = git("show", `${baseline}:${file}`);

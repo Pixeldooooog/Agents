@@ -1,3 +1,5 @@
+> Core extraction: `packages/core` now lives in the private Otto repository. Kevin imports compiled `@pixeldooooog/otto-core`. See [dependency setup](otto-dependency.md). The core paths below describe Otto source.
+
 # Architecture
 
 Kevin is now a TypeScript workspace.

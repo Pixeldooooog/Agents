@@ -33,3 +33,6 @@ Library/
 
 # Local development references (not part of the build)
 reference/
+
+# Downloaded private Otto release archives
+.otto/

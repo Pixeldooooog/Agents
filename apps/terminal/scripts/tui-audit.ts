@@ -38,7 +38,7 @@ const runtimeTasks: Task[] = [
   {
     label: 'ts-core-tests',
     cwd: repoRoot,
-    args: ['test', 'packages/core/test/core.test.ts']
+    args: ['test', 'packages/host/test/corePackage.test.ts']
   }
 ]
 

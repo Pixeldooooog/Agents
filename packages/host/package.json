@@ -11,7 +11,7 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@kevin/core": "workspace:*"
+    "@pixeldooooog/otto-core": "file:../../.otto/pixeldooooog-otto-core-0.1.0.tgz"
   },
   "devDependencies": {
     "@types/node": "^25.0.0",

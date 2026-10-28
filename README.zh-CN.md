@@ -1,3 +1,5 @@
+> Agent core now lives in the private [Otto repository](https://github.com/Pixeldooooog/otto). Building Kevin requires Otto read access. See [setup and CI credentials](docs/otto-dependency.md).
+
 <a id="top"></a>
 
 <p align="center">
@@ -66,7 +68,7 @@ Kevin 正在成为一个围绕你的文件、工具和项目工作的个人智�
 ```bash
 git clone https://github.com/Pixeldooooog/Kevin.git kevin
 cd kevin
-bun install --frozen-lockfile
+bun run setup
 cp .env.example .env
 ```
 

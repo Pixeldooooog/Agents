@@ -1,5 +1,5 @@
 import type { ServerResponse } from "node:http";
-import type { AgentChatPayload } from "@kevin/core";
+import type { AgentChatPayload } from "@pixeldooooog/otto-core";
 import type { HostServices } from "../services/hostServices.js";
 import { queryValue, readJson } from "../http/body.js";
 import { fail, ok, sendJson } from "../http/envelope.js";

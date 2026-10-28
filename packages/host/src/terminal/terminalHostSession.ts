@@ -1,4 +1,4 @@
-import { buildModelProfiles, listBuiltinTools } from "@kevin/core";
+import { buildModelProfiles, listBuiltinTools } from "@pixeldooooog/otto-core";
 import type { HostServices } from "../services/hostServices.js";
 import { resumeTerminalApproval } from "./terminalRunApproval.js";
 import { TerminalModelProfiles } from "./terminalModelProfiles.js";

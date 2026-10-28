@@ -1,6 +1,6 @@
 import { withResponseCancellation } from "../http/responseCancellation.js";
 import type { ServerResponse } from "node:http";
-import { AgentRunServiceError, type AgentChatPayload } from "@kevin/core";
+import { AgentRunServiceError, type AgentChatPayload } from "@pixeldooooog/otto-core";
 import type { HostServices } from "../services/hostServices.js";
 import { fail, ok, sendJson, sendSse } from "../http/envelope.js";
 import { responseStatusForRunResult } from "./agentRunLifecycle.js";

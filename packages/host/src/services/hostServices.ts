@@ -1,4 +1,4 @@
-import { AgentRunService, JsonStateStore, TaskService, loadSettings, statePath, McpConnectionManager, type McpConnectionConfig } from "@kevin/core";
+import { AgentRunService, JsonStateStore, TaskService, loadSettings, statePath, McpConnectionManager, type McpConnectionConfig } from "@pixeldooooog/otto-core";
 
 export type HostServices = Awaited<ReturnType<typeof createHostServices>>;
 

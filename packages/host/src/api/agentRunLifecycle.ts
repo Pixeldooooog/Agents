@@ -1,4 +1,4 @@
-import type { AgentResult } from "@kevin/core";
+import type { AgentResult } from "@pixeldooooog/otto-core";
 
 export function responseStatusForRunResult(result: AgentResult): number {
   return result.status === "failed" ? 500 : 200;

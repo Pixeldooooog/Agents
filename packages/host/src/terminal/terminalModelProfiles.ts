@@ -1,4 +1,4 @@
-import type { ModelProfile } from "@kevin/core";
+import type { ModelProfile } from "@pixeldooooog/otto-core";
 
 export type TerminalRuntimeInfo = {
   protocol: string;

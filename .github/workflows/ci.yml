@@ -18,6 +18,11 @@ jobs:
         with:
           bun-version: 1.4.4
 
+      - name: Download private Otto package
+        env:
+          GH_TOKEN: ${{ secrets.OTTO_READ_TOKEN }}
+        run: bun run otto:download
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -30,6 +35,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+
+      - name: Download private Otto package
+        env:
+          GH_TOKEN: ${{ secrets.OTTO_READ_TOKEN }}
+        run: bun run otto:download
 
       - name: Build Docker image
         run: docker build -f deploy/Dockerfile -t kevin:ci .

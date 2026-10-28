@@ -2,6 +2,7 @@ FROM oven/bun:1.4.4 AS build
 
 WORKDIR /opt/app
 COPY package.json bun.lock tsconfig.base.json ./
+COPY .otto ./.otto
 COPY packages ./packages
 COPY apps ./apps
 COPY config ./config
